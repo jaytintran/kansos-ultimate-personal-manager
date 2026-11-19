@@ -16,6 +16,8 @@ import {
   ListCollection,
   ListItem,
   ListItemStatus,
+  NoteNotebook,
+  NoteStatus,
   StackSlot,
   StreamFolder,
   StreamItem,
@@ -131,6 +133,9 @@ function loadInitialWorkspace(): KansoWorkspace {
         return {
           ...empty,
           ...parsed,
+          noteNotebooks: Array.isArray(parsed.noteNotebooks)
+            ? parsed.noteNotebooks
+            : seed.noteNotebooks ?? [],
           books: normalizedLib.books,
           libraryFolders: normalizedLib.libraryFolders,
           libraryCategories: normalizedLib.libraryCategories,
@@ -200,6 +205,30 @@ interface WorkspaceContextValue {
   deleteEntry: (id: string) => void;
   duplicateEntry: (id: string) => Entry | null;
   moveEntryToDate: (id: string, dateKey: string) => void;
+
+  // Notes & Notebooks actions
+  addNotePage: (options?: {
+    title?: string;
+    content?: string;
+    notebookId?: string | null;
+    parentId?: string | null;
+    icon?: string;
+    coverPreset?: string | null;
+    noteStatus?: NoteStatus;
+    tags?: string[];
+    favorite?: boolean;
+    syncToTimeline?: boolean;
+    scheduledAt?: string | null;
+  }) => Entry;
+  duplicateNotePage: (id: string) => Entry | null;
+  archiveNotePage: (id: string, archived: boolean) => void;
+  trashNotePage: (id: string) => void;
+  restoreNotePage: (id: string) => void;
+  permanentlyDeleteNotePage: (id: string) => void;
+  emptyNoteTrash: () => void;
+  addNoteNotebook: (name: string, icon?: string) => NoteNotebook;
+  updateNoteNotebook: (id: string, patch: Partial<NoteNotebook>) => void;
+  deleteNoteNotebook: (id: string) => void;
 
   // Habit actions
   addHabit: (habit: Omit<Habit, 'id' | 'createdAt' | 'completions'>) => void;
@@ -507,9 +536,18 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const updateEntry = useCallback(
     (id: string, patch: Partial<Entry>) => {
+      const nowIso = new Date().toISOString();
       mutateWorkspace((prev) => ({
         ...prev,
-        entries: prev.entries.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+        entries: prev.entries.map((entry) =>
+          entry.id === id
+            ? {
+                ...entry,
+                ...patch,
+                updatedAt: entry.type === 'note' && patch.updatedAt === undefined ? nowIso : patch.updatedAt ?? entry.updatedAt,
+              }
+            : entry
+        ),
       }));
     },
     [mutateWorkspace]
@@ -622,6 +660,236 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       pushToast(`Moved to ${toLocalDateKey(dateKey)}`);
     },
     [workspace.entries, updateEntry, pushToast]
+  );
+
+  // Notes & Notebooks actions
+  const addNotePage = useCallback(
+    (options?: {
+      title?: string;
+      content?: string;
+      notebookId?: string | null;
+      parentId?: string | null;
+      icon?: string;
+      coverPreset?: string | null;
+      noteStatus?: NoteStatus;
+      tags?: string[];
+      favorite?: boolean;
+      syncToTimeline?: boolean;
+      scheduledAt?: string | null;
+    }): Entry => {
+      const nowIso = new Date().toISOString();
+      const note: Entry = {
+        id: uid('ent'),
+        type: 'note',
+        title: options?.title ?? 'Untitled Note',
+        content: options?.content ?? '',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        scheduledAt: options?.scheduledAt ?? null,
+        completedAt: null,
+        endAt: null,
+        completed: false,
+        focusBucket: null,
+        tags: options?.tags ?? [],
+        pinned: false,
+        parentId: options?.parentId ?? null,
+        notebookId: options?.notebookId ?? null,
+        icon: options?.icon ?? '📝',
+        coverPreset: options?.coverPreset ?? null,
+        noteStatus: options?.noteStatus ?? 'draft',
+        favorite: options?.favorite ?? false,
+        archived: false,
+        trashedAt: null,
+        syncToTimeline: options?.syncToTimeline ?? Boolean(options?.scheduledAt),
+        editorWidth: 'normal',
+        editorFont: 'sans',
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: [note, ...prev.entries],
+      }));
+      return note;
+    },
+    [mutateWorkspace]
+  );
+
+  const duplicateNotePage = useCallback(
+    (id: string): Entry | null => {
+      const orig = workspace.entries.find((e) => e.id === id && e.type === 'note');
+      if (!orig) return null;
+      const nowIso = new Date().toISOString();
+      const copy: Entry = {
+        ...orig,
+        id: uid('ent'),
+        title: orig.title ? `${orig.title} (Copy)` : 'Untitled Note (Copy)',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        trashedAt: null,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: [copy, ...prev.entries],
+      }));
+      pushToast('Note duplicated', 'success');
+      return copy;
+    },
+    [workspace.entries, mutateWorkspace, pushToast]
+  );
+
+  const archiveNotePage = useCallback(
+    (id: string, archived: boolean) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: prev.entries.map((e) =>
+          e.id === id
+            ? {
+                ...e,
+                archived,
+                noteStatus: archived ? 'archived' : e.noteStatus === 'archived' ? 'active' : e.noteStatus ?? 'active',
+                updatedAt: nowIso,
+              }
+            : e
+        ),
+      }));
+      pushToast(archived ? 'Moved note to Archive' : 'Restored from Archive');
+    },
+    [mutateWorkspace, pushToast]
+  );
+
+  const trashNotePage = useCallback(
+    (id: string) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => {
+        const toTrash = new Set<string>([id]);
+        let added = true;
+        while (added) {
+          added = false;
+          for (const e of prev.entries) {
+            if (e.type === 'note' && e.parentId && toTrash.has(e.parentId) && !toTrash.has(e.id)) {
+              toTrash.add(e.id);
+              added = true;
+            }
+          }
+        }
+        return {
+          ...prev,
+          entries: prev.entries.map((e) =>
+            toTrash.has(e.id) ? { ...e, trashedAt: nowIso, updatedAt: nowIso } : e
+          ),
+        };
+      });
+      pushToast('Moved to Trash');
+    },
+    [mutateWorkspace, pushToast]
+  );
+
+  const restoreNotePage = useCallback(
+    (id: string) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => {
+        const toRestore = new Set<string>([id]);
+        let added = true;
+        while (added) {
+          added = false;
+          for (const e of prev.entries) {
+            if (e.type === 'note' && e.parentId && toRestore.has(e.parentId) && !toRestore.has(e.id)) {
+              toRestore.add(e.id);
+              added = true;
+            }
+          }
+        }
+        const entryMap = new Map(prev.entries.map((e) => [e.id, e]));
+        return {
+          ...prev,
+          entries: prev.entries.map((e) => {
+            if (!toRestore.has(e.id)) return e;
+            const parent = e.parentId ? entryMap.get(e.parentId) : null;
+            const keepParent = parent && (!parent.trashedAt || toRestore.has(parent.id));
+            return {
+              ...e,
+              trashedAt: null,
+              parentId: keepParent ? e.parentId : null,
+              updatedAt: nowIso,
+            };
+          }),
+        };
+      });
+      pushToast('Note restored', 'success');
+    },
+    [mutateWorkspace, pushToast]
+  );
+
+  const permanentlyDeleteNotePage = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => {
+        const target = prev.entries.find((e) => e.id === id);
+        const fallbackParent = target?.parentId ?? null;
+        return {
+          ...prev,
+          entries: prev.entries
+            .filter((e) => e.id !== id)
+            .map((e) =>
+              e.type === 'note' && e.parentId === id ? { ...e, parentId: fallbackParent } : e
+            ),
+        };
+      });
+      pushToast('Permanently deleted note');
+    },
+    [mutateWorkspace, pushToast]
+  );
+
+  const emptyNoteTrash = useCallback(() => {
+    mutateWorkspace((prev) => ({
+      ...prev,
+      entries: prev.entries.filter((e) => !(e.type === 'note' && Boolean(e.trashedAt))),
+    }));
+    pushToast('Trash emptied');
+  }, [mutateWorkspace, pushToast]);
+
+  const addNoteNotebook = useCallback(
+    (name: string, icon = '📓'): NoteNotebook => {
+      const trimmed = name.trim() || 'Untitled Notebook';
+      const created: NoteNotebook = {
+        id: uid('nb'),
+        name: trimmed,
+        icon,
+        createdAt: new Date().toISOString(),
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        noteNotebooks: [...(prev.noteNotebooks ?? []), created],
+      }));
+      pushToast(`Notebook "${trimmed}" created`, 'success');
+      return created;
+    },
+    [mutateWorkspace, pushToast]
+  );
+
+  const updateNoteNotebook = useCallback(
+    (id: string, patch: Partial<NoteNotebook>) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        noteNotebooks: (prev.noteNotebooks ?? []).map((nb) =>
+          nb.id === id ? { ...nb, ...patch } : nb
+        ),
+      }));
+    },
+    [mutateWorkspace]
+  );
+
+  const deleteNoteNotebook = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        noteNotebooks: (prev.noteNotebooks ?? []).filter((nb) => nb.id !== id),
+        entries: prev.entries.map((e) =>
+          e.type === 'note' && e.notebookId === id ? { ...e, notebookId: null } : e
+        ),
+      }));
+      pushToast('Notebook deleted (notes preserved)');
+    },
+    [mutateWorkspace, pushToast]
   );
 
   // Habits
@@ -886,10 +1154,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         id: uid('ent'),
         type: 'note',
         title: `Excerpt — ${bookTitle}`,
+        icon: '📖',
+        noteStatus: 'inbox',
+        syncToTimeline: false,
         content: `<blockquote><p>${safeExcerpt}</p></blockquote><p>${
           locationLabel ? `<em>Source: ${bookTitle} (${locationLabel})</em>` : `<em>Source: ${bookTitle}</em>`
         }</p>`,
         createdAt: nowIso,
+        updatedAt: nowIso,
         scheduledAt: null,
         completedAt: null,
         endAt: null,
@@ -1434,6 +1706,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setWorkspace({
         ...empty,
         ...next,
+        noteNotebooks: Array.isArray(next.noteNotebooks) ? next.noteNotebooks : [],
         books: normalizedLib.books,
         libraryFolders: normalizedLib.libraryFolders,
         libraryCategories: normalizedLib.libraryCategories,
@@ -1512,6 +1785,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         deleteEntry,
         duplicateEntry,
         moveEntryToDate,
+        addNotePage,
+        duplicateNotePage,
+        archiveNotePage,
+        trashNotePage,
+        restoreNotePage,
+        permanentlyDeleteNotePage,
+        emptyNoteTrash,
+        addNoteNotebook,
+        updateNoteNotebook,
+        deleteNoteNotebook,
         addHabit,
         updateHabit,
         deleteHabit,

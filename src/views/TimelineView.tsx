@@ -25,6 +25,7 @@ import {
   getEffectiveSortMs,
   getEntryDayKey,
   getTodayKey,
+  isVisibleOnTimeline,
   parseLocalDateKey,
 } from '../utils/date';
 
@@ -118,14 +119,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ onInspectEntry }) =>
   const { timeFormat } = workspace.settings;
   const todayKey = getTodayKey();
 
-  // Only project Focus tasks onto Timeline once scheduled (Anchors) or completed (Anchor / X-Active / Completed).
-  // Open unscheduled X-Active items stay in Focus until crossed off, then appear crossed-out at completedAt.
-  const isVisibleOnTimeline = (entry: Entry): boolean => {
-    if (entry.focusBucket === 'x-active' && !entry.completed && !entry.scheduledAt) {
-      return false;
-    }
-    return true;
-  };
+  // Visibility rules (including Focus items, archived/trashed notes, and opt-in note Timeline sync) come from utils/date.ts isVisibleOnTimeline
 
   // Entries on the selected day sorted strictly by: completedAt > scheduledAt > createdAt
   const dayEntries = useMemo(() => {
@@ -790,7 +784,18 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ onInspectEntry }) =>
             elevated
             onEmptyTab={cycleEntryType}
             onSubmit={(rawText) => {
-              const created = addTimelineEntry(activeType, rawText, selectedDateKey);
+              const created = addTimelineEntry(
+                activeType,
+                rawText,
+                selectedDateKey,
+                activeType === 'note'
+                  ? {
+                      syncToTimeline: true,
+                      icon: '📝',
+                      noteStatus: 'draft',
+                    }
+                  : undefined
+              );
               return Boolean(created);
             }}
             leadingSlot={

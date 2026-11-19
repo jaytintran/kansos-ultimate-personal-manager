@@ -14,6 +14,17 @@ export type ColorMode = 'light' | 'dark';
 export type EntryType = 'log' | 'task' | 'event' | 'note' | 'timeblock';
 export type FocusBucket = 'anchor' | 'x-active' | 'completed' | null;
 
+export type NoteStatus = 'inbox' | 'draft' | 'active' | 'evergreen' | 'archived';
+export type NoteEditorWidth = 'normal' | 'full';
+export type NoteEditorFont = 'sans' | 'serif' | 'mono';
+
+export interface NoteNotebook {
+  id: string;
+  name: string;
+  icon: string;
+  createdAt: string;
+}
+
 export interface Entry {
   id: string;
   type: EntryType;
@@ -29,6 +40,19 @@ export interface Entry {
   pinned?: boolean;
   location?: string;
   sourceEntryId?: string | null;
+  // Notion-like Notes fields (all optional for full backward compatibility)
+  parentId?: string | null;
+  notebookId?: string | null;
+  icon?: string;
+  coverPreset?: string | null;
+  noteStatus?: NoteStatus;
+  favorite?: boolean;
+  archived?: boolean;
+  trashedAt?: string | null;
+  syncToTimeline?: boolean;
+  editorWidth?: NoteEditorWidth;
+  editorFont?: NoteEditorFont;
+  updatedAt?: string;
 }
 
 export type HabitFrequencyType = 'daily' | 'weekdays' | 'custom' | 'weekly';
@@ -211,6 +235,7 @@ export interface KansoWorkspace {
   version: number;
   updatedAt: string;
   entries: Entry[];
+  noteNotebooks?: NoteNotebook[];
   habits: Habit[];
   lists: ListCollection[];
   listItems: ListItem[];

@@ -43,6 +43,19 @@ export function getEntryDayKey(entry: Pick<Entry, 'completedAt' | 'scheduledAt' 
   return toLocalDateKey(getEffectiveSortIso(entry));
 }
 
+export function isVisibleOnTimeline(entry: Entry): boolean {
+  if (entry.trashedAt || entry.archived || entry.noteStatus === 'archived') {
+    return false;
+  }
+  if (entry.type === 'note' && entry.syncToTimeline === false) {
+    return false;
+  }
+  if (entry.focusBucket === 'x-active' && !entry.completed && !entry.scheduledAt) {
+    return false;
+  }
+  return true;
+}
+
 export function formatTime(iso: string | null | undefined, format: '12h' | '24h' = '12h'): string {
   if (!iso) return '';
   const d = new Date(iso);

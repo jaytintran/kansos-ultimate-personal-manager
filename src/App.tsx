@@ -25,7 +25,7 @@ import { KansoLogo } from './components/KansoLogo';
 import { SettingsSyncModal } from './components/SettingsSyncModal';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { ViewId } from './types';
-import { getEntryDayKey, getTodayKey } from './utils/date';
+import { getEntryDayKey, getTodayKey, isVisibleOnTimeline } from './utils/date';
 import { EventsView } from './views/EventsView';
 import { FocusView } from './views/FocusView';
 import { HabitsView } from './views/HabitsView';
@@ -126,11 +126,11 @@ const KansoShell: React.FC = () => {
       (e) => (e.focusBucket === 'anchor' || e.focusBucket === 'x-active') && !e.completed
     ).length;
     const todayTimeline = workspace.entries.filter(
-      (e) =>
-        !(e.focusBucket === 'x-active' && !e.completed && !e.scheduledAt) &&
-        getEntryDayKey(e) === todayKey
+      (e) => isVisibleOnTimeline(e) && getEntryDayKey(e) === todayKey
     ).length;
-    const notesCount = workspace.entries.filter((e) => e.type === 'note').length;
+    const notesCount = workspace.entries.filter(
+      (e) => e.type === 'note' && !e.trashedAt && !e.archived && e.noteStatus !== 'archived'
+    ).length;
     const eventsCount = workspace.entries.filter((e) => e.type === 'event').length;
     const habitsTodayLeft = workspace.habits.filter((h) => !h.completions[todayKey]).length;
     const listsCount = workspace.listItems.length;
@@ -171,7 +171,8 @@ const KansoShell: React.FC = () => {
   const isMoreViewActive = MOBILE_MORE_IDS.includes(activeView);
   const activeViewDef = ALL_NAV_ITEMS.find((item) => item.id === activeView);
 
-  const isEdgeToEdgeView = activeView === 'streamer' || activeView === 'library';
+  const isEdgeToEdgeView =
+    activeView === 'streamer' || activeView === 'library' || activeView === 'notes';
 
   return (
     <div
