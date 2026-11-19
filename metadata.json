@@ -1,0 +1,6 @@
+{
+  "name": "Kanso",
+  "description": "An offline-first personal productivity workspace uniting daily focus, a chronological timeline spine, habits, markdown notes, events, and curated lists with 5 light/dark themes and manual GitHub Gist sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

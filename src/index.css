@@ -1,0 +1,1014 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ==========================================================================
+   Kanso Theme Engine — 5 Distinct Themes x Light & Dark Modes (10 Palettes)
+   Strict 60-30-10 color distribution & WCAG AA legibility across all modes.
+   ========================================================================== */
+
+:root,
+[data-theme="paper"] {
+  --bg-canvas: #faf8f5;
+  --bg-surface: #ffffff;
+  --bg-surface-subtle: #f3efe9;
+  --bg-surface-hover: #ede7df;
+  --bg-elevated: #ffffff;
+  --border-subtle: #e5dfd6;
+  --border-strong: #cfc6b9;
+  --text-primary: #1c1917;
+  --text-secondary: #57534e;
+  --text-muted: #78716c;
+  --accent: #b45309;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(180, 83, 9, 0.11);
+  --accent-secondary: #57534e;
+  --spine-line: #dfd7cc;
+  --danger: #dc2626;
+  --success: #15803d;
+  --warning: #b45309;
+  --shadow-popover: 0 12px 32px -8px rgba(28, 25, 23, 0.14), 0 2px 6px rgba(28, 25, 23, 0.06);
+}
+
+[data-theme="paper"].dark {
+  --bg-canvas: #161412;
+  --bg-surface: #1e1b18;
+  --bg-surface-subtle: #26221e;
+  --bg-surface-hover: #2f2a25;
+  --bg-elevated: #24201c;
+  --border-subtle: #312c26;
+  --border-strong: #463f37;
+  --text-primary: #f5f0e8;
+  --text-secondary: #bfb6a9;
+  --text-muted: #8c8377;
+  --accent: #e5934b;
+  --accent-fg: #161412;
+  --accent-soft: rgba(229, 147, 75, 0.16);
+  --accent-secondary: #a89f91;
+  --spine-line: #36302a;
+  --danger: #f87171;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --shadow-popover: 0 14px 36px -8px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+/* NEON */
+[data-theme="neon"] {
+  --bg-canvas: #f7f8fc;
+  --bg-surface: #ffffff;
+  --bg-surface-subtle: #eef0f8;
+  --bg-surface-hover: #e5e8f4;
+  --bg-elevated: #ffffff;
+  --border-subtle: #dce0f0;
+  --border-strong: #bec5e2;
+  --text-primary: #0f1222;
+  --text-secondary: #434966;
+  --text-muted: #697091;
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(79, 70, 229, 0.11);
+  --accent-secondary: #0891b2;
+  --spine-line: #cfd6ef;
+  --danger: #e11d48;
+  --success: #059669;
+  --warning: #d97706;
+  --shadow-popover: 0 12px 32px -8px rgba(15, 18, 34, 0.14), 0 2px 6px rgba(15, 18, 34, 0.06);
+}
+
+[data-theme="neon"].dark {
+  --bg-canvas: #090b12;
+  --bg-surface: #101421;
+  --bg-surface-subtle: #161c2e;
+  --bg-surface-hover: #1d253b;
+  --bg-elevated: #141a2b;
+  --border-subtle: #232c45;
+  --border-strong: #354266;
+  --text-primary: #eef2ff;
+  --text-secondary: #a7b4d4;
+  --text-muted: #7684a8;
+  --accent: #22d3ee;
+  --accent-fg: #06131a;
+  --accent-soft: rgba(34, 211, 238, 0.14);
+  --accent-secondary: #a78bfa;
+  --spine-line: #273352;
+  --danger: #fb7185;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --shadow-popover: 0 16px 40px -8px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(34, 211, 238, 0.14);
+}
+
+/* CYBERPUNK */
+[data-theme="cyberpunk"] {
+  --bg-canvas: #f6f6f3;
+  --bg-surface: #ffffff;
+  --bg-surface-subtle: #ecece6;
+  --bg-surface-hover: #e2e2da;
+  --bg-elevated: #ffffff;
+  --border-subtle: #d6d6cb;
+  --border-strong: #b4b4a6;
+  --text-primary: #141417;
+  --text-secondary: #474752;
+  --text-muted: #6c6c78;
+  --accent: #d90368;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(217, 3, 104, 0.1);
+  --accent-secondary: #ca8a04;
+  --spine-line: #cecec2;
+  --danger: #dc2626;
+  --success: #0d9488;
+  --warning: #ca8a04;
+  --shadow-popover: 0 12px 30px -8px rgba(20, 20, 23, 0.16), 0 2px 6px rgba(20, 20, 23, 0.08);
+}
+
+[data-theme="cyberpunk"].dark {
+  --bg-canvas: #0d0c12;
+  --bg-surface: #15141e;
+  --bg-surface-subtle: #1d1b29;
+  --bg-surface-hover: #262336;
+  --bg-elevated: #191724;
+  --border-subtle: #2d2940;
+  --border-strong: #443e5e;
+  --text-primary: #f7f5eb;
+  --text-secondary: #c0bacc;
+  --text-muted: #8a8399;
+  --accent: #facc15;
+  --accent-fg: #121017;
+  --accent-soft: rgba(250, 204, 21, 0.15);
+  --accent-secondary: #f43f5e;
+  --spine-line: #342f4a;
+  --danger: #fb7185;
+  --success: #2dd4bf;
+  --warning: #facc15;
+  --shadow-popover: 0 16px 40px -8px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(250, 204, 21, 0.16);
+}
+
+/* NORDIC */
+[data-theme="nordic"] {
+  --bg-canvas: #f4f6f9;
+  --bg-surface: #ffffff;
+  --bg-surface-subtle: #e9eef4;
+  --bg-surface-hover: #dfe6ef;
+  --bg-elevated: #ffffff;
+  --border-subtle: #d5dee8;
+  --border-strong: #b6c5d6;
+  --text-primary: #1b2634;
+  --text-secondary: #4a5b70;
+  --text-muted: #6c7f96;
+  --accent: #3b6998;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(59, 105, 152, 0.12);
+  --accent-secondary: #5e81ac;
+  --spine-line: #cad5e2;
+  --danger: #bf616a;
+  --success: #4c8c64;
+  --warning: #b88435;
+  --shadow-popover: 0 12px 32px -8px rgba(27, 38, 52, 0.13), 0 2px 6px rgba(27, 38, 52, 0.05);
+}
+
+[data-theme="nordic"].dark {
+  --bg-canvas: #1b2029;
+  --bg-surface: #222935;
+  --bg-surface-subtle: #2a3240;
+  --bg-surface-hover: #323c4d;
+  --bg-elevated: #262e3b;
+  --border-subtle: #354052;
+  --border-strong: #49576e;
+  --text-primary: #eceff4;
+  --text-secondary: #b8c4d4;
+  --text-muted: #8494aa;
+  --accent: #88c0d0;
+  --accent-fg: #141c24;
+  --accent-soft: rgba(136, 192, 208, 0.16);
+  --accent-secondary: #81a1c1;
+  --spine-line: #3b475c;
+  --danger: #e07a84;
+  --success: #8fbc99;
+  --warning: #ebcb8b;
+  --shadow-popover: 0 16px 38px -8px rgba(0, 0, 0, 0.52), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* EMERALD */
+[data-theme="emerald"] {
+  --bg-canvas: #f4f8f5;
+  --bg-surface: #ffffff;
+  --bg-surface-subtle: #e7f0ea;
+  --bg-surface-hover: #dce8e0;
+  --bg-elevated: #ffffff;
+  --border-subtle: #cfe0d5;
+  --border-strong: #acc7b6;
+  --text-primary: #10241b;
+  --text-secondary: #395749;
+  --text-muted: #5d7c6d;
+  --accent: #047857;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(4, 120, 87, 0.11);
+  --accent-secondary: #0f766e;
+  --spine-line: #c2d8ca;
+  --danger: #dc2626;
+  --success: #047857;
+  --warning: #b45309;
+  --shadow-popover: 0 12px 32px -8px rgba(16, 36, 27, 0.13), 0 2px 6px rgba(16, 36, 27, 0.05);
+}
+
+[data-theme="emerald"].dark {
+  --bg-canvas: #0c1512;
+  --bg-surface: #121f1a;
+  --bg-surface-subtle: #182922;
+  --bg-surface-hover: #1f342b;
+  --bg-elevated: #15241e;
+  --border-subtle: #223930;
+  --border-strong: #325245;
+  --text-primary: #ebf5ef;
+  --text-secondary: #a8c7b8;
+  --text-muted: #769988;
+  --accent: #34d399;
+  --accent-fg: #071912;
+  --accent-soft: rgba(52, 211, 153, 0.15);
+  --accent-secondary: #2dd4bf;
+  --spine-line: #284439;
+  --danger: #f87171;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --shadow-popover: 0 16px 38px -8px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+/* ==========================================================================
+   Base Typography & Layout Defaults
+   ========================================================================== */
+
+@layer base {
+  html {
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .dark html,
+  html.dark {
+    letter-spacing: 0.006em;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    text-wrap: balance;
+  }
+
+  .font-mono,
+  time,
+  .tabular-nums {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+
+  * {
+    border-color: var(--border-subtle);
+  }
+
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+/* Subtle custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ==========================================================================
+   Tiptap Markdown Editor Styles
+   ========================================================================== */
+
+.kanso-tiptap .ProseMirror {
+  outline: none;
+  min-height: 180px;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: var(--text-primary);
+}
+
+.kanso-tiptap .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--text-muted);
+  pointer-events: none;
+  height: 0;
+}
+
+.kanso-tiptap .ProseMirror h1 {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.375rem;
+  font-weight: 700;
+  margin-top: 1.1rem;
+  margin-bottom: 0.45rem;
+  letter-spacing: -0.02em;
+}
+
+.kanso-tiptap .ProseMirror h2 {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.4rem;
+  letter-spacing: -0.015em;
+}
+
+.kanso-tiptap .ProseMirror h3 {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 0.85rem;
+  margin-bottom: 0.3rem;
+}
+
+.kanso-tiptap .ProseMirror p {
+  margin-bottom: 0.55rem;
+}
+
+.kanso-tiptap .ProseMirror ul:not([data-type="taskList"]) {
+  list-style-type: disc;
+  padding-left: 1.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.kanso-tiptap .ProseMirror ol {
+  list-style-type: decimal;
+  padding-left: 1.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.kanso-tiptap .ProseMirror li {
+  margin-bottom: 0.2rem;
+}
+
+.kanso-tiptap .ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+  margin-bottom: 0.6rem;
+}
+
+.kanso-tiptap .ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-bottom: 0.3rem;
+}
+
+.kanso-tiptap .ProseMirror ul[data-type="taskList"] li > label {
+  flex: 0 0 auto;
+  margin-top: 0.22rem;
+  user-select: none;
+}
+
+.kanso-tiptap .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 0.95rem;
+  height: 0.95rem;
+  cursor: pointer;
+}
+
+.kanso-tiptap .ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+}
+
+.kanso-tiptap .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.kanso-tiptap .ProseMirror blockquote {
+  padding: 0.55rem 0.85rem;
+  margin: 0.7rem 0;
+  border-radius: 0.5rem;
+  background-color: var(--bg-surface-subtle);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.kanso-tiptap .ProseMirror code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+  background-color: var(--bg-surface-subtle);
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.3rem;
+}
+
+.kanso-tiptap .ProseMirror pre {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.84rem;
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  margin: 0.75rem 0;
+  overflow-x: auto;
+}
+
+.kanso-tiptap .ProseMirror pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.kanso-tiptap .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 1rem 0;
+}
+
+/* ==========================================================================
+   Kanso Built-In EPUB Reader Typography (Theme-Synced)
+   ========================================================================== */
+
+.kanso-epub-prose {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.kanso-epub-prose h1,
+.kanso-epub-prose h2,
+.kanso-epub-prose h3,
+.kanso-epub-prose h4 {
+  color: var(--text-primary);
+  font-weight: 700;
+  line-height: 1.3;
+  margin-top: 1.5em;
+  margin-bottom: 0.65em;
+}
+
+.kanso-epub-prose h1 {
+  font-size: 1.55em;
+  margin-top: 0.2em;
+}
+
+.kanso-epub-prose h2 {
+  font-size: 1.25em;
+}
+
+.kanso-epub-prose p {
+  margin-bottom: 1em;
+}
+
+.kanso-epub-prose blockquote {
+  margin: 1.25em 0;
+  padding: 0.75em 1.1em;
+  border-radius: 0.75rem;
+  background-color: var(--bg-surface-subtle);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.kanso-epub-prose ul {
+  list-style-type: disc;
+  padding-left: 1.4em;
+  margin-bottom: 1em;
+}
+
+.kanso-epub-prose ol {
+  list-style-type: decimal;
+  padding-left: 1.4em;
+  margin-bottom: 1em;
+}
+
+.kanso-epub-prose li {
+  margin-bottom: 0.45em;
+}
+
+.kanso-epub-prose img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin: 1.25em auto;
+  display: block;
+}
+
+/* ==========================================================================
+   Timeline Rich Details Preview (Compact Markdown + Smooth Alpha Fade)
+   ========================================================================== */
+
+.kanso-timeline-preview {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: break-word;
+  pointer-events: none;
+}
+
+.kanso-timeline-preview-faded {
+  max-height: 4.9rem;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 54%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 54%, transparent 100%);
+}
+
+.kanso-timeline-preview h1,
+.kanso-timeline-preview h2,
+.kanso-timeline-preview h3 {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0.15rem 0 0.2rem;
+}
+
+.kanso-timeline-preview p {
+  margin: 0 0 0.25rem;
+}
+
+.kanso-timeline-preview p:last-child,
+.kanso-timeline-preview ul:last-child,
+.kanso-timeline-preview ol:last-child,
+.kanso-timeline-preview blockquote:last-child {
+  margin-bottom: 0;
+}
+
+.kanso-timeline-preview ul:not([data-type="taskList"]) {
+  list-style-type: disc;
+  padding-left: 1.15rem;
+  margin: 0.15rem 0 0.25rem;
+}
+
+.kanso-timeline-preview ol {
+  list-style-type: decimal;
+  padding-left: 1.15rem;
+  margin: 0.15rem 0 0.25rem;
+}
+
+.kanso-timeline-preview ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+  margin: 0.15rem 0 0.25rem;
+}
+
+.kanso-timeline-preview ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-bottom: 0.15rem;
+}
+
+.kanso-timeline-preview ul[data-type="taskList"] li > label {
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+
+.kanso-timeline-preview ul[data-type="taskList"] li > label input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.kanso-timeline-preview ul[data-type="taskList"] li[data-checked="true"] > div {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.kanso-timeline-preview blockquote {
+  margin: 0.2rem 0;
+  padding: 0.2rem 0.55rem;
+  border-radius: 0.35rem;
+  background-color: var(--bg-surface-subtle);
+  font-style: italic;
+}
+
+.kanso-timeline-preview code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78em;
+  background-color: var(--bg-surface-subtle);
+  padding: 0.08rem 0.28rem;
+  border-radius: 0.25rem;
+}
+
+/* ==========================================================================
+   Library & Reader Studio Token Bridge (Synced to All 10 Kanso Themes)
+   ========================================================================== */
+
+:root,
+[data-theme] {
+  --bg-sidebar: var(--bg-surface);
+  --bg-input: var(--bg-surface-subtle);
+  --bg-accent-subtle: var(--accent-soft);
+  --accent-contrast: var(--accent-fg);
+  --accent-hover: color-mix(in srgb, var(--accent) 88%, var(--text-primary));
+  --danger-hover: color-mix(in srgb, var(--danger) 85%, #000000);
+  --tts-sentence-bg: color-mix(in srgb, var(--accent) 14%, transparent);
+  --tts-word-bg: color-mix(in srgb, var(--accent) 34%, transparent);
+  --tts-word-ink: var(--text-primary);
+}
+
+/* Optional dedicated Reader Studio theme overrides (Sepia Paper / Deep Night) */
+[data-reader-surface="sepia"] {
+  --bg-canvas: #f5efe2;
+  --bg-surface: #fbf7ee;
+  --bg-sidebar: #f2ead9;
+  --bg-surface-subtle: #ede4d1;
+  --bg-surface-hover: #e6dbc5;
+  --bg-elevated: #fdfaf3;
+  --bg-input: #f2ead9;
+  --border-subtle: #dfd4be;
+  --border-strong: #c7b89c;
+  --text-primary: #261e17;
+  --text-secondary: #5c4e3e;
+  --text-muted: #847460;
+  --accent: #9a4718;
+  --accent-fg: #fffaf3;
+  --accent-contrast: #fffaf3;
+  --accent-soft: rgba(154, 71, 24, 0.12);
+  --bg-accent-subtle: rgba(154, 71, 24, 0.12);
+  --accent-hover: #7f3810;
+  --tts-sentence-bg: rgba(154, 71, 24, 0.12);
+  --tts-word-bg: rgba(217, 155, 43, 0.36);
+}
+
+[data-reader-surface="dark"] {
+  --bg-canvas: #141312;
+  --bg-surface: #1b1917;
+  --bg-sidebar: #181614;
+  --bg-surface-subtle: #23201d;
+  --bg-surface-hover: #2c2824;
+  --bg-elevated: #211e1b;
+  --bg-input: #23201d;
+  --border-subtle: #2e2a25;
+  --border-strong: #443e37;
+  --text-primary: #ece6dc;
+  --text-secondary: #b7afa3;
+  --text-muted: #877f74;
+  --accent: #e0914c;
+  --accent-fg: #15120f;
+  --accent-contrast: #15120f;
+  --accent-soft: rgba(224, 145, 76, 0.16);
+  --bg-accent-subtle: rgba(224, 145, 76, 0.16);
+  --accent-hover: #eb9f5e;
+  --tts-sentence-bg: rgba(224, 145, 76, 0.14);
+  --tts-word-bg: rgba(224, 145, 76, 0.36);
+}
+
+.font-serif-editorial {
+  font-family: 'Source Serif 4', Georgia, Cambria, 'Times New Roman', serif;
+}
+
+.font-mono-tabular {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+.pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+.px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Archival Virtual Page Card & Two-Page Codex Gutter */
+.folio-page-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 2px 12px -4px rgba(0, 0, 0, 0.06);
+}
+
+.folio-codex-gutter {
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    color-mix(in srgb, var(--border-strong) 25%, transparent) 46%,
+    color-mix(in srgb, var(--border-strong) 48%, transparent) 50%,
+    color-mix(in srgb, var(--border-strong) 20%, transparent) 54%,
+    transparent 100%
+  );
+}
+
+/* Reflowable EPUB / MOBI Prose Typography */
+.folio-prose {
+  color: var(--text-primary);
+  font-size: var(--folio-font-size, 18px);
+  line-height: var(--folio-line-height, 1.72);
+  text-align: var(--folio-text-align, left);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+
+.folio-prose h1,
+.folio-prose h2,
+.folio-prose h3,
+.folio-prose h4 {
+  font-family: 'Source Serif 4', Georgia, serif;
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.28;
+  margin-top: 1.45em;
+  margin-bottom: 0.6em;
+  text-align: left;
+  break-after: avoid;
+}
+
+.folio-prose h1 {
+  font-size: 1.65em;
+  margin-top: 0.25em;
+}
+
+.folio-prose h2 {
+  font-size: 1.32em;
+}
+
+.folio-prose h3 {
+  font-size: 1.12em;
+}
+
+.folio-prose p {
+  margin-top: 0;
+  margin-bottom: var(--folio-para-gap, 0.85em);
+  text-indent: var(--folio-text-indent, 0em);
+}
+
+.folio-prose h1 + p,
+.folio-prose h2 + p,
+.folio-prose h3 + p,
+.folio-prose blockquote p,
+.folio-prose li p {
+  text-indent: 0;
+}
+
+.folio-prose blockquote {
+  margin: 1.25em 0;
+  padding: 0.7em 1.1em;
+  border-radius: 0.5rem;
+  background-color: var(--bg-surface-subtle);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.folio-prose ul {
+  list-style-type: disc;
+  padding-left: 1.5em;
+  margin-bottom: 1em;
+}
+
+.folio-prose ol {
+  list-style-type: decimal;
+  padding-left: 1.5em;
+  margin-bottom: 1em;
+}
+
+.folio-prose li {
+  margin-bottom: 0.4em;
+}
+
+.folio-prose a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.folio-prose img,
+.folio-prose svg {
+  max-width: 100%;
+  max-height: 75vh;
+  height: auto;
+  border-radius: 0.375rem;
+  margin: 1.2em auto;
+  display: block;
+  cursor: zoom-in;
+}
+
+.folio-prose pre,
+.folio-prose code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.86em;
+}
+
+.folio-prose pre {
+  padding: 0.85em 1em;
+  border-radius: 0.5rem;
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  margin: 1.1em 0;
+}
+
+.folio-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.1em 0;
+  font-size: 0.9em;
+}
+
+.folio-prose th,
+.folio-prose td {
+  border: 1px solid var(--border-subtle);
+  padding: 0.45em 0.65em;
+  text-align: left;
+}
+
+/* 4-Color DOM-Anchored Highlights */
+.folio-hl {
+  color: inherit;
+  border-radius: 2px;
+  padding: 0.05em 0.08em;
+  cursor: pointer;
+  transition: filter 140ms ease;
+}
+
+.folio-hl:hover {
+  filter: brightness(0.95);
+}
+
+.folio-hl-amber {
+  background-color: rgba(217, 155, 43, 0.28);
+}
+
+.folio-hl-sage {
+  background-color: rgba(77, 154, 111, 0.28);
+}
+
+.folio-hl-sky {
+  background-color: rgba(74, 144, 194, 0.28);
+}
+
+.folio-hl-rose {
+  background-color: rgba(196, 98, 122, 0.28);
+}
+
+/* Full-Text Search Match & Footnote Return Anchor Flash */
+.folio-search-match {
+  background-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 2px;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+@keyframes folioAnchorPulse {
+  0% {
+    background-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.folio-anchor-flash {
+  border-radius: 4px;
+  animation: folioAnchorPulse 1.6s ease-out;
+}
+
+/* Synchronized Offline TTS Highlights (Reflowable DOM + PDF Canvas Overlay) */
+.folio-voice-tap-active p,
+.folio-voice-tap-active li,
+.folio-voice-tap-active blockquote {
+  cursor: pointer;
+}
+
+.folio-tts-sentence {
+  background-color: var(--tts-sentence-bg);
+  border-radius: 3px;
+  transition: background-color 140ms ease;
+}
+
+.folio-tts-word {
+  background-color: var(--tts-word-bg);
+  color: var(--tts-word-ink);
+  border-radius: 3px;
+  box-shadow: 0 1px 0 var(--accent);
+}
+
+/* PDF Selectable Transparent Text Layer & Tone Harmonization */
+.folio-pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.folio-pdf-text-layer span {
+  position: absolute;
+  white-space: pre;
+  color: transparent;
+  transform-origin: 0% 0%;
+  cursor: text;
+}
+
+.folio-pdf-text-layer span::selection {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  color: transparent;
+}
+
+.folio-pdf-search-hit {
+  background-color: rgba(234, 179, 8, 0.38);
+  border-radius: 2px;
+}
+
+.folio-pdf-tts-sentence {
+  position: absolute;
+  background-color: var(--tts-sentence-bg);
+  border-radius: 3px;
+}
+
+.folio-pdf-tts-word {
+  position: absolute;
+  background-color: var(--tts-word-bg);
+  border-radius: 3px;
+  border-bottom: 1.5px solid var(--accent);
+}
+
+.pdf-tone-sepia canvas {
+  filter: sepia(0.24) contrast(0.96) brightness(0.97);
+}
+
+.pdf-tone-dark canvas {
+  filter: invert(0.9) hue-rotate(180deg) contrast(0.94) brightness(0.94);
+}
+
+/* Per-View Folder Card Hover-Dwell Radial Wave & Sheet Slide-Up */
+@keyframes folioRadialWave {
+  0% {
+    transform: scale(0.15);
+    opacity: 0.65;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+.folio-folder-radial-wave {
+  position: absolute;
+  width: 140px;
+  height: 140px;
+  margin-left: -70px;
+  margin-top: -70px;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--accent) 32%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 12%, transparent) 55%,
+    transparent 75%
+  );
+  animation: folioRadialWave 540ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes folioSheetUp {
+  from {
+    transform: translateY(24px);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-folio-sheet-up {
+  animation: folioSheetUp 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
