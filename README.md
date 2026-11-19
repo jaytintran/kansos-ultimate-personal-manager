@@ -1,4 +1,4 @@
-# Kanso — Ultimate Personal Productivity Workspace
+# Kanso — Personal Productivity Workspace
 
 An offline-first personal productivity workspace uniting **Focus**, **Timeline**, **Habits**, **Notes**, **Events**, **Lists**, an offline **Library & Ebook Reader** (EPUB / PDF / MOBI), and a multi-stream **YouTube Streamer & Vault** — with 5 Light/Dark themes and manual GitHub Gist sync.
 
@@ -63,13 +63,11 @@ npx cap open android
 ```
 
 Inside **Android Studio**:
-
 1. Wait for Gradle Sync to finish automatically.
 2. Connect your Android phone via USB (or start an AVD emulator).
 3. Select your device in the top toolbar and click **Run ▶** to install and launch **Kanso**.
 
 To build an installable APK for your phone:
-
 - In Android Studio, go to **Build → Build Bundle(s) / APK(s) → Build APK(s)**, then copy the generated APK from `android/app/build/outputs/apk/debug/` onto your device.
 
 ---
@@ -82,7 +80,7 @@ Whenever you edit web code and want to push the changes to your Android build:
 npm run build && npx cap sync
 ```
 
-_(Or use the shortcut `npm run cap:sync`, then hit **Run ▶** in Android Studio.)_
+*(Or use the shortcut `npm run cap:sync`, then hit **Run ▶** in Android Studio.)*
 
 ---
 
@@ -91,7 +89,6 @@ _(Or use the shortcut `npm run cap:sync`, then hit **Run ▶** in Android Studio
 For full transparency (or if you prefer applying edits manually), `scripts/configure-android.mjs` applies two targeted upgrades inside `android/app/src/main/`:
 
 ### 1. `AndroidManifest.xml`
-
 - Ensures `INTERNET` and `WAKE_LOCK` permissions are declared.
 - Enables `android:hardwareAccelerated="true"` for smooth YouTube embeds and PDF rendering.
 - Configures `MainActivity` with:
@@ -101,13 +98,15 @@ For full transparency (or if you prefer applying edits manually), `scripts/confi
   so rotating between **portrait and landscape** never reloads the WebView or interrupts playing streams.
 
 ### 2. `MainActivity.java`
-
 Configures the Android WebView for smooth multi-stream YouTube embeds and background playback:
-
 - `setMediaPlaybackRequiresUserGesture(false)`
 - `setDomStorageEnabled(true)` & `setJavaScriptEnabled(true)`
 - `setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE)`
 - Keeps WebView timers/media resumed in `onPause()` so Streamer audio continues smoothly when switching screens.
+
+### 3. Android Launcher & Adaptive Icons
+- Automatically installs Kanso's `ic_launcher.png`, `ic_launcher_round.png`, and `ic_launcher_foreground.png` across all Android densities (`mdpi` through `xxxhdpi`) plus the adaptive icon XML (`mipmap-anydpi-v26/`) using Kanso's signature warm ochre (`#B45309`) background.
+- High-resolution `1024×1024` master assets (`resources/icon-only.png`, `resources/icon-foreground.png`, `resources/icon-background.png`) are also included if you later want to customize splash screens via `@capacitor/assets`.
 
 ---
 

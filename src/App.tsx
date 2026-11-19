@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { EntryInspectorDrawer } from './components/EntryInspectorDrawer';
+import { KansoLogo } from './components/KansoLogo';
 import { SettingsSyncModal } from './components/SettingsSyncModal';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { ViewId } from './types';
@@ -188,9 +189,12 @@ const KansoShell: React.FC = () => {
         >
         {/* Single-line Brand Wordmark */}
         <div className="px-2.5 pb-5 flex items-center justify-between">
-          <span className="font-display text-lg font-bold tracking-tight whitespace-nowrap">
-            Kanso
-          </span>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <KansoLogo size={24} />
+            <span className="font-display text-lg font-bold tracking-tight whitespace-nowrap">
+              Kanso
+            </span>
+          </div>
           <button
             type="button"
             onClick={toggleColorMode}
@@ -404,6 +408,7 @@ const KansoShell: React.FC = () => {
       >
         <div className="h-12 px-4 px-safe flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
+            <KansoLogo size={22} />
             <span className="font-display text-base font-bold tracking-tight whitespace-nowrap">
               Kanso
             </span>

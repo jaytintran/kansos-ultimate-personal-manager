@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="kanso-bg" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#C86214" />
+      <stop offset="100%" stop-color="#9A4206" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#kanso-bg)" />
+</svg>

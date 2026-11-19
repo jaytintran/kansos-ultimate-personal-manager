@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { ColorMode, ThemeId } from '../types';
+import { KansoLogo } from './KansoLogo';
 import {
   downloadWorkspaceJson,
   GistPullPreview,
@@ -221,7 +222,10 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
             borderColor: 'var(--border-subtle)',
           }}
         >
-          <h2 className="font-display text-base font-bold">Kanso Preferences &amp; Sync</h2>
+          <div className="flex items-center gap-2.5">
+            <KansoLogo size={20} />
+            <h2 className="font-display text-base font-bold">Kanso Preferences &amp; Sync</h2>
+          </div>
           <button
             type="button"
             onClick={onClose}

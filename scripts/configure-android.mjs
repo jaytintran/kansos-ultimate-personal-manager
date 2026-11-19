@@ -140,4 +140,47 @@ public class MainActivity extends BridgeActivity {
 fs.mkdirSync(path.dirname(mainActivityPath), { recursive: true });
 fs.writeFileSync(mainActivityPath, mainActivitySource, 'utf8');
 console.log('[Kanso Android] Configured MainActivity.java for YouTube embeds & background audio.');
+
+// 3. Install Kanso Android Launcher & Adaptive Icons
+const iconsSourceDir = path.join(projectRoot, 'resources/android-icons');
+const androidResDir = path.join(androidRoot, 'app/src/main/res');
+if (fs.existsSync(iconsSourceDir) && fs.existsSync(androidResDir)) {
+  const densities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
+  for (const density of densities) {
+    const srcDir = path.join(iconsSourceDir, `mipmap-${density}`);
+    const dstDir = path.join(androidResDir, `mipmap-${density}`);
+    if (!fs.existsSync(srcDir)) continue;
+    fs.mkdirSync(dstDir, { recursive: true });
+    for (const file of ['ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png']) {
+      const srcFile = path.join(srcDir, file);
+      if (fs.existsSync(srcFile)) {
+        fs.copyFileSync(srcFile, path.join(dstDir, file));
+      }
+    }
+  }
+
+  // Set adaptive icon background color (#B45309) in values/ic_launcher_background.xml
+  const valuesDir = path.join(androidResDir, 'values');
+  fs.mkdirSync(valuesDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(valuesDir, 'ic_launcher_background.xml'),
+    `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#B45309</color>\n</resources>\n`,
+    'utf8'
+  );
+
+  // Set adaptive icon XML in mipmap-anydpi-v26/ so Android 8+ uses our clean adaptive background & foreground
+  const anydpiDir = path.join(androidResDir, 'mipmap-anydpi-v26');
+  fs.mkdirSync(anydpiDir, { recursive: true });
+  const adaptiveXml = `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>
+`;
+  fs.writeFileSync(path.join(anydpiDir, 'ic_launcher.xml'), adaptiveXml, 'utf8');
+  fs.writeFileSync(path.join(anydpiDir, 'ic_launcher_round.xml'), adaptiveXml, 'utf8');
+
+  console.log('[Kanso Android] Installed Kanso launcher & adaptive icons across all mipmap densities.');
+}
+
 console.log('[Kanso Android] Done! Run `npm run cap:sync` and `npm run cap:open` to launch in Android Studio.');

@@ -1,0 +1,29 @@
+{
+  "name": "Kanso — Personal Productivity Workspace",
+  "short_name": "Kanso",
+  "description": "Offline-first personal productivity workspace uniting daily focus, timeline, habits, notes, events, lists, library reader, and multi-stream YouTube vault.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#faf8f5",
+  "theme_color": "#b45309",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
