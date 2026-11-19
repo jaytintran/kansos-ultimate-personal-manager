@@ -176,16 +176,41 @@ export interface SearchMatch {
   snippetAfter: string;
 }
 
+export type ReaderFontFamily =
+  | 'source-serif'
+  | 'literata'
+  | 'georgia'
+  | 'palatino'
+  | 'dm-sans'
+  | 'inter'
+  | 'system-sans'
+  | 'mono'
+  | 'serif'
+  | 'sans';
+
+export type ReaderContrastPreset = 'soft' | 'balanced' | 'crisp';
+
+export type ReaderFontWeight = 300 | 400 | 500 | 600;
+
+export type PdfViewMode = 'original' | 'reflow';
+
 export interface ReaderPreferences {
   theme: ThemeMode;
-  fontFamily: 'serif' | 'sans' | 'mono';
-  fontSize: number; // 14..26
-  lineHeight: number; // 1.35..2.1
-  paragraphSpacing: number; // 0.4..1.6
-  textIndent: number; // 0..2
+  fontFamily: ReaderFontFamily;
+  fontSize: number; // 14..28
+  fontWeight: ReaderFontWeight; // 300 | 400 | 500 | 600
+  wordSpacing: number; // -0.04..0.36 em
+  letterSpacing: number; // -0.02..0.12 em
+  lineHeight: number; // 1.25..2.3
+  paragraphSpacing: number; // 0.2..2.2 em
+  textIndent: number; // 0..2.2 em
   textAlign: 'left' | 'justify';
-  pageWidth: number; // 560..920px
+  pageMargins: number; // 16..96 px horizontal padding
+  pageWidth: number; // 540..960px
+  contrastPreset: ReaderContrastPreset;
+  brightness: number; // 75..115 (%)
   readingLayout: 'scroll' | 'page' | 'spread';
+  pdfViewMode: PdfViewMode;
   pdfLayout: 'continuous' | 'single';
   pdfFitMode: 'width' | 'manual';
   pdfZoom: number; // 0.6..2.2

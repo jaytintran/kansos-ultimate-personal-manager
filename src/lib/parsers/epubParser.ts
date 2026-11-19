@@ -209,15 +209,35 @@ async function parseEpubCore(
   const blobUrlCache = new Map<string, string>();
   const chapters: ParsedChapter[] = [];
 
+  const expandXhtmlSelfClosingTags = (xhtml: string): string => {
+    const cleaned = xhtml.replace(/<\?xml[\s\S]*?\?>/gi, '');
+    return cleaned.replace(
+      /<(a|abbr|b|blockquote|cite|code|dd|del|div|dt|em|figcaption|figure|h[1-6]|i|ins|kbd|label|li|mark|ol|p|pre|q|s|samp|section|small|span|strong|sub|sup|table|tbody|td|th|thead|tr|u|ul|var)(\s+(?:[^>"']|"[^"]*"|'[^']*')*)?\s*\/>/gi,
+      (_full, tagName: string, attrs = '') => `<${tagName}${attrs}></${tagName}>`
+    );
+  };
+
   for (let chIdx = 0; chIdx < spineEntries.length; chIdx++) {
     const entry = spineEntries[chIdx];
     const file = findZipFile(zip, entry.fullPath);
     if (!file) continue;
     const rawHtml = await file.async('string');
-    const htmlDoc = parser.parseFromString(rawHtml, 'text/html');
+    const htmlDoc = parser.parseFromString(expandXhtmlSelfClosingTags(rawHtml), 'text/html');
 
     // Remove unsafe or conflicting tags
     htmlDoc.querySelectorAll('script, style, link, iframe, object, embed').forEach((el) => el.remove());
+
+    // Strip inline font/color/underline declarations from publisher HTML so Kanso themes & typography win cleanly
+    htmlDoc.querySelectorAll<HTMLElement>('[style]').forEach((el) => {
+      el.style.removeProperty('color');
+      el.style.removeProperty('background-color');
+      el.style.removeProperty('font-family');
+      el.style.removeProperty('text-decoration');
+      el.style.removeProperty('text-decoration-line');
+      if (!el.getAttribute('style')?.trim()) {
+        el.removeAttribute('style');
+      }
+    });
 
     // Scope element IDs so multiple chapters in Continuous Scroll never collide
     htmlDoc.querySelectorAll('[id]').forEach((el) => {
@@ -225,6 +245,23 @@ async function parseEpubCore(
       if (!origId) return;
       el.setAttribute('data-folio-target-id', origId);
       el.setAttribute('id', `folio-ch-${chIdx}-${origId}`);
+    });
+
+    // Convert non-href <a> anchor targets (<a id="p12"/> or <a name="sec"/>) into harmless <span>s
+    // so they never inherit link colors/underlines or wrap text as hyperlinks.
+    htmlDoc.querySelectorAll('a').forEach((a) => {
+      const href = (a.getAttribute('href') || '').trim();
+      if (href) return;
+      const span = htmlDoc.createElement('span');
+      for (const attr of Array.from(a.attributes)) {
+        if (attr.name !== 'name') {
+          span.setAttribute(attr.name, attr.value);
+        }
+      }
+      while (a.firstChild) {
+        span.appendChild(a.firstChild);
+      }
+      a.parentNode?.replaceChild(span, a);
     });
 
     const chapterDir = entry.fullPath.includes('/')

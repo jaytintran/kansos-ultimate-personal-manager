@@ -46,6 +46,7 @@ interface StreamVaultViewProps {
   onUpdateStream: (id: string, patch: Partial<StreamItem>) => void;
   onDeleteStream: (id: string) => void;
   onToggleStreamInGrid: (id: string) => void;
+  onStackStream: (id: string) => void;
   onLoadStreamsToGrid: (streamIds: string[], mode?: 'replace' | 'append', label?: string) => void;
   onIncrementListen: (id: string) => void;
   onAddFolder: (name: string, parentId?: string | null) => StreamFolder;
@@ -70,6 +71,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   onUpdateStream,
   onDeleteStream,
   onToggleStreamInGrid,
+  onStackStream,
   onLoadStreamsToGrid,
   onIncrementListen,
   onAddFolder,
@@ -114,9 +116,9 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         };
       case 'in-grid':
         return {
-          breadcrumb: 'Vault / In Live Grid',
-          title: 'Currently In Live Grid',
-          description: 'Streams active in your live multi-stream grid right now.',
+          breadcrumb: 'Vault / Active Stack',
+          title: 'Currently In Live Stack',
+          description: 'Streams active in your live multi-stream stack right now.',
           canBatchLoad: false,
         };
       case 'favorites':
@@ -261,10 +263,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   }, [activeStreams]);
 
   const audioStatusText = useMemo(() => {
-    if (allActiveMuted) return `Muted · ${activeStreams.length} in grid`;
-    if (isAllPaused) return `Paused · ${activeStreams.length} in grid`;
-    if (playingCount > 0) return `Playing ${playingCount} of ${activeStreams.length}`;
-    return `${activeStreams.length} loaded in grid`;
+    if (allActiveMuted) return `Muted · ${activeStreams.length} stacked`;
+    if (isAllPaused) return `Paused · ${activeStreams.length} stacked`;
+    if (playingCount > 0) return `Playing ${playingCount} of ${activeStreams.length} stacked`;
+    return `${activeStreams.length} stacked in studio`;
   }, [allActiveMuted, isAllPaused, playingCount, activeStreams.length]);
 
   return (
@@ -416,12 +418,12 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                         scopeMeta.title
                       )
                     }
-                    className="h-9 px-3 text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    className="h-8 px-3 text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)]"
                     style={{ color: 'var(--text-primary)' }}
-                    title={`Replace Live Grid with these ${visibleStreams.length} streams`}
+                    title={`Replace Live Stack with these ${visibleStreams.length} streams`}
                   >
                     <Play className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
-                    <span>Load to Grid</span>
+                    <span>Load Stack</span>
                   </button>
                   <button
                     type="button"
@@ -432,15 +434,15 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                         scopeMeta.title
                       )
                     }
-                    className="h-9 px-2.5 border-l text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap"
+                    className="h-8 px-2.5 border-l text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)]"
                     style={{
                       borderColor: 'var(--border-subtle)',
                       color: 'var(--text-secondary)',
                     }}
-                    title={`Append these ${visibleStreams.length} streams to current Live Grid`}
+                    title={`Layer these ${visibleStreams.length} streams onto current Live Stack`}
                   >
                     <Plus className="w-3 h-3" />
-                    <span className="hidden sm:inline">Append</span>
+                    <span className="hidden sm:inline">Layer</span>
                   </button>
                 </div>
               )}
@@ -696,7 +698,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             color: 'var(--accent-fg)',
                           }}
                         >
-                          In Grid
+                          Stacked
                         </span>
                       )}
                     </button>
@@ -803,34 +805,59 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                         className="flex items-center gap-1.5 pt-2.5 border-t"
                         style={{ borderColor: 'var(--border-subtle)' }}
                       >
-                        <button
-                          type="button"
-                          onClick={() => onToggleStreamInGrid(item.id)}
-                          className="flex-1 h-8 px-2.5 rounded-lg text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
-                          style={{
-                            backgroundColor: inGrid ? 'var(--accent-soft)' : 'var(--bg-surface-subtle)',
-                            color: inGrid ? 'var(--accent)' : 'var(--text-primary)',
-                          }}
-                        >
-                          {inGrid ? (
-                            <>
-                              <Check className="w-3.5 h-3.5" />
-                              <span>In Grid</span>
-                            </>
-                          ) : (
-                            <>
+                        {inGrid ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => onToggleStreamInGrid(item.id)}
+                              className="h-8 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
+                              style={{
+                                backgroundColor: 'var(--bg-surface-subtle)',
+                                borderColor: 'var(--border-subtle)',
+                                color: 'var(--text-secondary)',
+                              }}
+                              title="Remove from Live Stack"
+                            >
+                              <Check className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
+                              <span>Stacked</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onStackStream(item.id)}
+                              className="flex-1 h-8 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
+                              style={{
+                                backgroundColor: 'var(--accent-soft)',
+                                borderColor: 'var(--accent)',
+                                color: 'var(--accent)',
+                              }}
+                              title="Add another independent layer to stack"
+                            >
                               <Plus className="w-3.5 h-3.5" />
-                              <span>Add to Grid</span>
-                            </>
-                          )}
-                        </button>
+                              <span>Layer</span>
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onStackStream(item.id)}
+                            className="flex-1 h-8 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)]"
+                            style={{
+                              backgroundColor: 'var(--bg-surface-subtle)',
+                              borderColor: 'var(--border-subtle)',
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Stack</span>
+                          </button>
+                        )}
 
                         <button
                           type="button"
                           onClick={() =>
                             setDrawerState({ open: true, mode: 'edit', streamId: item.id })
                           }
-                          className="h-8 px-2.5 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap"
+                          className="h-8 px-2.5 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap hover:bg-[var(--bg-surface-hover)]"
                           style={{
                             backgroundColor: 'var(--bg-surface)',
                             borderColor: 'var(--border-subtle)',
@@ -1018,26 +1045,23 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             <div className="inline-flex items-center gap-1">
                               <button
                                 type="button"
-                                onClick={() => onToggleStreamInGrid(item.id)}
-                                className="h-7 px-2.5 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 transition-colors"
+                                onClick={() => onStackStream(item.id)}
+                                className="h-7 px-2.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 transition-colors"
                                 style={{
                                   backgroundColor: inGrid
                                     ? 'var(--accent-soft)'
                                     : 'var(--bg-surface-subtle)',
+                                  borderColor: inGrid ? 'var(--accent)' : 'var(--border-subtle)',
                                   color: inGrid ? 'var(--accent)' : 'var(--text-primary)',
                                 }}
+                                title={
+                                  inGrid
+                                    ? 'Add another layer to stack'
+                                    : 'Add stream to stack'
+                                }
                               >
-                                {inGrid ? (
-                                  <>
-                                    <Check className="w-3 h-3" />
-                                    <span>In Grid</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Plus className="w-3 h-3" />
-                                    <span>Grid</span>
-                                  </>
-                                )}
+                                <Plus className="w-3 h-3" />
+                                <span>{inGrid ? 'Layer' : 'Stack'}</span>
                               </button>
                               <button
                                 type="button"
@@ -1176,7 +1200,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                 }}
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Back to Grid</span>
+                <span>Back to Live Grid</span>
               </button>
             </div>
           </div>

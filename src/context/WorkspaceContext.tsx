@@ -16,6 +16,7 @@ import {
   ListCollection,
   ListItem,
   ListItemStatus,
+  StackSlot,
   StreamFolder,
   StreamItem,
   StreamPreset,
@@ -43,6 +44,60 @@ const DEFAULT_GIST_CONFIG: GistSyncConfig = {
 
 function uid(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function createDefaultSlot(
+  streamId: string,
+  overrides?: Partial<Omit<StackSlot, 'slotId' | 'streamId'>>
+): StackSlot {
+  return {
+    slotId: uid('slot'),
+    streamId,
+    volume: overrides?.volume ?? 100,
+    muted: overrides?.muted ?? false,
+    loopMode: overrides?.loopMode ?? 'infinite',
+    loopCount: Math.max(1, overrides?.loopCount ?? 10),
+    playbackRate: overrides?.playbackRate ?? 1,
+  };
+}
+
+function normalizeStreamerState(
+  raw: Partial<StreamerState> | undefined,
+  validStreamIds: Set<string>
+): StreamerState {
+  const merged = { ...DEFAULT_STREAMER_STATE, ...(raw || {}) };
+  let slots: StackSlot[];
+  if (Array.isArray(merged.activeSlots) && merged.activeSlots.length > 0) {
+    slots = merged.activeSlots
+      .filter((sl) => sl && validStreamIds.has(sl.streamId))
+      .map((sl) => ({
+        slotId: sl.slotId || uid('slot'),
+        streamId: sl.streamId,
+        volume: typeof sl.volume === 'number' ? Math.max(0, Math.min(100, Math.round(sl.volume))) : 100,
+        muted: Boolean(sl.muted),
+        loopMode: sl.loopMode === 'count' ? 'count' : 'infinite',
+        loopCount: typeof sl.loopCount === 'number' && sl.loopCount >= 1 ? Math.round(sl.loopCount) : 10,
+        playbackRate: typeof sl.playbackRate === 'number' ? sl.playbackRate : 1,
+      }));
+  } else if (Array.isArray(merged.activeStreamIds) && merged.activeStreamIds.length > 0) {
+    slots = merged.activeStreamIds
+      .filter((sid) => validStreamIds.has(sid))
+      .map((sid) => createDefaultSlot(sid));
+  } else {
+    slots = [];
+  }
+  return {
+    ...merged,
+    activeSlots: slots,
+    activeStreamIds: slots.map((s) => s.streamId),
+    viewMode: merged.viewMode || 'grid',
+    sizingMode: merged.sizingMode || 'fit',
+    masterVolume:
+      typeof merged.masterVolume === 'number'
+        ? Math.max(0, Math.min(100, Math.round(merged.masterVolume)))
+        : 100,
+    sidebarOpen: merged.sidebarOpen ?? true,
+  };
 }
 
 function loadInitialWorkspace(): KansoWorkspace {
@@ -94,7 +149,10 @@ function loadInitialWorkspace(): KansoWorkspace {
             ? []
             : seed.streamPresets,
           streamerState: parsed.streamerState
-            ? { ...DEFAULT_STREAMER_STATE, ...parsed.streamerState }
+            ? normalizeStreamerState(
+                parsed.streamerState,
+                new Set((hasStreamsField ? parsed.streams! : seed.streams).map((s) => s.id))
+              )
             : hasStreamsField
             ? { ...DEFAULT_STREAMER_STATE }
             : seed.streamerState,
@@ -187,13 +245,22 @@ interface WorkspaceContextValue {
   deleteStream: (id: string) => void;
   toggleStreamInGrid: (id: string) => void;
   loadStreamsToGrid: (streamIds: string[], mode?: 'replace' | 'append', label?: string) => void;
+  addStreamSlot: (
+    streamId: string,
+    overrides?: Partial<Omit<StackSlot, 'slotId' | 'streamId'>>
+  ) => StackSlot | null;
+  updateStreamSlot: (slotId: string, patch: Partial<StackSlot>) => void;
+  updateAllStreamSlots: (updater: (slot: StackSlot) => StackSlot) => void;
+  removeStreamSlot: (slotId: string) => void;
+  clearStreamSlots: () => void;
+  reorderActiveSlots: (fromIndex: number, toIndex: number) => void;
   incrementStreamListen: (id: string) => void;
   addStreamFolder: (name: string, parentId?: string | null, description?: string) => StreamFolder;
   updateStreamFolder: (id: string, patch: Partial<StreamFolder>) => void;
   deleteStreamFolder: (id: string) => void;
   reorderActiveStreams: (fromIndex: number, toIndex: number) => void;
   updateStreamerState: (patch: Partial<StreamerState>) => void;
-  saveStreamPreset: (name: string) => StreamPreset;
+  saveStreamPreset: (name: string, category?: string) => StreamPreset;
   loadStreamPreset: (presetId: string) => void;
   deleteStreamPreset: (presetId: string) => void;
 
@@ -854,17 +921,25 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         id: uid('str'),
         addedAt: nowIso,
       };
-      mutateWorkspace((prev) => ({
-        ...prev,
-        streams: [created, ...prev.streams],
-        streamerState: addToGrid
-          ? {
-              ...prev.streamerState,
-              activeStreamIds: [...prev.streamerState.activeStreamIds, created.id],
-              spotlightStreamId: prev.streamerState.spotlightStreamId || created.id,
-            }
-          : prev.streamerState,
-      }));
+      mutateWorkspace((prev) => {
+        const currentSlots = prev.streamerState.activeSlots ?? [];
+        const nextSlots = addToGrid
+          ? [...currentSlots, createDefaultSlot(created.id)]
+          : currentSlots;
+        return {
+          ...prev,
+          streams: [created, ...prev.streams],
+          streamerState: addToGrid
+            ? {
+                ...prev.streamerState,
+                activeSlots: nextSlots,
+                activeStreamIds: nextSlots.map((sl) => sl.streamId),
+                spotlightStreamId: prev.streamerState.spotlightStreamId || created.id,
+                activePresetId: null,
+              }
+            : prev.streamerState,
+        };
+      });
       pushToast(`Saved "${created.customLabel || created.title}"`, 'success');
       return created;
     },
@@ -884,16 +959,20 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const deleteStream = useCallback(
     (id: string) => {
       mutateWorkspace((prev) => {
-        const nextActive = prev.streamerState.activeStreamIds.filter((sid) => sid !== id);
+        const currentSlots = prev.streamerState.activeSlots ?? [];
+        const nextSlots = currentSlots.filter((sl) => sl.streamId !== id);
+        const nextActive = nextSlots.map((sl) => sl.streamId);
         return {
           ...prev,
           streams: prev.streams.filter((s) => s.id !== id),
           streamPresets: prev.streamPresets.map((p) => ({
             ...p,
             streamIds: p.streamIds.filter((sid) => sid !== id),
+            slots: p.slots ? p.slots.filter((sl) => sl.streamId !== id) : undefined,
           })),
           streamerState: {
             ...prev.streamerState,
+            activeSlots: nextSlots,
             activeStreamIds: nextActive,
             spotlightStreamId:
               prev.streamerState.spotlightStreamId === id
@@ -911,10 +990,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     (id: string) => {
       const nowIso = new Date().toISOString();
       mutateWorkspace((prev) => {
-        const exists = prev.streamerState.activeStreamIds.includes(id);
-        const nextActive = exists
-          ? prev.streamerState.activeStreamIds.filter((sid) => sid !== id)
-          : [...prev.streamerState.activeStreamIds, id];
+        const currentSlots = prev.streamerState.activeSlots ?? [];
+        const exists = currentSlots.some((sl) => sl.streamId === id);
+        const nextSlots = exists
+          ? currentSlots.filter((sl) => sl.streamId !== id)
+          : [...currentSlots, createDefaultSlot(id)];
+        const nextActive = nextSlots.map((sl) => sl.streamId);
         return {
           ...prev,
           streams: exists
@@ -930,6 +1011,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               ),
           streamerState: {
             ...prev.streamerState,
+            activeSlots: nextSlots,
             activeStreamIds: nextActive,
             spotlightStreamId:
               exists && prev.streamerState.spotlightStreamId === id
@@ -955,14 +1037,18 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       const nowIso = new Date().toISOString();
       mutateWorkspace((prev) => {
-        const existingSet = new Set(prev.streamerState.activeStreamIds);
-        const nextActive =
+        const currentSlots = prev.streamerState.activeSlots ?? [];
+        const existingSet = new Set(currentSlots.map((sl) => sl.streamId));
+        const nextSlots =
           mode === 'append'
             ? [
-                ...prev.streamerState.activeStreamIds,
-                ...validUniqueIds.filter((sid) => !existingSet.has(sid)),
+                ...currentSlots,
+                ...validUniqueIds
+                  .filter((sid) => !existingSet.has(sid))
+                  .map((sid) => createDefaultSlot(sid)),
               ]
-            : validUniqueIds;
+            : validUniqueIds.map((sid) => createDefaultSlot(sid));
+        const nextActive = nextSlots.map((sl) => sl.streamId);
         const newlyAddedSet = new Set(
           mode === 'append'
             ? validUniqueIds.filter((sid) => !existingSet.has(sid))
@@ -982,6 +1068,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           ),
           streamerState: {
             ...prev.streamerState,
+            activeSlots: nextSlots,
             activeStreamIds: nextActive,
             spotlightStreamId:
               nextActive.includes(prev.streamerState.spotlightStreamId || '')
@@ -995,11 +1082,149 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const actionWord = mode === 'append' ? 'Added' : 'Loaded';
       const targetText = label ? ` from "${label}"` : '';
       pushToast(
-        `${actionWord} ${validUniqueIds.length} ${validUniqueIds.length === 1 ? 'stream' : 'streams'}${targetText} to Live Grid`,
+        `${actionWord} ${validUniqueIds.length} ${validUniqueIds.length === 1 ? 'stream' : 'streams'}${targetText} to Live Stack`,
         'success'
       );
     },
     [workspace.streams, mutateWorkspace, pushToast]
+  );
+
+  const addStreamSlot = useCallback(
+    (
+      streamId: string,
+      overrides?: Partial<Omit<StackSlot, 'slotId' | 'streamId'>>
+    ): StackSlot | null => {
+      const target = workspace.streams.find((s) => s.id === streamId);
+      if (!target) return null;
+      const newSlot = createDefaultSlot(streamId, overrides);
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => {
+        const currentSlots = prev.streamerState.activeSlots ?? [];
+        const nextSlots = [...currentSlots, newSlot];
+        return {
+          ...prev,
+          streams: prev.streams.map((s) =>
+            s.id === streamId
+              ? {
+                  ...s,
+                  listenCount: (s.listenCount ?? 0) + 1,
+                  lastListenedAt: nowIso,
+                }
+              : s
+          ),
+          streamerState: {
+            ...prev.streamerState,
+            activeSlots: nextSlots,
+            activeStreamIds: nextSlots.map((sl) => sl.streamId),
+            spotlightStreamId: prev.streamerState.spotlightStreamId || streamId,
+            activePresetId: null,
+          },
+        };
+      });
+      return newSlot;
+    },
+    [workspace.streams, mutateWorkspace]
+  );
+
+  const updateStreamSlot = useCallback(
+    (slotId: string, patch: Partial<StackSlot>) => {
+      mutateWorkspace((prev) => {
+        const currentSlots = prev.streamerState.activeSlots ?? [];
+        const nextSlots = currentSlots.map((sl) =>
+          sl.slotId === slotId ? { ...sl, ...patch } : sl
+        );
+        return {
+          ...prev,
+          streamerState: {
+            ...prev.streamerState,
+            activeSlots: nextSlots,
+          },
+        };
+      });
+    },
+    [mutateWorkspace]
+  );
+
+  const updateAllStreamSlots = useCallback(
+    (updater: (slot: StackSlot) => StackSlot) => {
+      mutateWorkspace((prev) => {
+        const currentSlots = prev.streamerState.activeSlots ?? [];
+        const nextSlots = currentSlots.map(updater);
+        return {
+          ...prev,
+          streamerState: {
+            ...prev.streamerState,
+            activeSlots: nextSlots,
+          },
+        };
+      });
+    },
+    [mutateWorkspace]
+  );
+
+  const removeStreamSlot = useCallback(
+    (slotId: string) => {
+      mutateWorkspace((prev) => {
+        const currentSlots = prev.streamerState.activeSlots ?? [];
+        const nextSlots = currentSlots.filter((sl) => sl.slotId !== slotId);
+        const nextActive = nextSlots.map((sl) => sl.streamId);
+        return {
+          ...prev,
+          streamerState: {
+            ...prev.streamerState,
+            activeSlots: nextSlots,
+            activeStreamIds: nextActive,
+            spotlightStreamId: nextActive.includes(prev.streamerState.spotlightStreamId || '')
+              ? prev.streamerState.spotlightStreamId
+              : nextActive[0] || null,
+            activePresetId: null,
+          },
+        };
+      });
+    },
+    [mutateWorkspace]
+  );
+
+  const clearStreamSlots = useCallback(() => {
+    mutateWorkspace((prev) => ({
+      ...prev,
+      streamerState: {
+        ...prev.streamerState,
+        activeSlots: [],
+        activeStreamIds: [],
+        spotlightStreamId: null,
+        activePresetId: null,
+      },
+    }));
+    pushToast('Cleared active stack');
+  }, [mutateWorkspace, pushToast]);
+
+  const reorderActiveSlots = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      mutateWorkspace((prev) => {
+        const list = [...(prev.streamerState.activeSlots ?? [])];
+        if (
+          fromIndex < 0 ||
+          toIndex < 0 ||
+          fromIndex >= list.length ||
+          toIndex >= list.length ||
+          fromIndex === toIndex
+        ) {
+          return prev;
+        }
+        const [moved] = list.splice(fromIndex, 1);
+        list.splice(toIndex, 0, moved);
+        return {
+          ...prev,
+          streamerState: {
+            ...prev.streamerState,
+            activeSlots: list,
+            activeStreamIds: list.map((sl) => sl.streamId),
+          },
+        };
+      });
+    },
+    [mutateWorkspace]
   );
 
   const incrementStreamListen = useCallback(
@@ -1076,32 +1301,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     [mutateWorkspace, pushToast]
   );
 
-  const reorderActiveStreams = useCallback(
-    (fromIndex: number, toIndex: number) => {
-      mutateWorkspace((prev) => {
-        const list = [...prev.streamerState.activeStreamIds];
-        if (
-          fromIndex < 0 ||
-          toIndex < 0 ||
-          fromIndex >= list.length ||
-          toIndex >= list.length ||
-          fromIndex === toIndex
-        ) {
-          return prev;
-        }
-        const [moved] = list.splice(fromIndex, 1);
-        list.splice(toIndex, 0, moved);
-        return {
-          ...prev,
-          streamerState: {
-            ...prev.streamerState,
-            activeStreamIds: list,
-          },
-        };
-      });
-    },
-    [mutateWorkspace]
-  );
+  const reorderActiveStreams = reorderActiveSlots;
 
   const updateStreamerState = useCallback(
     (patch: Partial<StreamerState>) => {
@@ -1114,15 +1314,22 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   );
 
   const saveStreamPreset = useCallback(
-    (name: string): StreamPreset => {
-      const trimmed = name.trim() || 'Untitled Layout';
+    (name: string, category = 'General'): StreamPreset => {
+      const trimmed = name.trim() || 'Untitled Stack';
+      const trimmedCategory = category.trim() || 'General';
+      const currentSlots = workspace.streamerState.activeSlots ?? [];
       const created: StreamPreset = {
         id: uid('preset'),
         name: trimmed,
+        category: trimmedCategory,
         layoutMode: workspace.streamerState.layoutMode,
         customRows: workspace.streamerState.customRows,
         customCols: workspace.streamerState.customCols,
-        streamIds: [...workspace.streamerState.activeStreamIds],
+        viewMode: workspace.streamerState.viewMode || 'grid',
+        sizingMode: workspace.streamerState.sizingMode || 'fit',
+        masterVolume: workspace.streamerState.masterVolume ?? 100,
+        streamIds: currentSlots.map((sl) => sl.streamId),
+        slots: currentSlots.map((sl) => ({ ...sl })),
         spotlightStreamId: workspace.streamerState.spotlightStreamId,
         createdAt: new Date().toISOString(),
       };
@@ -1131,7 +1338,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         streamPresets: [created, ...prev.streamPresets],
         streamerState: { ...prev.streamerState, activePresetId: created.id },
       }));
-      pushToast(`Saved preset "${trimmed}"`, 'success');
+      pushToast(`Saved stack "${trimmed}"`, 'success');
       return created;
     },
     [workspace.streamerState, mutateWorkspace, pushToast]
@@ -1141,9 +1348,20 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     (presetId: string) => {
       const preset = workspace.streamPresets.find((p) => p.id === presetId);
       if (!preset) return;
-      const validIds = preset.streamIds.filter((sid) =>
-        workspace.streams.some((s) => s.id === sid)
-      );
+      const validIdsSet = new Set(workspace.streams.map((s) => s.id));
+      const restoredSlots: StackSlot[] =
+        Array.isArray(preset.slots) && preset.slots.length > 0
+          ? preset.slots
+              .filter((sl) => validIdsSet.has(sl.streamId))
+              .map((sl) => ({
+                ...sl,
+                slotId: uid('slot'),
+              }))
+          : preset.streamIds
+              .filter((sid) => validIdsSet.has(sid))
+              .map((sid) => createDefaultSlot(sid));
+
+      const restoredStreamIds = restoredSlots.map((sl) => sl.streamId);
       mutateWorkspace((prev) => ({
         ...prev,
         streamerState: {
@@ -1151,12 +1369,19 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           layoutMode: preset.layoutMode,
           customRows: preset.customRows,
           customCols: preset.customCols,
-          activeStreamIds: validIds,
-          spotlightStreamId: preset.spotlightStreamId || validIds[0] || null,
+          viewMode: preset.viewMode || prev.streamerState.viewMode || 'grid',
+          sizingMode: preset.sizingMode || prev.streamerState.sizingMode || 'fit',
+          masterVolume:
+            typeof preset.masterVolume === 'number'
+              ? preset.masterVolume
+              : prev.streamerState.masterVolume ?? 100,
+          activeSlots: restoredSlots,
+          activeStreamIds: restoredStreamIds,
+          spotlightStreamId: preset.spotlightStreamId || restoredStreamIds[0] || null,
           activePresetId: preset.id,
         },
       }));
-      pushToast(`Loaded preset "${preset.name}"`, 'success');
+      pushToast(`Loaded stack "${preset.name}"`, 'success');
     },
     [workspace.streamPresets, workspace.streams, mutateWorkspace, pushToast]
   );
@@ -1218,7 +1443,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         streams: Array.isArray(next.streams) ? next.streams : [],
         streamFolders: Array.isArray(next.streamFolders) ? next.streamFolders : [],
         streamPresets: Array.isArray(next.streamPresets) ? next.streamPresets : [],
-        streamerState: { ...DEFAULT_STREAMER_STATE, ...(next.streamerState || {}) },
+        streamerState: normalizeStreamerState(
+          next.streamerState,
+          new Set((Array.isArray(next.streams) ? next.streams : []).map((s) => s.id))
+        ),
         settings: {
           ...empty.settings,
           ...(next.settings || {}),
@@ -1305,6 +1533,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         deleteStream,
         toggleStreamInGrid,
         loadStreamsToGrid,
+        addStreamSlot,
+        updateStreamSlot,
+        updateAllStreamSlots,
+        removeStreamSlot,
+        clearStreamSlots,
+        reorderActiveSlots,
         incrementStreamListen,
         addStreamFolder,
         updateStreamFolder,

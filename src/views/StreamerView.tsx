@@ -7,58 +7,27 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {
-  Bookmark,
-  ChevronLeft,
-  ChevronRight,
-  Columns2,
-  FolderKanban,
-  GripVertical,
-  LayoutGrid,
-  Maximize2,
-  Minimize2,
-  Pause,
-  Play,
-  Plus,
-  Rows2,
-  Save,
-  Sparkles,
-  Trash2,
-  Volume2,
-  VolumeX,
-  X,
-} from 'lucide-react';
+import { Bookmark, FolderKanban, LayoutGrid } from 'lucide-react';
+import { StreamerStudioSidebar } from '../components/streamer/StreamerStudioSidebar';
+import { StreamerSubView, StreamerTopBar } from '../components/streamer/StreamerTopBar';
+import { StreamerTransportBar } from '../components/streamer/StreamerTransportBar';
+import { StreamSlotCard } from '../components/streamer/StreamSlotCard';
 import { StreamVaultView } from '../components/streamer/StreamVaultView';
 import { useWorkspace } from '../context/WorkspaceContext';
-import { StreamItem, StreamLayoutMode } from '../types';
 import {
-  buildYouTubeEmbedUrl,
+  StackSlot,
+  StreamItem,
+  StreamLayoutMode,
+  StreamSizingMode,
+  StreamViewMode,
+} from '../types';
+import {
+  fetchYouTubeMetadata,
+  parseYouTubeUrl,
   parseYouTubeMessage,
   registerYouTubeListener,
   sendYouTubeCommand,
 } from '../utils/youtube';
-
-const LAYOUT_OPTIONS: { id: StreamLayoutMode; label: string }[] = [
-  { id: 'auto', label: 'Auto' },
-  { id: '1x1', label: '1×1' },
-  { id: '2x2', label: '2×2' },
-  { id: '3x3', label: '3×3' },
-  { id: '4x4', label: '4×4' },
-  { id: 'custom', label: 'Custom' },
-  { id: 'spotlight', label: 'Spotlight' },
-];
-
-const LAYOUT_LABELS: Record<StreamLayoutMode, string> = {
-  auto: 'Auto',
-  '1x1': '1×1',
-  '2x2': '2×2',
-  '3x3': '3×3',
-  '4x4': '4×4',
-  custom: 'Custom',
-  spotlight: 'Spotlight',
-};
-
-type StreamerSubView = 'grid' | 'vault';
 
 export interface StreamerPlaybackSummary {
   activeCount: number;
@@ -78,6 +47,40 @@ export interface StreamerViewProps {
   onPlaybackStateChange?: (summary: StreamerPlaybackSummary) => void;
 }
 
+function resolveGridColumns(layoutMode: StreamLayoutMode, count: number, customCols: number): number {
+  switch (layoutMode) {
+    case '1':
+    case '1x1':
+      return 1;
+    case '2':
+    case '2x2':
+      return 2;
+    case '3x2':
+    case '3x3':
+      return 3;
+    case '4x4':
+      return 4;
+    case '5x5':
+      return 5;
+    case '6x6':
+      return 6;
+    case '7x7':
+      return 7;
+    case '8x8':
+      return 8;
+    case 'custom':
+      return Math.max(1, Math.min(8, customCols || 2));
+    case 'spotlight':
+      return 2;
+    case 'auto':
+    default:
+      if (count <= 1) return 1;
+      if (count <= 4) return 2;
+      if (count <= 9) return 3;
+      return 4;
+  }
+}
+
 export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewProps>(
   ({ isActiveView = true, onPlaybackStateChange }, ref) => {
     const {
@@ -87,11 +90,16 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
       deleteStream,
       toggleStreamInGrid,
       loadStreamsToGrid,
+      addStreamSlot,
+      updateStreamSlot,
+      updateAllStreamSlots,
+      removeStreamSlot,
+      clearStreamSlots,
+      reorderActiveSlots,
       incrementStreamListen,
       addStreamFolder,
       updateStreamFolder,
       deleteStreamFolder,
-      reorderActiveStreams,
       updateStreamerState,
       saveStreamPreset,
       loadStreamPreset,
@@ -102,23 +110,30 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
     const { streams, streamPresets, streamerState } = workspace;
     const streamFolders = workspace.streamFolders ?? [];
 
-    // Main subview switcher ('grid' = Live Grid, 'vault' = Full-Canvas URL Vault Manager)
+    const viewMode: StreamViewMode = streamerState.viewMode || 'grid';
+    const sizingMode: StreamSizingMode = streamerState.sizingMode || 'fit';
+    const masterVolume: number = streamerState.masterVolume ?? 100;
+    const desktopSidebarOpen: boolean = streamerState.sidebarOpen ?? true;
+
     const [subView, setSubView] = useState<StreamerSubView>('grid');
-    const [presetsOpen, setPresetsOpen] = useState(false);
-    const [presetNameInput, setPresetNameInput] = useState('');
-    const [mobileTwoCol, setMobileTwoCol] = useState(false);
-    const [expandedStreamId, setExpandedStreamId] = useState<string | null>(null);
-    const [isDesktopViewport, setIsDesktopViewport] = useState<boolean>(() =>
+    const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+    const [isLargeViewport, setIsLargeViewport] = useState<boolean>(() =>
+      typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true
+    );
+    const [isDesktopGridViewport, setIsDesktopGridViewport] = useState<boolean>(() =>
       typeof window !== 'undefined' ? window.matchMedia('(min-width: 768px)').matches : true
     );
 
-    // Audio & playback runtime state (streams start UNMUTED by default per user preference)
-    const [mutedIds, setMutedIds] = useState<Record<string, boolean>>({});
+    // Runtime audio & loop tracking keyed by slotId
     const [viewMuted, setViewMuted] = useState(false);
     const [allPaused, setAllPaused] = useState(false);
     const [playerStates, setPlayerStates] = useState<Record<string, number>>({});
+    const [completedLoops, setCompletedLoops] = useState<Record<string, number>>({});
+    const [loopDoneMap, setLoopDoneMap] = useState<Record<string, boolean>>({});
+    const [sleepRemainingSeconds, setSleepRemainingSeconds] = useState<number | null>(null);
+
     const iframeRefs = useRef<Record<string, HTMLIFrameElement | null>>({});
-    const pausedStreamIdsRef = useRef<string[]>([]);
+    const pausedSlotIdsRef = useRef<string[]>([]);
     const handshakeTimersRef = useRef<Record<string, number[]>>({});
     const prevSummaryRef = useRef<StreamerPlaybackSummary | null>(null);
 
@@ -126,60 +141,132 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
     const [dragIndex, setDragIndex] = useState<number | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
-    const presetsPopoverRef = useRef<HTMLDivElement | null>(null);
-
-    // Responsive viewport listener so we render a single YouTube iframe per active stream
+    // Responsive viewport listeners
     useEffect(() => {
       if (typeof window === 'undefined') return;
-      const mq = window.matchMedia('(min-width: 768px)');
-      const handleChange = (e: MediaQueryListEvent) => setIsDesktopViewport(e.matches);
-      setIsDesktopViewport(mq.matches);
-      mq.addEventListener('change', handleChange);
-      return () => mq.removeEventListener('change', handleChange);
+      const mqLg = window.matchMedia('(min-width: 1024px)');
+      const mqMd = window.matchMedia('(min-width: 768px)');
+      const onLg = (e: MediaQueryListEvent) => setIsLargeViewport(e.matches);
+      const onMd = (e: MediaQueryListEvent) => setIsDesktopGridViewport(e.matches);
+      setIsLargeViewport(mqLg.matches);
+      setIsDesktopGridViewport(mqMd.matches);
+      mqLg.addEventListener('change', onLg);
+      mqMd.addEventListener('change', onMd);
+      return () => {
+        mqLg.removeEventListener('change', onLg);
+        mqMd.removeEventListener('change', onMd);
+      };
     }, []);
 
-    // Map active stream IDs to existing StreamItems
     const streamById = useMemo(() => {
       const map = new Map<string, StreamItem>();
       for (const s of streams) map.set(s.id, s);
       return map;
     }, [streams]);
 
+    const activeSlots = useMemo<StackSlot[]>(() => {
+      const rawSlots = streamerState.activeSlots ?? [];
+      return rawSlots.filter((sl) => streamById.has(sl.streamId));
+    }, [streamerState.activeSlots, streamById]);
+
     const activeStreams = useMemo(
       () =>
-        streamerState.activeStreamIds
-          .map((id) => streamById.get(id))
+        activeSlots
+          .map((sl) => streamById.get(sl.streamId))
           .filter((s): s is StreamItem => Boolean(s)),
-      [streamerState.activeStreamIds, streamById]
+      [activeSlots, streamById]
     );
 
-    const activeIdSet = useMemo(
-      () => new Set(activeStreams.map((s) => s.id)),
-      [activeStreams]
+    const activeSlotIdSet = useMemo(
+      () => new Set(activeSlots.map((sl) => sl.slotId)),
+      [activeSlots]
     );
 
-    const expandedStream = useMemo(
-      () => (expandedStreamId ? streamById.get(expandedStreamId) || null : null),
-      [expandedStreamId, streamById]
+    const activeStreamIdSet = useMemo(
+      () => new Set(activeSlots.map((sl) => sl.streamId)),
+      [activeSlots]
     );
 
-    // Clean up runtime playback state & handshake timers when streams leave the active grid
+    // Sleep Timer fade-out multiplier (smooth linear fade during final 15 seconds)
+    const sleepFadeMultiplier = useMemo(() => {
+      if (sleepRemainingSeconds === null || sleepRemainingSeconds > 15) return 1;
+      return Math.max(0, sleepRemainingSeconds / 15);
+    }, [sleepRemainingSeconds]);
+
+    // Refs for stable access inside window message & load callbacks
+    const activeSlotsRef = useRef(activeSlots);
+    activeSlotsRef.current = activeSlots;
+    const viewMutedRef = useRef(viewMuted);
+    viewMutedRef.current = viewMuted;
+    const masterVolumeRef = useRef(masterVolume);
+    masterVolumeRef.current = masterVolume;
+    const sleepFadeRef = useRef(sleepFadeMultiplier);
+    sleepFadeRef.current = sleepFadeMultiplier;
+    const completedLoopsRef = useRef(completedLoops);
+    completedLoopsRef.current = completedLoops;
+
+    const applySlotAudio = useCallback(
+      (slot: StackSlot, iframe: HTMLIFrameElement | null, fadeMult = sleepFadeRef.current) => {
+        if (!iframe) return;
+        const effectiveVol = Math.max(
+          0,
+          Math.min(100, Math.round(slot.volume * (masterVolumeRef.current / 100) * fadeMult))
+        );
+        const shouldMute = viewMutedRef.current || slot.muted || effectiveVol === 0;
+        if (shouldMute) {
+          sendYouTubeCommand(iframe, 'mute', [], slot.slotId);
+        } else {
+          sendYouTubeCommand(iframe, 'unMute', [], slot.slotId);
+          sendYouTubeCommand(iframe, 'setVolume', [effectiveVol], slot.slotId);
+        }
+      },
+      []
+    );
+
+    // Re-sync volume/mute commands whenever slot volumes, mutes, masterVolume, viewMuted, or fade changes
+    useEffect(() => {
+      for (const slot of activeSlots) {
+        const iframe = iframeRefs.current[slot.slotId] || null;
+        if (iframe) {
+          applySlotAudio(slot, iframe, sleepFadeMultiplier);
+        }
+      }
+    }, [activeSlots, masterVolume, viewMuted, sleepFadeMultiplier, applySlotAudio]);
+
+    // Clean up runtime playback state & handshake timers when slots leave the stack
     useEffect(() => {
       setPlayerStates((prev) => {
         let changed = false;
         const next: Record<string, number> = {};
         for (const key of Object.keys(prev)) {
-          if (activeIdSet.has(key)) {
-            next[key] = prev[key];
-          } else {
-            changed = true;
-          }
+          if (activeSlotIdSet.has(key)) next[key] = prev[key];
+          else changed = true;
+        }
+        return changed ? next : prev;
+      });
+
+      setCompletedLoops((prev) => {
+        let changed = false;
+        const next: Record<string, number> = {};
+        for (const key of Object.keys(prev)) {
+          if (activeSlotIdSet.has(key)) next[key] = prev[key];
+          else changed = true;
+        }
+        return changed ? next : prev;
+      });
+
+      setLoopDoneMap((prev) => {
+        let changed = false;
+        const next: Record<string, boolean> = {};
+        for (const key of Object.keys(prev)) {
+          if (activeSlotIdSet.has(key)) next[key] = prev[key];
+          else changed = true;
         }
         return changed ? next : prev;
       });
 
       for (const key of Object.keys(handshakeTimersRef.current)) {
-        if (!activeIdSet.has(key)) {
+        if (!activeSlotIdSet.has(key)) {
           for (const timer of handshakeTimersRef.current[key]) {
             window.clearTimeout(timer);
           }
@@ -187,14 +274,15 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
         }
       }
 
-      if (activeStreams.length === 0) {
+      if (activeSlots.length === 0) {
         setViewMuted(false);
         setAllPaused(false);
-        pausedStreamIdsRef.current = [];
+        setSleepRemainingSeconds(null);
+        pausedSlotIdsRef.current = [];
       }
-    }, [activeIdSet, activeStreams.length]);
+    }, [activeSlotIdSet, activeSlots.length]);
 
-    // Clean up any pending handshake timers on unmount
+    // Clean up handshake timers on unmount
     useEffect(() => {
       return () => {
         for (const timers of Object.values(handshakeTimersRef.current)) {
@@ -206,60 +294,87 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
       };
     }, []);
 
-    // Close transient overlays when switching away from Streamer so they never obscure other views
+    // Close mobile sidebar drawer when navigating away from Streamer
     useEffect(() => {
       if (!isActiveView) {
-        setPresetsOpen(false);
-        setExpandedStreamId(null);
+        setMobileSidebarOpen(false);
       }
     }, [isActiveView]);
 
-    // Listen for real-time YouTube IFrame postMessage state changes across all active streams
-    const viewMutedRef = useRef(viewMuted);
-    viewMutedRef.current = viewMuted;
-    const mutedIdsRef = useRef(mutedIds);
-    mutedIdsRef.current = mutedIds;
+    // Sleep Timer countdown & gradual fade-out pause
+    useEffect(() => {
+      if (sleepRemainingSeconds === null) return;
+      if (sleepRemainingSeconds <= 0) {
+        for (const slot of activeSlotsRef.current) {
+          sendYouTubeCommand(
+            iframeRefs.current[slot.slotId] || null,
+            'pauseVideo',
+            [],
+            slot.slotId
+          );
+        }
+        setAllPaused(true);
+        setSleepRemainingSeconds(null);
+        pushToast('Sleep timer ended — streams paused');
+        return;
+      }
 
+      const timer = window.setTimeout(() => {
+        setSleepRemainingSeconds((prev) => (prev === null ? null : Math.max(0, prev - 1)));
+      }, 1000);
+      return () => window.clearTimeout(timer);
+    }, [sleepRemainingSeconds, pushToast]);
+
+    // Listen for real-time YouTube IFrame postMessage state changes (playback & loop completion)
     useEffect(() => {
       const handleMessage = (event: MessageEvent) => {
         const parsed = parseYouTubeMessage(event);
         if (!parsed) return;
 
-        // Match message source window directly against our active iframe refs
-        let matchedStreamId: string | null = null;
-        for (const [streamId, iframe] of Object.entries(iframeRefs.current)) {
+        let matchedSlotId: string | null = null;
+        for (const [slotId, iframe] of Object.entries(iframeRefs.current)) {
           if (iframe && iframe.contentWindow && iframe.contentWindow === event.source) {
-            matchedStreamId = streamId;
+            matchedSlotId = slotId;
             break;
           }
         }
-        if (!matchedStreamId) return;
+        if (!matchedSlotId) return;
 
-        // Handshake acknowledged — cancel any pending retry timers for this iframe
-        if (handshakeTimersRef.current[matchedStreamId]) {
-          for (const timer of handshakeTimersRef.current[matchedStreamId]) {
+        // Handshake acknowledged — cancel retry timers
+        if (handshakeTimersRef.current[matchedSlotId]) {
+          for (const timer of handshakeTimersRef.current[matchedSlotId]) {
             window.clearTimeout(timer);
           }
-          delete handshakeTimersRef.current[matchedStreamId];
+          delete handshakeTimersRef.current[matchedSlotId];
         }
 
         if (parsed.playerState !== undefined) {
           const nextState = parsed.playerState;
           setPlayerStates((prev) =>
-            prev[matchedStreamId!] === nextState
-              ? prev
-              : { ...prev, [matchedStreamId!]: nextState }
+            prev[matchedSlotId!] === nextState ? prev : { ...prev, [matchedSlotId!]: nextState }
           );
+
+          const slot = activeSlotsRef.current.find((sl) => sl.slotId === matchedSlotId);
+          const iframe = iframeRefs.current[matchedSlotId] || null;
 
           if (nextState === 1 || nextState === 3) {
             setAllPaused(false);
-            if (viewMutedRef.current || mutedIdsRef.current[matchedStreamId]) {
-              sendYouTubeCommand(
-                iframeRefs.current[matchedStreamId] || null,
-                'mute',
-                [],
-                matchedStreamId
-              );
+            if (slot && iframe) {
+              applySlotAudio(slot, iframe, sleepFadeRef.current);
+            }
+          } else if (nextState === 0 && slot) {
+            // Video ended: increment loop counter & either loop or auto-pause at target
+            const nextCount = (completedLoopsRef.current[matchedSlotId] || 0) + 1;
+            setCompletedLoops((prev) => ({ ...prev, [matchedSlotId!]: nextCount }));
+
+            if (slot.loopMode === 'infinite' || nextCount < slot.loopCount) {
+              setLoopDoneMap((prev) => ({ ...prev, [matchedSlotId!]: false }));
+              sendYouTubeCommand(iframe, 'seekTo', [0, true], slot.slotId);
+              sendYouTubeCommand(iframe, 'playVideo', [], slot.slotId);
+              applySlotAudio(slot, iframe, sleepFadeRef.current);
+            } else {
+              setLoopDoneMap((prev) => ({ ...prev, [matchedSlotId!]: true }));
+              sendYouTubeCommand(iframe, 'pauseVideo', [], slot.slotId);
             }
           }
         }
@@ -267,88 +382,68 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
 
       window.addEventListener('message', handleMessage);
       return () => window.removeEventListener('message', handleMessage);
-    }, []);
+    }, [applySlotAudio]);
 
-    // Register YouTube IFrame listener with brief staggered retries on iframe load
-    const handleIframeLoad = useCallback((streamId: string, iframe: HTMLIFrameElement | null) => {
-      if (!iframe) return;
-      if (handshakeTimersRef.current[streamId]) {
-        for (const timer of handshakeTimersRef.current[streamId]) {
-          window.clearTimeout(timer);
-        }
-      }
-
-      registerYouTubeListener(iframe, streamId);
-      const t1 = window.setTimeout(() => {
-        registerYouTubeListener(iframeRefs.current[streamId] || iframe, streamId);
-      }, 500);
-      const t2 = window.setTimeout(() => {
-        registerYouTubeListener(iframeRefs.current[streamId] || iframe, streamId);
-      }, 1500);
-      handshakeTimersRef.current[streamId] = [t1, t2];
-
-      if (viewMutedRef.current || mutedIdsRef.current[streamId]) {
-        sendYouTubeCommand(iframe, 'mute', [], streamId);
-      }
-    }, []);
-
-    // Close presets dropdown on outside click
-    useEffect(() => {
-      if (!presetsOpen || !isActiveView) return;
-      const handlePointerDown = (e: MouseEvent) => {
-        if (
-          presetsPopoverRef.current &&
-          !presetsPopoverRef.current.contains(e.target as Node)
-        ) {
-          setPresetsOpen(false);
-        }
-      };
-      window.addEventListener('mousedown', handlePointerDown);
-      return () => window.removeEventListener('mousedown', handlePointerDown);
-    }, [presetsOpen, isActiveView]);
-
-    // Escape key closes expanded stream overlay or presets popover only when Streamer is visible
-    useEffect(() => {
-      if (!isActiveView) return;
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') {
-          if (expandedStreamId) {
-            setExpandedStreamId(null);
-          } else if (presetsOpen) {
-            setPresetsOpen(false);
+    // Register YouTube IFrame listener & initial audio state on iframe load
+    const handleIframeLoad = useCallback(
+      (slot: StackSlot, iframe: HTMLIFrameElement | null) => {
+        if (!iframe) return;
+        const slotId = slot.slotId;
+        if (handshakeTimersRef.current[slotId]) {
+          for (const timer of handshakeTimersRef.current[slotId]) {
+            window.clearTimeout(timer);
           }
         }
-      };
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [expandedStreamId, presetsOpen, isActiveView]);
 
-    // Derived audio & playback summary
+        registerYouTubeListener(iframe, slotId);
+        applySlotAudio(slot, iframe, sleepFadeRef.current);
+
+        const t1 = window.setTimeout(() => {
+          const el = iframeRefs.current[slotId] || iframe;
+          registerYouTubeListener(el, slotId);
+          const latestSlot =
+            activeSlotsRef.current.find((sl) => sl.slotId === slotId) || slot;
+          applySlotAudio(latestSlot, el, sleepFadeRef.current);
+        }, 500);
+
+        const t2 = window.setTimeout(() => {
+          const el = iframeRefs.current[slotId] || iframe;
+          registerYouTubeListener(el, slotId);
+          const latestSlot =
+            activeSlotsRef.current.find((sl) => sl.slotId === slotId) || slot;
+          applySlotAudio(latestSlot, el, sleepFadeRef.current);
+        }, 1500);
+
+        handshakeTimersRef.current[slotId] = [t1, t2];
+      },
+      [applySlotAudio]
+    );
+
+    // Derived audio & playback summary for KansoShell & Transport bar
     const allIndividuallyMuted = useMemo(
       () =>
-        activeStreams.length > 0 && activeStreams.every((s) => Boolean(mutedIds[s.id])),
-      [activeStreams, mutedIds]
+        activeSlots.length > 0 && activeSlots.every((sl) => sl.muted || sl.volume === 0),
+      [activeSlots]
     );
 
     const allActiveMuted = viewMuted || allIndividuallyMuted;
 
     const playingCount = useMemo(
       () =>
-        activeStreams.filter((s) => {
-          const st = playerStates[s.id];
+        activeSlots.filter((sl) => {
+          const st = playerStates[sl.slotId];
           return st === 1 || st === 3;
         }).length,
-      [activeStreams, playerStates]
+      [activeSlots, playerStates]
     );
 
     const isPlaying = playingCount > 0;
-    const isAllPaused = allPaused && activeStreams.length > 0 && !isPlaying;
+    const isAllPaused = allPaused && activeSlots.length > 0 && !isPlaying;
 
-    // Notify parent shell only when summary primitives change
     useEffect(() => {
       if (!onPlaybackStateChange) return;
       const next: StreamerPlaybackSummary = {
-        activeCount: activeStreams.length,
+        activeCount: activeSlots.length,
         playingCount,
         isPlaying,
         isViewMuted: allActiveMuted,
@@ -368,7 +463,7 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
       prevSummaryRef.current = next;
       onPlaybackStateChange(next);
     }, [
-      activeStreams.length,
+      activeSlots.length,
       playingCount,
       isPlaying,
       allActiveMuted,
@@ -376,129 +471,129 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
       onPlaybackStateChange,
     ]);
 
-    const handleToggleCardMute = (streamId: string) => {
-      if (viewMuted) {
-        const nextMap: Record<string, boolean> = { ...mutedIds };
-        for (const s of activeStreams) {
-          const shouldMute = s.id !== streamId;
-          nextMap[s.id] = shouldMute;
-          sendYouTubeCommand(
-            iframeRefs.current[s.id] || null,
-            shouldMute ? 'mute' : 'unMute',
-            [],
-            s.id
-          );
-        }
-        setViewMuted(false);
-        setMutedIds(nextMap);
-        return;
-      }
-
-      const currentlyMuted = Boolean(mutedIds[streamId]);
-      const nextMuted = !currentlyMuted;
-      setMutedIds((prev) => ({ ...prev, [streamId]: nextMuted }));
-      sendYouTubeCommand(
-        iframeRefs.current[streamId] || null,
-        nextMuted ? 'mute' : 'unMute',
-        [],
-        streamId
-      );
-    };
-
-    // Non-destructive temporary view mute (preserves individual per-card mute choices on unmute)
+    // Global Mute/Unmute toggle
     const handleToggleViewMute = useCallback(
       (silentToast = false) => {
-        if (activeStreams.length === 0) return;
+        if (activeSlots.length === 0) return;
 
         if (!allActiveMuted) {
           setViewMuted(true);
-          for (const s of activeStreams) {
-            sendYouTubeCommand(iframeRefs.current[s.id] || null, 'mute', [], s.id);
+          for (const sl of activeSlots) {
+            sendYouTubeCommand(iframeRefs.current[sl.slotId] || null, 'mute', [], sl.slotId);
           }
-          if (!silentToast) pushToast('Muted all active streams');
+          if (!silentToast) pushToast('Muted all stacked streams');
           return;
         }
 
         if (viewMuted) {
           setViewMuted(false);
           if (allIndividuallyMuted) {
-            const nextMap: Record<string, boolean> = { ...mutedIds };
-            for (const s of activeStreams) {
-              nextMap[s.id] = false;
-              sendYouTubeCommand(iframeRefs.current[s.id] || null, 'unMute', [], s.id);
-            }
-            setMutedIds(nextMap);
+            updateAllStreamSlots((sl) => ({
+              ...sl,
+              muted: false,
+              volume: sl.volume === 0 ? 50 : sl.volume,
+            }));
           } else {
-            for (const s of activeStreams) {
-              if (!mutedIds[s.id]) {
-                sendYouTubeCommand(iframeRefs.current[s.id] || null, 'unMute', [], s.id);
+            for (const sl of activeSlots) {
+              if (!sl.muted && sl.volume > 0) {
+                applySlotAudio(sl, iframeRefs.current[sl.slotId] || null, sleepFadeRef.current);
               }
             }
           }
-          if (!silentToast) pushToast('Unmuted active streams');
+          if (!silentToast) pushToast('Unmuted stacked streams');
           return;
         }
 
-        const nextMap: Record<string, boolean> = { ...mutedIds };
-        for (const s of activeStreams) {
-          nextMap[s.id] = false;
-          sendYouTubeCommand(iframeRefs.current[s.id] || null, 'unMute', [], s.id);
-        }
-        setMutedIds(nextMap);
-        if (!silentToast) pushToast('Unmuted all active streams');
+        updateAllStreamSlots((sl) => ({
+          ...sl,
+          muted: false,
+          volume: sl.volume === 0 ? 50 : sl.volume,
+        }));
+        if (!silentToast) pushToast('Unmuted all stacked streams');
       },
-      [activeStreams, allActiveMuted, viewMuted, allIndividuallyMuted, mutedIds, pushToast]
+      [
+        activeSlots,
+        allActiveMuted,
+        viewMuted,
+        allIndividuallyMuted,
+        updateAllStreamSlots,
+        applySlotAudio,
+        pushToast,
+      ]
     );
 
+    // Combined Play All / Pause All toggle
     const handleTogglePauseAll = useCallback(
       (silentToast = false) => {
-        if (activeStreams.length === 0) return;
+        if (activeSlots.length === 0) return;
 
-        if (isAllPaused) {
-          const savedTargets = pausedStreamIdsRef.current.filter((id) => activeIdSet.has(id));
-          const targets =
-            savedTargets.length > 0 ? savedTargets : activeStreams.map((s) => s.id);
-          for (const id of targets) {
-            sendYouTubeCommand(iframeRefs.current[id] || null, 'playVideo', [], id);
-            if (viewMutedRef.current || mutedIdsRef.current[id]) {
-              sendYouTubeCommand(iframeRefs.current[id] || null, 'mute', [], id);
-            }
+        const currentlyPlayingIds = activeSlots
+          .filter((sl) => playerStates[sl.slotId] === 1 || playerStates[sl.slotId] === 3)
+          .map((sl) => sl.slotId);
+
+        if (currentlyPlayingIds.length > 0 && !isAllPaused) {
+          pausedSlotIdsRef.current = currentlyPlayingIds;
+          for (const sl of activeSlots) {
+            sendYouTubeCommand(
+              iframeRefs.current[sl.slotId] || null,
+              'pauseVideo',
+              [],
+              sl.slotId
+            );
           }
-          setAllPaused(false);
+          setAllPaused(true);
           setPlayerStates((prev) => {
             const next = { ...prev };
-            for (const id of targets) next[id] = 1;
+            for (const sl of activeSlots) {
+              if (next[sl.slotId] === 1 || next[sl.slotId] === 3) next[sl.slotId] = 2;
+            }
             return next;
           });
-          if (!silentToast) pushToast('Resumed streams');
+          if (!silentToast) pushToast('Paused all stacked streams');
           return;
         }
 
-        const currentlyPlayingIds = activeStreams
-          .filter((s) => playerStates[s.id] === 1 || playerStates[s.id] === 3)
-          .map((s) => s.id);
-        pausedStreamIdsRef.current =
-          currentlyPlayingIds.length > 0
-            ? currentlyPlayingIds
-            : activeStreams.map((s) => s.id);
+        const savedTargets = pausedSlotIdsRef.current.filter((id) => activeSlotIdSet.has(id));
+        const targets =
+          savedTargets.length > 0 ? savedTargets : activeSlots.map((sl) => sl.slotId);
 
-        for (const s of activeStreams) {
-          sendYouTubeCommand(iframeRefs.current[s.id] || null, 'pauseVideo', [], s.id);
+        for (const slotId of targets) {
+          const slot = activeSlots.find((sl) => sl.slotId === slotId);
+          const iframe = iframeRefs.current[slotId] || null;
+          sendYouTubeCommand(iframe, 'playVideo', [], slotId);
+          if (slot) applySlotAudio(slot, iframe, sleepFadeRef.current);
         }
-        setAllPaused(true);
+        setAllPaused(false);
         setPlayerStates((prev) => {
           const next = { ...prev };
-          for (const s of activeStreams) {
-            if (next[s.id] === 1 || next[s.id] === 3) next[s.id] = 2;
-          }
+          for (const id of targets) next[id] = 1;
           return next;
         });
-        if (!silentToast) pushToast('Paused all active streams');
+        if (!silentToast) pushToast('Playing all stacked streams');
       },
-      [activeStreams, activeIdSet, isAllPaused, playerStates, pushToast]
+      [activeSlots, activeSlotIdSet, isAllPaused, playerStates, applySlotAudio, pushToast]
     );
 
-    // Expose imperative controls for KansoShell's Streamer nav tab buttons
+    // Sync All: seeks every active slot to 0:00 and starts synchronized playback
+    const handleSyncAll = useCallback(() => {
+      if (activeSlots.length === 0) return;
+      for (const slot of activeSlots) {
+        const iframe = iframeRefs.current[slot.slotId] || null;
+        sendYouTubeCommand(iframe, 'seekTo', [0, true], slot.slotId);
+        sendYouTubeCommand(iframe, 'playVideo', [], slot.slotId);
+        applySlotAudio(slot, iframe, sleepFadeRef.current);
+      }
+      setAllPaused(false);
+      setLoopDoneMap({});
+      setPlayerStates((prev) => {
+        const next = { ...prev };
+        for (const sl of activeSlots) next[sl.slotId] = 1;
+        return next;
+      });
+      pushToast('Synced all streams to 0:00', 'success');
+    }, [activeSlots, applySlotAudio, pushToast]);
+
+    // Expose imperative controls for KansoShell's nav tab quick-buttons
     useImperativeHandle(
       ref,
       () => ({
@@ -508,253 +603,171 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
       [handleToggleViewMute, handleTogglePauseAll]
     );
 
-    // Spotlight resolution
-    const spotlightPrimary = useMemo(() => {
-      if (activeStreams.length === 0) return null;
-      const preferred = streamerState.spotlightStreamId
-        ? activeStreams.find((s) => s.id === streamerState.spotlightStreamId)
-        : null;
-      return preferred || activeStreams[0];
-    }, [activeStreams, streamerState.spotlightStreamId]);
+    // Quick-Add URL / 11-char ID handler (saves to Vault if new, layers onto stack)
+    const handleQuickAddUrl = useCallback(
+      async (rawUrl: string): Promise<boolean> => {
+        const parsed = parseYouTubeUrl(rawUrl);
+        if (!parsed) {
+          pushToast('Enter a valid YouTube URL or 11-character video ID', 'error');
+          return false;
+        }
 
-    const spotlightSecondary = useMemo(() => {
-      if (!spotlightPrimary) return [];
-      return activeStreams.filter((s) => s.id !== spotlightPrimary.id);
-    }, [activeStreams, spotlightPrimary]);
+        const existing = streams.find((s) => s.videoId === parsed.videoId);
+        if (existing) {
+          addStreamSlot(existing.id);
+          pushToast(
+            `Layered "${existing.customLabel || existing.title}" onto stack`,
+            'success'
+          );
+          return true;
+        }
 
-    // Desktop CSS grid column calculation
+        const meta = await fetchYouTubeMetadata(rawUrl);
+        addStream(
+          {
+            url: parsed.normalizedUrl,
+            videoId: parsed.videoId,
+            title: meta?.title || `YouTube Stream (${parsed.videoId})`,
+            channel: meta?.channel || '',
+            customLabel: '',
+            thumbnailUrl: meta?.thumbnailUrl || parsed.thumbnailUrl,
+            category: 'Subliminals',
+            tags: [],
+            favorite: false,
+            notes: '',
+            affirmations: '',
+            folderIds: [],
+            rating: 0,
+            listenCount: 1,
+            lastListenedAt: new Date().toISOString(),
+          },
+          true
+        );
+        return true;
+      },
+      [streams, addStreamSlot, addStream, pushToast]
+    );
+
+    // Per-card mute toggle
+    const handleToggleCardMute = useCallback(
+      (slot: StackSlot) => {
+        if (viewMuted) {
+          setViewMuted(false);
+          updateAllStreamSlots((sl) => ({
+            ...sl,
+            muted: sl.slotId !== slot.slotId,
+          }));
+          return;
+        }
+        updateStreamSlot(slot.slotId, { muted: !slot.muted });
+      },
+      [viewMuted, updateAllStreamSlots, updateStreamSlot]
+    );
+
+    // Per-card volume change (auto-unmutes slot when dragged above 0)
+    const handleChangeCardVolume = useCallback(
+      (slot: StackSlot, nextVol: number) => {
+        const clamped = Math.max(0, Math.min(100, Math.round(nextVol)));
+        if (viewMuted && clamped > 0) {
+          setViewMuted(false);
+        }
+        updateStreamSlot(slot.slotId, {
+          volume: clamped,
+          muted: clamped === 0 ? true : false,
+        });
+      },
+      [viewMuted, updateStreamSlot]
+    );
+
+    const handleToggleLoopMode = useCallback(
+      (slot: StackSlot) => {
+        const nextMode = slot.loopMode === 'infinite' ? 'count' : 'infinite';
+        updateStreamSlot(slot.slotId, { loopMode: nextMode });
+        if (nextMode === 'infinite' || (completedLoops[slot.slotId] || 0) < slot.loopCount) {
+          setLoopDoneMap((prev) => ({ ...prev, [slot.slotId]: false }));
+        }
+      },
+      [updateStreamSlot, completedLoops]
+    );
+
+    const handleChangeLoopCount = useCallback(
+      (slot: StackSlot, nextCount: number) => {
+        const safeCount = Math.max(1, Math.min(999, Math.round(nextCount)));
+        updateStreamSlot(slot.slotId, {
+          loopMode: 'count',
+          loopCount: safeCount,
+        });
+        if ((completedLoops[slot.slotId] || 0) < safeCount) {
+          setLoopDoneMap((prev) => ({ ...prev, [slot.slotId]: false }));
+        }
+      },
+      [updateStreamSlot, completedLoops]
+    );
+
+    const handleQuietLayer = useCallback(() => {
+      setViewMuted(false);
+      updateAllStreamSlots((sl) => ({ ...sl, volume: 20, muted: false }));
+      pushToast('Quiet Layer set (20% bed)', 'success');
+    }, [updateAllStreamSlots, pushToast]);
+
+    const handleBalanceAll = useCallback(() => {
+      setViewMuted(false);
+      updateAllStreamSlots((sl) => ({ ...sl, volume: 50, muted: false }));
+      pushToast('Balanced all layers to 50%', 'success');
+    }, [updateAllStreamSlots, pushToast]);
+
+    const handleStartSleepTimer = useCallback(
+      (minutes: number) => {
+        const safeMins = Math.max(1, Math.min(480, Math.round(minutes)));
+        setSleepRemainingSeconds(safeMins * 60);
+        pushToast(`Sleep timer set for ${safeMins}m (with fade-out)`, 'success');
+      },
+      [pushToast]
+    );
+
+    const handleCancelSleepTimer = useCallback(() => {
+      setSleepRemainingSeconds(null);
+      pushToast('Sleep timer cancelled');
+    }, [pushToast]);
+
+    const handleToggleSidebar = useCallback(() => {
+      if (isLargeViewport) {
+        updateStreamerState({ sidebarOpen: !desktopSidebarOpen });
+      } else {
+        setMobileSidebarOpen((prev) => !prev);
+      }
+    }, [isLargeViewport, desktopSidebarOpen, updateStreamerState]);
+
+    // Grid columns & Fit/Canvas style calculation
     const desktopColumns = useMemo(() => {
-      const count = activeStreams.length;
-      switch (streamerState.layoutMode) {
-        case '1x1':
-          return 1;
-        case '2x2':
-          return 2;
-        case '3x3':
-          return 3;
-        case '4x4':
-          return 4;
-        case 'custom':
-          return Math.max(1, Math.min(6, streamerState.customCols));
-        case 'auto':
-        default:
-          if (count <= 1) return 1;
-          if (count <= 4) return 2;
-          if (count <= 9) return 3;
-          return 4;
+      if (viewMode === 'tiles' && streamerState.layoutMode === 'auto') {
+        return Math.min(6, Math.max(2, activeSlots.length || 2));
       }
-    }, [streamerState.layoutMode, streamerState.customCols, activeStreams.length]);
-
-    const handleSavePresetSubmit = (e: React.FormEvent) => {
-      e.preventDefault();
-      const trimmed = presetNameInput.trim();
-      if (!trimmed) return;
-      saveStreamPreset(trimmed);
-      setPresetNameInput('');
-    };
-
-    // Drag & drop handlers for reordering active grid cards
-    const handleCardDragStart = (index: number) => {
-      setDragIndex(index);
-    };
-
-    const handleCardDragOver = (e: React.DragEvent, index: number) => {
-      e.preventDefault();
-      if (dragIndex !== null && dragIndex !== index) {
-        setDragOverIndex(index);
-      }
-    };
-
-    const handleCardDrop = (e: React.DragEvent, dropIndex: number) => {
-      e.preventDefault();
-      if (dragIndex !== null && dragIndex !== dropIndex) {
-        reorderActiveStreams(dragIndex, dropIndex);
-      }
-      setDragIndex(null);
-      setDragOverIndex(null);
-    };
-
-    const handleCardDragEnd = () => {
-      setDragIndex(null);
-      setDragOverIndex(null);
-    };
-
-    // Render a single live YouTube stream card
-    const renderStreamCard = (
-      stream: StreamItem,
-      activeIndex: number,
-      options?: { isPrimarySpotlight?: boolean; compact?: boolean }
-    ) => {
-      const isMuted = viewMuted || Boolean(mutedIds[stream.id]);
-      const isDragging = dragIndex === activeIndex;
-      const isDropTarget = dragOverIndex === activeIndex && dragIndex !== activeIndex;
-      const isSpotlightMode = streamerState.layoutMode === 'spotlight';
-      const isPrimary = Boolean(options?.isPrimarySpotlight);
-      const compact = Boolean(options?.compact);
-
-      return (
-        <article
-          key={stream.id}
-          draggable
-          onDragStart={() => handleCardDragStart(activeIndex)}
-          onDragOver={(e) => handleCardDragOver(e, activeIndex)}
-          onDrop={(e) => handleCardDrop(e, activeIndex)}
-          onDragEnd={handleCardDragEnd}
-          className="rounded-xl border overflow-hidden flex flex-col transition-all"
-          style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: isDropTarget
-              ? 'var(--accent)'
-              : isPrimary
-              ? 'var(--border-strong)'
-              : 'var(--border-subtle)',
-            opacity: isDragging ? 0.55 : 1,
-            outline: isDropTarget ? '2px solid var(--accent)' : 'none',
-            outlineOffset: '1px',
-          }}
-        >
-          {/* Stream Card Header */}
-          <div
-            className="px-2.5 py-2 border-b flex items-center justify-between gap-2"
-            style={{
-              borderColor: 'var(--border-subtle)',
-              backgroundColor: 'var(--bg-surface-subtle)',
-            }}
-          >
-            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-              <span
-                className="hidden sm:inline-flex items-center justify-center cursor-grab active:cursor-grabbing shrink-0"
-                style={{ color: 'var(--text-muted)' }}
-                title="Drag to reorder"
-              >
-                <GripVertical className="w-3.5 h-3.5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div
-                  className={`${compact ? 'text-xs' : 'text-xs sm:text-sm'} font-medium truncate`}
-                  title={stream.customLabel || stream.title}
-                >
-                  {stream.customLabel || stream.title}
-                </div>
-                {!compact && (
-                  <div
-                    className="text-[11px] truncate"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    {[stream.channel || 'YouTube', stream.category]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Per-Card Action Controls */}
-            <div className="flex items-center gap-0.5 shrink-0">
-              {activeStreams.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    disabled={activeIndex === 0}
-                    onClick={() => reorderActiveStreams(activeIndex, activeIndex - 1)}
-                    className="h-7 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)] disabled:opacity-30"
-                    style={{ color: 'var(--text-secondary)' }}
-                    title="Move earlier in grid"
-                    aria-label="Move stream left"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={activeIndex === activeStreams.length - 1}
-                    onClick={() => reorderActiveStreams(activeIndex, activeIndex + 1)}
-                    className="h-7 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)] disabled:opacity-30"
-                    style={{ color: 'var(--text-secondary)' }}
-                    title="Move later in grid"
-                    aria-label="Move stream right"
-                  >
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </>
-              )}
-
-              {(!isSpotlightMode || !isPrimary) && activeStreams.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    updateStreamerState({
-                      layoutMode: 'spotlight',
-                      spotlightStreamId: stream.id,
-                      activePresetId: null,
-                    })
-                  }
-                  className="h-7 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)]"
-                  style={{ color: 'var(--text-secondary)' }}
-                  title="Spotlight this stream"
-                  aria-label="Spotlight stream"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => handleToggleCardMute(stream.id)}
-                className="h-7 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{
-                  color: isMuted ? 'var(--danger)' : 'var(--text-secondary)',
-                }}
-                title={isMuted ? 'Unmute stream' : 'Mute stream'}
-                aria-label={isMuted ? 'Unmute stream' : 'Mute stream'}
-              >
-                {isMuted ? (
-                  <VolumeX className="w-3.5 h-3.5" />
-                ) : (
-                  <Volume2 className="w-3.5 h-3.5" />
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setExpandedStreamId(stream.id)}
-                className="h-7 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{ color: 'var(--text-secondary)' }}
-                title="Expand stream"
-                aria-label="Expand stream"
-              >
-                <Maximize2 className="w-3.5 h-3.5" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => toggleStreamInGrid(stream.id)}
-                className="h-7 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{ color: 'var(--text-muted)' }}
-                title="Remove from grid (keeps saved URL in Vault)"
-                aria-label="Remove stream from grid"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* YouTube Player Frame (16:9, starts UNMUTED by default) */}
-          <div className="relative w-full aspect-video bg-black">
-            <iframe
-              ref={(el) => {
-                iframeRefs.current[stream.id] = el;
-              }}
-              onLoad={(e) => handleIframeLoad(stream.id, e.currentTarget)}
-              src={buildYouTubeEmbedUrl(stream.videoId)}
-              title={stream.customLabel || stream.title}
-              className="absolute inset-0 w-full h-full border-0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-            />
-          </div>
-        </article>
+      return resolveGridColumns(
+        streamerState.layoutMode,
+        activeSlots.length,
+        streamerState.customCols
       );
-    };
+    }, [viewMode, streamerState.layoutMode, streamerState.customCols, activeSlots.length]);
+
+    const gridContainerStyle = useMemo<React.CSSProperties | undefined>(() => {
+      if (viewMode === 'mixer') return undefined;
+      if (!isDesktopGridViewport) {
+        return {
+          gridTemplateColumns:
+            viewMode === 'tiles' ? 'repeat(2, minmax(0, 1fr))' : 'repeat(1, minmax(0, 1fr))',
+        };
+      }
+      if (sizingMode === 'canvas') {
+        const minWidth = viewMode === 'tiles' ? 200 : 280;
+        return {
+          gridTemplateColumns: `repeat(${desktopColumns}, minmax(${minWidth}px, 1fr))`,
+        };
+      }
+      return {
+        gridTemplateColumns: `repeat(${desktopColumns}, minmax(0, 1fr))`,
+      };
+    }, [viewMode, isDesktopGridViewport, sizingMode, desktopColumns]);
 
     const handleVaultLoadStreams = useCallback(
       (streamIds: string[], mode: 'replace' | 'append' = 'replace', label?: string) => {
@@ -766,557 +779,278 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
       [loadStreamsToGrid]
     );
 
+    const handleSidebarStackStream = useCallback(
+      (streamId: string) => {
+        const stream = streamById.get(streamId);
+        const alreadyIn = activeStreamIdSet.has(streamId);
+        addStreamSlot(streamId);
+        if (stream) {
+          pushToast(
+            alreadyIn
+              ? `Added layer: "${stream.customLabel || stream.title}"`
+              : `Stacked "${stream.customLabel || stream.title}"`,
+            'success'
+          );
+        }
+      },
+      [streamById, activeStreamIdSet, addStreamSlot, pushToast]
+    );
+
     return (
       <div className="flex flex-col h-[calc(100dvh-3rem-3.75rem-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] lg:h-dvh min-h-[520px] overflow-hidden">
-        {/* Top Control Toolbar */}
-        <header
-          className="px-4 sm:px-6 py-3 border-b flex flex-wrap items-center justify-between gap-3 shrink-0"
-          style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
-          }}
-        >
-          {/* Left: Title + Cohesive Segmented Live Grid / Vault Switcher */}
-          <div className="flex items-center gap-3.5 min-w-0">
-            <h1 className="font-display text-lg sm:text-xl font-bold tracking-tight whitespace-nowrap">
-              Streamer
-            </h1>
+        {/* Top Utility & Layout Bar */}
+        <StreamerTopBar
+          subView={subView}
+          onChangeSubView={setSubView}
+          activeCount={activeSlots.length}
+          vaultCount={streams.length}
+          viewMode={viewMode}
+          onChangeViewMode={(mode) =>
+            updateStreamerState({ viewMode: mode, activePresetId: null })
+          }
+          layoutMode={streamerState.layoutMode}
+          onChangeLayoutMode={(mode) =>
+            updateStreamerState({ layoutMode: mode, activePresetId: null })
+          }
+          sizingMode={sizingMode}
+          onChangeSizingMode={(mode) =>
+            updateStreamerState({ sizingMode: mode, activePresetId: null })
+          }
+          sidebarOpen={isLargeViewport ? desktopSidebarOpen : mobileSidebarOpen}
+          onToggleSidebar={handleToggleSidebar}
+          onQuickAddUrl={handleQuickAddUrl}
+        />
 
+        {/* Global Transport & Master Mixer Bar (shown on Live Grid) */}
+        {subView === 'grid' && (
+          <StreamerTransportBar
+            stackedCount={activeSlots.length}
+            isPlaying={isPlaying}
+            isAllPaused={isAllPaused}
+            allActiveMuted={allActiveMuted}
+            masterVolume={masterVolume}
+            sleepRemainingSeconds={sleepRemainingSeconds}
+            onTogglePlayPauseAll={() => handleTogglePauseAll(false)}
+            onToggleMuteAll={() => handleToggleViewMute(false)}
+            onSyncAll={handleSyncAll}
+            onChangeMasterVolume={(vol) =>
+              updateStreamerState({ masterVolume: Math.max(0, Math.min(100, vol)) })
+            }
+            onQuietLayer={handleQuietLayer}
+            onBalanceAll={handleBalanceAll}
+            onStartSleepTimer={handleStartSleepTimer}
+            onCancelSleepTimer={handleCancelSleepTimer}
+            onSaveStack={(name, category) => saveStreamPreset(name, category)}
+            onClearStack={clearStreamSlots}
+          />
+        )}
+
+        {/* Main Studio Workspace Area (Live Stack stays mounted offscreen when Vault is open so audio NEVER stops) */}
+        <div className="relative flex-1 min-h-0 flex overflow-hidden">
+          {/* Layer 1: Live Multi-Stream Stack Canvas + Collapsible Right Sidebar */}
+          <div
+            aria-hidden={subView !== 'grid'}
+            className={
+              subView === 'grid'
+                ? 'flex flex-1 min-w-0 min-h-0 overflow-hidden'
+                : 'fixed -left-[9999px] top-0 w-[1024px] h-[600px] opacity-0 pointer-events-none select-none overflow-hidden'
+            }
+          >
+            {/* Scrollable Stack Grid / Compact Mixer / Mini Tiles */}
             <div
-              className="inline-flex items-center gap-0.5 p-1 rounded-xl border shrink-0"
-              style={{
-                backgroundColor: 'var(--bg-surface-subtle)',
-                borderColor: 'var(--border-subtle)',
-              }}
-              role="tablist"
-              aria-label="Streamer subview"
+              className={`flex-1 min-w-0 overflow-y-auto ${
+                sizingMode === 'canvas' ? 'overflow-x-auto' : 'overflow-x-hidden'
+              } p-3.5 sm:p-5`}
+              style={{ backgroundColor: 'var(--bg-canvas)' }}
             >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={subView === 'grid'}
-                onClick={() => setSubView('grid')}
-                className="h-7 px-2.5 sm:px-3 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                style={{
-                  backgroundColor: subView === 'grid' ? 'var(--bg-surface)' : 'transparent',
-                  color: subView === 'grid' ? 'var(--accent)' : 'var(--text-secondary)',
-                }}
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span>Live Grid</span>
-                <span
-                  className="text-[11px] font-mono tabular-nums opacity-75"
-                  style={{ color: subView === 'grid' ? 'var(--accent)' : 'var(--text-muted)' }}
-                >
-                  {activeStreams.length}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                role="tab"
-                aria-selected={subView === 'vault'}
-                onClick={() => setSubView('vault')}
-                className="h-7 px-2.5 sm:px-3 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                style={{
-                  backgroundColor: subView === 'vault' ? 'var(--bg-surface)' : 'transparent',
-                  color: subView === 'vault' ? 'var(--accent)' : 'var(--text-secondary)',
-                }}
-              >
-                <FolderKanban className="w-3.5 h-3.5" />
-                <span>Vault</span>
-                <span
-                  className="text-[11px] font-mono tabular-nums opacity-75"
-                  style={{ color: subView === 'vault' ? 'var(--accent)' : 'var(--text-muted)' }}
-                >
-                  {streams.length}
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* Right Controls (Contextual to Live Grid vs Vault) */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Live Grid Layout Controls (shown only on Live Grid) */}
-            {subView === 'grid' && (
-              <>
-                <div
-                  className="hidden md:inline-flex items-center gap-0.5 p-1 rounded-xl border"
-                  style={{
-                    backgroundColor: 'var(--bg-surface-subtle)',
-                    borderColor: 'var(--border-subtle)',
-                  }}
-                  role="group"
-                  aria-label="Stream grid layout"
-                >
-                  {LAYOUT_OPTIONS.map((opt) => {
-                    const active = streamerState.layoutMode === opt.id;
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() =>
-                          updateStreamerState({
-                            layoutMode: opt.id,
-                            activePresetId: null,
-                          })
-                        }
-                        className="px-2.5 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap"
-                        style={{
-                          backgroundColor: active ? 'var(--bg-surface)' : 'transparent',
-                          color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                        }}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {streamerState.layoutMode === 'custom' && (
+              {activeSlots.length === 0 ? (
+                <div className="h-full min-h-[340px] flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-4">
                   <div
-                    className="hidden md:inline-flex items-center gap-2 px-2.5 py-1 rounded-xl border text-xs font-mono tabular-nums"
+                    className="w-12 h-12 rounded-2xl border flex items-center justify-center"
                     style={{
-                      backgroundColor: 'var(--bg-surface-subtle)',
+                      backgroundColor: 'var(--bg-surface)',
                       borderColor: 'var(--border-subtle)',
+                      color: 'var(--accent)',
                     }}
                   >
-                    <span style={{ color: 'var(--text-muted)' }}>Cols</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateStreamerState({
-                          customCols: Math.max(1, streamerState.customCols - 1),
-                          activePresetId: null,
-                        })
-                      }
-                      className="h-6 w-6 rounded-md border flex items-center justify-center"
-                      style={{
-                        backgroundColor: 'var(--bg-surface)',
-                        borderColor: 'var(--border-subtle)',
-                      }}
-                      aria-label="Decrease columns"
-                    >
-                      -
-                    </button>
-                    <span className="w-3 text-center font-semibold">
-                      {streamerState.customCols}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateStreamerState({
-                          customCols: Math.min(6, streamerState.customCols + 1),
-                          activePresetId: null,
-                        })
-                      }
-                      className="h-6 w-6 rounded-md border flex items-center justify-center"
-                      style={{
-                        backgroundColor: 'var(--bg-surface)',
-                        borderColor: 'var(--border-subtle)',
-                      }}
-                      aria-label="Increase columns"
-                    >
-                      +
-                    </button>
-
-                    <span className="mx-0.5" style={{ color: 'var(--text-muted)' }}>
-                      ×
-                    </span>
-
-                    <span style={{ color: 'var(--text-muted)' }}>Rows</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateStreamerState({
-                          customRows: Math.max(1, streamerState.customRows - 1),
-                          activePresetId: null,
-                        })
-                      }
-                      className="h-6 w-6 rounded-md border flex items-center justify-center"
-                      style={{
-                        backgroundColor: 'var(--bg-surface)',
-                        borderColor: 'var(--border-subtle)',
-                      }}
-                      aria-label="Decrease rows"
-                    >
-                      -
-                    </button>
-                    <span className="w-3 text-center font-semibold">
-                      {streamerState.customRows}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateStreamerState({
-                          customRows: Math.min(4, streamerState.customRows + 1),
-                          activePresetId: null,
-                        })
-                      }
-                      className="h-6 w-6 rounded-md border flex items-center justify-center"
-                      style={{
-                        backgroundColor: 'var(--bg-surface)',
-                        borderColor: 'var(--border-subtle)',
-                      }}
-                      aria-label="Increase rows"
-                    >
-                      +
-                    </button>
+                    <LayoutGrid className="w-5 h-5" />
                   </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => setMobileTwoCol((prev) => !prev)}
-                  className="md:hidden h-9 px-2.5 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5"
-                  style={{
-                    backgroundColor: mobileTwoCol ? 'var(--accent-soft)' : 'var(--bg-surface)',
-                    borderColor: mobileTwoCol ? 'var(--accent)' : 'var(--border-subtle)',
-                    color: mobileTwoCol ? 'var(--accent)' : 'var(--text-secondary)',
-                  }}
-                  aria-label="Toggle 1-column or 2-column mobile grid"
-                >
-                  {mobileTwoCol ? (
-                    <>
-                      <Columns2 className="w-3.5 h-3.5" />
-                      <span>2-Col</span>
-                    </>
-                  ) : (
-                    <>
-                      <Rows2 className="w-3.5 h-3.5" />
-                      <span>1-Col</span>
-                    </>
-                  )}
-                </button>
-              </>
-            )}
-
-            {/* Named Grid Presets Popover */}
-            <div className="relative" ref={presetsPopoverRef}>
-              <button
-                type="button"
-                onClick={() => setPresetsOpen((prev) => !prev)}
-                className="h-9 px-3 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                style={{
-                  backgroundColor: presetsOpen ? 'var(--accent-soft)' : 'var(--bg-surface)',
-                  borderColor: presetsOpen ? 'var(--accent)' : 'var(--border-subtle)',
-                  color: presetsOpen ? 'var(--accent)' : 'var(--text-secondary)',
-                }}
-              >
-                <Bookmark className="w-3.5 h-3.5" />
-                <span>Presets</span>
-                <span className="font-mono tabular-nums opacity-75">
-                  ({streamPresets.length})
-                </span>
-              </button>
-
-              {presetsOpen && (
-                <div
-                  className="absolute right-0 mt-2 w-72 sm:w-80 rounded-2xl border p-3.5 space-y-3 z-40"
-                  style={{
-                    backgroundColor: 'var(--bg-elevated)',
-                    borderColor: 'var(--border-strong)',
-                    boxShadow: 'var(--shadow-popover)',
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold">Saved Grid Presets</span>
+                  <div className="space-y-1.5">
+                    <h2 className="font-display text-base font-bold">Your Live Stack is empty</h2>
+                    <p
+                      className="text-xs leading-relaxed"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      Paste a YouTube URL or 11-character ID above, pick tracks from Quick-Add in
+                      the library sidebar, or load a saved Routine Stack Preset.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setPresetsOpen(false)}
-                      className="h-6 w-6 flex items-center justify-center rounded-md"
-                      style={{ color: 'var(--text-muted)' }}
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleSavePresetSubmit} className="flex items-center gap-1.5">
-                    <input
-                      type="text"
-                      value={presetNameInput}
-                      onChange={(e) => setPresetNameInput(e.target.value)}
-                      placeholder="Save current grid as..."
-                      className="flex-1 min-w-0 h-8 px-2.5 rounded-lg border text-xs outline-none"
-                      style={{
-                        backgroundColor: 'var(--bg-surface)',
-                        borderColor: 'var(--border-subtle)',
-                        color: 'var(--text-primary)',
-                      }}
-                    />
-                    <button
-                      type="submit"
-                      disabled={!presetNameInput.trim()}
-                      className="h-8 px-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 disabled:opacity-45 shrink-0"
+                      onClick={() => setSubView('vault')}
+                      className="h-9 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5"
                       style={{
                         backgroundColor: 'var(--accent)',
                         color: 'var(--accent-fg)',
                       }}
                     >
-                      <Save className="w-3.5 h-3.5" />
-                      <span>Save</span>
+                      <FolderKanban className="w-3.5 h-3.5" />
+                      <span>Browse Vault</span>
                     </button>
-                  </form>
-
-                  <div className="space-y-1 max-h-56 overflow-y-auto">
-                    {streamPresets.length === 0 ? (
-                      <div
-                        className="text-xs py-4 text-center"
-                        style={{ color: 'var(--text-muted)' }}
+                    {streamPresets.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => loadStreamPreset(streamPresets[0].id)}
+                        className="h-9 px-3.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-hover)]"
+                        style={{
+                          backgroundColor: 'var(--bg-surface)',
+                          borderColor: 'var(--border-subtle)',
+                          color: 'var(--text-primary)',
+                        }}
                       >
-                        No presets saved yet.
-                      </div>
-                    ) : (
-                      streamPresets.map((preset) => {
-                        const isActivePreset = streamerState.activePresetId === preset.id;
-                        const layoutSummary =
-                          preset.layoutMode === 'custom'
-                            ? `${preset.customCols}×${preset.customRows}`
-                            : LAYOUT_LABELS[preset.layoutMode];
-                        return (
-                          <div
-                            key={preset.id}
-                            className="flex items-center justify-between gap-2 p-2 rounded-xl border transition-colors"
-                            style={{
-                              backgroundColor: isActivePreset
-                                ? 'var(--accent-soft)'
-                                : 'var(--bg-surface)',
-                              borderColor: isActivePreset
-                                ? 'var(--accent)'
-                                : 'var(--border-subtle)',
-                            }}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => {
-                                loadStreamPreset(preset.id);
-                                setPresetsOpen(false);
-                                setSubView('grid');
-                              }}
-                              className="min-w-0 flex-1 text-left"
-                            >
-                              <div className="text-xs font-semibold truncate">
-                                {preset.name}
-                              </div>
-                              <div
-                                className="text-[11px] font-mono tabular-nums"
-                                style={{ color: 'var(--text-muted)' }}
-                              >
-                                {layoutSummary} · {preset.streamIds.length} streams
-                              </div>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteStreamPreset(preset.id)}
-                              className="h-7 w-7 flex items-center justify-center rounded-lg shrink-0"
-                              style={{ color: 'var(--text-muted)' }}
-                              title="Delete preset"
-                              aria-label={`Delete preset ${preset.name}`}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        );
-                      })
+                        <Bookmark className="w-3.5 h-3.5" />
+                        <span>Load {streamPresets[0].name}</span>
+                      </button>
                     )}
                   </div>
+                </div>
+              ) : (
+                <div
+                  className={
+                    viewMode === 'mixer'
+                      ? 'flex flex-col gap-2.5 max-w-[1400px] mx-auto'
+                      : `grid ${
+                          viewMode === 'tiles' ? 'gap-2.5' : 'gap-3.5'
+                        } ${
+                          sizingMode === 'fit' && desktopColumns === 1
+                            ? 'max-w-4xl mx-auto'
+                            : sizingMode === 'fit'
+                            ? 'max-w-[1800px] mx-auto'
+                            : ''
+                        }`
+                  }
+                  style={gridContainerStyle}
+                >
+                  {activeSlots.map((slot, index) => {
+                    const stream = streamById.get(slot.streamId);
+                    if (!stream) return null;
+
+                    return (
+                      <StreamSlotCard
+                        key={slot.slotId}
+                        slot={slot}
+                        stream={stream}
+                        index={index}
+                        viewMode={viewMode}
+                        isGloballyMuted={viewMuted}
+                        completedLoops={completedLoops[slot.slotId] || 0}
+                        loopTargetReached={Boolean(loopDoneMap[slot.slotId])}
+                        isDragging={dragIndex === index}
+                        isDropTarget={dragOverIndex === index && dragIndex !== index}
+                        iframeRef={(el) => {
+                          iframeRefs.current[slot.slotId] = el;
+                        }}
+                        onIframeLoad={(el) => handleIframeLoad(slot, el)}
+                        onDragStart={() => setDragIndex(index)}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          if (dragIndex !== null && dragIndex !== index) {
+                            setDragOverIndex(index);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (dragIndex !== null && dragIndex !== index) {
+                            reorderActiveSlots(dragIndex, index);
+                          }
+                          setDragIndex(null);
+                          setDragOverIndex(null);
+                        }}
+                        onDragEnd={() => {
+                          setDragIndex(null);
+                          setDragOverIndex(null);
+                        }}
+                        onToggleMute={() => handleToggleCardMute(slot)}
+                        onChangeVolume={(vol) => handleChangeCardVolume(slot, vol)}
+                        onToggleLoopMode={() => handleToggleLoopMode(slot)}
+                        onChangeLoopCount={(count) => handleChangeLoopCount(slot, count)}
+                        onRemove={() => removeStreamSlot(slot.slotId)}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            {/* Global Pause & Mute Controls on Live Grid toolbar */}
-            {subView === 'grid' && activeStreams.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => handleTogglePauseAll(false)}
-                  className="h-9 px-3 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                  style={{
-                    backgroundColor: isAllPaused ? 'var(--accent-soft)' : 'var(--bg-surface)',
-                    borderColor: isAllPaused ? 'var(--accent)' : 'var(--border-subtle)',
-                    color: isAllPaused ? 'var(--accent)' : 'var(--text-secondary)',
-                  }}
-                  title={isAllPaused ? 'Resume all streams' : 'Pause all streams'}
-                >
-                  {isAllPaused ? (
-                    <>
-                      <Play className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Resume All</span>
-                    </>
-                  ) : (
-                    <>
-                      <Pause className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Pause All</span>
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleToggleViewMute(false)}
-                  className="h-9 px-3 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                  style={{
-                    backgroundColor: allActiveMuted
-                      ? 'var(--bg-surface-subtle)'
-                      : 'var(--bg-surface)',
-                    borderColor: allActiveMuted ? 'var(--danger)' : 'var(--border-subtle)',
-                    color: allActiveMuted ? 'var(--danger)' : 'var(--text-secondary)',
-                  }}
-                >
-                  {allActiveMuted ? (
-                    <>
-                      <VolumeX className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Unmute All</span>
-                    </>
-                  ) : (
-                    <>
-                      <Volume2 className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Mute All</span>
-                    </>
-                  )}
-                </button>
-              </>
-            )}
-          </div>
-        </header>
-
-        {/* Main Canvas Area — Live Grid stays mounted offscreen when Vault is open so audio NEVER stops */}
-        <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
-          {/* Layer 1: Live Multi-Stream Grid (permanently mounted for uninterrupted playback) */}
-          <div
-            aria-hidden={subView !== 'grid'}
-            className={
-              subView === 'grid'
-                ? 'flex-1 overflow-y-auto p-4 sm:p-5'
-                : 'fixed -left-[9999px] top-0 w-[1024px] h-[600px] opacity-0 pointer-events-none select-none overflow-hidden'
-            }
-          >
-            {activeStreams.length === 0 ? (
-              <div className="h-full min-h-[340px] flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-4">
-                <div
-                  className="w-12 h-12 rounded-2xl border flex items-center justify-center"
-                  style={{
-                    backgroundColor: 'var(--bg-surface)',
-                    borderColor: 'var(--border-subtle)',
-                    color: 'var(--accent)',
-                  }}
-                >
-                  <LayoutGrid className="w-5 h-5" />
-                </div>
-                <div className="space-y-1">
-                  <h2 className="font-display text-base font-bold">No active streams in grid</h2>
-                  <p
-                    className="text-xs leading-relaxed"
-                    style={{ color: 'var(--text-secondary)' }}
-                  >
-                    Open your Vault to pick subliminals, frequencies, or entire listening folders
-                    to launch onto your live multi-stream grid.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSubView('vault')}
-                    className="h-10 px-4 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5"
-                    style={{
-                      backgroundColor: 'var(--accent)',
-                      color: 'var(--accent-fg)',
-                    }}
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Open Vault</span>
-                  </button>
-                  {streamPresets.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => loadStreamPreset(streamPresets[0].id)}
-                      className="h-10 px-4 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5"
-                      style={{
-                        backgroundColor: 'var(--bg-surface)',
-                        borderColor: 'var(--border-subtle)',
-                        color: 'var(--text-primary)',
-                      }}
-                    >
-                      <Bookmark className="w-3.5 h-3.5" />
-                      <span>Load {streamPresets[0].name}</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : streamerState.layoutMode === 'spotlight' && spotlightPrimary ? (
-              <div className="space-y-4 max-w-[1600px] mx-auto">
-                <div className="grid grid-cols-1 xl:grid-cols-4 gap-4 items-start">
-                  <div className="xl:col-span-3">
-                    {renderStreamCard(
-                      spotlightPrimary,
-                      activeStreams.findIndex((s) => s.id === spotlightPrimary.id),
-                      { isPrimarySpotlight: true }
-                    )}
-                  </div>
-
-                  {spotlightSecondary.length > 0 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-3">
-                      {spotlightSecondary.map((stream) =>
-                        renderStreamCard(
-                          stream,
-                          activeStreams.findIndex((s) => s.id === stream.id),
-                          { compact: true }
-                        )
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <>
-                <div
-                  className={`grid ${
-                    isDesktopViewport
-                      ? 'gap-3.5 max-w-[1800px] mx-auto'
-                      : `gap-3 ${mobileTwoCol ? 'grid-cols-2' : 'grid-cols-1'}`
-                  }`}
-                  style={
-                    isDesktopViewport
-                      ? {
-                          gridTemplateColumns: `repeat(${desktopColumns}, minmax(0, 1fr))`,
-                        }
-                      : undefined
-                  }
-                >
-                  {(isDesktopViewport && streamerState.layoutMode === 'custom'
-                    ? activeStreams.slice(0, streamerState.customCols * streamerState.customRows)
-                    : activeStreams
-                  ).map((stream, index) =>
-                    renderStreamCard(stream, index, {
-                      compact: isDesktopViewport ? desktopColumns >= 4 : mobileTwoCol,
-                    })
-                  )}
-                </div>
-
-                {isDesktopViewport &&
-                  streamerState.layoutMode === 'custom' &&
-                  activeStreams.length > streamerState.customCols * streamerState.customRows && (
-                    <div
-                      className="text-center text-xs mt-4 font-mono tabular-nums"
-                      style={{ color: 'var(--text-muted)' }}
-                    >
-                      Showing {streamerState.customCols * streamerState.customRows} of{' '}
-                      {activeStreams.length} active streams (increase custom rows/cols to show
-                      more).
-                    </div>
-                  )}
-              </>
+            {/* Desktop Collapsible Right Studio Sidebar */}
+            {isLargeViewport && desktopSidebarOpen && (
+              <aside
+                className="hidden lg:flex lg:flex-col w-80 shrink-0 border-l h-full overflow-hidden"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+                aria-label="Routine Stack Presets and Quick-Add from Library"
+              >
+                <StreamerStudioSidebar
+                  streams={streams}
+                  folders={streamFolders}
+                  presets={streamPresets}
+                  activePresetId={streamerState.activePresetId}
+                  activeStreamIdSet={activeStreamIdSet}
+                  onLoadPreset={(presetId) => loadStreamPreset(presetId)}
+                  onDeletePreset={(presetId) => deleteStreamPreset(presetId)}
+                  onStackStream={handleSidebarStackStream}
+                />
+              </aside>
             )}
           </div>
 
-          {/* Layer 2: Full-Canvas Stream Vault Subview */}
+          {/* Mobile / Tablet Slide-Over Right Studio Sidebar Drawer */}
+          {isActiveView && subView === 'grid' && !isLargeViewport && mobileSidebarOpen && (
+            <div
+              className="lg:hidden fixed inset-0 z-50 flex justify-end"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Studio Presets and Quick-Add Library"
+            >
+              <div
+                className="fixed inset-0 bg-black/45 backdrop-blur-[2px]"
+                onClick={() => setMobileSidebarOpen(false)}
+                aria-hidden="true"
+              />
+              <div
+                className="relative z-10 w-80 max-w-[88vw] h-full border-l flex flex-col overflow-hidden"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-strong)',
+                  boxShadow: 'var(--shadow-popover)',
+                }}
+              >
+                <StreamerStudioSidebar
+                  streams={streams}
+                  folders={streamFolders}
+                  presets={streamPresets}
+                  activePresetId={streamerState.activePresetId}
+                  activeStreamIdSet={activeStreamIdSet}
+                  onLoadPreset={(presetId) => loadStreamPreset(presetId)}
+                  onDeletePreset={(presetId) => deleteStreamPreset(presetId)}
+                  onStackStream={handleSidebarStackStream}
+                  onCloseMobile={() => setMobileSidebarOpen(false)}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Layer 2: Refreshed Full-Canvas Stream Vault Subview */}
           {subView === 'vault' && (
             <StreamVaultView
               isActiveView={isActiveView}
               streams={streams}
               folders={streamFolders}
               activeStreams={activeStreams}
-              activeIdSet={activeIdSet}
+              activeIdSet={activeStreamIdSet}
               playingCount={playingCount}
               isAllPaused={isAllPaused}
               allActiveMuted={allActiveMuted}
@@ -1325,11 +1059,9 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
               onBackToGrid={() => setSubView('grid')}
               onAddStream={(stream, addToGrid) => addStream(stream, addToGrid)}
               onUpdateStream={updateStream}
-              onDeleteStream={(id) => {
-                if (expandedStreamId === id) setExpandedStreamId(null);
-                deleteStream(id);
-              }}
+              onDeleteStream={deleteStream}
               onToggleStreamInGrid={toggleStreamInGrid}
+              onStackStream={handleSidebarStackStream}
               onLoadStreamsToGrid={handleVaultLoadStreams}
               onIncrementListen={incrementStreamListen}
               onAddFolder={(name, parentId) => addStreamFolder(name, parentId ?? null)}
@@ -1339,69 +1071,6 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
             />
           )}
         </div>
-
-        {/* Expanded / Maximized Single Stream Overlay — only rendered while Streamer Grid is active */}
-        {isActiveView && subView === 'grid' && expandedStream && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Expanded stream: ${expandedStream.customLabel || expandedStream.title}`}
-          >
-            <div
-              className="fixed inset-0 bg-black/75 backdrop-blur-sm"
-              onClick={() => setExpandedStreamId(null)}
-              aria-hidden="true"
-            />
-            <div
-              className="relative z-10 w-full max-w-6xl rounded-2xl border overflow-hidden flex flex-col"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                borderColor: 'var(--border-strong)',
-                boxShadow: 'var(--shadow-popover)',
-              }}
-            >
-              <div
-                className="px-4 py-3 border-b flex items-center justify-between gap-3"
-                style={{ borderColor: 'var(--border-subtle)' }}
-              >
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold truncate">
-                    {expandedStream.customLabel || expandedStream.title}
-                  </div>
-                  <div className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
-                    {[expandedStream.channel || 'YouTube', expandedStream.category]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setExpandedStreamId(null)}
-                  className="h-9 px-3 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 shrink-0"
-                  style={{
-                    backgroundColor: 'var(--bg-surface-subtle)',
-                    borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-primary)',
-                  }}
-                >
-                  <Minimize2 className="w-3.5 h-3.5" />
-                  <span>Restore Grid</span>
-                </button>
-              </div>
-
-              <div className="relative w-full aspect-video max-h-[80dvh] bg-black">
-                <iframe
-                  src={buildYouTubeEmbedUrl(expandedStream.videoId)}
-                  title={expandedStream.customLabel || expandedStream.title}
-                  className="absolute inset-0 w-full h-full border-0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                />
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     );
   }

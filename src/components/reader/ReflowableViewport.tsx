@@ -23,7 +23,11 @@ import {
   findSentenceAtDomPoint,
   type NarrationSentence,
 } from '../../lib/narrationText';
-import type {BookReadingMetrics} from '../../lib/readerUtils';
+import {
+  resolveReaderFont,
+  resolveReaderTextInk,
+  type BookReadingMetrics,
+} from '../../lib/readerUtils';
 import type {
   HighlightColor,
   HighlightRecord,
@@ -335,6 +339,8 @@ interface ContinuousChapterCardProps {
   pendingAnchorId: string | null;
   fontClass: string;
   proseCustomStyles: React.CSSProperties;
+  pageMargins: number;
+  brightness: number;
   voiceTapActive: boolean;
   onSlotRef: (chapterIndex: number, el: HTMLDivElement | null) => void;
   onProseRef: (chapterIndex: number, el: HTMLDivElement | null) => void;
@@ -357,6 +363,8 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
     pendingAnchorId,
     fontClass,
     proseCustomStyles,
+    pageMargins,
+    brightness,
     voiceTapActive,
     onSlotRef,
     onProseRef,
@@ -463,18 +471,34 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
       return ticks;
     }, [isHydrated, virtualPageCount, startVirtualPage]);
 
+    const marginPadStyle = useMemo(
+      () => ({
+        paddingLeft: `clamp(16px, 4vw, ${pageMargins}px)`,
+        paddingRight: `clamp(16px, 4vw, ${pageMargins}px)`,
+      }),
+      [pageMargins]
+    );
+
+    const cardSurfaceStyle: React.CSSProperties = {
+      ...(!isHydrated ? {minHeight: `${estimatedHeight}px`} : {}),
+      ...(brightness !== 100 ? {filter: `brightness(${brightness / 100})`} : {}),
+    };
+
     return (
       <article
         ref={setCardRef}
         data-chapter-index={chapter.index}
         aria-label={chapter.title}
-        style={!isHydrated ? {minHeight: `${estimatedHeight}px`} : undefined}
+        style={Object.keys(cardSurfaceStyle).length > 0 ? cardSurfaceStyle : undefined}
         className={`folio-page-card rounded-lg relative transition-colors ${
           isActiveChapter ? 'ring-1 ring-[var(--border-strong)]/60' : ''
         }`}
       >
         {/* Archival Section Opener Strip */}
-        <header className="px-6 sm:px-12 pt-6 pb-3.5 border-b border-[var(--border-subtle)]/80 flex items-baseline justify-between gap-4">
+        <header
+          style={marginPadStyle}
+          className="pt-6 pb-3.5 border-b border-[var(--border-subtle)]/80 flex items-baseline justify-between gap-4"
+        >
           <div className="min-w-0 flex items-baseline gap-2.5">
             <span className="font-mono-tabular text-[11px] text-[var(--text-muted)] shrink-0">
               {String(chapter.index + 1).padStart(2, '0')}
@@ -489,7 +513,7 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
         </header>
 
         {isHydrated ? (
-          <div className="relative px-6 sm:px-12 py-7 sm:py-10">
+          <div style={marginPadStyle} className="relative py-7 sm:py-10">
             {/* Subtle Virtual Page Break Margin Ticks */}
             {virtualPageTicks.length > 0 && (
               <div
@@ -522,7 +546,7 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
             />
           </div>
         ) : (
-          <div className="px-6 sm:px-12 py-20 flex flex-col items-center justify-center text-center gap-2 text-[var(--text-muted)]">
+          <div style={marginPadStyle} className="py-20 flex flex-col items-center justify-center text-center gap-2 text-[var(--text-muted)]">
             <span className="font-serif-editorial text-base text-[var(--text-secondary)]">
               {chapter.title}
             </span>
@@ -840,10 +864,14 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     visibleSet,
     prefs.fontFamily,
     prefs.fontSize,
+    prefs.fontWeight,
+    prefs.wordSpacing,
+    prefs.letterSpacing,
     prefs.lineHeight,
     prefs.paragraphSpacing,
     prefs.textIndent,
     prefs.textAlign,
+    prefs.pageMargins,
     prefs.pageWidth,
   ]);
 
@@ -933,10 +961,14 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     spreadDims.height,
     prefs.fontFamily,
     prefs.fontSize,
+    prefs.fontWeight,
+    prefs.wordSpacing,
+    prefs.letterSpacing,
     prefs.lineHeight,
     prefs.paragraphSpacing,
     prefs.textIndent,
     prefs.textAlign,
+    prefs.pageMargins,
     prefs.pageWidth,
     initialScrollRatio,
     columnGap,
@@ -1548,23 +1580,38 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     setNoteText('');
   };
 
-  const fontClass =
-    prefs.fontFamily === 'sans'
-      ? 'font-sans-ui'
-      : prefs.fontFamily === 'mono'
-        ? 'font-mono-tabular'
-        : 'font-serif-editorial';
+  const resolvedFont = resolveReaderFont(prefs.fontFamily);
+  const fontClass = resolvedFont.className;
+  const inkColor = resolveReaderTextInk(prefs.contrastPreset, prefs.theme);
+  const brightnessValue = prefs.brightness ?? 100;
+  const pageMarginsValue = prefs.pageMargins ?? 48;
 
   const proseCustomStyles = useMemo(
     () =>
       ({
         fontSize: `${prefs.fontSize}px`,
         lineHeight: prefs.lineHeight,
+        '--folio-font-family': resolvedFont.cssFamily,
+        '--folio-font-weight': prefs.fontWeight ?? 400,
+        '--folio-word-spacing': `${prefs.wordSpacing ?? 0}em`,
+        '--folio-letter-spacing': `${prefs.letterSpacing ?? 0}em`,
         '--folio-para-gap': `${prefs.paragraphSpacing}em`,
         '--folio-text-align': prefs.textAlign,
         '--folio-text-indent': `${prefs.textIndent}em`,
+        '--folio-text-ink': inkColor,
       }) as React.CSSProperties,
-    [prefs.fontSize, prefs.lineHeight, prefs.paragraphSpacing, prefs.textAlign, prefs.textIndent]
+    [
+      resolvedFont.cssFamily,
+      prefs.fontSize,
+      prefs.fontWeight,
+      prefs.wordSpacing,
+      prefs.letterSpacing,
+      prefs.lineHeight,
+      prefs.paragraphSpacing,
+      prefs.textAlign,
+      prefs.textIndent,
+      inkColor,
+    ]
   );
 
   const canGoPrev = isPaginated ? spreadIndex > 0 || hasPrevChapter : hasPrevChapter;
@@ -1639,7 +1686,14 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
             style={{maxWidth: paginatedMaxWidth}}
           >
             {/* Framed Editorial Paper Sheet */}
-            <div className="folio-page-card rounded-lg flex-1 min-h-0 flex flex-col px-5 sm:px-10 lg:px-12 py-5 sm:py-7 relative">
+            <div
+              style={{
+                paddingLeft: `clamp(16px, 4vw, ${pageMarginsValue}px)`,
+                paddingRight: `clamp(16px, 4vw, ${pageMarginsValue}px)`,
+                ...(brightnessValue !== 100 ? {filter: `brightness(${brightnessValue / 100})`} : {}),
+              }}
+              className="folio-page-card rounded-lg flex-1 min-h-0 flex flex-col py-5 sm:py-7 relative"
+            >
               {/* Quiet Top Sheet Running Header */}
               <div className="mb-4 pb-2 border-b border-[var(--border-subtle)]/75 flex items-center justify-between text-[11px] text-[var(--text-muted)] shrink-0">
                 <span className="truncate">{chapter?.title}</span>
@@ -1755,6 +1809,8 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                   }
                   fontClass={fontClass}
                   proseCustomStyles={proseCustomStyles}
+                  pageMargins={pageMarginsValue}
+                  brightness={brightnessValue}
                   voiceTapActive={voiceActive && voiceTapToRead}
                   onSlotRef={registerSlotRef}
                   onProseRef={registerProseRef}

@@ -100,7 +100,34 @@ export interface EpubReaderPrefs {
 // Streamer (Multi-YouTube Grid + Saved URLs Manager + Presets)
 // ==========================================================================
 
-export type StreamLayoutMode = 'auto' | '1x1' | '2x2' | '3x3' | '4x4' | 'custom' | 'spotlight';
+export type StreamLayoutMode =
+  | 'auto'
+  | '1'
+  | '2'
+  | '1x1'
+  | '2x2'
+  | '3x2'
+  | '3x3'
+  | '4x4'
+  | '5x5'
+  | '6x6'
+  | '7x7'
+  | '8x8'
+  | 'custom'
+  | 'spotlight';
+
+export type StreamViewMode = 'grid' | 'mixer' | 'tiles';
+export type StreamSizingMode = 'fit' | 'canvas';
+
+export interface StackSlot {
+  slotId: string;
+  streamId: string;
+  volume: number; // 0..100
+  muted: boolean;
+  loopMode: 'infinite' | 'count';
+  loopCount: number; // finite loop target >= 1
+  playbackRate?: number; // 0.25..2
+}
 
 export interface StreamFolder {
   id: string;
@@ -133,17 +160,27 @@ export interface StreamItem {
 export interface StreamPreset {
   id: string;
   name: string;
+  category?: string;
   layoutMode: StreamLayoutMode;
   customRows: number;
   customCols: number;
+  viewMode?: StreamViewMode;
+  sizingMode?: StreamSizingMode;
+  masterVolume?: number;
   streamIds: string[];
+  slots?: StackSlot[];
   spotlightStreamId: string | null;
   createdAt: string;
 }
 
 export interface StreamerState {
   activeStreamIds: string[];
+  activeSlots?: StackSlot[];
   layoutMode: StreamLayoutMode;
+  viewMode?: StreamViewMode;
+  sizingMode?: StreamSizingMode;
+  masterVolume?: number;
+  sidebarOpen?: boolean;
   customRows: number;
   customCols: number;
   spotlightStreamId: string | null;

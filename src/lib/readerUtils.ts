@@ -1,8 +1,121 @@
-import type {ParsedChapter, SearchMatch} from '../types/library';
+import type {
+  ParsedChapter,
+  ReaderContrastPreset,
+  ReaderFontFamily,
+  ReaderPreferences,
+  SearchMatch,
+  ThemeMode,
+} from '../types/library';
 
 export const WORDS_PER_MINUTE = 240;
 export const WORDS_PER_VIRTUAL_PAGE = 280;
 export const PDF_MINUTES_PER_PAGE = 1.6;
+
+export interface ReaderFontOption {
+  id: Exclude<ReaderFontFamily, 'serif' | 'sans'>;
+  label: string;
+  group: 'serif' | 'sans' | 'mono';
+  className: string;
+  cssFamily: string;
+}
+
+export const READER_FONT_OPTIONS: ReaderFontOption[] = [
+  {
+    id: 'source-serif',
+    label: 'Source Serif',
+    group: 'serif',
+    className: 'font-serif-editorial',
+    cssFamily: "'Source Serif 4', Georgia, Cambria, 'Times New Roman', serif",
+  },
+  {
+    id: 'literata',
+    label: 'Literata',
+    group: 'serif',
+    className: 'font-serif-literata',
+    cssFamily: "'Literata', Georgia, Cambria, 'Times New Roman', serif",
+  },
+  {
+    id: 'georgia',
+    label: 'Georgia',
+    group: 'serif',
+    className: 'font-serif-georgia',
+    cssFamily: "Georgia, 'Times New Roman', Times, serif",
+  },
+  {
+    id: 'palatino',
+    label: 'Palatino',
+    group: 'serif',
+    className: 'font-serif-palatino',
+    cssFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif",
+  },
+  {
+    id: 'dm-sans',
+    label: 'DM Sans',
+    group: 'sans',
+    className: 'font-sans-ui',
+    cssFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+  },
+  {
+    id: 'inter',
+    label: 'Inter',
+    group: 'sans',
+    className: 'font-sans-inter',
+    cssFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+  },
+  {
+    id: 'system-sans',
+    label: 'System UI',
+    group: 'sans',
+    className: 'font-sans-system',
+    cssFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  },
+  {
+    id: 'mono',
+    label: 'Mono',
+    group: 'mono',
+    className: 'font-mono-tabular',
+    cssFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, monospace",
+  },
+];
+
+export function resolveReaderFont(fontFamily: ReaderFontFamily): ReaderFontOption {
+  const normalized =
+    fontFamily === 'serif' ? 'source-serif' : fontFamily === 'sans' ? 'dm-sans' : fontFamily;
+  return READER_FONT_OPTIONS.find((f) => f.id === normalized) ?? READER_FONT_OPTIONS[0];
+}
+
+export function resolveReaderTextInk(
+  contrastPreset: ReaderContrastPreset | undefined,
+  theme: ThemeMode
+): string {
+  if (contrastPreset === 'soft') {
+    return 'color-mix(in srgb, var(--text-primary) 78%, var(--bg-surface))';
+  }
+  if (contrastPreset === 'crisp') {
+    if (theme === 'dark') return '#fbf8f2';
+    if (theme === 'sepia') return '#17110b';
+    return 'color-mix(in srgb, var(--text-primary) 94%, #000000)';
+  }
+  return 'var(--text-primary)';
+}
+
+export function resolvePdfCanvasFilter(prefs: ReaderPreferences): string | undefined {
+  const contrastMult =
+    prefs.contrastPreset === 'soft' ? 0.88 : prefs.contrastPreset === 'crisp' ? 1.12 : 1;
+  const brightMult = Math.max(0.7, Math.min(1.2, (prefs.brightness ?? 100) / 100));
+
+  if (prefs.pdfThemeTone) {
+    if (prefs.theme === 'dark') {
+      return `invert(0.9) hue-rotate(180deg) contrast(${(0.94 * contrastMult).toFixed(2)}) brightness(${(0.94 * brightMult).toFixed(2)})`;
+    }
+    return `sepia(0.24) contrast(${(0.96 * contrastMult).toFixed(2)}) brightness(${(0.97 * brightMult).toFixed(2)})`;
+  }
+
+  if (Math.abs(contrastMult - 1) < 0.005 && Math.abs(brightMult - 1) < 0.005) {
+    return undefined;
+  }
+  return `contrast(${contrastMult.toFixed(2)}) brightness(${brightMult.toFixed(2)})`;
+}
 
 export interface ChapterReadingMetric {
   index: number;

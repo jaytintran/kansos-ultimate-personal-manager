@@ -230,7 +230,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeBookId, contextMenu, displayPopoverOpen, selectedIds.size]);
 
-  // Track internal book drag state for FloatingFolderDropDock
+  // Track internal book drag state synchronously + for FloatingFolderDropDock
+  const isInternalBookDragRef = useRef(false);
+
   useEffect(() => {
     const onDragStart = (e: DragEvent) => {
       const types = e.dataTransfer?.types;
@@ -239,10 +241,16 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         (types.includes('application/x-folio-book-id') ||
           types.includes('application/x-folio-book-ids'))
       ) {
+        isInternalBookDragRef.current = true;
+        setIsFileDragActive(false);
         setIsDraggingBooks(true);
       }
     };
-    const onDragEnd = () => setIsDraggingBooks(false);
+    const onDragEnd = () => {
+      isInternalBookDragRef.current = false;
+      setIsDraggingBooks(false);
+      setIsFileDragActive(false);
+    };
     window.addEventListener('dragstart', onDragStart);
     window.addEventListener('dragend', onDragEnd);
     window.addEventListener('drop', onDragEnd);
@@ -251,6 +259,22 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       window.removeEventListener('dragend', onDragEnd);
       window.removeEventListener('drop', onDragEnd);
     };
+  }, []);
+
+  const isPureExternalFileDrag = useCallback((dt: DataTransfer | null): boolean => {
+    if (!dt || isInternalBookDragRef.current) return false;
+    const types = dt.types;
+    if (
+      types.includes('application/x-folio-book-id') ||
+      types.includes('application/x-folio-book-ids')
+    ) {
+      return false;
+    }
+    if (!types.includes('Files')) return false;
+    if (dt.items && dt.items.length > 0) {
+      return Array.from(dt.items).some((item) => item.kind === 'file');
+    }
+    return true;
   }, []);
 
   // Derived collections & keys
@@ -1409,10 +1433,18 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   return (
     <div
       className="h-[calc(100dvh-6.75rem)] lg:h-dvh flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] overflow-hidden relative"
-      onDragOver={(e) => {
-        if (e.dataTransfer.types.includes('Files')) {
+      onDragEnter={(e) => {
+        if (isPureExternalFileDrag(e.dataTransfer)) {
           e.preventDefault();
           setIsFileDragActive(true);
+        }
+      }}
+      onDragOver={(e) => {
+        if (isPureExternalFileDrag(e.dataTransfer)) {
+          e.preventDefault();
+          setIsFileDragActive(true);
+        } else if (isFileDragActive) {
+          setIsFileDragActive(false);
         }
       }}
       onDragLeave={(e) => {
@@ -1421,10 +1453,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         }
       }}
       onDrop={(e) => {
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        if (isPureExternalFileDrag(e.dataTransfer) && e.dataTransfer.files?.length > 0) {
           e.preventDefault();
           setIsFileDragActive(false);
           void handleImportFiles(e.dataTransfer.files);
+        } else {
+          setIsFileDragActive(false);
         }
       }}
     >

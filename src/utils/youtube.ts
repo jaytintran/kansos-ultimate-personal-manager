@@ -131,9 +131,19 @@ export function buildYouTubeEmbedUrl(videoId: string): string {
   return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
 }
 
+export type YouTubeCommandName =
+  | 'mute'
+  | 'unMute'
+  | 'pauseVideo'
+  | 'playVideo'
+  | 'setVolume'
+  | 'seekTo'
+  | 'setPlaybackRate'
+  | 'addEventListener';
+
 export function sendYouTubeCommand(
   iframe: HTMLIFrameElement | null,
-  func: 'mute' | 'unMute' | 'pauseVideo' | 'playVideo' | 'addEventListener',
+  func: YouTubeCommandName,
   args: unknown[] = [],
   widgetId?: string
 ): void {

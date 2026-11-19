@@ -19,14 +19,21 @@ const STORAGE_KEY = 'kanso_library_studio_prefs_v1';
 
 export const DEFAULT_READER_PREFS: ReaderPreferences = {
   theme: 'kanso',
-  fontFamily: 'serif',
+  fontFamily: 'source-serif',
   fontSize: 18,
+  fontWeight: 400,
+  wordSpacing: 0,
+  letterSpacing: 0,
   lineHeight: 1.72,
   paragraphSpacing: 0.9,
   textIndent: 0,
   textAlign: 'left',
+  pageMargins: 48,
   pageWidth: 720,
+  contrastPreset: 'balanced',
+  brightness: 100,
   readingLayout: 'scroll',
+  pdfViewMode: 'original',
   pdfLayout: 'continuous',
   pdfFitMode: 'width',
   pdfZoom: 1.15,
@@ -82,6 +89,13 @@ const DEFAULT_UI_PREFS: LibraryStudioUiPreferences = {
   hideFiledBooks: false,
 };
 
+function normalizeReaderPrefs(raw: Partial<ReaderPreferences> | undefined): ReaderPreferences {
+  const merged = {...DEFAULT_READER_PREFS, ...(raw ?? {})};
+  if (merged.fontFamily === 'serif') merged.fontFamily = 'source-serif';
+  if (merged.fontFamily === 'sans') merged.fontFamily = 'dm-sans';
+  return merged;
+}
+
 function loadPrefs(): LibraryStudioUiPreferences {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -90,7 +104,7 @@ function loadPrefs(): LibraryStudioUiPreferences {
     return {
       ...DEFAULT_UI_PREFS,
       ...parsed,
-      reader: {...DEFAULT_READER_PREFS, ...(parsed.reader ?? {})},
+      reader: normalizeReaderPrefs(parsed.reader),
       cardDetails: {...DEFAULT_CARD_DETAILS, ...(parsed.cardDetails ?? {})},
       collapsedSections: {
         ...DEFAULT_UI_PREFS.collapsedSections,

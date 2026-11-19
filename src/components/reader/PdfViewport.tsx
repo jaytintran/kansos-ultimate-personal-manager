@@ -1,4 +1,4 @@
-import {StickyNote, X} from 'lucide-react';
+import {RefreshCw, StickyNote, X} from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {HIGHLIGHT_COLORS} from '../../lib/formatters';
@@ -8,6 +8,7 @@ import {
   type PdfSpanMeta,
 } from '../../lib/narrationText';
 import type {PdfDocumentHandle} from '../../lib/parsers/pdfParser';
+import {resolvePdfCanvasFilter} from '../../lib/readerUtils';
 import type {HighlightColor, ReaderPreferences} from '../../types/library';
 
 interface PdfSelectionMenu {
@@ -79,8 +80,14 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const activeVoiceBoxRef = useRef<HTMLDivElement>(null);
+  const activeRenderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
   const [dims, setDims] = useState(defaultSize);
   const [rendering, setRendering] = useState(false);
+  const [renderError, setRenderError] = useState<string | null>(null);
+  const [retryState, setRetryState] = useState<{nonce: number; forceSafeDpr: boolean}>({
+    nonce: 0,
+    forceSafeDpr: false,
+  });
   const [spanMetas, setSpanMetas] = useState<PdfSpanMeta[]>([]);
   const [pageSentences, setPageSentences] = useState<NarrationSentence[]>([]);
   const lastScrolledSentRef = useRef<number>(-1);
@@ -95,36 +102,57 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
   useEffect(() => {
     if (!isNearViewport) return;
     let cancelled = false;
-    let renderTask: pdfjsLib.RenderTask | null = null;
+    let localTask: pdfjsLib.RenderTask | null = null;
 
     const renderPage = async () => {
       setRendering(true);
+      setRenderError(null);
       try {
+        // Ensure any previously running render on this canvas is cancelled and settled first
+        if (activeRenderTaskRef.current) {
+          try {
+            activeRenderTaskRef.current.cancel();
+            await activeRenderTaskRef.current.promise.catch(() => {});
+          } catch {
+            // Ignore cancellation settlement errors
+          }
+          activeRenderTaskRef.current = null;
+        }
+        if (cancelled) return;
+
         const page = await pdf.getPage(pageNumber);
         if (cancelled) return;
 
         const baseViewport = page.getViewport({scale: 1});
+        const safeContainerWidth = Math.max(260, containerWidth);
         const effectiveScale =
           prefs.pdfFitMode === 'width'
-            ? Math.max(0.5, Math.min(2.2, containerWidth / baseViewport.width))
+            ? Math.max(0.15, Math.min(2.5, safeContainerWidth / Math.max(1, baseViewport.width)))
             : prefs.pdfZoom;
 
         const viewport = page.getViewport({scale: effectiveScale});
         const nextDims = {
-          width: Math.floor(viewport.width),
-          height: Math.floor(viewport.height),
+          width: Math.max(1, Math.floor(viewport.width)),
+          height: Math.max(1, Math.floor(viewport.height)),
         };
         setDims(nextDims);
         onSizeMeasured?.(pageNumber, nextDims);
 
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const rawDpr = retryState.forceSafeDpr ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+        const areaAtRawDpr = viewport.width * rawDpr * viewport.height * rawDpr;
+        const maxCanvasPixels = 12_000_000;
+        const areaScale = areaAtRawDpr > maxCanvasPixels ? Math.sqrt(maxCanvasPixels / areaAtRawDpr) : 1;
+        const dpr = retryState.forceSafeDpr ? 1 : Math.max(0.75, rawDpr * areaScale);
+
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        if (!ctx) {
+          throw new Error('Canvas 2D context unavailable');
+        }
 
-        canvas.width = Math.floor(viewport.width * dpr);
-        canvas.height = Math.floor(viewport.height * dpr);
+        canvas.width = Math.max(1, Math.floor(viewport.width * dpr));
+        canvas.height = Math.max(1, Math.floor(viewport.height * dpr));
         canvas.style.width = `${nextDims.width}px`;
         canvas.style.height = `${nextDims.height}px`;
 
@@ -132,8 +160,12 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, viewport.width, viewport.height);
 
-        renderTask = page.render({canvasContext: ctx, viewport, canvas});
-        await renderTask.promise;
+        localTask = page.render({canvasContext: ctx, viewport, canvas});
+        activeRenderTaskRef.current = localTask;
+        await localTask.promise;
+        if (activeRenderTaskRef.current === localTask) {
+          activeRenderTaskRef.current = null;
+        }
         if (cancelled) return;
 
         // Build selectable transparent text layer with optional search match highlights
@@ -200,19 +232,29 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
           setSpanMetas(measuredMetas);
         }
       } catch (err) {
-        if ((err as {name?: string})?.name !== 'RenderingCancelledException') {
-          // Graceful fallback
+        if (activeRenderTaskRef.current === localTask) {
+          activeRenderTaskRef.current = null;
+        }
+        const errName = (err as {name?: string})?.name;
+        if (cancelled || errName === 'RenderingCancelledException') return;
+
+        if (!retryState.forceSafeDpr) {
+          setRetryState((prev) => ({nonce: prev.nonce + 1, forceSafeDpr: true}));
+        } else {
+          setRenderError(err instanceof Error ? err.message : 'Failed to render PDF page');
         }
       } finally {
         if (!cancelled) setRendering(false);
       }
     };
 
-    renderPage();
+    void renderPage();
 
     return () => {
       cancelled = true;
-      renderTask?.cancel();
+      if (localTask) {
+        localTask.cancel();
+      }
     };
   }, [
     pdf,
@@ -222,6 +264,8 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
     prefs.pdfZoom,
     isNearViewport,
     searchHighlightQuery,
+    retryState.nonce,
+    retryState.forceSafeDpr,
   ]);
 
   // Extract synchronized narration sentences whenever text layer or noise filter updates
@@ -345,20 +389,20 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
     }
   };
 
-  const toneClass = !prefs.pdfThemeTone
-    ? ''
-    : prefs.theme === 'dark'
-      ? 'pdf-tone-dark'
-      : 'pdf-tone-sepia';
+  const canvasFilter = useMemo(() => resolvePdfCanvasFilter(prefs), [prefs]);
 
   return (
     <div
-      className={`relative rounded-[4px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-sm overflow-hidden shrink-0 ${toneClass}`}
+      className="relative rounded-[4px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-sm overflow-hidden shrink-0"
       style={{width: `${dims.width}px`, height: `${dims.height}px`}}
     >
       {isNearViewport ? (
         <>
-          <canvas ref={canvasRef} className="block" />
+          <canvas
+            ref={canvasRef}
+            className="block"
+            style={canvasFilter ? {filter: canvasFilter} : undefined}
+          />
           {/* Synchronized Voice Narration Highlights Layer */}
           {sentenceBoxes.length > 0 && (
             <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -398,6 +442,27 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
           />
           {rendering && (
             <div className="pointer-events-none absolute inset-0 bg-[var(--bg-canvas)]/15" />
+          )}
+          {renderError && !rendering && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-[var(--bg-surface)]/95 p-6 text-center">
+              <p className="text-xs font-medium text-[var(--text-primary)]">
+                Page {pageNumber} failed to render
+              </p>
+              <p className="text-[11px] text-[var(--text-muted)] max-w-xs">
+                {renderError}
+              </p>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRetryState((prev) => ({nonce: prev.nonce + 1, forceSafeDpr: true}));
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Retry Page</span>
+              </button>
+            </div>
           )}
         </>
       ) : (
@@ -509,15 +574,19 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
     };
   }, [pdf]);
 
-  // Measure scroll viewport width for Fit Width
+  // Measure scroll viewport width immediately & on resize for Fit Width
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
+    const syncWidth = (rawW: number) => {
+      if (rawW > 240) {
+        setContainerWidth(Math.min(1020, rawW - 56));
+      }
+    };
+    syncWidth(el.clientWidth);
     const observer = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
-      if (w && w > 240) {
-        setContainerWidth(Math.min(1020, w - 56));
-      }
+      if (w) syncWidth(w);
     });
     observer.observe(el);
     return () => observer.disconnect();

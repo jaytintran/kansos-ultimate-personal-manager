@@ -40,9 +40,10 @@ export const BookCover: React.FC<BookCoverProps> = ({
         <img
           src={coverDataUrl}
           alt={`Cover of ${title}`}
+          draggable={false}
           referrerPolicy="no-referrer"
           onError={() => setImgFailed(true)}
-          className="w-full h-full object-cover"
+          className="w-full h-full object-cover pointer-events-none select-none"
         />
         {/* Subtle book spine crease highlight */}
         <div
