@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   FolderKanban,
   LayoutGrid,
@@ -6,9 +6,9 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Plus,
-} from 'lucide-react';
+} from "lucide-react";
 
-export type StreamerSubView = 'grid' | 'vault';
+export type StreamerSubView = "grid" | "vault";
 
 interface StreamerTopBarProps {
   subView: StreamerSubView;
@@ -29,7 +29,7 @@ export const StreamerTopBar: React.FC<StreamerTopBarProps> = ({
   onToggleSidebar,
   onQuickAddUrl,
 }) => {
-  const [quickUrl, setQuickUrl] = useState('');
+  const [quickUrl, setQuickUrl] = useState("");
   const [adding, setAdding] = useState(false);
 
   const handleQuickAddSubmit = async (e: React.FormEvent) => {
@@ -39,7 +39,7 @@ export const StreamerTopBar: React.FC<StreamerTopBarProps> = ({
     try {
       const ok = await onQuickAddUrl(quickUrl.trim());
       if (ok) {
-        setQuickUrl('');
+        setQuickUrl("");
       }
     } finally {
       setAdding(false);
@@ -48,10 +48,10 @@ export const StreamerTopBar: React.FC<StreamerTopBarProps> = ({
 
   return (
     <header
-      className="min-h-[52px] px-4 sm:px-6 py-2 border-b flex flex-wrap items-center justify-between gap-2.5 shrink-0"
+      className="min-h-[52px] px-4 sm:px-6 py-4 border-b flex flex-wrap items-center justify-between gap-2.5 shrink-0 "
       style={{
-        backgroundColor: 'var(--bg-canvas)',
-        borderColor: 'var(--border-subtle)',
+        backgroundColor: "var(--bg-canvas)",
+        borderColor: "var(--border-subtle)",
       }}
     >
       {/* Left: Unified View Heading + Live Grid / Vault Switcher */}
@@ -63,8 +63,8 @@ export const StreamerTopBar: React.FC<StreamerTopBarProps> = ({
         <div
           className="inline-flex items-center h-8 gap-0.5 p-0.5 rounded-lg border shrink-0"
           style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
           }}
           role="tablist"
           aria-label="Streamer subview"
@@ -72,19 +72,24 @@ export const StreamerTopBar: React.FC<StreamerTopBarProps> = ({
           <button
             type="button"
             role="tab"
-            aria-selected={subView === 'grid'}
-            onClick={() => onChangeSubView('grid')}
+            aria-selected={subView === "grid"}
+            onClick={() => onChangeSubView("grid")}
             className="h-full px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
             style={{
-              backgroundColor: subView === 'grid' ? 'var(--accent-soft)' : 'transparent',
-              color: subView === 'grid' ? 'var(--accent)' : 'var(--text-secondary)',
+              backgroundColor:
+                subView === "grid" ? "var(--accent-soft)" : "transparent",
+              color:
+                subView === "grid" ? "var(--accent)" : "var(--text-secondary)",
             }}
           >
             <LayoutGrid className="w-3.5 h-3.5" />
             <span>Live Grid</span>
             <span
               className="text-[11px] font-mono tabular-nums opacity-80"
-              style={{ color: subView === 'grid' ? 'var(--accent)' : 'var(--text-muted)' }}
+              style={{
+                color:
+                  subView === "grid" ? "var(--accent)" : "var(--text-muted)",
+              }}
             >
               {activeCount}
             </span>
@@ -93,19 +98,24 @@ export const StreamerTopBar: React.FC<StreamerTopBarProps> = ({
           <button
             type="button"
             role="tab"
-            aria-selected={subView === 'vault'}
-            onClick={() => onChangeSubView('vault')}
+            aria-selected={subView === "vault"}
+            onClick={() => onChangeSubView("vault")}
             className="h-full px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
             style={{
-              backgroundColor: subView === 'vault' ? 'var(--accent-soft)' : 'transparent',
-              color: subView === 'vault' ? 'var(--accent)' : 'var(--text-secondary)',
+              backgroundColor:
+                subView === "vault" ? "var(--accent-soft)" : "transparent",
+              color:
+                subView === "vault" ? "var(--accent)" : "var(--text-secondary)",
             }}
           >
             <FolderKanban className="w-3.5 h-3.5" />
             <span>Vault</span>
             <span
               className="text-[11px] font-mono tabular-nums opacity-80"
-              style={{ color: subView === 'vault' ? 'var(--accent)' : 'var(--text-muted)' }}
+              style={{
+                color:
+                  subView === "vault" ? "var(--accent)" : "var(--text-muted)",
+              }}
             >
               {vaultCount}
             </span>
@@ -114,7 +124,7 @@ export const StreamerTopBar: React.FC<StreamerTopBarProps> = ({
       </div>
 
       {/* Right (Live Grid): Compact 32px Quick-Add URL Form + Studio Sidebar Toggle */}
-      {subView === 'grid' && (
+      {subView === "grid" && (
         <div className="flex flex-1 flex-wrap items-center justify-end gap-1.5 min-w-[240px]">
           <form
             onSubmit={handleQuickAddSubmit}
@@ -127,9 +137,9 @@ export const StreamerTopBar: React.FC<StreamerTopBarProps> = ({
               placeholder="Paste YouTube URL or 11-char ID..."
               className="flex-1 min-w-0 h-8 px-2.5 rounded-lg border text-xs outline-none transition-colors"
               style={{
-                backgroundColor: 'var(--bg-surface)',
-                borderColor: 'var(--border-subtle)',
-                color: 'var(--text-primary)',
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-primary)",
               }}
               aria-label="Paste YouTube URL or 11-character ID"
             />
@@ -138,8 +148,8 @@ export const StreamerTopBar: React.FC<StreamerTopBarProps> = ({
               disabled={!quickUrl.trim() || adding}
               className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-45 transition-opacity"
               style={{
-                backgroundColor: 'var(--accent)',
-                color: 'var(--accent-fg)',
+                backgroundColor: "var(--accent)",
+                color: "var(--accent-fg)",
               }}
             >
               {adding ? (
@@ -156,12 +166,22 @@ export const StreamerTopBar: React.FC<StreamerTopBarProps> = ({
             onClick={onToggleSidebar}
             className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors hover:bg-[var(--bg-surface-hover)]"
             style={{
-              backgroundColor: sidebarOpen ? 'var(--accent-soft)' : 'var(--bg-surface)',
-              borderColor: sidebarOpen ? 'var(--accent)' : 'var(--border-subtle)',
-              color: sidebarOpen ? 'var(--accent)' : 'var(--text-secondary)',
+              backgroundColor: sidebarOpen
+                ? "var(--accent-soft)"
+                : "var(--bg-surface)",
+              borderColor: sidebarOpen
+                ? "var(--accent)"
+                : "var(--border-subtle)",
+              color: sidebarOpen ? "var(--accent)" : "var(--text-secondary)",
             }}
-            title={sidebarOpen ? 'Hide presets & library sidebar' : 'Show presets & library sidebar'}
-            aria-label={sidebarOpen ? 'Hide studio sidebar' : 'Show studio sidebar'}
+            title={
+              sidebarOpen
+                ? "Hide presets & library sidebar"
+                : "Show presets & library sidebar"
+            }
+            aria-label={
+              sidebarOpen ? "Hide studio sidebar" : "Show studio sidebar"
+            }
           >
             {sidebarOpen ? (
               <PanelRightClose className="w-3.5 h-3.5" />

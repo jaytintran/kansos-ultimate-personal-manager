@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from "react";
 import {
   BookmarkPlus,
   ChevronDown,
@@ -18,8 +18,12 @@ import {
   Volume2,
   VolumeX,
   X,
-} from 'lucide-react';
-import { StreamLayoutMode, StreamSizingMode, StreamViewMode } from '../../types';
+} from "lucide-react";
+import {
+  StreamLayoutMode,
+  StreamSizingMode,
+  StreamViewMode,
+} from "../../types";
 
 interface StreamerTransportBarProps {
   stackedCount: number;
@@ -47,26 +51,32 @@ interface StreamerTransportBarProps {
 }
 
 const LAYOUT_PRESETS: { id: StreamLayoutMode; label: string }[] = [
-  { id: 'auto', label: 'Auto' },
-  { id: '1', label: '1' },
-  { id: '2', label: '2' },
-  { id: '2x2', label: '2×2' },
-  { id: '3x2', label: '3×2' },
-  { id: '3x3', label: '3×3' },
-  { id: '4x4', label: '4×4' },
-  { id: '5x5', label: '5×5' },
-  { id: '6x6', label: '6×6' },
-  { id: '7x7', label: '7×7' },
-  { id: '8x8', label: '8×8' },
+  { id: "auto", label: "Auto" },
+  { id: "1", label: "1" },
+  { id: "2", label: "2" },
+  { id: "2x2", label: "2×2" },
+  { id: "3x2", label: "3×2" },
+  { id: "3x3", label: "3×3" },
+  { id: "4x4", label: "4×4" },
+  { id: "5x5", label: "5×5" },
+  { id: "6x6", label: "6×6" },
+  { id: "7x7", label: "7×7" },
+  { id: "8x8", label: "8×8" },
 ];
 
 const SLEEP_PRESETS = [15, 30, 45, 60, 90];
-const ROUTINE_CATEGORIES = ['Focus', 'Overnight', 'Study', 'Healing', 'General'];
+const ROUTINE_CATEGORIES = [
+  "Focus",
+  "Overnight",
+  "Study",
+  "Healing",
+  "General",
+];
 
 function formatTimer(totalSeconds: number): string {
   const mins = Math.floor(totalSeconds / 60);
   const secs = totalSeconds % 60;
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
 export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
@@ -93,10 +103,12 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
   onSaveStack,
   onClearStack,
 }) => {
-  const [openPopover, setOpenPopover] = useState<'layout' | 'mix' | 'sleep' | 'save' | null>(null);
-  const [customSleepMins, setCustomSleepMins] = useState('25');
-  const [presetName, setPresetName] = useState('');
-  const [presetCategory, setPresetCategory] = useState('Focus');
+  const [openPopover, setOpenPopover] = useState<
+    "layout" | "mix" | "sleep" | "save" | null
+  >(null);
+  const [customSleepMins, setCustomSleepMins] = useState("25");
+  const [presetName, setPresetName] = useState("");
+  const [presetCategory, setPresetCategory] = useState("Focus");
 
   const barRef = useRef<HTMLDivElement | null>(null);
 
@@ -107,8 +119,8 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
         setOpenPopover(null);
       }
     };
-    window.addEventListener('mousedown', handlePointerDown);
-    return () => window.removeEventListener('mousedown', handlePointerDown);
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
   }, [openPopover]);
 
   const handleSaveSubmit = (e: React.FormEvent) => {
@@ -116,7 +128,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
     const trimmed = presetName.trim();
     if (!trimmed) return;
     onSaveStack(trimmed, presetCategory);
-    setPresetName('');
+    setPresetName("");
     setOpenPopover(null);
   };
 
@@ -131,16 +143,17 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
   const showPauseLabel = isPlaying && !isAllPaused;
   const hasStreams = stackedCount > 0;
   const activeLayoutLabel =
-    LAYOUT_PRESETS.find((p) => p.id === layoutMode || (p.id === '1' && layoutMode === '1x1'))
-      ?.label || 'Auto';
+    LAYOUT_PRESETS.find(
+      (p) => p.id === layoutMode || (p.id === "1" && layoutMode === "1x1"),
+    )?.label || "Auto";
 
   return (
     <div
       ref={barRef}
-      className="px-4 sm:px-6 py-2 border-b flex flex-wrap items-center justify-between gap-2 shrink-0"
+      className="px-4 sm:px-6 py-4 border-b flex flex-wrap items-center justify-between gap-2 shrink-0"
       style={{
-        backgroundColor: 'var(--bg-canvas)',
-        borderColor: 'var(--border-subtle)',
+        backgroundColor: "var(--bg-canvas)",
+        borderColor: "var(--border-subtle)",
       }}
     >
       {/* Left: Transport + Master Volume + Quick Mix Popover */}
@@ -151,10 +164,14 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
           onClick={onTogglePlayPauseAll}
           className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-45"
           style={{
-            backgroundColor: 'var(--accent)',
-            color: 'var(--accent-fg)',
+            backgroundColor: "var(--accent)",
+            color: "var(--accent-fg)",
           }}
-          title={showPauseLabel ? 'Pause all stacked streams' : 'Play all stacked streams'}
+          title={
+            showPauseLabel
+              ? "Pause all stacked streams"
+              : "Play all stacked streams"
+          }
         >
           {showPauseLabel ? (
             <>
@@ -173,8 +190,8 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
         <div
           className="inline-flex items-center h-8 rounded-lg border overflow-hidden shrink-0"
           style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
           }}
         >
           <button
@@ -183,17 +200,21 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
             onClick={onToggleMuteAll}
             className="h-full px-2.5 text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-45 hover:bg-[var(--bg-surface-hover)]"
             style={{
-              backgroundColor: allActiveMuted ? 'var(--accent-soft)' : 'transparent',
-              color: allActiveMuted ? 'var(--danger)' : 'var(--text-secondary)',
+              backgroundColor: allActiveMuted
+                ? "var(--accent-soft)"
+                : "transparent",
+              color: allActiveMuted ? "var(--danger)" : "var(--text-secondary)",
             }}
-            title={allActiveMuted ? 'Unmute all streams' : 'Mute all streams'}
+            title={allActiveMuted ? "Unmute all streams" : "Mute all streams"}
           >
             {allActiveMuted ? (
               <VolumeX className="w-3.5 h-3.5" />
             ) : (
               <Volume2 className="w-3.5 h-3.5" />
             )}
-            <span className="hidden sm:inline">{allActiveMuted ? 'Unmute' : 'Mute'}</span>
+            <span className="hidden sm:inline">
+              {allActiveMuted ? "Unmute" : "Mute"}
+            </span>
           </button>
           <button
             type="button"
@@ -201,8 +222,8 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
             onClick={onSyncAll}
             className="h-full px-2.5 border-l text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-45 hover:bg-[var(--bg-surface-hover)]"
             style={{
-              borderColor: 'var(--border-subtle)',
-              color: 'var(--text-secondary)',
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-secondary)",
             }}
             title="Restart all stacked streams together from 0:00"
           >
@@ -215,13 +236,13 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
         <div
           className="h-8 px-2.5 rounded-lg border inline-flex items-center gap-2 shrink-0"
           style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
           }}
         >
           <span
             className="text-[11px] font-medium whitespace-nowrap hidden sm:inline"
-            style={{ color: 'var(--text-secondary)' }}
+            style={{ color: "var(--text-secondary)" }}
           >
             Master
           </span>
@@ -233,12 +254,12 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
             value={masterVolume}
             onChange={(e) => onChangeMasterVolume(Number(e.target.value))}
             className="w-16 sm:w-20 cursor-pointer"
-            style={{ accentColor: 'var(--accent)' }}
+            style={{ accentColor: "var(--accent)" }}
             aria-label="Master volume"
           />
           <span
             className="text-[11px] font-mono tabular-nums w-7 text-right"
-            style={{ color: 'var(--accent)' }}
+            style={{ color: "var(--accent)" }}
           >
             {masterVolume}%
           </span>
@@ -249,12 +270,21 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
           <button
             type="button"
             disabled={!hasStreams}
-            onClick={() => setOpenPopover((p) => (p === 'mix' ? null : 'mix'))}
+            onClick={() => setOpenPopover((p) => (p === "mix" ? null : "mix"))}
             className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)] disabled:opacity-45"
             style={{
-              backgroundColor: openPopover === 'mix' ? 'var(--accent-soft)' : 'var(--bg-surface)',
-              borderColor: openPopover === 'mix' ? 'var(--accent)' : 'var(--border-subtle)',
-              color: openPopover === 'mix' ? 'var(--accent)' : 'var(--text-secondary)',
+              backgroundColor:
+                openPopover === "mix"
+                  ? "var(--accent-soft)"
+                  : "var(--bg-surface)",
+              borderColor:
+                openPopover === "mix"
+                  ? "var(--accent)"
+                  : "var(--border-subtle)",
+              color:
+                openPopover === "mix"
+                  ? "var(--accent)"
+                  : "var(--text-secondary)",
             }}
             title="Quick volume mix presets"
           >
@@ -263,13 +293,13 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
             <ChevronDown className="w-3 h-3 opacity-70" />
           </button>
 
-          {openPopover === 'mix' && (
+          {openPopover === "mix" && (
             <div
               className="absolute left-0 mt-1.5 w-52 rounded-xl border p-1.5 space-y-1 z-40"
               style={{
-                backgroundColor: 'var(--bg-elevated)',
-                borderColor: 'var(--border-strong)',
-                boxShadow: 'var(--shadow-popover)',
+                backgroundColor: "var(--bg-elevated)",
+                borderColor: "var(--border-strong)",
+                boxShadow: "var(--shadow-popover)",
               }}
             >
               <button
@@ -282,13 +312,19 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
               >
                 <Volume1
                   className="w-3.5 h-3.5 mt-0.5 shrink-0"
-                  style={{ color: 'var(--accent)' }}
+                  style={{ color: "var(--accent)" }}
                 />
                 <div className="min-w-0">
-                  <div className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                  <div
+                    className="text-xs font-medium"
+                    style={{ color: "var(--text-primary)" }}
+                  >
                     Quiet Layer
                   </div>
-                  <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                  <div
+                    className="text-[11px]"
+                    style={{ color: "var(--text-muted)" }}
+                  >
                     Lower all layers to 20% bed
                   </div>
                 </div>
@@ -303,13 +339,19 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
               >
                 <Equal
                   className="w-3.5 h-3.5 mt-0.5 shrink-0"
-                  style={{ color: 'var(--accent)' }}
+                  style={{ color: "var(--accent)" }}
                 />
                 <div className="min-w-0">
-                  <div className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                  <div
+                    className="text-xs font-medium"
+                    style={{ color: "var(--text-primary)" }}
+                  >
                     Balance All
                   </div>
-                  <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                  <div
+                    className="text-[11px]"
+                    style={{ color: "var(--text-muted)" }}
+                  >
                     Equalize all streams to 50%
                   </div>
                 </div>
@@ -325,17 +367,17 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
         <div
           className="inline-flex items-center h-8 gap-0.5 p-0.5 rounded-lg border shrink-0"
           style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
           }}
           role="group"
           aria-label="Live stack view mode"
         >
           {(
             [
-              { id: 'grid', icon: LayoutGrid, label: 'Grid' },
-              { id: 'mixer', icon: SlidersHorizontal, label: 'Mixer' },
-              { id: 'tiles', icon: Rows3, label: 'Tiles' },
+              { id: "grid", icon: LayoutGrid, label: "Grid" },
+              { id: "mixer", icon: SlidersHorizontal, label: "Mixer" },
+              { id: "tiles", icon: Rows3, label: "Tiles" },
             ] as {
               id: StreamViewMode;
               icon: React.ComponentType<{ className?: string }>;
@@ -352,8 +394,10 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                 title={opt.label}
                 className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap"
                 style={{
-                  backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
-                  color: active ? 'var(--accent)' : 'var(--text-muted)',
+                  backgroundColor: active
+                    ? "var(--accent-soft)"
+                    : "transparent",
+                  color: active ? "var(--accent)" : "var(--text-muted)",
                 }}
               >
                 <Icon className="w-3.5 h-3.5" />
@@ -364,49 +408,61 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
         </div>
 
         {/* Compact Layout & Sizing Popover (replaces 11-button horizontal preset strip + Fit/Canvas) */}
-        {viewMode !== 'mixer' && (
+        {viewMode !== "mixer" && (
           <div className="relative">
             <button
               type="button"
-              onClick={() => setOpenPopover((p) => (p === 'layout' ? null : 'layout'))}
+              onClick={() =>
+                setOpenPopover((p) => (p === "layout" ? null : "layout"))
+              }
               className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)]"
               style={{
                 backgroundColor:
-                  openPopover === 'layout' ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                  openPopover === "layout"
+                    ? "var(--accent-soft)"
+                    : "var(--bg-surface)",
                 borderColor:
-                  openPopover === 'layout' ? 'var(--accent)' : 'var(--border-subtle)',
-                color: openPopover === 'layout' ? 'var(--accent)' : 'var(--text-secondary)',
+                  openPopover === "layout"
+                    ? "var(--accent)"
+                    : "var(--border-subtle)",
+                color:
+                  openPopover === "layout"
+                    ? "var(--accent)"
+                    : "var(--text-secondary)",
               }}
               title="Grid columns & canvas sizing"
             >
               <Grid2x2 className="w-3.5 h-3.5" />
-              <span className="font-mono tabular-nums text-[11px]">{activeLayoutLabel}</span>
+              <span className="font-mono tabular-nums text-[11px]">
+                {activeLayoutLabel}
+              </span>
               <span className="hidden sm:inline text-[11px] opacity-65">
-                · {sizingMode === 'fit' ? 'Fit' : 'Canvas'}
+                · {sizingMode === "fit" ? "Fit" : "Canvas"}
               </span>
               <ChevronDown className="w-3 h-3 opacity-70" />
             </button>
 
-            {openPopover === 'layout' && (
+            {openPopover === "layout" && (
               <div
                 className="absolute right-0 mt-1.5 w-64 rounded-xl border p-3 space-y-3 z-40"
                 style={{
-                  backgroundColor: 'var(--bg-elevated)',
-                  borderColor: 'var(--border-strong)',
-                  boxShadow: 'var(--shadow-popover)',
+                  backgroundColor: "var(--bg-elevated)",
+                  borderColor: "var(--border-strong)",
+                  boxShadow: "var(--shadow-popover)",
                 }}
               >
                 <div className="space-y-1.5">
                   <div
                     className="text-[11px] font-semibold uppercase tracking-wider"
-                    style={{ color: 'var(--text-muted)' }}
+                    style={{ color: "var(--text-muted)" }}
                   >
                     Grid Columns
                   </div>
                   <div className="grid grid-cols-4 gap-1">
                     {LAYOUT_PRESETS.map((opt) => {
                       const active =
-                        layoutMode === opt.id || (opt.id === '1' && layoutMode === '1x1');
+                        layoutMode === opt.id ||
+                        (opt.id === "1" && layoutMode === "1x1");
                       return (
                         <button
                           key={opt.id}
@@ -414,9 +470,15 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                           onClick={() => onChangeLayoutMode(opt.id)}
                           className="h-7 rounded-md border text-[11px] font-mono tabular-nums font-medium transition-colors"
                           style={{
-                            backgroundColor: active ? 'var(--accent-soft)' : 'var(--bg-surface)',
-                            borderColor: active ? 'var(--accent)' : 'var(--border-subtle)',
-                            color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                            backgroundColor: active
+                              ? "var(--accent-soft)"
+                              : "var(--bg-surface)",
+                            borderColor: active
+                              ? "var(--accent)"
+                              : "var(--border-subtle)",
+                            color: active
+                              ? "var(--accent)"
+                              : "var(--text-secondary)",
                           }}
                         >
                           {opt.label}
@@ -428,26 +490,32 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
 
                 <div
                   className="space-y-1.5 pt-2 border-t"
-                  style={{ borderColor: 'var(--border-subtle)' }}
+                  style={{ borderColor: "var(--border-subtle)" }}
                 >
                   <div
                     className="text-[11px] font-semibold uppercase tracking-wider"
-                    style={{ color: 'var(--text-muted)' }}
+                    style={{ color: "var(--text-muted)" }}
                   >
                     Viewport Sizing
                   </div>
                   <div className="grid grid-cols-2 gap-1">
                     <button
                       type="button"
-                      onClick={() => onChangeSizingMode('fit')}
+                      onClick={() => onChangeSizingMode("fit")}
                       className="h-7 px-2 rounded-md border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors"
                       style={{
                         backgroundColor:
-                          sizingMode === 'fit' ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                          sizingMode === "fit"
+                            ? "var(--accent-soft)"
+                            : "var(--bg-surface)",
                         borderColor:
-                          sizingMode === 'fit' ? 'var(--accent)' : 'var(--border-subtle)',
+                          sizingMode === "fit"
+                            ? "var(--accent)"
+                            : "var(--border-subtle)",
                         color:
-                          sizingMode === 'fit' ? 'var(--accent)' : 'var(--text-secondary)',
+                          sizingMode === "fit"
+                            ? "var(--accent)"
+                            : "var(--text-secondary)",
                       }}
                     >
                       <Minimize2 className="w-3 h-3" />
@@ -455,15 +523,21 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => onChangeSizingMode('canvas')}
+                      onClick={() => onChangeSizingMode("canvas")}
                       className="h-7 px-2 rounded-md border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors"
                       style={{
                         backgroundColor:
-                          sizingMode === 'canvas' ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                          sizingMode === "canvas"
+                            ? "var(--accent-soft)"
+                            : "var(--bg-surface)",
                         borderColor:
-                          sizingMode === 'canvas' ? 'var(--accent)' : 'var(--border-subtle)',
+                          sizingMode === "canvas"
+                            ? "var(--accent)"
+                            : "var(--border-subtle)",
                         color:
-                          sizingMode === 'canvas' ? 'var(--accent)' : 'var(--text-secondary)',
+                          sizingMode === "canvas"
+                            ? "var(--accent)"
+                            : "var(--text-secondary)",
                       }}
                     >
                       <Maximize2 className="w-3 h-3" />
@@ -480,56 +554,66 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
         <div className="relative">
           <button
             type="button"
-            onClick={() => setOpenPopover((p) => (p === 'sleep' ? null : 'sleep'))}
+            onClick={() =>
+              setOpenPopover((p) => (p === "sleep" ? null : "sleep"))
+            }
             className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)]"
             style={{
               backgroundColor:
-                sleepRemainingSeconds !== null || openPopover === 'sleep'
-                  ? 'var(--accent-soft)'
-                  : 'var(--bg-surface)',
+                sleepRemainingSeconds !== null || openPopover === "sleep"
+                  ? "var(--accent-soft)"
+                  : "var(--bg-surface)",
               borderColor:
-                sleepRemainingSeconds !== null || openPopover === 'sleep'
-                  ? 'var(--accent)'
-                  : 'var(--border-subtle)',
+                sleepRemainingSeconds !== null || openPopover === "sleep"
+                  ? "var(--accent)"
+                  : "var(--border-subtle)",
               color:
-                sleepRemainingSeconds !== null || openPopover === 'sleep'
-                  ? 'var(--accent)'
-                  : 'var(--text-secondary)',
+                sleepRemainingSeconds !== null || openPopover === "sleep"
+                  ? "var(--accent)"
+                  : "var(--text-secondary)",
             }}
             title="Sleep Timer with gradual fade-out pause"
           >
             <Clock className="w-3.5 h-3.5" />
             {sleepRemainingSeconds !== null ? (
-              <span className="font-mono tabular-nums">{formatTimer(sleepRemainingSeconds)}</span>
+              <span className="font-mono tabular-nums">
+                {formatTimer(sleepRemainingSeconds)}
+              </span>
             ) : (
               <span className="hidden lg:inline">Timer</span>
             )}
           </button>
 
-          {openPopover === 'sleep' && (
+          {openPopover === "sleep" && (
             <div
               className="absolute right-0 mt-1.5 w-64 rounded-xl border p-3 space-y-2.5 z-40"
               style={{
-                backgroundColor: 'var(--bg-elevated)',
-                borderColor: 'var(--border-strong)',
-                boxShadow: 'var(--shadow-popover)',
+                backgroundColor: "var(--bg-elevated)",
+                borderColor: "var(--border-strong)",
+                boxShadow: "var(--shadow-popover)",
               }}
             >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold">Sleep Timer (Fade-Out)</span>
+                <span className="text-xs font-semibold">
+                  Sleep Timer (Fade-Out)
+                </span>
                 <button
                   type="button"
                   onClick={() => setOpenPopover(null)}
                   className="h-6 w-6 flex items-center justify-center rounded-md"
-                  style={{ color: 'var(--text-muted)' }}
+                  style={{ color: "var(--text-muted)" }}
                   aria-label="Close sleep timer menu"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              <p className="text-[11px] leading-snug" style={{ color: 'var(--text-muted)' }}>
-                Gradually fades audio out over the final 15s, then pauses all streams.
+              <p
+                className="text-[11px] leading-snug"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Gradually fades audio out over the final 15s, then pauses all
+                streams.
               </p>
 
               <div className="grid grid-cols-3 gap-1.5">
@@ -543,9 +627,9 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                     }}
                     className="h-7 rounded-lg border text-xs font-mono tabular-nums font-medium transition-colors hover:bg-[var(--bg-surface-hover)]"
                     style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      borderColor: 'var(--border-subtle)',
-                      color: 'var(--text-primary)',
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-primary)",
                     }}
                   >
                     {mins}m
@@ -560,9 +644,9 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                     }}
                     className="h-7 rounded-lg border text-xs font-medium transition-colors"
                     style={{
-                      backgroundColor: 'var(--bg-surface-subtle)',
-                      borderColor: 'var(--danger)',
-                      color: 'var(--danger)',
+                      backgroundColor: "var(--bg-surface-subtle)",
+                      borderColor: "var(--danger)",
+                      color: "var(--danger)",
                     }}
                   >
                     Off
@@ -570,7 +654,10 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                 )}
               </div>
 
-              <form onSubmit={handleCustomSleepSubmit} className="flex items-center gap-1.5">
+              <form
+                onSubmit={handleCustomSleepSubmit}
+                className="flex items-center gap-1.5"
+              >
                 <input
                   type="number"
                   min={1}
@@ -579,21 +666,24 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                   onChange={(e) => setCustomSleepMins(e.target.value)}
                   className="w-20 h-7 px-2 rounded-lg border text-xs font-mono tabular-nums outline-none"
                   style={{
-                    backgroundColor: 'var(--bg-surface)',
-                    borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-primary)',
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-primary)",
                   }}
                   aria-label="Custom sleep timer minutes"
                 />
-                <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                <span
+                  className="text-[11px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
                   min
                 </span>
                 <button
                   type="submit"
                   className="ml-auto h-7 px-2.5 rounded-lg text-xs font-semibold whitespace-nowrap"
                   style={{
-                    backgroundColor: 'var(--accent)',
-                    color: 'var(--accent-fg)',
+                    backgroundColor: "var(--accent)",
+                    color: "var(--accent-fg)",
                   }}
                 >
                   Start
@@ -608,13 +698,23 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
           <button
             type="button"
             disabled={!hasStreams}
-            onClick={() => setOpenPopover((p) => (p === 'save' ? null : 'save'))}
+            onClick={() =>
+              setOpenPopover((p) => (p === "save" ? null : "save"))
+            }
             className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)] disabled:opacity-45"
             style={{
               backgroundColor:
-                openPopover === 'save' ? 'var(--accent-soft)' : 'var(--bg-surface)',
-              borderColor: openPopover === 'save' ? 'var(--accent)' : 'var(--border-subtle)',
-              color: openPopover === 'save' ? 'var(--accent)' : 'var(--text-secondary)',
+                openPopover === "save"
+                  ? "var(--accent-soft)"
+                  : "var(--bg-surface)",
+              borderColor:
+                openPopover === "save"
+                  ? "var(--accent)"
+                  : "var(--border-subtle)",
+              color:
+                openPopover === "save"
+                  ? "var(--accent)"
+                  : "var(--text-secondary)",
             }}
             title="Save current stack as preset"
           >
@@ -622,22 +722,24 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
             <span className="hidden lg:inline">Save</span>
           </button>
 
-          {openPopover === 'save' && (
+          {openPopover === "save" && (
             <div
               className="absolute right-0 mt-1.5 w-72 rounded-xl border p-3.5 space-y-2.5 z-40"
               style={{
-                backgroundColor: 'var(--bg-elevated)',
-                borderColor: 'var(--border-strong)',
-                boxShadow: 'var(--shadow-popover)',
+                backgroundColor: "var(--bg-elevated)",
+                borderColor: "var(--border-strong)",
+                boxShadow: "var(--shadow-popover)",
               }}
             >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold">Save Routine Stack Preset</span>
+                <span className="text-xs font-semibold">
+                  Save Routine Stack Preset
+                </span>
                 <button
                   type="button"
                   onClick={() => setOpenPopover(null)}
                   className="h-6 w-6 flex items-center justify-center rounded-md"
-                  style={{ color: 'var(--text-muted)' }}
+                  style={{ color: "var(--text-muted)" }}
                   aria-label="Close save stack dialog"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -653,9 +755,9 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                   autoFocus
                   className="w-full h-8 px-2.5 rounded-lg border text-xs outline-none"
                   style={{
-                    backgroundColor: 'var(--bg-surface)',
-                    borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-primary)',
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-primary)",
                   }}
                 />
 
@@ -665,9 +767,9 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                     onChange={(e) => setPresetCategory(e.target.value)}
                     className="flex-1 h-8 px-2 rounded-lg border text-xs outline-none"
                     style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      borderColor: 'var(--border-subtle)',
-                      color: 'var(--text-secondary)',
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-secondary)",
                     }}
                     aria-label="Routine category"
                   >
@@ -683,8 +785,8 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                     disabled={!presetName.trim()}
                     className="h-8 px-3 rounded-lg text-xs font-semibold whitespace-nowrap disabled:opacity-45"
                     style={{
-                      backgroundColor: 'var(--accent)',
-                      color: 'var(--accent-fg)',
+                      backgroundColor: "var(--accent)",
+                      color: "var(--accent-fg)",
                     }}
                   >
                     Save Mix
@@ -702,9 +804,9 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
           onClick={onClearStack}
           className="h-8 w-8 lg:w-auto lg:px-2.5 rounded-lg border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)] disabled:opacity-45"
           style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
-            color: 'var(--text-muted)',
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
+            color: "var(--text-muted)",
           }}
           title="Clear all stacked streams"
           aria-label="Clear stack"

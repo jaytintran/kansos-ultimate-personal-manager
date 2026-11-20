@@ -1,8 +1,8 @@
-import {ArrowRight, BookOpen} from 'lucide-react';
-import React from 'react';
-import {formatRelativeDate} from '../../lib/formatters';
-import type {BookRecord} from '../../types/library';
-import {BookCover} from './BookCover';
+import { ArrowRight, BookOpen } from "lucide-react";
+import React from "react";
+import { formatRelativeDate } from "../../lib/formatters";
+import type { BookRecord } from "../../types/library";
+import { BookCover } from "./BookCover";
 
 interface ContinueReadingShelfProps {
   books: BookRecord[];
@@ -19,68 +19,24 @@ export const ContinueReadingShelf: React.FC<ContinueReadingShelfProps> = ({
   onInspectBook,
   onOpenHighlightsHub,
 }) => {
-  const readingCount = books.filter((b) => b.status === 'reading').length;
-  const finishedCount = books.filter((b) => b.status === 'finished').length;
-  const unreadCount = books.filter((b) => b.status === 'unread').length;
+  const readingCount = books.filter((b) => b.status === "reading").length;
+  const finishedCount = books.filter((b) => b.status === "finished").length;
+  const unreadCount = books.filter((b) => b.status === "unread").length;
 
   const activeReads = books
-    .filter((b) => b.status === 'reading' || (b.lastReadAt !== null && b.status !== 'finished'))
+    .filter(
+      (b) =>
+        b.status === "reading" ||
+        (b.lastReadAt !== null && b.status !== "finished"),
+    )
     .sort((a, b) => (b.lastReadAt ?? b.addedAt) - (a.lastReadAt ?? a.addedAt))
     .slice(0, 6);
 
   return (
-    <section aria-label="Reading overview and continue reading" className="mb-8 space-y-5">
-      {/* Subtle Single-Row Reading Overview Strip */}
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 pb-3.5 border-b border-[var(--border-subtle)] text-xs text-[var(--text-secondary)]">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-mono-tabular text-sm font-semibold text-[var(--text-primary)]">
-              {books.length}
-            </span>
-            <span>{books.length === 1 ? 'book' : 'books'}</span>
-          </div>
-          <span aria-hidden="true" className="text-[var(--border-strong)]">
-            ·
-          </span>
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-mono-tabular text-sm font-semibold text-[var(--text-primary)]">
-              {readingCount}
-            </span>
-            <span>reading</span>
-          </div>
-          <span aria-hidden="true" className="text-[var(--border-strong)]">
-            ·
-          </span>
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-mono-tabular text-sm font-semibold text-[var(--text-primary)]">
-              {finishedCount}
-            </span>
-            <span>finished</span>
-          </div>
-          <span aria-hidden="true" className="text-[var(--border-strong)]">
-            ·
-          </span>
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-mono-tabular text-sm font-semibold text-[var(--text-primary)]">
-              {unreadCount}
-            </span>
-            <span>unread</span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={onOpenHighlightsHub}
-          className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer whitespace-nowrap"
-        >
-          <span className="font-mono-tabular font-semibold text-[var(--text-primary)]">
-            {totalHighlightsCount}
-          </span>
-          <span>{totalHighlightsCount === 1 ? 'highlight & note' : 'highlights & notes'}</span>
-          <ArrowRight className="w-3 h-3" />
-        </button>
-      </div>
-
+    <section
+      aria-label="Reading overview and continue reading"
+      className="mb-8 space-y-5"
+    >
       {/* Compact Continue Reading Horizontal Shelf */}
       {activeReads.length > 0 && (
         <div>
@@ -89,7 +45,7 @@ export const ContinueReadingShelf: React.FC<ContinueReadingShelfProps> = ({
               Continue Reading
             </h2>
             <span className="font-mono-tabular text-[11px] text-[var(--text-muted)]">
-              {activeReads.length} active
+              {activeReads.length} Active
             </span>
           </div>
 
@@ -147,12 +103,16 @@ export const ContinueReadingShelf: React.FC<ContinueReadingShelfProps> = ({
                       <span className="font-mono-tabular text-[var(--text-primary)] font-medium">
                         {book.progress}%
                       </span>
-                      <span className="truncate">{formatRelativeDate(book.lastReadAt)}</span>
+                      <span className="truncate">
+                        {formatRelativeDate(book.lastReadAt)}
+                      </span>
                     </div>
                     <div className="h-1 w-full rounded-full bg-[var(--border-subtle)] overflow-hidden">
                       <div
                         className="h-full bg-[var(--accent)]"
-                        style={{width: `${Math.min(100, Math.max(3, book.progress))}%`}}
+                        style={{
+                          width: `${Math.min(100, Math.max(3, book.progress))}%`,
+                        }}
                       />
                     </div>
                     <div className="pt-0.5 flex items-center justify-between gap-2">

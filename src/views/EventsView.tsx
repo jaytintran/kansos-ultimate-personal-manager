@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Calendar,
   Check,
@@ -11,10 +11,10 @@ import {
   Search,
   Trophy,
   X,
-} from 'lucide-react';
-import { RichContent } from '../components/RichContent';
-import { useWorkspace } from '../context/WorkspaceContext';
-import { ContextMenuRecord, DetailSheetTarget, Entry } from '../types';
+} from "lucide-react";
+import { RichContent } from "../components/RichContent";
+import { useWorkspace } from "../context/WorkspaceContext";
+import { ContextMenuRecord, DetailSheetTarget, Entry } from "../types";
 import {
   buildDateAtTime,
   formatCompactDayHeading,
@@ -23,12 +23,12 @@ import {
   getEntryDayKey,
   getTodayKey,
   parseLocalDateKey,
-} from '../utils/date';
+} from "../utils/date";
 
-type EventCatFilter = 'all' | 'official' | 'personal';
-type EventTimeframeFilter = 'all' | 'upcoming' | 'today' | 'past';
-type EventSort = 'date-asc' | 'date-desc' | 'title-asc';
-type EventsViewMode = 'grid' | 'list';
+type EventCatFilter = "all" | "official" | "personal";
+type EventTimeframeFilter = "all" | "upcoming" | "today" | "past";
+type EventSort = "date-asc" | "date-desc" | "title-asc";
+type EventsViewMode = "grid" | "list";
 
 interface PersistedEventFilters {
   category: EventCatFilter;
@@ -37,7 +37,7 @@ interface PersistedEventFilters {
   viewMode: EventsViewMode;
 }
 
-const FILTER_STORAGE_KEY = 'kanso_events_filters_v1';
+const FILTER_STORAGE_KEY = "kanso_events_filters_v1";
 
 interface EventsViewProps {
   onOpenDetail: (target: DetailSheetTarget) => void;
@@ -52,7 +52,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
   const todayKey = getTodayKey();
   const timeFormat = workspace.settings.timeFormat;
 
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [newEventDateOpen, setNewEventDateOpen] = useState(false);
   const [newEventDate, setNewEventDate] = useState(todayKey);
@@ -62,17 +62,22 @@ export const EventsView: React.FC<EventsViewProps> = ({
       const raw = localStorage.getItem(FILTER_STORAGE_KEY);
       if (raw) {
         return {
-          category: 'all',
-          timeframe: 'all',
-          sort: 'date-asc',
-          viewMode: 'grid',
+          category: "all",
+          timeframe: "all",
+          sort: "date-asc",
+          viewMode: "grid",
           ...JSON.parse(raw),
         };
       }
     } catch {
       // Ignore
     }
-    return { category: 'all', timeframe: 'all', sort: 'date-asc', viewMode: 'grid' };
+    return {
+      category: "all",
+      timeframe: "all",
+      sort: "date-asc",
+      viewMode: "grid",
+    };
   });
 
   useEffect(() => {
@@ -84,51 +89,53 @@ export const EventsView: React.FC<EventsViewProps> = ({
   }, [filters]);
 
   const allEvents = useMemo(
-    () => workspace.entries.filter((e) => e.type === 'event' && !e.deletedAt),
-    [workspace.entries]
+    () => workspace.entries.filter((e) => e.type === "event" && !e.deletedAt),
+    [workspace.entries],
   );
 
   const filteredEvents = useMemo(() => {
     const q = search.trim().toLowerCase();
     return allEvents
       .filter((ev) => {
-        const cat = ev.eventCategory || 'personal';
-        if (filters.category !== 'all' && cat !== filters.category) return false;
+        const cat = ev.eventCategory || "personal";
+        if (filters.category !== "all" && cat !== filters.category)
+          return false;
 
         const dayKey = getEntryDayKey(ev);
-        if (filters.timeframe === 'today' && dayKey !== todayKey) return false;
-        if (filters.timeframe === 'upcoming' && dayKey < todayKey) return false;
-        if (filters.timeframe === 'past' && dayKey >= todayKey) return false;
+        if (filters.timeframe === "today" && dayKey !== todayKey) return false;
+        if (filters.timeframe === "upcoming" && dayKey < todayKey) return false;
+        if (filters.timeframe === "past" && dayKey >= todayKey) return false;
 
         if (!q) return true;
         return (
           ev.title.toLowerCase().includes(q) ||
           ev.content.toLowerCase().includes(q) ||
-          (ev.location || '').toLowerCase().includes(q) ||
+          (ev.location || "").toLowerCase().includes(q) ||
           ev.tags.some((t) => t.toLowerCase().includes(q))
         );
       })
       .sort((a, b) => {
-        if (filters.sort === 'title-asc') return a.title.localeCompare(b.title);
+        if (filters.sort === "title-asc") return a.title.localeCompare(b.title);
         const ta = new Date(a.scheduledAt || a.createdAt).getTime();
         const tb = new Date(b.scheduledAt || b.createdAt).getTime();
-        return filters.sort === 'date-asc' ? ta - tb : tb - ta;
+        return filters.sort === "date-asc" ? ta - tb : tb - ta;
       });
   }, [allEvents, search, filters, todayKey]);
 
   const activeFilterCount =
-    (filters.category !== 'all' ? 1 : 0) + (filters.timeframe !== 'all' ? 1 : 0);
+    (filters.category !== "all" ? 1 : 0) +
+    (filters.timeframe !== "all" ? 1 : 0);
 
   const handleStartNewEvent = () => {
     const scheduledAt = buildDateAtTime(newEventDate || todayKey, 10, 0);
     setNewEventDateOpen(false);
     onOpenDetail({
-      mode: 'event',
+      mode: "event",
       draft: {
-        type: 'event',
-        title: '',
+        type: "event",
+        title: "",
         scheduledAt,
-        eventCategory: 'personal',
+        eventCategory: "personal",
         attendance: null,
       },
     });
@@ -137,53 +144,55 @@ export const EventsView: React.FC<EventsViewProps> = ({
   const getEventPresentation = (ev: Entry) => {
     const dayKey = getEntryDayKey(ev);
     const dateObj = parseLocalDateKey(dayKey);
-    const dayNum = String(dateObj.getDate()).padStart(2, '0');
-    const monthShort = dateObj.toLocaleString('en-US', { month: 'short' });
+    const dayNum = String(dateObj.getDate()).padStart(2, "0");
+    const monthShort = dateObj.toLocaleString("en-US", { month: "short" });
     const weekday = getDayAbbrev(dayKey);
     const isToday = dayKey === todayKey;
     const isPast = dayKey < todayKey;
     const isUnresolved = isPast && !ev.attendance && !ev.isAchievement;
-    const category = ev.eventCategory || 'personal';
+    const category = ev.eventCategory || "personal";
     const isAchievement = Boolean(ev.isAchievement);
 
     // Inline compact date chip colors (interactive attendance cycler)
-    let chipBg = 'var(--bg-surface-subtle)';
-    let chipFg = 'var(--text-secondary)';
-    let chipBorder = 'var(--border-subtle)';
-    if (ev.attendance === 'attended') {
-      chipBg = 'color-mix(in srgb, var(--success) 13%, transparent)';
-      chipFg = 'var(--success)';
-      chipBorder = 'color-mix(in srgb, var(--success) 32%, transparent)';
-    } else if (ev.attendance === 'missed') {
-      chipBg = 'color-mix(in srgb, var(--danger) 13%, transparent)';
-      chipFg = 'var(--danger)';
-      chipBorder = 'color-mix(in srgb, var(--danger) 32%, transparent)';
+    let chipBg = "var(--bg-surface-subtle)";
+    let chipFg = "var(--text-secondary)";
+    let chipBorder = "var(--border-subtle)";
+    if (ev.attendance === "attended") {
+      chipBg = "color-mix(in srgb, var(--success) 13%, transparent)";
+      chipFg = "var(--success)";
+      chipBorder = "color-mix(in srgb, var(--success) 32%, transparent)";
+    } else if (ev.attendance === "missed") {
+      chipBg = "color-mix(in srgb, var(--danger) 13%, transparent)";
+      chipFg = "var(--danger)";
+      chipBorder = "color-mix(in srgb, var(--danger) 32%, transparent)";
     } else if (isToday) {
-      chipBg = 'var(--accent-soft)';
-      chipFg = 'var(--accent)';
-      chipBorder = 'color-mix(in srgb, var(--accent) 30%, transparent)';
+      chipBg = "var(--accent-soft)";
+      chipFg = "var(--accent)";
+      chipBorder = "color-mix(in srgb, var(--accent) 30%, transparent)";
     }
 
     // Quiet dot status for footer (paired with explicit text label)
     let statusDotColor: string =
-      category === 'official' ? 'var(--accent)' : 'var(--color-entity-rose, var(--danger))';
-    let statusLabel: string = category === 'official' ? 'Official' : 'Personal';
+      category === "official"
+        ? "var(--accent)"
+        : "var(--color-entity-rose, var(--danger))";
+    let statusLabel: string = category === "official" ? "Official" : "Personal";
 
     if (isAchievement) {
-      statusDotColor = 'var(--warning)';
-      statusLabel = 'Achievement';
-    } else if (ev.attendance === 'attended') {
-      statusDotColor = 'var(--success)';
-      statusLabel = `Attended · ${category === 'official' ? 'Official' : 'Personal'}`;
-    } else if (ev.attendance === 'missed') {
-      statusDotColor = 'var(--danger)';
-      statusLabel = `Missed · ${category === 'official' ? 'Official' : 'Personal'}`;
+      statusDotColor = "var(--warning)";
+      statusLabel = "Achievement";
+    } else if (ev.attendance === "attended") {
+      statusDotColor = "var(--success)";
+      statusLabel = `Attended · ${category === "official" ? "Official" : "Personal"}`;
+    } else if (ev.attendance === "missed") {
+      statusDotColor = "var(--danger)";
+      statusLabel = `Missed · ${category === "official" ? "Official" : "Personal"}`;
     } else if (isToday) {
-      statusDotColor = 'var(--accent)';
-      statusLabel = `Today · ${category === 'official' ? 'Official' : 'Personal'}`;
+      statusDotColor = "var(--accent)";
+      statusLabel = `Today · ${category === "official" ? "Official" : "Personal"}`;
     } else if (isUnresolved) {
-      statusDotColor = 'var(--warning)';
-      statusLabel = `Unresolved · ${category === 'official' ? 'Official' : 'Personal'}`;
+      statusDotColor = "var(--warning)";
+      statusLabel = `Unresolved · ${category === "official" ? "Official" : "Personal"}`;
     }
 
     return {
@@ -204,11 +213,11 @@ export const EventsView: React.FC<EventsViewProps> = ({
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-20 space-y-4">
+    <div className="mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-20 space-y-4">
       {/* Header */}
       <header
         className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b"
-        style={{ borderColor: 'var(--border-subtle)' }}
+        style={{ borderColor: "var(--border-subtle)" }}
       >
         <div className="flex items-baseline gap-2.5 min-w-0">
           <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight">
@@ -216,7 +225,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
           </h1>
           <span
             className="text-xs font-mono tabular-nums shrink-0"
-            style={{ color: 'var(--text-muted)' }}
+            style={{ color: "var(--text-muted)" }}
           >
             {allEvents.length}
           </span>
@@ -231,7 +240,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
               setNewEventDateOpen((v) => !v);
             }}
             className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5"
-            style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-fg)' }}
+            style={{
+              backgroundColor: "var(--accent)",
+              color: "var(--accent-fg)",
+            }}
           >
             <Plus className="w-3.5 h-3.5" />
             <span>New Event</span>
@@ -239,13 +251,16 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
           {newEventDateOpen && (
             <>
-              <div className="fixed inset-0 z-20" onClick={() => setNewEventDateOpen(false)} />
+              <div
+                className="fixed inset-0 z-20"
+                onClick={() => setNewEventDateOpen(false)}
+              />
               <div
                 className="absolute right-0 top-10 z-30 w-64 rounded-xl border p-3.5 space-y-3"
                 style={{
-                  backgroundColor: 'var(--bg-elevated)',
-                  borderColor: 'var(--border-strong)',
-                  boxShadow: 'var(--shadow-popover)',
+                  backgroundColor: "var(--bg-elevated)",
+                  borderColor: "var(--border-strong)",
+                  boxShadow: "var(--shadow-popover)",
                 }}
               >
                 <div className="text-xs font-semibold">Pick Event Date</div>
@@ -255,9 +270,9 @@ export const EventsView: React.FC<EventsViewProps> = ({
                   onChange={(e) => setNewEventDate(e.target.value)}
                   className="w-full h-9 px-2.5 rounded-lg border text-xs font-mono outline-none"
                   style={{
-                    backgroundColor: 'var(--bg-surface)',
-                    borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-primary)',
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-primary)",
                   }}
                 />
                 <div className="flex justify-end gap-2">
@@ -265,7 +280,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
                     type="button"
                     onClick={() => setNewEventDateOpen(false)}
                     className="h-8 px-2.5 rounded-lg text-xs"
-                    style={{ color: 'var(--text-muted)' }}
+                    style={{ color: "var(--text-muted)" }}
                   >
                     Cancel
                   </button>
@@ -273,7 +288,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
                     type="button"
                     onClick={handleStartNewEvent}
                     className="h-8 px-3 rounded-lg text-xs font-semibold"
-                    style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-fg)' }}
+                    style={{
+                      backgroundColor: "var(--accent)",
+                      color: "var(--accent-fg)",
+                    }}
                   >
                     Continue
                   </button>
@@ -289,23 +307,26 @@ export const EventsView: React.FC<EventsViewProps> = ({
         <div
           className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border flex-1 min-w-[200px]"
           style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
           }}
         >
-          <Search className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-muted)' }} />
+          <Search
+            className="w-3.5 h-3.5 shrink-0"
+            style={{ color: "var(--text-muted)" }}
+          />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search events, locations, or tags..."
             className="flex-1 min-w-0 bg-transparent text-xs outline-none"
-            style={{ color: 'var(--text-primary)' }}
+            style={{ color: "var(--text-primary)" }}
           />
           {search && (
             <button
               type="button"
-              onClick={() => setSearch('')}
+              onClick={() => setSearch("")}
               aria-label="Clear search"
               className="opacity-70 hover:opacity-100"
             >
@@ -321,56 +342,80 @@ export const EventsView: React.FC<EventsViewProps> = ({
             onClick={() => setFilterOpen((v) => !v)}
             className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5"
             style={{
-              backgroundColor: activeFilterCount > 0 ? 'var(--accent-soft)' : 'var(--bg-surface)',
-              borderColor: activeFilterCount > 0 ? 'var(--accent)' : 'var(--border-subtle)',
-              color: activeFilterCount > 0 ? 'var(--accent)' : 'var(--text-secondary)',
+              backgroundColor:
+                activeFilterCount > 0
+                  ? "var(--accent-soft)"
+                  : "var(--bg-surface)",
+              borderColor:
+                activeFilterCount > 0
+                  ? "var(--accent)"
+                  : "var(--border-subtle)",
+              color:
+                activeFilterCount > 0
+                  ? "var(--accent)"
+                  : "var(--text-secondary)",
             }}
           >
             <Filter className="w-3.5 h-3.5" />
             <span>Filter &amp; Sort</span>
             {activeFilterCount > 0 && (
-              <span className="font-mono text-[11px]">({activeFilterCount})</span>
+              <span className="font-mono text-[11px]">
+                ({activeFilterCount})
+              </span>
             )}
           </button>
 
           {filterOpen && (
             <>
-              <div className="fixed inset-0 z-20" onClick={() => setFilterOpen(false)} />
+              <div
+                className="fixed inset-0 z-20"
+                onClick={() => setFilterOpen(false)}
+              />
               <div
                 className="absolute right-0 top-10 z-30 w-64 rounded-2xl border p-4 space-y-4"
                 style={{
-                  backgroundColor: 'var(--bg-elevated)',
-                  borderColor: 'var(--border-strong)',
-                  boxShadow: 'var(--shadow-popover)',
+                  backgroundColor: "var(--bg-elevated)",
+                  borderColor: "var(--border-strong)",
+                  boxShadow: "var(--shadow-popover)",
                 }}
               >
                 {/* Category */}
                 <div className="space-y-1.5">
                   <div
                     className="text-[11px] font-semibold uppercase tracking-wider"
-                    style={{ color: 'var(--text-muted)' }}
+                    style={{ color: "var(--text-muted)" }}
                   >
                     Category
                   </div>
                   <div className="grid grid-cols-3 gap-1">
-                    {(['all', 'official', 'personal'] as EventCatFilter[]).map((cat) => (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => setFilters((f) => ({ ...f, category: cat }))}
-                        className="h-7 rounded-lg border text-xs capitalize"
-                        style={{
-                          backgroundColor:
-                            filters.category === cat ? 'var(--accent-soft)' : 'var(--bg-surface)',
-                          borderColor:
-                            filters.category === cat ? 'var(--accent)' : 'var(--border-subtle)',
-                          color:
-                            filters.category === cat ? 'var(--accent)' : 'var(--text-secondary)',
-                        }}
-                      >
-                        {cat}
-                      </button>
-                    ))}
+                    {(["all", "official", "personal"] as EventCatFilter[]).map(
+                      (cat) => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() =>
+                            setFilters((f) => ({ ...f, category: cat }))
+                          }
+                          className="h-7 rounded-lg border text-xs capitalize"
+                          style={{
+                            backgroundColor:
+                              filters.category === cat
+                                ? "var(--accent-soft)"
+                                : "var(--bg-surface)",
+                            borderColor:
+                              filters.category === cat
+                                ? "var(--accent)"
+                                : "var(--border-subtle)",
+                            color:
+                              filters.category === cat
+                                ? "var(--accent)"
+                                : "var(--text-secondary)",
+                          }}
+                        >
+                          {cat}
+                        </button>
+                      ),
+                    )}
                   </div>
                 </div>
 
@@ -378,24 +423,39 @@ export const EventsView: React.FC<EventsViewProps> = ({
                 <div className="space-y-1.5">
                   <div
                     className="text-[11px] font-semibold uppercase tracking-wider"
-                    style={{ color: 'var(--text-muted)' }}
+                    style={{ color: "var(--text-muted)" }}
                   >
                     Timeframe
                   </div>
                   <div className="grid grid-cols-2 gap-1">
-                    {(['all', 'upcoming', 'today', 'past'] as EventTimeframeFilter[]).map((tf) => (
+                    {(
+                      [
+                        "all",
+                        "upcoming",
+                        "today",
+                        "past",
+                      ] as EventTimeframeFilter[]
+                    ).map((tf) => (
                       <button
                         key={tf}
                         type="button"
-                        onClick={() => setFilters((f) => ({ ...f, timeframe: tf }))}
+                        onClick={() =>
+                          setFilters((f) => ({ ...f, timeframe: tf }))
+                        }
                         className="h-7 rounded-lg border text-xs capitalize"
                         style={{
                           backgroundColor:
-                            filters.timeframe === tf ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                            filters.timeframe === tf
+                              ? "var(--accent-soft)"
+                              : "var(--bg-surface)",
                           borderColor:
-                            filters.timeframe === tf ? 'var(--accent)' : 'var(--border-subtle)',
+                            filters.timeframe === tf
+                              ? "var(--accent)"
+                              : "var(--border-subtle)",
                           color:
-                            filters.timeframe === tf ? 'var(--accent)' : 'var(--text-secondary)',
+                            filters.timeframe === tf
+                              ? "var(--accent)"
+                              : "var(--text-secondary)",
                         }}
                       >
                         {tf}
@@ -408,32 +468,40 @@ export const EventsView: React.FC<EventsViewProps> = ({
                 <div className="space-y-1.5">
                   <div
                     className="text-[11px] font-semibold uppercase tracking-wider"
-                    style={{ color: 'var(--text-muted)' }}
+                    style={{ color: "var(--text-muted)" }}
                   >
                     Sort
                   </div>
                   <div className="space-y-1">
                     {(
                       [
-                        { id: 'date-asc', label: 'Date (Soonest first)' },
-                        { id: 'date-desc', label: 'Date (Latest first)' },
-                        { id: 'title-asc', label: 'Title (A–Z)' },
+                        { id: "date-asc", label: "Date (Soonest first)" },
+                        { id: "date-desc", label: "Date (Latest first)" },
+                        { id: "title-asc", label: "Title (A–Z)" },
                       ] as { id: EventSort; label: string }[]
                     ).map((opt) => (
                       <button
                         key={opt.id}
                         type="button"
-                        onClick={() => setFilters((f) => ({ ...f, sort: opt.id }))}
+                        onClick={() =>
+                          setFilters((f) => ({ ...f, sort: opt.id }))
+                        }
                         className="w-full h-8 px-2.5 rounded-lg text-xs flex items-center justify-between"
                         style={{
                           backgroundColor:
-                            filters.sort === opt.id ? 'var(--accent-soft)' : 'transparent',
+                            filters.sort === opt.id
+                              ? "var(--accent-soft)"
+                              : "transparent",
                           color:
-                            filters.sort === opt.id ? 'var(--accent)' : 'var(--text-secondary)',
+                            filters.sort === opt.id
+                              ? "var(--accent)"
+                              : "var(--text-secondary)",
                         }}
                       >
                         <span>{opt.label}</span>
-                        {filters.sort === opt.id && <Check className="w-3.5 h-3.5" />}
+                        {filters.sort === opt.id && (
+                          <Check className="w-3.5 h-3.5" />
+                        )}
                       </button>
                     ))}
                   </div>
@@ -447,34 +515,46 @@ export const EventsView: React.FC<EventsViewProps> = ({
         <div
           className="inline-flex items-center h-8 p-0.5 rounded-lg border shrink-0"
           style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
           }}
         >
           <button
             type="button"
-            onClick={() => setFilters((f) => ({ ...f, viewMode: 'grid' }))}
+            onClick={() => setFilters((f) => ({ ...f, viewMode: "grid" }))}
             title="Card grid"
             aria-label="Card grid view"
-            aria-pressed={filters.viewMode === 'grid'}
+            aria-pressed={filters.viewMode === "grid"}
             className="h-6.5 w-7 flex items-center justify-center rounded-md transition-colors"
             style={{
-              backgroundColor: filters.viewMode === 'grid' ? 'var(--accent-soft)' : 'transparent',
-              color: filters.viewMode === 'grid' ? 'var(--accent)' : 'var(--text-muted)',
+              backgroundColor:
+                filters.viewMode === "grid"
+                  ? "var(--accent-soft)"
+                  : "transparent",
+              color:
+                filters.viewMode === "grid"
+                  ? "var(--accent)"
+                  : "var(--text-muted)",
             }}
           >
             <LayoutGrid className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
-            onClick={() => setFilters((f) => ({ ...f, viewMode: 'list' }))}
+            onClick={() => setFilters((f) => ({ ...f, viewMode: "list" }))}
             title="Quiet list"
             aria-label="Quiet list view"
-            aria-pressed={filters.viewMode === 'list'}
+            aria-pressed={filters.viewMode === "list"}
             className="h-6.5 w-7 flex items-center justify-center rounded-md transition-colors"
             style={{
-              backgroundColor: filters.viewMode === 'list' ? 'var(--accent-soft)' : 'transparent',
-              color: filters.viewMode === 'list' ? 'var(--accent)' : 'var(--text-muted)',
+              backgroundColor:
+                filters.viewMode === "list"
+                  ? "var(--accent-soft)"
+                  : "transparent",
+              color:
+                filters.viewMode === "list"
+                  ? "var(--accent)"
+                  : "var(--text-muted)",
             }}
           >
             <ListIcon className="w-3.5 h-3.5" />
@@ -486,14 +566,20 @@ export const EventsView: React.FC<EventsViewProps> = ({
       {filteredEvents.length === 0 ? (
         <div
           className="rounded-xl border border-dashed py-14 px-4 text-center space-y-2"
-          style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-muted)' }}
+          style={{
+            borderColor: "var(--border-subtle)",
+            color: "var(--text-muted)",
+          }}
         >
           <Calendar className="w-6 h-6 mx-auto opacity-50" />
-          <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+          <p
+            className="text-sm font-medium"
+            style={{ color: "var(--text-primary)" }}
+          >
             No events match your filters
           </p>
         </div>
-      ) : filters.viewMode === 'grid' ? (
+      ) : filters.viewMode === "grid" ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filteredEvents.map((ev) => {
             const p = getEventPresentation(ev);
@@ -501,19 +587,19 @@ export const EventsView: React.FC<EventsViewProps> = ({
             return (
               <article
                 key={ev.id}
-                onClick={() => onOpenDetail({ mode: 'event', id: ev.id })}
+                onClick={() => onOpenDetail({ mode: "event", id: ev.id })}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  onOpenContextMenu({ kind: 'entry', entry: ev }, e);
+                  onOpenContextMenu({ kind: "entry", entry: ev }, e);
                 }}
                 className="rounded-xl border p-3 flex flex-col justify-between gap-2.5 cursor-pointer transition-colors hover:border-[var(--border-strong)]"
                 style={{
                   backgroundColor: p.isAchievement
-                    ? 'color-mix(in srgb, var(--warning) 7%, var(--bg-surface))'
-                    : 'var(--bg-surface)',
+                    ? "color-mix(in srgb, var(--warning) 7%, var(--bg-surface))"
+                    : "var(--bg-surface)",
                   borderColor: p.isAchievement
-                    ? 'color-mix(in srgb, var(--warning) 32%, transparent)'
-                    : 'var(--border-subtle)',
+                    ? "color-mix(in srgb, var(--warning) 32%, transparent)"
+                    : "var(--border-subtle)",
                 }}
               >
                 <div className="space-y-2 min-w-0">
@@ -533,8 +619,12 @@ export const EventsView: React.FC<EventsViewProps> = ({
                         borderColor: p.chipBorder,
                       }}
                     >
-                      {ev.attendance === 'attended' && <Check className="w-3 h-3 shrink-0" />}
-                      {ev.attendance === 'missed' && <X className="w-3 h-3 shrink-0" />}
+                      {ev.attendance === "attended" && (
+                        <Check className="w-3 h-3 shrink-0" />
+                      )}
+                      {ev.attendance === "missed" && (
+                        <X className="w-3 h-3 shrink-0" />
+                      )}
                       <span>
                         {p.weekday} · {p.monthShort} {p.dayNum}
                       </span>
@@ -544,7 +634,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
                       {p.isAchievement && (
                         <span
                           className="h-6 w-6 flex items-center justify-center rounded-md"
-                          style={{ color: 'var(--warning)' }}
+                          style={{ color: "var(--warning)" }}
                           title="Achievement"
                         >
                           <Trophy className="w-3.5 h-3.5" />
@@ -554,10 +644,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onOpenContextMenu({ kind: 'entry', entry: ev }, e);
+                          onOpenContextMenu({ kind: "entry", entry: ev }, e);
                         }}
                         className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)]"
-                        style={{ color: 'var(--text-muted)' }}
+                        style={{ color: "var(--text-muted)" }}
                         aria-label="Event actions"
                       >
                         <MoreVertical className="w-3.5 h-3.5" />
@@ -568,14 +658,18 @@ export const EventsView: React.FC<EventsViewProps> = ({
                   {/* Unified 14px Sans Medium Title */}
                   <h2
                     className="text-sm font-medium leading-snug line-clamp-2"
-                    style={{ color: 'var(--text-primary)' }}
+                    style={{ color: "var(--text-primary)" }}
                   >
                     {ev.title}
                   </h2>
 
                   {/* 2-Line Faded RichContent Preview */}
                   {ev.content && (
-                    <RichContent html={ev.content} className="line-clamp-2 text-xs" fade />
+                    <RichContent
+                      html={ev.content}
+                      className="line-clamp-2 text-xs"
+                      fade
+                    />
                   )}
                 </div>
 
@@ -583,8 +677,8 @@ export const EventsView: React.FC<EventsViewProps> = ({
                 <div
                   className="pt-2 border-t flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-mono tabular-nums"
                   style={{
-                    borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-muted)',
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-muted)",
                   }}
                 >
                   <span className="inline-flex items-center gap-1.5 min-w-0">
@@ -609,14 +703,14 @@ export const EventsView: React.FC<EventsViewProps> = ({
                   )}
 
                   {p.isAchievement && ev.completedAt && (
-                    <span style={{ color: 'var(--warning)' }}>
+                    <span style={{ color: "var(--warning)" }}>
                       · Achieved {formatCompactDayHeading(p.dayKey)}
                     </span>
                   )}
 
                   {ev.tags.length > 0 && (
                     <span className="truncate">
-                      · {ev.tags.map((t) => `#${t}`).join(' ')}
+                      · {ev.tags.map((t) => `#${t}`).join(" ")}
                     </span>
                   )}
                 </div>
@@ -627,7 +721,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
       ) : (
         <div
           className="divide-y border-y"
-          style={{ borderColor: 'var(--border-subtle)' }}
+          style={{ borderColor: "var(--border-subtle)" }}
         >
           {filteredEvents.map((ev) => {
             const p = getEventPresentation(ev);
@@ -635,10 +729,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
             return (
               <div
                 key={ev.id}
-                onClick={() => onOpenDetail({ mode: 'event', id: ev.id })}
+                onClick={() => onOpenDetail({ mode: "event", id: ev.id })}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  onOpenContextMenu({ kind: 'entry', entry: ev }, e);
+                  onOpenContextMenu({ kind: "entry", entry: ev }, e);
                 }}
                 className="py-2.5 px-2 -mx-2 rounded-lg flex items-center justify-between gap-3 cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]/75"
               >
@@ -657,8 +751,12 @@ export const EventsView: React.FC<EventsViewProps> = ({
                       borderColor: p.chipBorder,
                     }}
                   >
-                    {ev.attendance === 'attended' && <Check className="w-3 h-3 shrink-0" />}
-                    {ev.attendance === 'missed' && <X className="w-3 h-3 shrink-0" />}
+                    {ev.attendance === "attended" && (
+                      <Check className="w-3 h-3 shrink-0" />
+                    )}
+                    {ev.attendance === "missed" && (
+                      <X className="w-3 h-3 shrink-0" />
+                    )}
                     <span>
                       {p.monthShort} {p.dayNum}
                     </span>
@@ -667,13 +765,13 @@ export const EventsView: React.FC<EventsViewProps> = ({
                   {p.isAchievement && (
                     <Trophy
                       className="w-3.5 h-3.5 shrink-0"
-                      style={{ color: 'var(--warning)' }}
+                      style={{ color: "var(--warning)" }}
                     />
                   )}
 
                   <span
                     className="text-sm font-medium leading-snug truncate"
-                    style={{ color: 'var(--text-primary)' }}
+                    style={{ color: "var(--text-primary)" }}
                   >
                     {ev.title}
                   </span>
@@ -682,9 +780,11 @@ export const EventsView: React.FC<EventsViewProps> = ({
                 <div className="flex items-center gap-2.5 shrink-0">
                   <div
                     className="hidden sm:flex items-center gap-2 text-[11px] font-mono tabular-nums"
-                    style={{ color: 'var(--text-muted)' }}
+                    style={{ color: "var(--text-muted)" }}
                   >
-                    {ev.scheduledAt && <span>{formatTime(ev.scheduledAt, timeFormat)}</span>}
+                    {ev.scheduledAt && (
+                      <span>{formatTime(ev.scheduledAt, timeFormat)}</span>
+                    )}
                     {ev.location && (
                       <span className="inline-flex items-center gap-0.5 font-sans max-w-[140px] truncate">
                         <span>·</span>
@@ -707,10 +807,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onOpenContextMenu({ kind: 'entry', entry: ev }, e);
+                      onOpenContextMenu({ kind: "entry", entry: ev }, e);
                     }}
                     className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)]"
-                    style={{ color: 'var(--text-muted)' }}
+                    style={{ color: "var(--text-muted)" }}
                     aria-label="Event actions"
                   >
                     <MoreVertical className="w-3.5 h-3.5" />

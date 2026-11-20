@@ -16,64 +16,76 @@ import {
   Trash2,
   Upload,
   X,
-} from 'lucide-react';
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {AddBooksToFolderModal} from '../components/library/AddBooksToFolderModal';
+} from "lucide-react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { AddBooksToFolderModal } from "../components/library/AddBooksToFolderModal";
 import {
   BookContextMenu,
   type BookContextMenuState,
-} from '../components/library/BookContextMenu';
-import {BookGrid} from '../components/library/BookGrid';
-import {BookInspector} from '../components/library/BookInspector';
-import {BookTable} from '../components/library/BookTable';
-import {BulkActionBar} from '../components/library/BulkActionBar';
-import {BulkEditModal, type BulkEditPatch} from '../components/library/BulkEditModal';
-import {CommandPalette} from '../components/library/CommandPalette';
-import {ConfirmDeleteModal} from '../components/library/ConfirmDeleteModal';
-import {ContinueReadingShelf} from '../components/library/ContinueReadingShelf';
+} from "../components/library/BookContextMenu";
+import { BookGrid } from "../components/library/BookGrid";
+import { BookInspector } from "../components/library/BookInspector";
+import { BookTable } from "../components/library/BookTable";
+import { BulkActionBar } from "../components/library/BulkActionBar";
+import {
+  BulkEditModal,
+  type BulkEditPatch,
+} from "../components/library/BulkEditModal";
+import { CommandPalette } from "../components/library/CommandPalette";
+import { ConfirmDeleteModal } from "../components/library/ConfirmDeleteModal";
+import { ContinueReadingShelf } from "../components/library/ContinueReadingShelf";
 import {
   DuplicateImportModal,
   type DuplicateResolutionAction,
   type PendingDuplicateItem,
-} from '../components/library/DuplicateImportModal';
-import {EmptyLibraryDropzone} from '../components/library/EmptyLibraryDropzone';
-import {FloatingFolderDropDock} from '../components/library/FloatingFolderDropDock';
+} from "../components/library/DuplicateImportModal";
+import { EmptyLibraryDropzone } from "../components/library/EmptyLibraryDropzone";
+import { FloatingFolderDropDock } from "../components/library/FloatingFolderDropDock";
 import {
   FolderDropActionModal,
   type PendingFolderDrop,
-} from '../components/library/FolderDropActionModal';
-import {HighlightsHubView} from '../components/library/HighlightsHubView';
-import {ImportBackupModal} from '../components/library/ImportBackupModal';
-import {LibraryFolderModal} from '../components/library/LibraryFolderModal';
-import {LibraryOptionsPopover} from '../components/library/LibraryOptionsPopover';
-import {LibraryShelfStrip} from '../components/library/LibraryShelfStrip';
-import type {ActiveLibraryFilter} from '../components/library/LibrarySidebar';
-import {MetadataDrawer} from '../components/library/MetadataDrawer';
-import {MobileBookActionSheet} from '../components/library/MobileBookActionSheet';
-import {MobileBookList} from '../components/library/MobileBookList';
-import {MobileFilterSortSheet} from '../components/library/MobileFilterSortSheet';
+} from "../components/library/FolderDropActionModal";
+import { HighlightsHubView } from "../components/library/HighlightsHubView";
+import { ImportBackupModal } from "../components/library/ImportBackupModal";
+import { LibraryFolderModal } from "../components/library/LibraryFolderModal";
+import { LibraryOptionsPopover } from "../components/library/LibraryOptionsPopover";
+import { LibraryShelfStrip } from "../components/library/LibraryShelfStrip";
+import type { ActiveLibraryFilter } from "../components/library/LibrarySidebar";
+import { MetadataDrawer } from "../components/library/MetadataDrawer";
+import { MobileBookActionSheet } from "../components/library/MobileBookActionSheet";
+import { MobileBookList } from "../components/library/MobileBookList";
+import { MobileFilterSortSheet } from "../components/library/MobileFilterSortSheet";
 import {
   MobileOrganizeSheet,
   type MobileOrganizePayload,
-} from '../components/library/MobileOrganizeSheet';
-import {StorageManagerModal} from '../components/library/StorageManagerModal';
-import {ViewFoldersSection} from '../components/library/ViewFoldersSection';
-import {ReaderTabStrip} from '../components/reader/ReaderTabStrip';
-import {ReaderView} from '../components/reader/ReaderView';
-import {useWorkspace} from '../context/WorkspaceContext';
-import {useLibraryPreferences} from '../hooks/usePreferences';
+} from "../components/library/MobileOrganizeSheet";
+import { StorageManagerModal } from "../components/library/StorageManagerModal";
+import { ViewFoldersSection } from "../components/library/ViewFoldersSection";
+import { ReaderTabStrip } from "../components/reader/ReaderTabStrip";
+import { ReaderView } from "../components/reader/ReaderView";
+import { useWorkspace } from "../context/WorkspaceContext";
+import { useLibraryPreferences } from "../hooks/usePreferences";
 import {
   exportLibraryBackupZip,
   parseLibraryBackupZip,
   type ParsedBackupArchive,
-} from '../lib/backup';
-import {computeSha256Hex, libraryDb} from '../lib/db';
+} from "../lib/backup";
+import { computeSha256Hex, libraryDb } from "../lib/db";
 import {
   getBookFolderIds,
   getFolderDescendantIds,
   withBookFolderIds,
-} from '../lib/formatters';
-import {detectBookFormat, extractBookImportMetadata} from '../lib/parsers/importBook';
+} from "../lib/formatters";
+import {
+  detectBookFormat,
+  extractBookImportMetadata,
+} from "../lib/parsers/importBook";
 import type {
   BookFormat,
   BookRecord,
@@ -85,7 +97,7 @@ import type {
   ReadingStatus,
   SortField,
   ViewFolderRecord,
-} from '../types/library';
+} from "../types/library";
 
 export interface LibraryViewProps {
   zenMode?: boolean;
@@ -95,7 +107,10 @@ export interface LibraryViewProps {
 }
 
 function makeId(prefix: string): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return `${prefix}-${crypto.randomUUID().slice(0, 12)}`;
   }
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -144,13 +159,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   // Library filtering, search & drill-down
   const [activeFilter, setActiveFilter] = useState<ActiveLibraryFilter>({
-    kind: 'smart',
-    id: 'all',
+    kind: "smart",
+    id: "all",
   });
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [formatFilter, setFormatFilter] = useState<'all' | BookFormat>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [drilledViewFolderId, setDrilledViewFolderId] = useState<string | null>(null);
+  const [formatFilter, setFormatFilter] = useState<"all" | BookFormat>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [drilledViewFolderId, setDrilledViewFolderId] = useState<string | null>(
+    null,
+  );
 
   // Selection, Inspector, Popovers & Drawers
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -158,29 +175,40 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [inspectedBookId, setInspectedBookId] = useState<string | null>(null);
   const [editingBookId, setEditingBookId] = useState<string | null>(null);
-  const [booksPendingDelete, setBooksPendingDelete] = useState<BookRecord[]>([]);
+  const [booksPendingDelete, setBooksPendingDelete] = useState<BookRecord[]>(
+    [],
+  );
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [storageManagerOpen, setStorageManagerOpen] = useState(false);
   const [displayPopoverOpen, setDisplayPopoverOpen] = useState(false);
   const [folderModal, setFolderModal] = useState<
-    {mode: 'create'} | {mode: 'edit'; folder: FolderRecord} | null
+    { mode: "create" } | { mode: "edit"; folder: FolderRecord } | null
   >(null);
   const [mobileFilterSheetOpen, setMobileFilterSheetOpen] = useState(false);
-  const [mobileActionBook, setMobileActionBook] = useState<BookRecord | null>(null);
-  const [organizeTargetIds, setOrganizeTargetIds] = useState<string[] | null>(null);
+  const [mobileActionBook, setMobileActionBook] = useState<BookRecord | null>(
+    null,
+  );
+  const [organizeTargetIds, setOrganizeTargetIds] = useState<string[] | null>(
+    null,
+  );
   const [addingBooksToViewFolder, setAddingBooksToViewFolder] =
     useState<ViewFolderRecord | null>(null);
-  const [contextMenu, setContextMenu] = useState<BookContextMenuState | null>(null);
+  const [contextMenu, setContextMenu] = useState<BookContextMenuState | null>(
+    null,
+  );
 
   // Drag & Drop (Books → Folders, External Files → Import)
   const [isDraggingBooks, setIsDraggingBooks] = useState(false);
   const [isFileDragActive, setIsFileDragActive] = useState(false);
-  const [pendingFolderDrop, setPendingFolderDrop] = useState<PendingFolderDrop | null>(null);
+  const [pendingFolderDrop, setPendingFolderDrop] =
+    useState<PendingFolderDrop | null>(null);
 
   // Import, Deduplication & Backup ZIP states
   const [isImporting, setIsImporting] = useState(false);
-  const [pendingDuplicates, setPendingDuplicates] = useState<PendingDuplicateItem[]>([]);
+  const [pendingDuplicates, setPendingDuplicates] = useState<
+    PendingDuplicateItem[]
+  >([]);
   const [isExportingBackup, setIsExportingBackup] = useState(false);
   const [isParsingBackup, setIsParsingBackup] = useState(false);
   const [isRestoringBackup, setIsRestoringBackup] = useState(false);
@@ -190,11 +218,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const notify = useCallback(
-    (title: string, tone: 'info' | 'success' | 'error' = 'info', detail?: string) => {
+    (
+      title: string,
+      tone: "info" | "success" | "error" = "info",
+      detail?: string,
+    ) => {
       const msg = detail ? `${title} — ${detail}` : title;
-      pushToast(msg, tone === 'info' ? 'neutral' : tone);
+      pushToast(msg, tone === "info" ? "neutral" : tone);
     },
-    [pushToast]
+    [pushToast],
   );
 
   // Keep openBookIds clean if books are deleted
@@ -218,17 +250,17 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   // Global Cmd/Ctrl+K Command Palette & Escape handling when in Library shelf view
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setCommandPaletteOpen((v) => !v);
-      } else if (e.key === 'Escape' && !activeBookId) {
+      } else if (e.key === "Escape" && !activeBookId) {
         if (contextMenu) setContextMenu(null);
         else if (displayPopoverOpen) setDisplayPopoverOpen(false);
         else if (selectedIds.size > 0) setSelectedIds(new Set());
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [activeBookId, contextMenu, displayPopoverOpen, selectedIds.size]);
 
   // Track internal book drag state synchronously + for FloatingFolderDropDock
@@ -239,8 +271,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       const types = e.dataTransfer?.types;
       if (
         types &&
-        (types.includes('application/x-folio-book-id') ||
-          types.includes('application/x-folio-book-ids'))
+        (types.includes("application/x-folio-book-id") ||
+          types.includes("application/x-folio-book-ids"))
       ) {
         isInternalBookDragRef.current = true;
         setIsFileDragActive(false);
@@ -252,51 +284,54 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       setIsDraggingBooks(false);
       setIsFileDragActive(false);
     };
-    window.addEventListener('dragstart', onDragStart);
-    window.addEventListener('dragend', onDragEnd);
-    window.addEventListener('drop', onDragEnd);
+    window.addEventListener("dragstart", onDragStart);
+    window.addEventListener("dragend", onDragEnd);
+    window.addEventListener("drop", onDragEnd);
     return () => {
-      window.removeEventListener('dragstart', onDragStart);
-      window.removeEventListener('dragend', onDragEnd);
-      window.removeEventListener('drop', onDragEnd);
+      window.removeEventListener("dragstart", onDragStart);
+      window.removeEventListener("dragend", onDragEnd);
+      window.removeEventListener("drop", onDragEnd);
     };
   }, []);
 
-  const isPureExternalFileDrag = useCallback((dt: DataTransfer | null): boolean => {
-    if (!dt || isInternalBookDragRef.current) return false;
-    const types = dt.types;
-    if (
-      types.includes('application/x-folio-book-id') ||
-      types.includes('application/x-folio-book-ids')
-    ) {
-      return false;
-    }
-    if (!types.includes('Files')) return false;
-    if (dt.items && dt.items.length > 0) {
-      return Array.from(dt.items).some((item) => item.kind === 'file');
-    }
-    return true;
-  }, []);
+  const isPureExternalFileDrag = useCallback(
+    (dt: DataTransfer | null): boolean => {
+      if (!dt || isInternalBookDragRef.current) return false;
+      const types = dt.types;
+      if (
+        types.includes("application/x-folio-book-id") ||
+        types.includes("application/x-folio-book-ids")
+      ) {
+        return false;
+      }
+      if (!types.includes("Files")) return false;
+      if (dt.items && dt.items.length > 0) {
+        return Array.from(dt.items).some((item) => item.kind === "file");
+      }
+      return true;
+    },
+    [],
+  );
 
   // Derived collections & keys
   const activeViewKey = `${activeFilter.kind}:${activeFilter.id}`;
 
   const activeViewLabel = useMemo(() => {
-    if (activeFilter.kind === 'smart') {
+    if (activeFilter.kind === "smart") {
       const labels: Record<string, string> = {
-        all: 'All Books',
-        reading: 'Currently Reading',
-        unread: 'Unread',
-        finished: 'Finished',
-        favorites: 'Favorites',
-        highlights: 'Highlights & Notes',
+        all: "All Books",
+        reading: "Currently Reading",
+        unread: "Unread",
+        finished: "Finished",
+        favorites: "Favorites",
+        highlights: "Highlights & Notes",
       };
-      return labels[activeFilter.id] ?? 'Library';
+      return labels[activeFilter.id] ?? "Library";
     }
-    if (activeFilter.kind === 'folder') {
-      return folders.find((f) => f.id === activeFilter.id)?.name ?? 'Folder';
+    if (activeFilter.kind === "folder") {
+      return folders.find((f) => f.id === activeFilter.id)?.name ?? "Folder";
     }
-    return categories.find((c) => c.id === activeFilter.id)?.name ?? 'Category';
+    return categories.find((c) => c.id === activeFilter.id)?.name ?? "Category";
   }, [activeFilter, folders, categories]);
 
   const allTags = useMemo(() => {
@@ -307,7 +342,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       }
     }
     return Array.from(counts.entries())
-      .map(([name, count]) => ({name, count}))
+      .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [books]);
 
@@ -315,15 +350,16 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   const currentViewFolders = useMemo(
     () => viewFolders.filter((vf) => vf.viewKey === activeViewKey),
-    [viewFolders, activeViewKey]
+    [viewFolders, activeViewKey],
   );
 
   const drilledViewFolder = useMemo(
     () =>
       drilledViewFolderId
-        ? currentViewFolders.find((vf) => vf.id === drilledViewFolderId) ?? null
+        ? (currentViewFolders.find((vf) => vf.id === drilledViewFolderId) ??
+          null)
         : null,
-    [currentViewFolders, drilledViewFolderId]
+    [currentViewFolders, drilledViewFolderId],
   );
 
   // Reset drill-down when switching sidebar filters
@@ -336,31 +372,35 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const viewBooks = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const descendantIds =
-      activeFilter.kind === 'folder'
+      activeFilter.kind === "folder"
         ? getFolderDescendantIds(folders, activeFilter.id)
         : null;
 
     return books.filter((book) => {
-      if (activeFilter.kind === 'smart') {
-        if (activeFilter.id === 'reading' && book.status !== 'reading') return false;
-        if (activeFilter.id === 'unread' && book.status !== 'unread') return false;
-        if (activeFilter.id === 'finished' && book.status !== 'finished') return false;
-        if (activeFilter.id === 'favorites' && !book.isFavorite) return false;
-      } else if (activeFilter.kind === 'folder' && descendantIds) {
+      if (activeFilter.kind === "smart") {
+        if (activeFilter.id === "reading" && book.status !== "reading")
+          return false;
+        if (activeFilter.id === "unread" && book.status !== "unread")
+          return false;
+        if (activeFilter.id === "finished" && book.status !== "finished")
+          return false;
+        if (activeFilter.id === "favorites" && !book.isFavorite) return false;
+      } else if (activeFilter.kind === "folder" && descendantIds) {
         const bFolders = getBookFolderIds(book);
         if (!bFolders.some((fid) => descendantIds.has(fid))) return false;
-      } else if (activeFilter.kind === 'category') {
+      } else if (activeFilter.kind === "category") {
         if (book.categoryId !== activeFilter.id) return false;
       }
 
-      if (formatFilter !== 'all' && book.format !== formatFilter) return false;
+      if (formatFilter !== "all" && book.format !== formatFilter) return false;
 
       if (selectedTags.length > 0) {
         if (!selectedTags.every((t) => book.tags.includes(t))) return false;
       }
 
       if (q) {
-        const hay = `${book.title} ${book.subtitle ?? ''} ${book.author} ${book.series ?? ''} ${book.publisher ?? ''} ${book.tags.join(' ')} ${book.fileName}`.toLowerCase();
+        const hay =
+          `${book.title} ${book.subtitle ?? ""} ${book.author} ${book.series ?? ""} ${book.publisher ?? ""} ${book.tags.join(" ")} ${book.fileName}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -378,7 +418,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   const filedBooksCount = useMemo(
     () => viewBooks.filter((b) => filedBookIdSet.has(b.id)).length,
-    [viewBooks, filedBookIdSet]
+    [viewBooks, filedBookIdSet],
   );
 
   // Step 2: Visible books after view-folder drill-down / hide-filed + sorting
@@ -391,25 +431,25 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       list = list.filter((b) => !filedBookIdSet.has(b.id));
     }
 
-    const dir = prefs.sortDirection === 'asc' ? 1 : -1;
+    const dir = prefs.sortDirection === "asc" ? 1 : -1;
     return [...list].sort((a, b) => {
       switch (prefs.sortField) {
-        case 'title':
+        case "title":
           return a.title.localeCompare(b.title) * dir;
-        case 'author':
+        case "author":
           return a.author.localeCompare(b.author) * dir;
-        case 'progress':
+        case "progress":
           return (a.progress - b.progress) * dir;
-        case 'fileSize':
+        case "fileSize":
           return (a.fileSize - b.fileSize) * dir;
-        case 'year':
-          return (a.year ?? '').localeCompare(b.year ?? '') * dir;
-        case 'format':
+        case "year":
+          return (a.year ?? "").localeCompare(b.year ?? "") * dir;
+        case "format":
           return a.format.localeCompare(b.format) * dir;
-        case 'addedAt':
+        case "addedAt":
           return (a.addedAt - b.addedAt) * dir;
-        case 'recent':
-        case 'lastReadAt':
+        case "recent":
+        case "lastReadAt":
         default: {
           const aVal = a.lastReadAt ?? a.addedAt;
           const bVal = b.lastReadAt ?? b.addedAt;
@@ -429,29 +469,31 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   // Grouped visible books when groupBy !== 'none'
   const groupedBooks = useMemo(() => {
-    if (prefs.groupBy === 'none') {
-      return [{key: 'all', label: '', books: visibleBooks}];
+    if (prefs.groupBy === "none") {
+      return [{ key: "all", label: "", books: visibleBooks }];
     }
     const categoryNameMap = new Map(categories.map((c) => [c.id, c.name]));
     const groups = new Map<string, BookRecord[]>();
 
     for (const book of visibleBooks) {
-      let label = 'Other';
-      if (prefs.groupBy === 'status') {
+      let label = "Other";
+      if (prefs.groupBy === "status") {
         label =
-          book.status === 'reading'
-            ? 'Currently Reading'
-            : book.status === 'finished'
-              ? 'Finished'
-              : 'Unread';
-      } else if (prefs.groupBy === 'format') {
+          book.status === "reading"
+            ? "Currently Reading"
+            : book.status === "finished"
+              ? "Finished"
+              : "Unread";
+      } else if (prefs.groupBy === "format") {
         label = book.format.toUpperCase();
-      } else if (prefs.groupBy === 'author') {
-        label = book.author || 'Unknown Author';
-      } else if (prefs.groupBy === 'category') {
-        label = (book.categoryId && categoryNameMap.get(book.categoryId)) || 'Uncategorized';
-      } else if (prefs.groupBy === 'series') {
-        label = book.series?.trim() || 'Standalone';
+      } else if (prefs.groupBy === "author") {
+        label = book.author || "Unknown Author";
+      } else if (prefs.groupBy === "category") {
+        label =
+          (book.categoryId && categoryNameMap.get(book.categoryId)) ||
+          "Uncategorized";
+      } else if (prefs.groupBy === "series") {
+        label = book.series?.trim() || "Standalone";
       }
       const arr = groups.get(label) ?? [];
       arr.push(book);
@@ -470,45 +512,54 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       openBookIds
         .map((id) => books.find((b) => b.id === id))
         .filter((b): b is BookRecord => Boolean(b)),
-    [openBookIds, books]
+    [openBookIds, books],
   );
 
   const activeBook = useMemo(
-    () => (activeBookId ? books.find((b) => b.id === activeBookId) ?? null : null),
-    [activeBookId, books]
+    () =>
+      activeBookId ? (books.find((b) => b.id === activeBookId) ?? null) : null,
+    [activeBookId, books],
   );
 
   const inspectedBook = useMemo(
-    () => (inspectedBookId ? books.find((b) => b.id === inspectedBookId) ?? null : null),
-    [inspectedBookId, books]
+    () =>
+      inspectedBookId
+        ? (books.find((b) => b.id === inspectedBookId) ?? null)
+        : null,
+    [inspectedBookId, books],
   );
 
   const editingBook = useMemo(
-    () => (editingBookId ? books.find((b) => b.id === editingBookId) ?? null : null),
-    [editingBookId, books]
+    () =>
+      editingBookId
+        ? (books.find((b) => b.id === editingBookId) ?? null)
+        : null,
+    [editingBookId, books],
   );
 
   // Open a book in a Reader tab (optionally jumping straight to a chapter/page)
   const handleOpenBook = useCallback(
     (book: BookRecord, jumpUnitIndex?: number) => {
-      if (typeof jumpUnitIndex === 'number') {
+      if (typeof jumpUnitIndex === "number") {
         const updated: BookRecord = {
           ...book,
           lastReadAt: Date.now(),
           currentLocation: {
             unitIndex: jumpUnitIndex,
             scrollRatio: 0,
-            label: book.format === 'pdf' ? `Page ${jumpUnitIndex}` : undefined,
+            label: book.format === "pdf" ? `Page ${jumpUnitIndex}` : undefined,
           },
         };
         updateLibraryState((prev) => ({
           books: prev.books.map((b) => (b.id === book.id ? updated : b)),
         }));
       }
-      setOpenBookIds((prev) => (prev.includes(book.id) ? prev : [...prev, book.id]));
+      setOpenBookIds((prev) =>
+        prev.includes(book.id) ? prev : [...prev, book.id],
+      );
       setActiveBookId(book.id);
     },
-    [updateLibraryState]
+    [updateLibraryState],
   );
 
   const handleCloseBookTab = useCallback((bookId: string) => {
@@ -526,12 +577,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   const handleCycleReaderSurface = useCallback(() => {
     const next =
-      prefs.reader.theme === 'kanso'
-        ? 'sepia'
-        : prefs.reader.theme === 'sepia'
-          ? 'dark'
-          : 'kanso';
-    updateReaderPrefs({theme: next});
+      prefs.reader.theme === "kanso"
+        ? "sepia"
+        : prefs.reader.theme === "sepia"
+          ? "dark"
+          : "kanso";
+    updateReaderPrefs({ theme: next });
   }, [prefs.reader.theme, updateReaderPrefs]);
 
   // Book CRUD & Metadata
@@ -541,14 +592,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         books: prev.books.map((b) => (b.id === updated.id ? updated : b)),
       }));
     },
-    [updateLibraryState]
+    [updateLibraryState],
   );
 
   const handleToggleFavorite = useCallback(
     (book: BookRecord) => {
-      handleUpdateBook({...book, isFavorite: !book.isFavorite});
+      handleUpdateBook({ ...book, isFavorite: !book.isFavorite });
     },
-    [handleUpdateBook]
+    [handleUpdateBook],
   );
 
   const handleDeleteBooksConfirmed = useCallback(
@@ -562,8 +613,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
       updateLibraryState((prev) => ({
         books: prev.books.filter((b) => !deleteSet.has(b.id)),
-        bookBookmarks: prev.bookBookmarks.filter((bm) => !deleteSet.has(bm.bookId)),
-        bookHighlights: prev.bookHighlights.filter((hl) => !deleteSet.has(hl.bookId)),
+        bookBookmarks: prev.bookBookmarks.filter(
+          (bm) => !deleteSet.has(bm.bookId),
+        ),
+        bookHighlights: prev.bookHighlights.filter(
+          (hl) => !deleteSet.has(hl.bookId),
+        ),
         libraryViewFolders: prev.libraryViewFolders.map((vf) => ({
           ...vf,
           bookIds: vf.bookIds.filter((bid) => !deleteSet.has(bid)),
@@ -577,11 +632,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       });
       setBooksPendingDelete([]);
       notify(
-        deleteSet.size === 1 ? 'Book removed' : `${deleteSet.size} books removed`,
-        'info'
+        deleteSet.size === 1
+          ? "Book removed"
+          : `${deleteSet.size} books removed`,
+        "info",
       );
     },
-    [updateLibraryState, notify]
+    [updateLibraryState, notify],
   );
 
   // Import Pipeline with SHA-256 + Metadata Deduplication
@@ -590,13 +647,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       const rawFiles = Array.from(fileList);
       if (rawFiles.length === 0) return;
 
-      const supported = rawFiles.filter((f) => detectBookFormat(f.name) !== null);
+      const supported = rawFiles.filter(
+        (f) => detectBookFormat(f.name) !== null,
+      );
       const unsupportedCount = rawFiles.length - supported.length;
       if (unsupportedCount > 0) {
         notify(
-          `Skipped ${unsupportedCount} unsupported file${unsupportedCount === 1 ? '' : 's'}`,
-          'error',
-          'Supports .epub, .pdf, and .mobi'
+          `Skipped ${unsupportedCount} unsupported file${unsupportedCount === 1 ? "" : "s"}`,
+          "error",
+          "Supports .epub, .pdf, and .mobi",
         );
       }
       if (supported.length === 0) return;
@@ -608,43 +667,48 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       try {
         for (const file of supported) {
           try {
-            const {meta: metadata, buffer: arrayBuffer} = await extractBookImportMetadata(file);
+            const { meta: metadata, buffer: arrayBuffer } =
+              await extractBookImportMetadata(file);
 
             // Detect duplicate by exact file hash, filename+size, or normalized title+author
             const existingByFile = books.find(
               (b) =>
                 (b.fileHash && b.fileHash === metadata.fileHash) ||
                 (b.fileName.toLowerCase() === metadata.fileName.toLowerCase() &&
-                  b.fileSize === metadata.fileSize)
+                  b.fileSize === metadata.fileSize),
             );
             const existingByTitle = !existingByFile
               ? books.find(
                   (b) =>
-                    b.title.trim().toLowerCase() === metadata.title.trim().toLowerCase() &&
-                    b.author.trim().toLowerCase() === metadata.author.trim().toLowerCase()
+                    b.title.trim().toLowerCase() ===
+                      metadata.title.trim().toLowerCase() &&
+                    b.author.trim().toLowerCase() ===
+                      metadata.author.trim().toLowerCase(),
                 )
               : undefined;
 
             const existing = existingByFile ?? existingByTitle;
             if (existing) {
               duplicatesFound.push({
-                id: makeId('dup'),
+                id: makeId("dup"),
                 file,
                 arrayBuffer,
                 metadata,
                 existingBook: existing,
-                matchReason: existingByFile ? 'Same file name & size' : 'Same title & author',
+                matchReason: existingByFile
+                  ? "Same file name & size"
+                  : "Same title & author",
               });
               continue;
             }
 
-            const newId = makeId('book');
+            const newId = makeId("book");
             await libraryDb.saveBookFile(newId, arrayBuffer, metadata.fileHash);
 
             const targetFolderIds =
-              activeFilter.kind === 'folder' ? [activeFilter.id] : [];
+              activeFilter.kind === "folder" ? [activeFilter.id] : [];
             const targetCategoryId =
-              activeFilter.kind === 'category' ? activeFilter.id : null;
+              activeFilter.kind === "category" ? activeFilter.id : null;
 
             const record: BookRecord = {
               id: newId,
@@ -659,19 +723,21 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               publisher: metadata.publisher || undefined,
               language: metadata.language || undefined,
               year: metadata.year || undefined,
-              status: 'unread',
-              isFavorite: activeFilter.kind === 'smart' && activeFilter.id === 'favorites',
+              status: "unread",
+              isFavorite:
+                activeFilter.kind === "smart" &&
+                activeFilter.id === "favorites",
               categoryId: targetCategoryId,
               folderId: targetFolderIds[0] ?? null,
               folderIds: targetFolderIds,
               tags: [...selectedTags],
               coverDataUrl: metadata.coverDataUrl,
               coverPaletteIndex: hashPaletteIndex(metadata.title),
-              coverStyle: 'editorial',
+              coverStyle: "editorial",
               progress: 0,
               totalUnits: metadata.totalUnits,
               currentLocation: {
-                unitIndex: metadata.format === 'pdf' ? 1 : 0,
+                unitIndex: metadata.format === "pdf" ? 1 : 0,
                 scrollRatio: 0,
               },
               addedAt: Date.now(),
@@ -682,8 +748,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           } catch (err) {
             notify(
               `Failed to import "${file.name}"`,
-              'error',
-              err instanceof Error ? err.message : undefined
+              "error",
+              err instanceof Error ? err.message : undefined,
             );
           }
         }
@@ -696,7 +762,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             newlyAdded.length === 1
               ? `Imported "${newlyAdded[0].title}"`
               : `Imported ${newlyAdded.length} books`,
-            'success'
+            "success",
           );
         }
 
@@ -707,7 +773,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         setIsImporting(false);
       }
     },
-    [books, activeFilter, selectedTags, updateLibraryState, notify]
+    [books, activeFilter, selectedTags, updateLibraryState, notify],
   );
 
   // Resolve duplicates from DuplicateImportModal
@@ -717,14 +783,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       const replacements = new Map<string, BookRecord>();
 
       for (const item of pendingDuplicates) {
-        const action = decisions[item.id] ?? 'skip';
-        if (action === 'skip') continue;
+        const action = decisions[item.id] ?? "skip";
+        if (action === "skip") continue;
 
-        if (action === 'replace') {
+        if (action === "replace") {
           await libraryDb.saveBookFile(
             item.existingBook.id,
             item.arrayBuffer,
-            item.metadata.fileHash
+            item.metadata.fileHash,
           );
           replacements.set(item.existingBook.id, {
             ...item.existingBook,
@@ -733,11 +799,16 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             fileSize: item.metadata.fileSize,
             fileHash: item.metadata.fileHash,
             totalUnits: item.metadata.totalUnits,
-            coverDataUrl: item.existingBook.coverDataUrl ?? item.metadata.coverDataUrl,
+            coverDataUrl:
+              item.existingBook.coverDataUrl ?? item.metadata.coverDataUrl,
           });
-        } else if (action === 'keep-both') {
-          const newId = makeId('book');
-          await libraryDb.saveBookFile(newId, item.arrayBuffer, item.metadata.fileHash);
+        } else if (action === "keep-both") {
+          const newId = makeId("book");
+          await libraryDb.saveBookFile(
+            newId,
+            item.arrayBuffer,
+            item.metadata.fileHash,
+          );
           additions.push({
             id: newId,
             format: item.metadata.format,
@@ -751,7 +822,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             publisher: item.metadata.publisher || undefined,
             language: item.metadata.language || undefined,
             year: item.metadata.year || undefined,
-            status: 'unread',
+            status: "unread",
             isFavorite: false,
             categoryId: null,
             folderId: null,
@@ -759,11 +830,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             tags: [],
             coverDataUrl: item.metadata.coverDataUrl,
             coverPaletteIndex: hashPaletteIndex(item.metadata.title),
-            coverStyle: 'editorial',
+            coverStyle: "editorial",
             progress: 0,
             totalUnits: item.metadata.totalUnits,
             currentLocation: {
-              unitIndex: item.metadata.format === 'pdf' ? 1 : 0,
+              unitIndex: item.metadata.format === "pdf" ? 1 : 0,
               scrollRatio: 0,
             },
             addedAt: Date.now(),
@@ -781,12 +852,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         }));
         notify(
           `Resolved duplicates (${replacements.size} replaced, ${additions.length} added)`,
-          'success'
+          "success",
         );
       }
       setPendingDuplicates([]);
     },
-    [pendingDuplicates, updateLibraryState, notify]
+    [pendingDuplicates, updateLibraryState, notify],
   );
 
   // Replace book binary file (from MetadataDrawer or StorageManagerModal) preserving metadata & notes
@@ -796,10 +867,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       if (!target) return;
       const fmt = detectBookFormat(file.name);
       if (!fmt) {
-        notify('Unsupported file format', 'error', 'Choose an .epub, .pdf, or .mobi file');
+        notify(
+          "Unsupported file format",
+          "error",
+          "Choose an .epub, .pdf, or .mobi file",
+        );
         return;
       }
-      const {meta: metadata, buffer: arrayBuffer} = await extractBookImportMetadata(file);
+      const { meta: metadata, buffer: arrayBuffer } =
+        await extractBookImportMetadata(file);
       await libraryDb.saveBookFile(bookId, arrayBuffer, metadata.fileHash);
 
       const updated: BookRecord = {
@@ -812,9 +888,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         coverDataUrl: target.coverDataUrl ?? metadata.coverDataUrl,
       };
       handleUpdateBook(updated);
-      notify(`Replaced file for "${target.title}"`, 'success');
+      notify(`Replaced file for "${target.title}"`, "success");
     },
-    [books, handleUpdateBook, notify]
+    [books, handleUpdateBook, notify],
   );
 
   // Folders & Categories CRUD
@@ -822,11 +898,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     async (
       name: string,
       parentId: string | null = null,
-      color: FolderColor = 'neutral'
+      color: FolderColor = "neutral",
     ): Promise<FolderRecord> => {
       const created: FolderRecord = {
-        id: makeId('fld'),
-        name: name.trim() || 'Untitled Folder',
+        id: makeId("fld"),
+        name: name.trim() || "Untitled Folder",
         parentId,
         color,
         createdAt: Date.now(),
@@ -836,40 +912,46 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       }));
       return created;
     },
-    [updateLibraryState]
+    [updateLibraryState],
   );
 
   const handleUpdateFolder = useCallback(
-    (id: string, patch: {name?: string; color?: FolderColor}) => {
+    (id: string, patch: { name?: string; color?: FolderColor }) => {
       updateLibraryState((prev) => ({
-        libraryFolders: prev.libraryFolders.map((f) => (f.id === id ? {...f, ...patch} : f)),
+        libraryFolders: prev.libraryFolders.map((f) =>
+          f.id === id ? { ...f, ...patch } : f,
+        ),
       }));
     },
-    [updateLibraryState]
+    [updateLibraryState],
   );
 
   const handleDeleteFolder = useCallback(
     (id: string) => {
       const descendants = getFolderDescendantIds(folders, id);
       updateLibraryState((prev) => ({
-        libraryFolders: prev.libraryFolders.filter((f) => !descendants.has(f.id)),
+        libraryFolders: prev.libraryFolders.filter(
+          (f) => !descendants.has(f.id),
+        ),
         books: prev.books.map((b) => {
-          const remaining = getBookFolderIds(b).filter((fid) => !descendants.has(fid));
+          const remaining = getBookFolderIds(b).filter(
+            (fid) => !descendants.has(fid),
+          );
           return withBookFolderIds(b, remaining);
         }),
       }));
-      if (activeFilter.kind === 'folder' && descendants.has(activeFilter.id)) {
-        setActiveFilter({kind: 'smart', id: 'all'});
+      if (activeFilter.kind === "folder" && descendants.has(activeFilter.id)) {
+        setActiveFilter({ kind: "smart", id: "all" });
       }
     },
-    [folders, activeFilter, updateLibraryState]
+    [folders, activeFilter, updateLibraryState],
   );
 
   const handleCreateCategory = useCallback(
     async (name: string): Promise<CategoryRecord> => {
       const created: CategoryRecord = {
-        id: makeId('cat'),
-        name: name.trim() || 'Untitled Category',
+        id: makeId("cat"),
+        name: name.trim() || "Untitled Category",
         createdAt: Date.now(),
       };
       updateLibraryState((prev) => ({
@@ -877,29 +959,31 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       }));
       return created;
     },
-    [updateLibraryState]
+    [updateLibraryState],
   );
 
   const handleDeleteCategory = useCallback(
     (id: string) => {
       updateLibraryState((prev) => ({
         libraryCategories: prev.libraryCategories.filter((c) => c.id !== id),
-        books: prev.books.map((b) => (b.categoryId === id ? {...b, categoryId: null} : b)),
+        books: prev.books.map((b) =>
+          b.categoryId === id ? { ...b, categoryId: null } : b,
+        ),
       }));
-      if (activeFilter.kind === 'category' && activeFilter.id === id) {
-        setActiveFilter({kind: 'smart', id: 'all'});
+      if (activeFilter.kind === "category" && activeFilter.id === id) {
+        setActiveFilter({ kind: "smart", id: "all" });
       }
     },
-    [activeFilter, updateLibraryState]
+    [activeFilter, updateLibraryState],
   );
 
   // Per-View Folders CRUD
   const handleCreateViewFolder = useCallback(
     async (name: string): Promise<ViewFolderRecord> => {
       const created: ViewFolderRecord = {
-        id: makeId('vf'),
+        id: makeId("vf"),
         viewKey: activeViewKey,
-        name: name.trim() || 'New Shelf',
+        name: name.trim() || "New Shelf",
         bookIds: [],
         createdAt: Date.now(),
       };
@@ -908,28 +992,30 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       }));
       return created;
     },
-    [activeViewKey, updateLibraryState]
+    [activeViewKey, updateLibraryState],
   );
 
   const handleRenameViewFolder = useCallback(
     (folderId: string, name: string) => {
       updateLibraryState((prev) => ({
         libraryViewFolders: prev.libraryViewFolders.map((vf) =>
-          vf.id === folderId ? {...vf, name: name.trim() || vf.name} : vf
+          vf.id === folderId ? { ...vf, name: name.trim() || vf.name } : vf,
         ),
       }));
     },
-    [updateLibraryState]
+    [updateLibraryState],
   );
 
   const handleDeleteViewFolder = useCallback(
     (folderId: string) => {
       updateLibraryState((prev) => ({
-        libraryViewFolders: prev.libraryViewFolders.filter((vf) => vf.id !== folderId),
+        libraryViewFolders: prev.libraryViewFolders.filter(
+          (vf) => vf.id !== folderId,
+        ),
       }));
       if (drilledViewFolderId === folderId) setDrilledViewFolderId(null);
     },
-    [drilledViewFolderId, updateLibraryState]
+    [drilledViewFolderId, updateLibraryState],
   );
 
   const handleSaveViewFolderBooks = useCallback(
@@ -937,12 +1023,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       updateLibraryState((prev) => ({
         libraryViewFolders: prev.libraryViewFolders.map((vf) =>
           vf.id === folderId
-            ? {...vf, bookIds: Array.from(new Set(nextBookIds))}
-            : vf
+            ? { ...vf, bookIds: Array.from(new Set(nextBookIds)) }
+            : vf,
         ),
       }));
     },
-    [updateLibraryState]
+    [updateLibraryState],
   );
 
   const handleToggleViewFolderMembership = useCallback(
@@ -954,11 +1040,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           const next = add
             ? Array.from(new Set([...vf.bookIds, ...bookIds]))
             : vf.bookIds.filter((id) => !idSet.has(id));
-          return {...vf, bookIds: next};
+          return { ...vf, bookIds: next };
         }),
       }));
     },
-    [updateLibraryState]
+    [updateLibraryState],
   );
 
   const handleToggleSidebarFolderMembership = useCallback(
@@ -975,7 +1061,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         }),
       }));
     },
-    [updateLibraryState]
+    [updateLibraryState],
   );
 
   // Drag-Drop Book to Sidebar Folder (asks Add vs Move if already in another folder)
@@ -997,7 +1083,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           .map((fid) => folders.find((f) => f.id === fid)?.name)
           .filter((n): n is string => Boolean(n));
         setPendingFolderDrop({
-          kind: 'sidebar',
+          kind: "sidebar",
           targetFolderId,
           targetFolderName: targetFolder.name,
           bookIds,
@@ -1006,26 +1092,30 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         });
       } else {
         handleToggleSidebarFolderMembership(bookIds, targetFolderId, true);
-        notify(`Added to "${targetFolder.name}"`, 'success');
+        notify(`Added to "${targetFolder.name}"`, "success");
       }
     },
-    [folders, books, handleToggleSidebarFolderMembership, notify]
+    [folders, books, handleToggleSidebarFolderMembership, notify],
   );
 
   // Drag-Drop Book to View Folder (asks Add vs Move if already in another view folder)
   const handleDropBooksToViewFolder = useCallback(
     (bookIds: string[], targetFolderId: string) => {
-      const targetVf = currentViewFolders.find((vf) => vf.id === targetFolderId);
+      const targetVf = currentViewFolders.find(
+        (vf) => vf.id === targetFolderId,
+      );
       if (!targetVf || bookIds.length === 0) return;
 
       const droppedBooks = books.filter((b) => bookIds.includes(b.id));
       const otherViewFolders = currentViewFolders.filter(
-        (vf) => vf.id !== targetFolderId && vf.bookIds.some((bid) => bookIds.includes(bid))
+        (vf) =>
+          vf.id !== targetFolderId &&
+          vf.bookIds.some((bid) => bookIds.includes(bid)),
       );
 
       if (otherViewFolders.length > 0) {
         setPendingFolderDrop({
-          kind: 'view',
+          kind: "view",
           targetFolderId,
           targetFolderName: targetVf.name,
           bookIds,
@@ -1034,24 +1124,25 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         });
       } else {
         handleToggleViewFolderMembership(bookIds, targetFolderId, true);
-        notify(`Filed into "${targetVf.name}"`, 'success');
+        notify(`Filed into "${targetVf.name}"`, "success");
       }
     },
-    [currentViewFolders, books, handleToggleViewFolderMembership, notify]
+    [currentViewFolders, books, handleToggleViewFolderMembership, notify],
   );
 
   const handleConfirmFolderDrop = useCallback(
-    (mode: 'add' | 'move') => {
+    (mode: "add" | "move") => {
       if (!pendingFolderDrop) return;
-      const {kind, targetFolderId, targetFolderName, bookIds} = pendingFolderDrop;
+      const { kind, targetFolderId, targetFolderName, bookIds } =
+        pendingFolderDrop;
       const idSet = new Set(bookIds);
 
-      if (kind === 'sidebar') {
+      if (kind === "sidebar") {
         updateLibraryState((prev) => ({
           books: prev.books.map((b) => {
             if (!idSet.has(b.id)) return b;
             const next =
-              mode === 'move'
+              mode === "move"
                 ? [targetFolderId]
                 : Array.from(new Set([...getBookFolderIds(b), targetFolderId]));
             return withBookFolderIds(b, next);
@@ -1062,10 +1153,16 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           libraryViewFolders: prev.libraryViewFolders.map((vf) => {
             if (vf.viewKey !== activeViewKey) return vf;
             if (vf.id === targetFolderId) {
-              return {...vf, bookIds: Array.from(new Set([...vf.bookIds, ...bookIds]))};
+              return {
+                ...vf,
+                bookIds: Array.from(new Set([...vf.bookIds, ...bookIds])),
+              };
             }
-            if (mode === 'move') {
-              return {...vf, bookIds: vf.bookIds.filter((bid) => !idSet.has(bid))};
+            if (mode === "move") {
+              return {
+                ...vf,
+                bookIds: vf.bookIds.filter((bid) => !idSet.has(bid)),
+              };
             }
             return vf;
           }),
@@ -1073,12 +1170,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       }
 
       notify(
-        `${mode === 'move' ? 'Moved' : 'Added'} to "${targetFolderName}"`,
-        'success'
+        `${mode === "move" ? "Moved" : "Added"} to "${targetFolderName}"`,
+        "success",
       );
       setPendingFolderDrop(null);
     },
-    [pendingFolderDrop, activeViewKey, updateLibraryState, notify]
+    [pendingFolderDrop, activeViewKey, updateLibraryState, notify],
   );
 
   // Bulk Edit & Mobile Organize apply
@@ -1090,7 +1187,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       updateLibraryState((prev) => {
         const nextBooks = prev.books.map((b) => {
           if (!targetIds.has(b.id)) return b;
-          let updated = {...b};
+          let updated = { ...b };
 
           const folderSet = new Set(getBookFolderIds(updated));
           for (const fid of patch.addSidebarFolderIds) folderSet.add(fid);
@@ -1105,21 +1202,25 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           if (patch.subtitle !== undefined) updated.subtitle = patch.subtitle;
           if (patch.author !== undefined) updated.author = patch.author;
           if (patch.series !== undefined) updated.series = patch.series;
-          if (patch.publisher !== undefined) updated.publisher = patch.publisher;
+          if (patch.publisher !== undefined)
+            updated.publisher = patch.publisher;
           if (patch.language !== undefined) updated.language = patch.language;
 
-          if (patch.categoryAction === 'set') updated.categoryId = patch.categoryId;
-          else if (patch.categoryAction === 'clear') updated.categoryId = null;
+          if (patch.categoryAction === "set")
+            updated.categoryId = patch.categoryId;
+          else if (patch.categoryAction === "clear") updated.categoryId = null;
 
-          if (patch.statusAction !== 'keep') updated.status = patch.statusAction;
-          if (patch.favoriteAction === 'favorite') updated.isFavorite = true;
-          else if (patch.favoriteAction === 'unfavorite') updated.isFavorite = false;
+          if (patch.statusAction !== "keep")
+            updated.status = patch.statusAction;
+          if (patch.favoriteAction === "favorite") updated.isFavorite = true;
+          else if (patch.favoriteAction === "unfavorite")
+            updated.isFavorite = false;
 
           if (patch.resetProgress) {
             updated.progress = 0;
-            updated.status = 'unread';
+            updated.status = "unread";
             updated.currentLocation = {
-              unitIndex: updated.format === 'pdf' ? 1 : 0,
+              unitIndex: updated.format === "pdf" ? 1 : 0,
               scrollRatio: 0,
             };
           }
@@ -1134,16 +1235,16 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           if (patch.removeViewFolderIds.includes(vf.id)) {
             ids = ids.filter((id) => !targetIds.has(id));
           }
-          return {...vf, bookIds: ids};
+          return { ...vf, bookIds: ids };
         });
 
-        return {books: nextBooks, libraryViewFolders: nextViewFolders};
+        return { books: nextBooks, libraryViewFolders: nextViewFolders };
       });
 
       setBulkEditOpen(false);
-      notify(`Updated ${targetIds.size} books`, 'success');
+      notify(`Updated ${targetIds.size} books`, "success");
     },
-    [selectedIds, updateLibraryState, notify]
+    [selectedIds, updateLibraryState, notify],
   );
 
   const handleApplyMobileOrganize = useCallback(
@@ -1156,12 +1257,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           if (!targetIds.has(b.id)) return b;
           const folderSet = new Set(getBookFolderIds(b));
           for (const fid of payload.addToSidebarFolderIds) folderSet.add(fid);
-          for (const fid of payload.removeFromSidebarFolderIds) folderSet.delete(fid);
+          for (const fid of payload.removeFromSidebarFolderIds)
+            folderSet.delete(fid);
           let updated = withBookFolderIds(b, Array.from(folderSet));
 
-          if (payload.categoryChange.mode === 'set') {
+          if (payload.categoryChange.mode === "set") {
             updated.categoryId = payload.categoryChange.categoryId;
-          } else if (payload.categoryChange.mode === 'clear') {
+          } else if (payload.categoryChange.mode === "clear") {
             updated.categoryId = null;
           }
 
@@ -1183,21 +1285,21 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           if (payload.removeFromViewFolderIds.includes(vf.id)) {
             ids = ids.filter((id) => !targetIds.has(id));
           }
-          return {...vf, bookIds: ids};
+          return { ...vf, bookIds: ids };
         });
 
-        return {books: nextBooks, libraryViewFolders: nextViewFolders};
+        return { books: nextBooks, libraryViewFolders: nextViewFolders };
       });
 
       setOrganizeTargetIds(null);
       notify(
         payload.bookIds.length === 1
-          ? 'Book organization updated'
+          ? "Book organization updated"
           : `Organized ${payload.bookIds.length} books`,
-        'success'
+        "success",
       );
     },
-    [updateLibraryState, notify]
+    [updateLibraryState, notify],
   );
 
   // Selection with Shift-range support
@@ -1210,7 +1312,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           const fromIdx = orderedIds.indexOf(lastClickedBookIdRef.current);
           const toIdx = orderedIds.indexOf(bookId);
           if (fromIdx !== -1 && toIdx !== -1) {
-            const [start, end] = fromIdx < toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
+            const [start, end] =
+              fromIdx < toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
             for (let i = start; i <= end; i++) {
               next.add(orderedIds[i]);
             }
@@ -1223,7 +1326,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         return next;
       });
     },
-    [visibleBooks]
+    [visibleBooks],
   );
 
   // Highlights Hub edits
@@ -1231,10 +1334,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     async (updated: HighlightRecord) => {
       await libraryDb.saveHighlight(updated);
       updateLibraryState((prev) => ({
-        bookHighlights: prev.bookHighlights.map((h) => (h.id === updated.id ? updated : h)),
+        bookHighlights: prev.bookHighlights.map((h) =>
+          h.id === updated.id ? updated : h,
+        ),
       }));
     },
-    [updateLibraryState]
+    [updateLibraryState],
   );
 
   const handleDeleteHighlight = useCallback(
@@ -1243,9 +1348,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       updateLibraryState((prev) => ({
         bookHighlights: prev.bookHighlights.filter((h) => h.id !== id),
       }));
-      notify('Highlight deleted', 'info');
+      notify("Highlight deleted", "info");
     },
-    [updateLibraryState, notify]
+    [updateLibraryState, notify],
   );
 
   // Full ZIP Backup Export & Import
@@ -1261,17 +1366,17 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         highlights,
       });
       const url = URL.createObjectURL(zipBlob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
       a.download = `kanso-library-backup-${new Date().toISOString().slice(0, 10)}.zip`;
       a.click();
       URL.revokeObjectURL(url);
-      notify('Library ZIP backup exported', 'success');
+      notify("Library ZIP backup exported", "success");
     } catch (err) {
       notify(
-        'Backup export failed',
-        'error',
-        err instanceof Error ? err.message : undefined
+        "Backup export failed",
+        "error",
+        err instanceof Error ? err.message : undefined,
       );
     } finally {
       setIsExportingBackup(false);
@@ -1286,24 +1391,24 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         setPendingBackupArchive(parsed);
       } catch (err) {
         notify(
-          'Could not read backup archive',
-          'error',
-          err instanceof Error ? err.message : undefined
+          "Could not read backup archive",
+          "error",
+          err instanceof Error ? err.message : undefined,
         );
       } finally {
         setIsParsingBackup(false);
       }
     },
-    [notify]
+    [notify],
   );
 
   const handleConfirmRestoreBackup = useCallback(
-    async (mode: 'merge' | 'replace') => {
+    async (mode: "merge" | "replace") => {
       if (!pendingBackupArchive) return;
       setIsRestoringBackup(true);
       try {
-        const {snapshot} = pendingBackupArchive;
-        if (mode === 'replace') {
+        const { snapshot } = pendingBackupArchive;
+        if (mode === "replace") {
           await libraryDb.clearAllData();
         }
 
@@ -1312,8 +1417,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           await libraryDb.saveBookFile(entry.bookId, entry.data, sha);
         }
 
-        if (mode === 'replace') {
-          await libraryDb.replaceAllAnnotations(snapshot.bookmarks, snapshot.highlights);
+        if (mode === "replace") {
+          await libraryDb.replaceAllAnnotations(
+            snapshot.bookmarks,
+            snapshot.highlights,
+          );
           updateLibraryState(() => ({
             books: snapshot.books,
             libraryFolders: snapshot.folders,
@@ -1324,10 +1432,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           }));
         } else {
           for (const bm of snapshot.bookmarks) await libraryDb.saveBookmark(bm);
-          for (const hl of snapshot.highlights) await libraryDb.saveHighlight(hl);
+          for (const hl of snapshot.highlights)
+            await libraryDb.saveHighlight(hl);
 
           updateLibraryState((prev) => {
-            const mergeById = <T extends {id: string}>(existing: T[], incoming: T[]): T[] => {
+            const mergeById = <T extends { id: string }>(
+              existing: T[],
+              incoming: T[],
+            ): T[] => {
               const map = new Map(existing.map((i) => [i.id, i]));
               for (const item of incoming) map.set(item.id, item);
               return Array.from(map.values());
@@ -1335,46 +1447,55 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             return {
               books: mergeById(prev.books, snapshot.books),
               libraryFolders: mergeById(prev.libraryFolders, snapshot.folders),
-              libraryCategories: mergeById(prev.libraryCategories, snapshot.categories),
-              libraryViewFolders: mergeById(prev.libraryViewFolders, snapshot.viewFolders),
+              libraryCategories: mergeById(
+                prev.libraryCategories,
+                snapshot.categories,
+              ),
+              libraryViewFolders: mergeById(
+                prev.libraryViewFolders,
+                snapshot.viewFolders,
+              ),
               bookBookmarks: mergeById(prev.bookBookmarks, snapshot.bookmarks),
-              bookHighlights: mergeById(prev.bookHighlights, snapshot.highlights),
+              bookHighlights: mergeById(
+                prev.bookHighlights,
+                snapshot.highlights,
+              ),
             };
           });
         }
 
         setPendingBackupArchive(null);
         notify(
-          mode === 'replace'
+          mode === "replace"
             ? `Restored ${snapshot.books.length} books from backup`
             : `Merged ${snapshot.books.length} books from backup`,
-          'success'
+          "success",
         );
       } catch (err) {
         notify(
-          'Backup restore failed',
-          'error',
-          err instanceof Error ? err.message : undefined
+          "Backup restore failed",
+          "error",
+          err instanceof Error ? err.message : undefined,
         );
       } finally {
         setIsRestoringBackup(false);
       }
     },
-    [pendingBackupArchive, updateLibraryState, notify]
+    [pendingBackupArchive, updateLibraryState, notify],
   );
 
   // Active folder removal context (for Drag Dock & Context Menu)
   const activeFolderRemovalTarget = useMemo(() => {
     if (drilledViewFolder) {
       return {
-        kind: 'view' as const,
+        kind: "view" as const,
         id: drilledViewFolder.id,
         name: drilledViewFolder.name,
       };
     }
-    if (activeFilter.kind === 'folder') {
+    if (activeFilter.kind === "folder") {
       const f = folders.find((item) => item.id === activeFilter.id);
-      if (f) return {kind: 'sidebar' as const, id: f.id, name: f.name};
+      if (f) return { kind: "sidebar" as const, id: f.id, name: f.name };
     }
     return null;
   }, [drilledViewFolder, activeFilter, folders]);
@@ -1382,26 +1503,34 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const handleRemoveBooksFromCurrentFolder = useCallback(
     (bookIds: string[]) => {
       if (!activeFolderRemovalTarget) return;
-      if (activeFolderRemovalTarget.kind === 'view') {
-        handleToggleViewFolderMembership(bookIds, activeFolderRemovalTarget.id, false);
+      if (activeFolderRemovalTarget.kind === "view") {
+        handleToggleViewFolderMembership(
+          bookIds,
+          activeFolderRemovalTarget.id,
+          false,
+        );
       } else {
-        handleToggleSidebarFolderMembership(bookIds, activeFolderRemovalTarget.id, false);
+        handleToggleSidebarFolderMembership(
+          bookIds,
+          activeFolderRemovalTarget.id,
+          false,
+        );
       }
-      notify(`Removed from "${activeFolderRemovalTarget.name}"`, 'info');
+      notify(`Removed from "${activeFolderRemovalTarget.name}"`, "info");
     },
     [
       activeFolderRemovalTarget,
       handleToggleViewFolderMembership,
       handleToggleSidebarFolderMembership,
       notify,
-    ]
+    ],
   );
 
   const hasActiveFilters =
-    formatFilter !== 'all' ||
+    formatFilter !== "all" ||
     selectedTags.length > 0 ||
     searchQuery.trim().length > 0 ||
-    prefs.groupBy !== 'none';
+    prefs.groupBy !== "none";
 
   // If a book tab is active, render the full Reader Studio viewport
   if (activeBook) {
@@ -1454,7 +1583,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         }
       }}
       onDrop={(e) => {
-        if (isPureExternalFileDrag(e.dataTransfer) && e.dataTransfer.files?.length > 0) {
+        if (
+          isPureExternalFileDrag(e.dataTransfer) &&
+          e.dataTransfer.files?.length > 0
+        ) {
           e.preventDefault();
           setIsFileDragActive(false);
           void handleImportFiles(e.dataTransfer.files);
@@ -1471,7 +1603,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         accept=".epub,.pdf,.mobi,.prc,.azw,application/epub+zip,application/pdf"
         onChange={(e) => {
           if (e.target.files) void handleImportFiles(e.target.files);
-          e.target.value = '';
+          e.target.value = "";
         }}
         className="hidden"
       />
@@ -1497,7 +1629,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 {drilledViewFolder ? drilledViewFolder.name : activeViewLabel}
               </h1>
               <span className="font-mono tabular-nums text-xs text-[var(--text-muted)] shrink-0">
-                {activeFilter.kind === 'smart' && activeFilter.id === 'highlights'
+                {activeFilter.kind === "smart" &&
+                activeFilter.id === "highlights"
                   ? highlights.length
                   : visibleBooks.length}
               </span>
@@ -1505,50 +1638,63 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
             {/* Right: Active Folder/Category Actions + Inspector + Primary Import CTA */}
             <div className="flex items-center gap-1.5 shrink-0">
-              {!drilledViewFolder && activeFilter.kind === 'folder' && (() => {
-                const activeFolder = folders.find((f) => f.id === activeFilter.id);
-                if (!activeFolder) return null;
-                return (
-                  <>
+              {!drilledViewFolder &&
+                activeFilter.kind === "folder" &&
+                (() => {
+                  const activeFolder = folders.find(
+                    (f) => f.id === activeFilter.id,
+                  );
+                  if (!activeFolder) return null;
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFolderModal({ mode: "edit", folder: activeFolder })
+                        }
+                        title="Edit folder"
+                        className="h-8 px-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Edit</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteFolder(activeFolder.id)}
+                        title="Delete folder (books are preserved)"
+                        className="h-8 px-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--danger)] hover:bg-[var(--bg-surface-hover)] text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Delete</span>
+                      </button>
+                    </>
+                  );
+                })()}
+
+              {!drilledViewFolder &&
+                activeFilter.kind === "category" &&
+                (() => {
+                  const activeCategory = categories.find(
+                    (c) => c.id === activeFilter.id,
+                  );
+                  if (!activeCategory) return null;
+                  return (
                     <button
                       type="button"
-                      onClick={() => setFolderModal({mode: 'edit', folder: activeFolder})}
-                      title="Edit folder"
-                      className="h-8 px-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Edit</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteFolder(activeFolder.id)}
-                      title="Delete folder (books are preserved)"
+                      onClick={() => handleDeleteCategory(activeCategory.id)}
+                      title="Delete category"
                       className="h-8 px-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--danger)] hover:bg-[var(--bg-surface-hover)] text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">Delete</span>
                     </button>
-                  </>
-                );
-              })()}
+                  );
+                })()}
 
-              {!drilledViewFolder && activeFilter.kind === 'category' && (() => {
-                const activeCategory = categories.find((c) => c.id === activeFilter.id);
-                if (!activeCategory) return null;
-                return (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteCategory(activeCategory.id)}
-                    title="Delete category"
-                    className="h-8 px-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--danger)] hover:bg-[var(--bg-surface-hover)] text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Delete</span>
-                  </button>
-                );
-              })()}
-
-              {!(activeFilter.kind === 'smart' && activeFilter.id === 'highlights') && (
+              {!(
+                activeFilter.kind === "smart" &&
+                activeFilter.id === "highlights"
+              ) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1562,8 +1708,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   aria-label="Toggle Book Inspector"
                   className={`hidden md:inline-flex items-center gap-1.5 h-8 px-2.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
                     inspectorOpen
-                      ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
-                      : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                      : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                   }`}
                 >
                   <PanelRight className="w-3.5 h-3.5" />
@@ -1579,7 +1725,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:opacity-60 transition-colors cursor-pointer whitespace-nowrap"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>{isImporting ? 'Importing…' : 'Import'}</span>
+                <span>{isImporting ? "Importing…" : "Import"}</span>
               </button>
             </div>
           </header>
@@ -1592,27 +1738,33 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             totalHighlightsCount={highlights.length}
             activeFilter={activeFilter}
             onSelectFilter={(filter) => setActiveFilter(filter)}
-            onRequestCreateFolder={() => setFolderModal({mode: 'create'})}
+            onRequestCreateFolder={() => setFolderModal({ mode: "create" })}
             onDropBooksToFolder={handleDropBooksToSidebarFolder}
             onDropBooksToCategory={(bookIds, categoryId) => {
               const set = new Set(bookIds);
               updateLibraryState((prev) => ({
-                books: prev.books.map((b) => (set.has(b.id) ? {...b, categoryId} : b)),
+                books: prev.books.map((b) =>
+                  set.has(b.id) ? { ...b, categoryId } : b,
+                ),
               }));
-              notify('Category updated', 'success');
+              notify("Category updated", "success");
             }}
             onDropBooksToFavorites={(bookIds) => {
               const set = new Set(bookIds);
               updateLibraryState((prev) => ({
-                books: prev.books.map((b) => (set.has(b.id) ? {...b, isFavorite: true} : b)),
+                books: prev.books.map((b) =>
+                  set.has(b.id) ? { ...b, isFavorite: true } : b,
+                ),
               }));
-              notify('Added to Favorites', 'success');
+              notify("Added to Favorites", "success");
             }}
           />
 
           {/* Bar 2: Unified 32px Control Toolbar (Search · Sort · View · Options ▾ · Select) */}
-          {!(activeFilter.kind === 'smart' && activeFilter.id === 'highlights') && (
-            <div className="px-4 sm:px-6 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)]/70 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          {!(
+            activeFilter.kind === "smart" && activeFilter.id === "highlights"
+          ) && (
+            <div className="px-4 sm:px-6 pt-4 border-[var(--border-subtle)] bg-[var(--bg-canvas)]/70 flex flex-wrap items-center justify-between gap-2 shrink-0">
               {/* Left: Drill-down Breadcrumb + Unified Search + Active Tag Chips */}
               <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[200px]">
                 {drilledViewFolder && (
@@ -1627,7 +1779,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setAddingBooksToViewFolder(drilledViewFolder)}
+                      onClick={() =>
+                        setAddingBooksToViewFolder(drilledViewFolder)
+                      }
                       className="inline-flex items-center gap-1 h-8 px-2.5 text-xs font-medium rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--accent)] cursor-pointer"
                     >
                       <FolderPlus className="w-3.5 h-3.5" />
@@ -1648,7 +1802,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   {searchQuery ? (
                     <button
                       type="button"
-                      onClick={() => setSearchQuery('')}
+                      onClick={() => setSearchQuery("")}
                       aria-label="Clear search"
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                     >
@@ -1689,7 +1843,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   <select
                     value={prefs.sortField}
                     onChange={(e) =>
-                      updateUiPrefs({sortField: e.target.value as SortField})
+                      updateUiPrefs({ sortField: e.target.value as SortField })
                     }
                     aria-label="Sort books by"
                     className="h-8 px-2.5 text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] outline-none cursor-pointer"
@@ -1707,16 +1861,19 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     type="button"
                     onClick={() =>
                       updateUiPrefs({
-                        sortDirection: prefs.sortDirection === 'asc' ? 'desc' : 'asc',
+                        sortDirection:
+                          prefs.sortDirection === "asc" ? "desc" : "asc",
                       })
                     }
                     title={
-                      prefs.sortDirection === 'asc' ? 'Ascending order' : 'Descending order'
+                      prefs.sortDirection === "asc"
+                        ? "Ascending order"
+                        : "Descending order"
                     }
                     aria-label="Toggle sort direction"
                     className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                   >
-                    {prefs.sortDirection === 'asc' ? (
+                    {prefs.sortDirection === "asc" ? (
                       <ArrowUpNarrowWide className="w-3.5 h-3.5" />
                     ) : (
                       <ArrowDownWideNarrow className="w-3.5 h-3.5" />
@@ -1728,26 +1885,26 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 <div className="hidden lg:inline-flex items-center h-8 p-0.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
                   <button
                     type="button"
-                    onClick={() => updateUiPrefs({viewMode: 'grid'})}
+                    onClick={() => updateUiPrefs({ viewMode: "grid" })}
                     title="Grid view"
                     aria-label="Grid view"
                     className={`h-full px-2 rounded-md transition-colors cursor-pointer ${
-                      prefs.viewMode === 'grid'
-                        ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
-                        : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                      prefs.viewMode === "grid"
+                        ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                        : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                     }`}
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
                   </button>
                   <button
                     type="button"
-                    onClick={() => updateUiPrefs({viewMode: 'table'})}
+                    onClick={() => updateUiPrefs({ viewMode: "table" })}
                     title="Table view"
                     aria-label="Table view"
                     className={`h-full px-2 rounded-md transition-colors cursor-pointer ${
-                      prefs.viewMode === 'table'
-                        ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
-                        : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                      prefs.viewMode === "table"
+                        ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                        : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                     }`}
                   >
                     <List className="w-3.5 h-3.5" />
@@ -1757,10 +1914,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 {/* Consolidated Options Popover (Format, Group, Display, Tags, Categories, Storage, Backup) */}
                 {(() => {
                   const activeOptionsCount =
-                    (formatFilter !== 'all' ? 1 : 0) +
-                    (prefs.groupBy !== 'none' ? 1 : 0) +
+                    (formatFilter !== "all" ? 1 : 0) +
+                    (prefs.groupBy !== "none" ? 1 : 0) +
                     selectedTags.length;
-                  const totalBytes = books.reduce((sum, b) => sum + (b.fileSize || 0), 0);
+                  const totalBytes = books.reduce(
+                    (sum, b) => sum + (b.fileSize || 0),
+                    0,
+                  );
 
                   return (
                     <div className="hidden lg:block relative">
@@ -1770,8 +1930,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                         title="Format, grouping, cover display, tags, backup & storage"
                         className={`inline-flex items-center gap-1.5 h-8 px-2.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
                           displayPopoverOpen || activeOptionsCount > 0
-                            ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
-                            : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                            ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                            : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         }`}
                       >
                         <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -1804,19 +1964,26 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                               isExportingBackup={isExportingBackup}
                               isParsingBackup={isParsingBackup}
                               onFormatFilterChange={setFormatFilter}
-                              onGroupByChange={(groupBy) => updateUiPrefs({groupBy})}
-                              onCoverSizeChange={(coverSize) => updateUiPrefs({coverSize})}
+                              onGroupByChange={(groupBy) =>
+                                updateUiPrefs({ groupBy })
+                              }
+                              onCoverSizeChange={(coverSize) =>
+                                updateUiPrefs({ coverSize })
+                              }
                               onCardDetailsChange={updateCardDetails}
                               onToggleTag={(tag) =>
                                 setSelectedTags((prev) =>
                                   prev.includes(tag)
                                     ? prev.filter((t) => t !== tag)
-                                    : [...prev, tag]
+                                    : [...prev, tag],
                                 )
                               }
                               onClearTags={() => setSelectedTags([])}
                               onSelectCategory={(categoryId) =>
-                                setActiveFilter({kind: 'category', id: categoryId})
+                                setActiveFilter({
+                                  kind: "category",
+                                  id: categoryId,
+                                })
                               }
                               onCreateCategory={(name) => {
                                 void handleCreateCategory(name);
@@ -1826,7 +1993,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                               onSelectImportBackupFile={(file) =>
                                 void handleSelectBackupFile(file)
                               }
-                              onOpenStorageManager={() => setStorageManagerOpen(true)}
+                              onOpenStorageManager={() =>
+                                setStorageManagerOpen(true)
+                              }
                               onClose={() => setDisplayPopoverOpen(false)}
                             />
                           </div>
@@ -1844,15 +2013,23 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       if (selectedIds.size > 0) setSelectedIds(new Set());
                       else setSelectedIds(new Set([visibleBooks[0].id]));
                     }}
-                    title={selectedIds.size > 0 ? 'Exit selection' : 'Select multiple books'}
+                    title={
+                      selectedIds.size > 0
+                        ? "Exit selection"
+                        : "Select multiple books"
+                    }
                     className={`hidden lg:inline-flex items-center gap-1 h-8 px-2.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
                       selectedIds.size > 0
-                        ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
-                        : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                        : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                     }`}
                   >
                     <CheckSquare className="w-3.5 h-3.5" />
-                    <span>{selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select'}</span>
+                    <span>
+                      {selectedIds.size > 0
+                        ? `${selectedIds.size} selected`
+                        : "Select"}
+                    </span>
                   </button>
                 )}
 
@@ -1863,8 +2040,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   aria-label="Filter, sort, and display options"
                   className={`lg:hidden h-8 px-2.5 inline-flex items-center gap-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
                     hasActiveFilters
-                      ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
-                      : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)]'
+                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                      : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)]"
                   }`}
                 >
                   <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -1876,17 +2053,22 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
           {/* Main Scrollable Content Area */}
           <div className="flex-1 min-h-0 overflow-y-auto">
-            {activeFilter.kind === 'smart' && activeFilter.id === 'highlights' ? (
+            {activeFilter.kind === "smart" &&
+            activeFilter.id === "highlights" ? (
               <HighlightsHubView
                 books={books}
                 highlights={highlights}
-                onOpenPassage={(book, unitIndex) => handleOpenBook(book, unitIndex)}
+                onOpenPassage={(book, unitIndex) =>
+                  handleOpenBook(book, unitIndex)
+                }
                 onUpdateHighlight={(hl) => void handleUpdateHighlight(hl)}
                 onDeleteHighlight={(id) => void handleDeleteHighlight(id)}
                 onSendToNotes={(bookTitle, excerpt, loc) =>
                   sendBookExcerptToNotes(bookTitle, excerpt, loc)
                 }
-                onBackToBooks={() => setActiveFilter({kind: 'smart', id: 'all'})}
+                onBackToBooks={() =>
+                  setActiveFilter({ kind: "smart", id: "all" })
+                }
               />
             ) : books.length === 0 ? (
               <EmptyLibraryDropzone
@@ -1897,8 +2079,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             ) : (
               <div className="p-4 sm:p-6 lg:p-7 pb-28 space-y-7 max-w-[1600px] mx-auto">
                 {/* Continue Reading Editorial Shelf (All Books top-level) */}
-                {activeFilter.kind === 'smart' &&
-                  activeFilter.id === 'all' &&
+                {activeFilter.kind === "smart" &&
+                  activeFilter.id === "all" &&
                   !drilledViewFolder &&
                   !hasActiveFilters && (
                     <ContinueReadingShelf
@@ -1910,7 +2092,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                         setInspectorOpen(true);
                       }}
                       onOpenHighlightsHub={() =>
-                        setActiveFilter({kind: 'smart', id: 'highlights'})
+                        setActiveFilter({ kind: "smart", id: "highlights" })
                       }
                     />
                   )}
@@ -1929,13 +2111,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     inspectorOpen={inspectorOpen}
                     inspectedBookId={inspectedBookId}
                     onDisplayModeChange={(viewFolderDisplayMode) =>
-                      updateUiPrefs({viewFolderDisplayMode})
+                      updateUiPrefs({ viewFolderDisplayMode })
                     }
                     onCardLayoutChange={(viewFolderCardLayout) =>
-                      updateUiPrefs({viewFolderCardLayout})
+                      updateUiPrefs({ viewFolderCardLayout })
                     }
                     onToggleHideFiled={() =>
-                      updateUiPrefs({hideFiledBooks: !prefs.hideFiledBooks})
+                      updateUiPrefs({ hideFiledBooks: !prefs.hideFiledBooks })
                     }
                     onCreateFolder={(name) => void handleCreateViewFolder(name)}
                     onRenameFolder={handleRenameViewFolder}
@@ -1944,7 +2126,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     onRequestAddBooks={(vf) => setAddingBooksToViewFolder(vf)}
                     onDropBooksToViewFolder={handleDropBooksToViewFolder}
                     onRemoveBookFromViewFolder={(bookId, folderId) =>
-                      handleToggleViewFolderMembership([bookId], folderId, false)
+                      handleToggleViewFolderMembership(
+                        [bookId],
+                        folderId,
+                        false,
+                      )
                     }
                     onOpenBook={(book) => handleOpenBook(book)}
                     onInspectBook={(book) => {
@@ -1962,19 +2148,19 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     </p>
                     <p className="text-xs text-[var(--text-muted)]">
                       {hasActiveFilters
-                        ? 'Try clearing search or format filters.'
+                        ? "Try clearing search or format filters."
                         : drilledViewFolder
                           ? 'Use "Add Books" above or drag covers onto this shelf.'
-                          : 'Import EPUB, PDF, or MOBI files to grow this collection.'}
+                          : "Import EPUB, PDF, or MOBI files to grow this collection."}
                     </p>
                     {hasActiveFilters && (
                       <button
                         type="button"
                         onClick={() => {
-                          setSearchQuery('');
-                          setFormatFilter('all');
+                          setSearchQuery("");
+                          setFormatFilter("all");
                           setSelectedTags([]);
-                          updateUiPrefs({groupBy: 'none'});
+                          updateUiPrefs({ groupBy: "none" });
                         }}
                         className="mt-2 px-3 py-1.5 text-xs font-medium rounded-md border border-[var(--border-subtle)] text-[var(--accent)] hover:bg-[var(--bg-surface)] cursor-pointer"
                       >
@@ -1999,7 +2185,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
                         {/* Desktop Grid or Table */}
                         <div className="hidden lg:block">
-                          {prefs.viewMode === 'table' ? (
+                          {prefs.viewMode === "table" ? (
                             <BookTable
                               books={group.books}
                               categories={categories}
@@ -2017,16 +2203,21 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                                 if (prefs.sortField === field) {
                                   updateUiPrefs({
                                     sortDirection:
-                                      prefs.sortDirection === 'asc' ? 'desc' : 'asc',
+                                      prefs.sortDirection === "asc"
+                                        ? "desc"
+                                        : "asc",
                                   });
                                 } else {
-                                  updateUiPrefs({sortField: field, sortDirection: 'asc'});
+                                  updateUiPrefs({
+                                    sortField: field,
+                                    sortDirection: "asc",
+                                  });
                                 }
                               }}
                               onToggleSelect={handleToggleSelectBook}
                               onToggleSelectAll={() => {
                                 const allInGroup = group.books.every((b) =>
-                                  selectedIds.has(b.id)
+                                  selectedIds.has(b.id),
                                 );
                                 setSelectedIds((prev) => {
                                   const next = new Set(prev);
@@ -2081,11 +2272,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                                       handleToggleViewFolderMembership(
                                         [book.id],
                                         drilledViewFolder.id,
-                                        false
+                                        false,
                                       )
                                   : undefined
                               }
-                              onQuickAction={(book) => setMobileActionBook(book)}
+                              onQuickAction={(book) =>
+                                setMobileActionBook(book)
+                              }
                               onContextMenuBook={(book, e) => {
                                 e.preventDefault();
                                 const targetIds = selectedIds.has(book.id)
@@ -2208,19 +2401,23 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           handleToggleSidebarFolderMembership(bookIds, fld.id, true);
         }}
         onRemoveFromCurrentFolder={
-          activeFolderRemovalTarget ? handleRemoveBooksFromCurrentFolder : undefined
+          activeFolderRemovalTarget
+            ? handleRemoveBooksFromCurrentFolder
+            : undefined
         }
         onSetReadingStatus={(bookIds, status: ReadingStatus) => {
           const set = new Set(bookIds);
           updateLibraryState((prev) => ({
-            books: prev.books.map((b) => (set.has(b.id) ? {...b, status} : b)),
+            books: prev.books.map((b) =>
+              set.has(b.id) ? { ...b, status } : b,
+            ),
           }));
         }}
         onSetFavorite={(bookIds, favorite) => {
           const set = new Set(bookIds);
           updateLibraryState((prev) => ({
             books: prev.books.map((b) =>
-              set.has(b.id) ? {...b, isFavorite: favorite} : b
+              set.has(b.id) ? { ...b, isFavorite: favorite } : b,
             ),
           }));
         }}
@@ -2236,7 +2433,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       <BulkActionBar
         selectedCount={selectedIds.size}
         totalVisibleCount={visibleBooks.length}
-        onSelectAll={() => setSelectedIds(new Set(visibleBooks.map((b) => b.id)))}
+        onSelectAll={() =>
+          setSelectedIds(new Set(visibleBooks.map((b) => b.id)))
+        }
         onClearSelection={() => setSelectedIds(new Set())}
         onBulkEdit={() => setBulkEditOpen(true)}
         onMobileOrganize={() => setOrganizeTargetIds(Array.from(selectedIds))}
@@ -2247,7 +2446,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             .every((b) => b.isFavorite);
           updateLibraryState((prev) => ({
             books: prev.books.map((b) =>
-              set.has(b.id) ? {...b, isFavorite: !allFav} : b
+              set.has(b.id) ? { ...b, isFavorite: !allFav } : b,
             ),
           }));
         }}
@@ -2283,7 +2482,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           onSave={(updated) => {
             handleUpdateBook(updated);
             setEditingBookId(null);
-            notify('Metadata saved', 'success');
+            notify("Metadata saved", "success");
           }}
           onReplaceFile={handleReplaceBookFile}
           onDelete={(bookId) => {
@@ -2313,8 +2512,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       {/* Add vs Move Folder Drop Confirmation Modal */}
       <FolderDropActionModal
         pendingDrop={pendingFolderDrop}
-        onAdd={() => handleConfirmFolderDrop('add')}
-        onMove={() => handleConfirmFolderDrop('move')}
+        onAdd={() => handleConfirmFolderDrop("add")}
+        onMove={() => handleConfirmFolderDrop("move")}
         onCancel={() => setPendingFolderDrop(null)}
       />
 
@@ -2378,9 +2577,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         inspectorOpen={inspectorOpen}
         onClose={() => setCommandPaletteOpen(false)}
         onOpenBook={(book, unitIndex) => handleOpenBook(book, unitIndex)}
-        onSelectFolder={(folderId) => setActiveFilter({kind: 'folder', id: folderId})}
-        onSelectCategory={(catId) => setActiveFilter({kind: 'category', id: catId})}
-        onOpenHighlightsHub={() => setActiveFilter({kind: 'smart', id: 'highlights'})}
+        onSelectFolder={(folderId) =>
+          setActiveFilter({ kind: "folder", id: folderId })
+        }
+        onSelectCategory={(catId) =>
+          setActiveFilter({ kind: "category", id: catId })
+        }
+        onOpenHighlightsHub={() =>
+          setActiveFilter({ kind: "smart", id: "highlights" })
+        }
         onImportBooks={() => fileInputRef.current?.click()}
         onOpenStorageManager={() => setStorageManagerOpen(true)}
         onToggleTheme={handleCycleReaderSurface}
@@ -2404,7 +2609,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         onRemoveFromViewFolder={
           drilledViewFolder
             ? (book) =>
-                handleToggleViewFolderMembership([book.id], drilledViewFolder.id, false)
+                handleToggleViewFolderMembership(
+                  [book.id],
+                  drilledViewFolder.id,
+                  false,
+                )
             : undefined
         }
         onDeleteBook={(bookId) => {
@@ -2425,23 +2634,23 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         hideFiledBooks={prefs.hideFiledBooks}
         hasActiveFilters={hasActiveFilters}
         onFormatChange={setFormatFilter}
-        onGroupByChange={(groupBy) => updateUiPrefs({groupBy})}
-        onSortFieldChange={(sortField) => updateUiPrefs({sortField})}
+        onGroupByChange={(groupBy) => updateUiPrefs({ groupBy })}
+        onSortFieldChange={(sortField) => updateUiPrefs({ sortField })}
         onToggleSortDirection={() =>
           updateUiPrefs({
-            sortDirection: prefs.sortDirection === 'asc' ? 'desc' : 'asc',
+            sortDirection: prefs.sortDirection === "asc" ? "desc" : "asc",
           })
         }
-        onCoverSizeChange={(coverSize) => updateUiPrefs({coverSize})}
+        onCoverSizeChange={(coverSize) => updateUiPrefs({ coverSize })}
         onCardDetailsChange={updateCardDetails}
         onToggleHideFiled={() =>
-          updateUiPrefs({hideFiledBooks: !prefs.hideFiledBooks})
+          updateUiPrefs({ hideFiledBooks: !prefs.hideFiledBooks })
         }
         onResetFilters={() => {
-          setFormatFilter('all');
+          setFormatFilter("all");
           setSelectedTags([]);
-          setSearchQuery('');
-          updateUiPrefs({groupBy: 'none'});
+          setSearchQuery("");
+          updateUiPrefs({ groupBy: "none" });
         }}
         onClose={() => setMobileFilterSheetOpen(false)}
       />
@@ -2468,14 +2677,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       {folderModal && (
         <LibraryFolderModal
           mode={folderModal.mode}
-          folder={folderModal.mode === 'edit' ? folderModal.folder : undefined}
+          folder={folderModal.mode === "edit" ? folderModal.folder : undefined}
           folders={folders}
           onClose={() => setFolderModal(null)}
-          onSave={({name, color, parentId}) => {
-            if (folderModal.mode === 'create') {
+          onSave={({ name, color, parentId }) => {
+            if (folderModal.mode === "create") {
               void handleCreateFolder(name, parentId, color);
             } else {
-              handleUpdateFolder(folderModal.folder.id, {name, color});
+              handleUpdateFolder(folderModal.folder.id, { name, color });
             }
           }}
         />

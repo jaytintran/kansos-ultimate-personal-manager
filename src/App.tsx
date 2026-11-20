@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Calendar,
@@ -20,74 +20,137 @@ import {
   Volume2,
   VolumeX,
   X,
-} from 'lucide-react';
-import { DetailSheet } from './components/DetailSheet';
-import { KansoLogo } from './components/KansoLogo';
-import { SettingsSyncModal } from './components/SettingsSyncModal';
-import { TimestampFieldFocus, TimestampsModal } from './components/TimestampsModal';
-import { ContextMenuState, UniversalContextMenu } from './components/UniversalContextMenu';
-import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
-import { ContextMenuRecord, DetailSheetTarget, ViewId } from './types';
-import { getEntryDayKey, getTodayKey, isVisibleOnTimeline } from './utils/date';
-import { AchievementsView } from './views/AchievementsView';
-import { EventsView } from './views/EventsView';
-import { FocusView } from './views/FocusView';
-import { HabitsView } from './views/HabitsView';
-import { LibraryView } from './views/LibraryView';
-import { ListsView } from './views/ListsView';
-import { NotesView } from './views/NotesView';
+} from "lucide-react";
+import { DetailSheet } from "./components/DetailSheet";
+import { KansoLogo } from "./components/KansoLogo";
+import { SettingsSyncModal } from "./components/SettingsSyncModal";
+import {
+  TimestampFieldFocus,
+  TimestampsModal,
+} from "./components/TimestampsModal";
+import {
+  ContextMenuState,
+  UniversalContextMenu,
+} from "./components/UniversalContextMenu";
+import { WorkspaceProvider, useWorkspace } from "./context/WorkspaceContext";
+import { ContextMenuRecord, DetailSheetTarget, ViewId } from "./types";
+import { getEntryDayKey, getTodayKey, isVisibleOnTimeline } from "./utils/date";
+import { AchievementsView } from "./views/AchievementsView";
+import { EventsView } from "./views/EventsView";
+import { FocusView } from "./views/FocusView";
+import { HabitsView } from "./views/HabitsView";
+import { LibraryView } from "./views/LibraryView";
+import { ListsView } from "./views/ListsView";
+import { NotesView } from "./views/NotesView";
 import {
   StreamerControllerHandle,
   StreamerPlaybackSummary,
   StreamerView,
-} from './views/StreamerView';
-import { TimelineView } from './views/TimelineView';
+} from "./views/StreamerView";
+import { TimelineView } from "./views/TimelineView";
 
 interface NavItemDef {
   id: ViewId;
   label: string;
   description: string;
-  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+  icon: React.ComponentType<{
+    className?: string;
+    style?: React.CSSProperties;
+  }>;
 }
 
 const DESKTOP_NAV_GROUPS: NavItemDef[][] = [
   [
-    { id: 'focus', label: 'Focus', description: 'Anchors, X-Active & tabs', icon: Target },
-    { id: 'timeline', label: 'Timeline', description: 'Daily chronological spine', icon: GitCommitVertical },
-    { id: 'habits', label: 'Habits', description: 'Matrix, cards & streaks', icon: Grid2x2Check },
-    { id: 'achievements', label: 'Achievements', description: 'Milestones & completed wins', icon: Trophy },
+    {
+      id: "focus",
+      label: "Focus",
+      description: "Anchors, X-Active & tabs",
+      icon: Target,
+    },
+    {
+      id: "timeline",
+      label: "Timeline",
+      description: "Daily chronological spine",
+      icon: GitCommitVertical,
+    },
+    {
+      id: "habits",
+      label: "Habits",
+      description: "Matrix, cards & streaks",
+      icon: Grid2x2Check,
+    },
+    {
+      id: "achievements",
+      label: "Achievements",
+      description: "Milestones & completed wins",
+      icon: Trophy,
+    },
   ],
   [
-    { id: 'notes', label: 'Notes', description: 'Card grid & rich editor', icon: FileText },
-    { id: 'events', label: 'Events', description: 'Scheduled calendar items', icon: Calendar },
-    { id: 'lists', label: 'Lists', description: 'Collections & backlogs', icon: ListTodo },
+    {
+      id: "notes",
+      label: "Notes",
+      description: "Card grid & rich editor",
+      icon: FileText,
+    },
+    {
+      id: "events",
+      label: "Events",
+      description: "Scheduled calendar items",
+      icon: Calendar,
+    },
+    {
+      id: "lists",
+      label: "Lists",
+      description: "Collections & backlogs",
+      icon: ListTodo,
+    },
   ],
   [
-    { id: 'library', label: 'Library', description: 'Offline PDF & EPUB reader', icon: BookOpen },
-    { id: 'streamer', label: 'Streamer', description: 'Multi-YouTube stream grid', icon: MonitorPlay },
+    {
+      id: "library",
+      label: "Library",
+      description: "Offline PDF & EPUB reader",
+      icon: BookOpen,
+    },
+    {
+      id: "streamer",
+      label: "Streamer",
+      description: "Multi-YouTube stream grid",
+      icon: MonitorPlay,
+    },
   ],
 ];
 
 const ALL_NAV_ITEMS: NavItemDef[] = DESKTOP_NAV_GROUPS.flat();
 
-const MOBILE_PRIMARY_IDS: ViewId[] = ['focus', 'timeline', 'habits', 'achievements'];
-const MOBILE_MORE_IDS: ViewId[] = ['notes', 'events', 'lists', 'library', 'streamer'];
+const MOBILE_PRIMARY_IDS: ViewId[] = ["focus", "timeline", "habits", "notes"];
+const MOBILE_MORE_IDS: ViewId[] = [
+  "lists",
+  "events",
+  "library",
+  "streamer",
+  "achievements",
+];
 
 const KansoShell: React.FC = () => {
   const { workspace, toasts, dismissToast, updateSettings } = useWorkspace();
-  const [activeView, setActiveView] = useState<ViewId>('focus');
+  const [activeView, setActiveView] = useState<ViewId>("focus");
   const [hasVisitedStreamer, setHasVisitedStreamer] = useState(false);
-  const [streamerPlayback, setStreamerPlayback] = useState<StreamerPlaybackSummary>({
-    activeCount: 0,
-    playingCount: 0,
-    isPlaying: false,
-    isViewMuted: false,
-    isAllPaused: false,
-  });
+  const [streamerPlayback, setStreamerPlayback] =
+    useState<StreamerPlaybackSummary>({
+      activeCount: 0,
+      playingCount: 0,
+      isPlaying: false,
+      isViewMuted: false,
+      isAllPaused: false,
+    });
   const streamerControllerRef = useRef<StreamerControllerHandle | null>(null);
 
   // Shared Global Systems: Polymorphic DetailSheet, UniversalContextMenu, TimestampsModal
-  const [detailTarget, setDetailTarget] = useState<DetailSheetTarget | null>(null);
+  const [detailTarget, setDetailTarget] = useState<DetailSheetTarget | null>(
+    null,
+  );
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [timestampsState, setTimestampsState] = useState<{
     entryId: string;
@@ -97,9 +160,9 @@ const KansoShell: React.FC = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [libraryZenMode, setLibraryZenMode] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'appearance' | 'sync' | 'workspace'>(
-    'appearance'
-  );
+  const [settingsInitialTab, setSettingsInitialTab] = useState<
+    "appearance" | "sync" | "workspace"
+  >("appearance");
 
   const handleOpenContextMenu = useCallback(
     (record: ContextMenuRecord, e: React.MouseEvent) => {
@@ -109,21 +172,21 @@ const KansoShell: React.FC = () => {
         y: e.clientY,
       });
     },
-    []
+    [],
   );
 
   const handleOpenTimestamps = useCallback(
     (entryId: string, focus?: TimestampFieldFocus) => {
       setTimestampsState({ entryId, focus: focus ?? null });
     },
-    []
+    [],
   );
 
   const navigateToView = useCallback((view: ViewId) => {
-    if (view === 'streamer') {
+    if (view === "streamer") {
       setHasVisitedStreamer(true);
     }
-    if (view !== 'library') {
+    if (view !== "library") {
       setLibraryZenMode(false);
     }
     setActiveView(view);
@@ -140,9 +203,12 @@ const KansoShell: React.FC = () => {
     }
   }, [hasVisitedStreamer, streamerPlayback]);
 
-  const handleStreamerPlaybackChange = useCallback((summary: StreamerPlaybackSummary) => {
-    setStreamerPlayback(summary);
-  }, []);
+  const handleStreamerPlaybackChange = useCallback(
+    (summary: StreamerPlaybackSummary) => {
+      setStreamerPlayback(summary);
+    },
+    [],
+  );
 
   const showStreamerAudioControls =
     hasVisitedStreamer &&
@@ -153,32 +219,40 @@ const KansoShell: React.FC = () => {
 
   const navCounts = useMemo(() => {
     const activeEntries = workspace.entries.filter((e) => !e.deletedAt);
-    const activeListsSet = new Set(workspace.lists.filter((l) => !l.deletedAt).map((l) => l.id));
+    const activeListsSet = new Set(
+      workspace.lists.filter((l) => !l.deletedAt).map((l) => l.id),
+    );
     const activeListItems = workspace.listItems.filter(
-      (i) => !i.deletedAt && activeListsSet.has(i.listId)
+      (i) => !i.deletedAt && activeListsSet.has(i.listId),
     );
     const activeHabits = workspace.habits.filter((h) => !h.deletedAt);
 
     const activeFocus = activeEntries.filter(
       (e) =>
-        (e.source === 'focus-anchor' ||
-          e.source === 'focus-active' ||
-          e.focusBucket === 'anchor' ||
-          e.focusBucket === 'x-active') &&
-        !e.completed
+        (e.source === "focus-anchor" ||
+          e.source === "focus-active" ||
+          e.focusBucket === "anchor" ||
+          e.focusBucket === "x-active") &&
+        !e.completed,
     ).length;
     const todayTimeline = activeEntries.filter(
-      (e) => isVisibleOnTimeline(e) && getEntryDayKey(e) === todayKey
+      (e) => isVisibleOnTimeline(e) && getEntryDayKey(e) === todayKey,
     ).length;
     const notesCount = activeEntries.filter(
-      (e) => e.type === 'note' && !e.trashedAt && !e.archived && e.noteStatus !== 'archived'
+      (e) =>
+        e.type === "note" &&
+        !e.trashedAt &&
+        !e.archived &&
+        e.noteStatus !== "archived",
     ).length;
-    const eventsCount = activeEntries.filter((e) => e.type === 'event').length;
-    const habitsTodayLeft = activeHabits.filter((h) => !h.completions[todayKey]).length;
+    const eventsCount = activeEntries.filter((e) => e.type === "event").length;
+    const habitsTodayLeft = activeHabits.filter(
+      (h) => !h.completions[todayKey],
+    ).length;
     const achievementsCount =
-      activeListItems.filter((i) => i.status === 'done').length +
+      activeListItems.filter((i) => i.status === "done").length +
       activeEntries.filter(
-        (e) => e.isAchievement && (e.type !== 'task' || e.completed)
+        (e) => e.isAchievement && (e.type !== "task" || e.completed),
       ).length;
     const listsCount = activeListItems.length;
     const libraryCount = workspace.books.length;
@@ -207,11 +281,11 @@ const KansoShell: React.FC = () => {
 
   const toggleColorMode = () => {
     updateSettings({
-      colorMode: workspace.settings.colorMode === 'dark' ? 'light' : 'dark',
+      colorMode: workspace.settings.colorMode === "dark" ? "light" : "dark",
     });
   };
 
-  const openModal = (tab: 'appearance' | 'sync' | 'workspace') => {
+  const openModal = (tab: "appearance" | "sync" | "workspace") => {
     setMoreSheetOpen(false);
     setSettingsInitialTab(tab);
     setSettingsOpen(true);
@@ -221,20 +295,26 @@ const KansoShell: React.FC = () => {
   const activeViewDef = ALL_NAV_ITEMS.find((item) => item.id === activeView);
 
   const isEdgeToEdgeView =
-    activeView === 'streamer' || activeView === 'library' || activeView === 'lists';
+    activeView === "streamer" ||
+    activeView === "library" ||
+    activeView === "lists" ||
+    activeView === "notes";
 
   return (
     <div
       className="min-h-dvh flex flex-col lg:flex-row"
-      style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}
+      style={{
+        backgroundColor: "var(--bg-canvas)",
+        color: "var(--text-primary)",
+      }}
     >
       {/* Desktop Sidebar Navigation */}
-      {!(activeView === 'library' && libraryZenMode) && (
+      {!(activeView === "library" && libraryZenMode) && (
         <aside
           className="hidden lg:flex lg:flex-col lg:w-60 lg:shrink-0 lg:sticky lg:top-0 lg:h-dvh border-r px-3.5 py-5"
           style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
           }}
         >
           <div className="px-2.5 pb-5 flex items-center justify-between">
@@ -248,11 +328,11 @@ const KansoShell: React.FC = () => {
               type="button"
               onClick={toggleColorMode}
               className="h-8 w-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)]"
-              style={{ color: 'var(--text-secondary)' }}
-              title={`Switch to ${workspace.settings.colorMode === 'dark' ? 'light' : 'dark'} mode`}
+              style={{ color: "var(--text-secondary)" }}
+              title={`Switch to ${workspace.settings.colorMode === "dark" ? "light" : "dark"} mode`}
               aria-label="Toggle light or dark mode"
             >
-              {workspace.settings.colorMode === 'dark' ? (
+              {workspace.settings.colorMode === "dark" ? (
                 <Sun className="w-4 h-4" />
               ) : (
                 <Moon className="w-4 h-4" />
@@ -260,19 +340,28 @@ const KansoShell: React.FC = () => {
             </button>
           </div>
 
-          <nav className="flex-1 overflow-y-auto space-y-3" aria-label="Main workspace navigation">
+          <nav
+            className="flex-1 overflow-y-auto space-y-3"
+            aria-label="Main workspace navigation"
+          >
             {DESKTOP_NAV_GROUPS.map((group, groupIdx) => (
               <div
                 key={groupIdx}
-                className={groupIdx > 0 ? 'pt-3 border-t space-y-1' : 'space-y-1'}
-                style={groupIdx > 0 ? { borderColor: 'var(--border-subtle)' } : undefined}
+                className={
+                  groupIdx > 0 ? "pt-3 border-t space-y-1" : "space-y-1"
+                }
+                style={
+                  groupIdx > 0
+                    ? { borderColor: "var(--border-subtle)" }
+                    : undefined
+                }
               >
                 {group.map((item) => {
                   const Icon = item.icon;
                   const active = activeView === item.id;
                   const count = navCounts[item.id];
                   const isStreamerRowWithControls =
-                    item.id === 'streamer' && showStreamerAudioControls;
+                    item.id === "streamer" && showStreamerAudioControls;
 
                   if (isStreamerRowWithControls) {
                     return (
@@ -280,8 +369,12 @@ const KansoShell: React.FC = () => {
                         key={item.id}
                         className="w-full flex items-center justify-between gap-1.5 pl-3 pr-2 py-1.5 rounded-xl text-sm font-medium transition-colors"
                         style={{
-                          backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
-                          color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                          backgroundColor: active
+                            ? "var(--accent-soft)"
+                            : "transparent",
+                          color: active
+                            ? "var(--accent)"
+                            : "var(--text-secondary)",
                         }}
                       >
                         <button
@@ -303,18 +396,18 @@ const KansoShell: React.FC = () => {
                             className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)]"
                             style={{
                               color: streamerPlayback.isAllPaused
-                                ? 'var(--accent)'
-                                : 'var(--text-secondary)',
+                                ? "var(--accent)"
+                                : "var(--text-secondary)",
                             }}
                             title={
                               streamerPlayback.isAllPaused
-                                ? 'Resume all streams'
-                                : 'Pause all streams'
+                                ? "Resume all streams"
+                                : "Pause all streams"
                             }
                             aria-label={
                               streamerPlayback.isAllPaused
-                                ? 'Resume all streams'
-                                : 'Pause all streams'
+                                ? "Resume all streams"
+                                : "Pause all streams"
                             }
                           >
                             {streamerPlayback.isAllPaused ? (
@@ -333,20 +426,20 @@ const KansoShell: React.FC = () => {
                             className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)]"
                             style={{
                               color: streamerPlayback.isViewMuted
-                                ? 'var(--danger)'
+                                ? "var(--danger)"
                                 : streamerPlayback.isPlaying
-                                ? 'var(--accent)'
-                                : 'var(--text-secondary)',
+                                  ? "var(--accent)"
+                                  : "var(--text-secondary)",
                             }}
                             title={
                               streamerPlayback.isViewMuted
-                                ? 'Unmute Streamer'
-                                : 'Temporarily mute Streamer'
+                                ? "Unmute Streamer"
+                                : "Temporarily mute Streamer"
                             }
                             aria-label={
                               streamerPlayback.isViewMuted
-                                ? 'Unmute Streamer'
-                                : 'Temporarily mute Streamer'
+                                ? "Unmute Streamer"
+                                : "Temporarily mute Streamer"
                             }
                           >
                             {streamerPlayback.isViewMuted ? (
@@ -358,7 +451,11 @@ const KansoShell: React.FC = () => {
 
                           <span
                             className="text-xs font-mono tabular-nums pl-0.5 pr-0.5"
-                            style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
+                            style={{
+                              color: active
+                                ? "var(--accent)"
+                                : "var(--text-muted)",
+                            }}
                           >
                             {count}
                           </span>
@@ -374,8 +471,12 @@ const KansoShell: React.FC = () => {
                       onClick={() => navigateToView(item.id)}
                       className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors"
                       style={{
-                        backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
-                        color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                        backgroundColor: active
+                          ? "var(--accent-soft)"
+                          : "transparent",
+                        color: active
+                          ? "var(--accent)"
+                          : "var(--text-secondary)",
                       }}
                     >
                       <span className="flex items-center gap-2.5 whitespace-nowrap">
@@ -384,7 +485,9 @@ const KansoShell: React.FC = () => {
                       </span>
                       <span
                         className="text-xs font-mono tabular-nums"
-                        style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
+                        style={{
+                          color: active ? "var(--accent)" : "var(--text-muted)",
+                        }}
                       >
                         {count}
                       </span>
@@ -398,47 +501,53 @@ const KansoShell: React.FC = () => {
           {/* Bottom Utility Actions */}
           <div
             className="pt-4 mt-4 border-t space-y-1 shrink-0"
-            style={{ borderColor: 'var(--border-subtle)' }}
+            style={{ borderColor: "var(--border-subtle)" }}
           >
             <button
               type="button"
-              onClick={() => openModal('appearance')}
+              onClick={() => openModal("appearance")}
               className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
-              style={{ color: 'var(--text-secondary)' }}
+              style={{ color: "var(--text-secondary)" }}
             >
               <span className="flex items-center gap-2">
                 <Palette className="w-3.5 h-3.5" />
                 <span>Theme</span>
               </span>
-              <span className="capitalize" style={{ color: 'var(--text-muted)' }}>
+              <span
+                className="capitalize"
+                style={{ color: "var(--text-muted)" }}
+              >
                 {workspace.settings.theme}
               </span>
             </button>
 
             <button
               type="button"
-              onClick={() => openModal('sync')}
+              onClick={() => openModal("sync")}
               className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
-              style={{ color: 'var(--text-secondary)' }}
+              style={{ color: "var(--text-secondary)" }}
             >
               <span className="flex items-center gap-2">
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Gist Sync</span>
               </span>
-              <span style={{ color: 'var(--text-muted)' }}>2-Way</span>
+              <span style={{ color: "var(--text-muted)" }}>2-Way</span>
             </button>
 
             <button
               type="button"
-              onClick={() => openModal('workspace')}
+              onClick={() => openModal("workspace")}
               className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
-              style={{ color: 'var(--text-secondary)' }}
+              style={{ color: "var(--text-secondary)" }}
             >
               <span className="flex items-center gap-2">
                 <SlidersHorizontal className="w-3.5 h-3.5" />
                 <span>Workspace</span>
               </span>
-              <span className="font-mono tabular-nums" style={{ color: 'var(--text-muted)' }}>
+              <span
+                className="font-mono tabular-nums"
+                style={{ color: "var(--text-muted)" }}
+              >
                 {workspace.settings.xActiveLimit}-Active
               </span>
             </button>
@@ -448,10 +557,10 @@ const KansoShell: React.FC = () => {
 
       {/* Mobile Compact Sticky Top Bar */}
       <header
-        className="lg:hidden sticky top-0 z-30 pt-safe border-b backdrop-blur-md"
+        className="lg:hidden sticky top-0 z-30 py-1 px-3 border-b backdrop-blur-md"
         style={{
-          backgroundColor: 'var(--bg-surface)',
-          borderColor: 'var(--border-subtle)',
+          backgroundColor: "var(--bg-surface)",
+          borderColor: "var(--border-subtle)",
         }}
       >
         <div className="h-12 px-4 px-safe flex items-center justify-between">
@@ -462,8 +571,8 @@ const KansoShell: React.FC = () => {
             </span>
             {isMoreViewActive && activeViewDef && (
               <span
-                className="text-xs font-medium truncate"
-                style={{ color: 'var(--text-muted)' }}
+                className="text-xs mt-1 font-medium truncate"
+                style={{ color: "var(--text-muted)" }}
               >
                 · {activeViewDef.label}
               </span>
@@ -475,10 +584,10 @@ const KansoShell: React.FC = () => {
               type="button"
               onClick={toggleColorMode}
               className="h-10 w-10 flex items-center justify-center rounded-lg"
-              style={{ color: 'var(--text-secondary)' }}
+              style={{ color: "var(--text-secondary)" }}
               aria-label="Toggle color mode"
             >
-              {workspace.settings.colorMode === 'dark' ? (
+              {workspace.settings.colorMode === "dark" ? (
                 <Sun className="w-4 h-4" />
               ) : (
                 <Moon className="w-4 h-4" />
@@ -486,18 +595,18 @@ const KansoShell: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => openModal('sync')}
+              onClick={() => openModal("sync")}
               className="h-10 w-10 flex items-center justify-center rounded-lg"
-              style={{ color: 'var(--text-secondary)' }}
+              style={{ color: "var(--text-secondary)" }}
               aria-label="GitHub Gist Sync"
             >
               <RefreshCw className="w-4 h-4" />
             </button>
             <button
               type="button"
-              onClick={() => openModal('appearance')}
+              onClick={() => openModal("appearance")}
               className="h-10 w-10 flex items-center justify-center rounded-lg"
-              style={{ color: 'var(--text-secondary)' }}
+              style={{ color: "var(--text-secondary)" }}
               aria-label="Themes and settings"
             >
               <Palette className="w-4 h-4" />
@@ -509,48 +618,50 @@ const KansoShell: React.FC = () => {
       {/* Main Content Viewport */}
       <main
         className={`flex-1 min-w-0 ${
-          isEdgeToEdgeView ? 'pb-15 lg:pb-0' : 'pb-20 lg:pb-8'
+          isEdgeToEdgeView ? "pb-15 lg:pb-0" : "pb-20 lg:pb-8"
         }`}
       >
-        {activeView === 'focus' && (
+        {activeView === "focus" && (
           <FocusView
             onOpenDetail={setDetailTarget}
             onOpenContextMenu={handleOpenContextMenu}
           />
         )}
-        {activeView === 'timeline' && (
+        {activeView === "timeline" && (
           <TimelineView
             onOpenDetail={setDetailTarget}
             onOpenContextMenu={handleOpenContextMenu}
             onOpenTimestamps={handleOpenTimestamps}
           />
         )}
-        {activeView === 'habits' && <HabitsView onOpenDetail={setDetailTarget} />}
-        {activeView === 'achievements' && (
+        {activeView === "habits" && (
+          <HabitsView onOpenDetail={setDetailTarget} />
+        )}
+        {activeView === "achievements" && (
           <AchievementsView
             onOpenDetail={setDetailTarget}
             onOpenContextMenu={handleOpenContextMenu}
           />
         )}
-        {activeView === 'notes' && (
+        {activeView === "notes" && (
           <NotesView
             onOpenDetail={setDetailTarget}
             onOpenContextMenu={handleOpenContextMenu}
           />
         )}
-        {activeView === 'events' && (
+        {activeView === "events" && (
           <EventsView
             onOpenDetail={setDetailTarget}
             onOpenContextMenu={handleOpenContextMenu}
           />
         )}
-        {activeView === 'lists' && (
+        {activeView === "lists" && (
           <ListsView
             onOpenDetail={setDetailTarget}
             onOpenContextMenu={handleOpenContextMenu}
           />
         )}
-        {activeView === 'library' && (
+        {activeView === "library" && (
           <LibraryView
             zenMode={libraryZenMode}
             onToggleZenMode={() => setLibraryZenMode((z) => !z)}
@@ -561,15 +672,15 @@ const KansoShell: React.FC = () => {
         {hasVisitedStreamer && (
           <div
             className={
-              activeView === 'streamer'
-                ? 'block'
-                : 'fixed -left-[9999px] top-0 w-[1024px] h-[600px] opacity-0 pointer-events-none select-none overflow-hidden'
+              activeView === "streamer"
+                ? "block"
+                : "fixed -left-[9999px] top-0 w-[1024px] h-[600px] opacity-0 pointer-events-none select-none overflow-hidden"
             }
-            aria-hidden={activeView !== 'streamer'}
+            aria-hidden={activeView !== "streamer"}
           >
             <StreamerView
               ref={streamerControllerRef}
-              isActiveView={activeView === 'streamer'}
+              isActiveView={activeView === "streamer"}
               onPlaybackStateChange={handleStreamerPlaybackChange}
             />
           </div>
@@ -580,8 +691,8 @@ const KansoShell: React.FC = () => {
       <nav
         className="lg:hidden fixed bottom-0 left-0 right-0 z-30 border-t pb-safe"
         style={{
-          backgroundColor: 'var(--bg-surface)',
-          borderColor: 'var(--border-subtle)',
+          backgroundColor: "var(--bg-surface)",
+          borderColor: "var(--border-subtle)",
         }}
         aria-label="Mobile workspace navigation"
       >
@@ -599,10 +710,14 @@ const KansoShell: React.FC = () => {
                   navigateToView(item.id);
                 }}
                 className="flex flex-col items-center justify-center h-full gap-0.5 transition-colors"
-                style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
+                style={{
+                  color: active ? "var(--accent)" : "var(--text-muted)",
+                }}
               >
                 <Icon className="w-4.5 h-4.5" />
-                <span className="text-[10px] font-medium leading-none">{item.label}</span>
+                <span className="text-[10px] font-medium leading-none">
+                  {item.label}
+                </span>
               </button>
             );
           })}
@@ -616,15 +731,17 @@ const KansoShell: React.FC = () => {
                 moreSheetOpen ||
                 isMoreViewActive ||
                 (showStreamerAudioControls && streamerPlayback.isPlaying)
-                  ? streamerPlayback.isViewMuted && !moreSheetOpen && !isMoreViewActive
-                    ? 'var(--danger)'
-                    : 'var(--accent)'
-                  : 'var(--text-muted)',
+                  ? streamerPlayback.isViewMuted &&
+                    !moreSheetOpen &&
+                    !isMoreViewActive
+                    ? "var(--danger)"
+                    : "var(--accent)"
+                  : "var(--text-muted)",
             }}
             aria-expanded={moreSheetOpen}
             aria-label="More views"
           >
-            {showStreamerAudioControls && activeView !== 'streamer' ? (
+            {showStreamerAudioControls && activeView !== "streamer" ? (
               streamerPlayback.isViewMuted ? (
                 <VolumeX className="w-4.5 h-4.5" />
               ) : streamerPlayback.isAllPaused ? (
@@ -636,7 +753,7 @@ const KansoShell: React.FC = () => {
               <MoreHorizontal className="w-4.5 h-4.5" />
             )}
             <span className="text-[10px] font-medium leading-none">
-              {isMoreViewActive && activeViewDef ? activeViewDef.label : 'More'}
+              {isMoreViewActive && activeViewDef ? activeViewDef.label : "More"}
             </span>
           </button>
         </div>
@@ -658,15 +775,15 @@ const KansoShell: React.FC = () => {
           <div
             className="relative z-10 w-full rounded-t-2xl border-t pb-[calc(5rem+env(safe-area-inset-bottom,0px))] pt-2.5 px-4 space-y-4"
             style={{
-              backgroundColor: 'var(--bg-elevated)',
-              borderColor: 'var(--border-subtle)',
-              boxShadow: 'var(--shadow-popover)',
+              backgroundColor: "var(--bg-elevated)",
+              borderColor: "var(--border-subtle)",
+              boxShadow: "var(--shadow-popover)",
             }}
           >
             <div className="flex justify-center">
               <span
                 className="w-10 h-1 rounded-full"
-                style={{ backgroundColor: 'var(--border-strong)' }}
+                style={{ backgroundColor: "var(--border-strong)" }}
                 aria-hidden="true"
               />
             </div>
@@ -677,7 +794,7 @@ const KansoShell: React.FC = () => {
                 type="button"
                 onClick={() => setMoreSheetOpen(false)}
                 className="h-8 w-8 flex items-center justify-center rounded-lg"
-                style={{ color: 'var(--text-muted)' }}
+                style={{ color: "var(--text-muted)" }}
                 aria-label="Close menu"
               >
                 <X className="w-4 h-4" />
@@ -691,7 +808,7 @@ const KansoShell: React.FC = () => {
                 const active = activeView === item.id;
                 const count = navCounts[item.id];
                 const isStreamerCardWithControls =
-                  item.id === 'streamer' && showStreamerAudioControls;
+                  item.id === "streamer" && showStreamerAudioControls;
 
                 if (isStreamerCardWithControls) {
                   return (
@@ -699,31 +816,41 @@ const KansoShell: React.FC = () => {
                       key={item.id}
                       className="p-3 rounded-xl border text-left transition-colors flex flex-col justify-between gap-2 min-h-[76px]"
                       style={{
-                        backgroundColor: active ? 'var(--accent-soft)' : 'var(--bg-surface)',
-                        borderColor: active ? 'var(--accent)' : 'var(--border-subtle)',
+                        backgroundColor: active
+                          ? "var(--accent-soft)"
+                          : "var(--bg-surface)",
+                        borderColor: active
+                          ? "var(--accent)"
+                          : "var(--border-subtle)",
                       }}
                     >
                       <div className="flex items-center justify-between gap-1">
                         <Icon
                           className="w-4.5 h-4.5 shrink-0"
-                          style={{ color: active ? 'var(--accent)' : 'var(--text-secondary)' }}
+                          style={{
+                            color: active
+                              ? "var(--accent)"
+                              : "var(--text-secondary)",
+                          }}
                         />
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => streamerControllerRef.current?.togglePauseAll()}
+                            onClick={() =>
+                              streamerControllerRef.current?.togglePauseAll()
+                            }
                             className="h-8 w-8 flex items-center justify-center rounded-lg border transition-colors"
                             style={{
-                              backgroundColor: 'var(--bg-surface-subtle)',
-                              borderColor: 'var(--border-subtle)',
+                              backgroundColor: "var(--bg-surface-subtle)",
+                              borderColor: "var(--border-subtle)",
                               color: streamerPlayback.isAllPaused
-                                ? 'var(--accent)'
-                                : 'var(--text-secondary)',
+                                ? "var(--accent)"
+                                : "var(--text-secondary)",
                             }}
                             aria-label={
                               streamerPlayback.isAllPaused
-                                ? 'Resume all streams'
-                                : 'Pause all streams'
+                                ? "Resume all streams"
+                                : "Pause all streams"
                             }
                           >
                             {streamerPlayback.isAllPaused ? (
@@ -734,21 +861,23 @@ const KansoShell: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => streamerControllerRef.current?.toggleViewMute()}
+                            onClick={() =>
+                              streamerControllerRef.current?.toggleViewMute()
+                            }
                             className="h-8 w-8 flex items-center justify-center rounded-lg border transition-colors"
                             style={{
-                              backgroundColor: 'var(--bg-surface-subtle)',
+                              backgroundColor: "var(--bg-surface-subtle)",
                               borderColor: streamerPlayback.isViewMuted
-                                ? 'var(--danger)'
-                                : 'var(--border-subtle)',
+                                ? "var(--danger)"
+                                : "var(--border-subtle)",
                               color: streamerPlayback.isViewMuted
-                                ? 'var(--danger)'
-                                : 'var(--accent)',
+                                ? "var(--danger)"
+                                : "var(--accent)",
                             }}
                             aria-label={
                               streamerPlayback.isViewMuted
-                                ? 'Unmute Streamer'
-                                : 'Temporarily mute Streamer'
+                                ? "Unmute Streamer"
+                                : "Temporarily mute Streamer"
                             }
                           >
                             {streamerPlayback.isViewMuted ? (
@@ -770,26 +899,34 @@ const KansoShell: React.FC = () => {
                         <div className="flex items-center justify-between gap-1">
                           <span
                             className="text-sm font-semibold leading-tight"
-                            style={{ color: active ? 'var(--accent)' : 'var(--text-primary)' }}
+                            style={{
+                              color: active
+                                ? "var(--accent)"
+                                : "var(--text-primary)",
+                            }}
                           >
                             {item.label}
                           </span>
                           <span
                             className="text-xs font-mono tabular-nums"
-                            style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
+                            style={{
+                              color: active
+                                ? "var(--accent)"
+                                : "var(--text-muted)",
+                            }}
                           >
                             {count}
                           </span>
                         </div>
                         <div
                           className="text-[11px] mt-0.5 line-clamp-1"
-                          style={{ color: 'var(--text-muted)' }}
+                          style={{ color: "var(--text-muted)" }}
                         >
                           {streamerPlayback.isViewMuted
-                            ? 'Muted in background'
+                            ? "Muted in background"
                             : streamerPlayback.isAllPaused
-                            ? 'Paused in background'
-                            : 'Playing in background'}
+                              ? "Paused in background"
+                              : "Playing in background"}
                         </div>
                       </button>
                     </div>
@@ -806,18 +943,28 @@ const KansoShell: React.FC = () => {
                     }}
                     className="p-3.5 rounded-xl border text-left transition-colors flex flex-col gap-2 min-h-[76px]"
                     style={{
-                      backgroundColor: active ? 'var(--accent-soft)' : 'var(--bg-surface)',
-                      borderColor: active ? 'var(--accent)' : 'var(--border-subtle)',
+                      backgroundColor: active
+                        ? "var(--accent-soft)"
+                        : "var(--bg-surface)",
+                      borderColor: active
+                        ? "var(--accent)"
+                        : "var(--border-subtle)",
                     }}
                   >
                     <div className="flex items-center justify-between">
                       <Icon
                         className="w-4.5 h-4.5"
-                        style={{ color: active ? 'var(--accent)' : 'var(--text-secondary)' }}
+                        style={{
+                          color: active
+                            ? "var(--accent)"
+                            : "var(--text-secondary)",
+                        }}
                       />
                       <span
                         className="text-xs font-mono tabular-nums"
-                        style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
+                        style={{
+                          color: active ? "var(--accent)" : "var(--text-muted)",
+                        }}
                       >
                         {count}
                       </span>
@@ -825,13 +972,17 @@ const KansoShell: React.FC = () => {
                     <div>
                       <div
                         className="text-sm font-semibold leading-tight"
-                        style={{ color: active ? 'var(--accent)' : 'var(--text-primary)' }}
+                        style={{
+                          color: active
+                            ? "var(--accent)"
+                            : "var(--text-primary)",
+                        }}
                       >
                         {item.label}
                       </div>
                       <div
                         className="text-[11px] mt-0.5 line-clamp-1"
-                        style={{ color: 'var(--text-muted)' }}
+                        style={{ color: "var(--text-muted)" }}
                       >
                         {item.description}
                       </div>
@@ -843,16 +994,16 @@ const KansoShell: React.FC = () => {
 
             <div
               className="pt-3 border-t grid grid-cols-3 gap-2"
-              style={{ borderColor: 'var(--border-subtle)' }}
+              style={{ borderColor: "var(--border-subtle)" }}
             >
               <button
                 type="button"
-                onClick={() => openModal('appearance')}
+                onClick={() => openModal("appearance")}
                 className="h-11 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5"
                 style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--border-subtle)',
-                  color: 'var(--text-secondary)',
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
                 }}
               >
                 <Palette className="w-3.5 h-3.5" />
@@ -860,12 +1011,12 @@ const KansoShell: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => openModal('sync')}
+                onClick={() => openModal("sync")}
                 className="h-11 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5"
                 style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--border-subtle)',
-                  color: 'var(--text-secondary)',
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
                 }}
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -873,12 +1024,12 @@ const KansoShell: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => openModal('workspace')}
+                onClick={() => openModal("workspace")}
                 className="h-11 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5"
                 style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--border-subtle)',
-                  color: 'var(--text-secondary)',
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
                 }}
               >
                 <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -893,7 +1044,9 @@ const KansoShell: React.FC = () => {
       <DetailSheet
         target={detailTarget}
         onClose={() => setDetailTarget(null)}
-        onOpenTimestamps={(entryId, focus) => handleOpenTimestamps(entryId, focus ?? null)}
+        onOpenTimestamps={(entryId, focus) =>
+          handleOpenTimestamps(entryId, focus ?? null)
+        }
       />
 
       {/* Universal Context Menu */}
@@ -929,15 +1082,18 @@ const KansoShell: React.FC = () => {
               key={toast.id}
               className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border text-xs font-medium"
               style={{
-                backgroundColor: 'var(--bg-elevated)',
+                backgroundColor: "var(--bg-elevated)",
                 borderColor:
-                  toast.tone === 'error'
-                    ? 'var(--danger)'
-                    : toast.tone === 'success'
-                    ? 'var(--accent)'
-                    : 'var(--border-strong)',
-                color: toast.tone === 'error' ? 'var(--danger)' : 'var(--text-primary)',
-                boxShadow: 'var(--shadow-popover)',
+                  toast.tone === "error"
+                    ? "var(--danger)"
+                    : toast.tone === "success"
+                      ? "var(--accent)"
+                      : "var(--border-strong)",
+                color:
+                  toast.tone === "error"
+                    ? "var(--danger)"
+                    : "var(--text-primary)",
+                boxShadow: "var(--shadow-popover)",
               }}
             >
               <span>{toast.text}</span>
