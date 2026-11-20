@@ -4,20 +4,26 @@ import {
   BookBookmark,
   BookHighlight,
   BookRecord,
+  CustomFocusTab,
   Entry,
+  EntrySource,
   EntryType,
+  EventAttendance,
   FocusBucket,
   GistSyncConfig,
   Habit,
+  HabitLog,
   KansoWorkspace,
   LibraryCategory,
   LibraryFolder,
   LibraryViewFolder,
   ListCollection,
+  ListCollectionType,
   ListItem,
   ListItemStatus,
   NoteNotebook,
   NoteStatus,
+  ScratchpadCard,
   StackSlot,
   StreamFolder,
   StreamItem,
@@ -28,8 +34,16 @@ import {
 } from '../types';
 import { libraryDb } from '../lib/db';
 import { normalizeLibraryWorkspaceData } from '../lib/migrateLibrary';
-import { buildDateAtTime, formatTime, getTodayKey, parseLocalDateKey, toLocalDateKey } from '../utils/date';
+import {
+  buildDateAtTime,
+  formatTime,
+  getEntryDayKey,
+  getTodayKey,
+  parseLocalDateKey,
+  toLocalDateKey,
+} from '../utils/date';
 import { clearAllBookFiles, deleteBookFile } from '../utils/ebookStorage';
+import { mergeWorkspaces } from '../utils/gist';
 import { syncNativeStatusBar } from '../utils/nativeStatusBar';
 import { parseNlpInput } from '../utils/nlp';
 
@@ -102,6 +116,24 @@ function normalizeStreamerState(
   };
 }
 
+function migrateEntries(rawEntries: Entry[]): Entry[] {
+  return rawEntries.map((e) => {
+    let source: EntrySource | undefined = e.source;
+    if (!source) {
+      if (e.focusBucket === 'anchor') source = 'focus-anchor';
+      else if (e.focusBucket === 'x-active') source = 'focus-active';
+      else if (e.habitId) source = 'habit';
+      else source = 'timeline';
+    }
+    return {
+      ...e,
+      source,
+      tags: Array.isArray(e.tags) ? e.tags : [],
+      listIds: Array.isArray(e.listIds) ? e.listIds : [],
+    };
+  });
+}
+
 function loadInitialWorkspace(): KansoWorkspace {
   try {
     const raw = localStorage.getItem(STORAGE_WORKSPACE_KEY);
@@ -110,9 +142,10 @@ function loadInitialWorkspace(): KansoWorkspace {
       if (parsed && Array.isArray(parsed.entries) && parsed.settings) {
         const empty = createEmptyWorkspace();
         const seed = createSeedWorkspace();
-        // Gracefully hydrate built-in sample books & streams when upgrading from a v1 workspace
         const hasBooksField = Array.isArray(parsed.books);
         const hasStreamsField = Array.isArray(parsed.streams);
+        const hasScratchpadsField = Array.isArray(parsed.scratchpads);
+        const hasCustomTabsField = Array.isArray(parsed.customTabs);
         const normalizedLib = hasBooksField
           ? normalizeLibraryWorkspaceData({
               books: parsed.books,
@@ -133,6 +166,11 @@ function loadInitialWorkspace(): KansoWorkspace {
         return {
           ...empty,
           ...parsed,
+          version: 3,
+          entries: migrateEntries(parsed.entries),
+          scratchpads: hasScratchpadsField ? parsed.scratchpads! : seed.scratchpads ?? [],
+          customTabs: hasCustomTabsField ? parsed.customTabs! : seed.customTabs ?? [],
+          habitLogs: Array.isArray(parsed.habitLogs) ? parsed.habitLogs : [],
           noteNotebooks: Array.isArray(parsed.noteNotebooks)
             ? parsed.noteNotebooks
             : seed.noteNotebooks ?? [],
@@ -164,6 +202,7 @@ function loadInitialWorkspace(): KansoWorkspace {
           settings: {
             ...empty.settings,
             ...parsed.settings,
+            timelineDisplayMode: parsed.settings.timelineDisplayMode || 'default',
             epubPrefs: {
               ...empty.settings.epubPrefs!,
               ...(parsed.settings.epubPrefs || {}),
@@ -198,13 +237,40 @@ interface WorkspaceContextValue {
   dismissToast: (id: string) => void;
 
   // Focus & Entry actions
-  addFocusItem: (bucket: Exclude<FocusBucket, null>, rawText: string) => boolean;
-  addTimelineEntry: (type: EntryType, rawText: string, activeDateKey: string, extra?: Partial<Entry>) => Entry | null;
+  addFocusItem: (
+    bucket: Exclude<FocusBucket, null> | 'custom-tab',
+    rawText: string,
+    tabId?: string
+  ) => boolean;
+  clearFocusDayFromView: (dateKey: string) => void;
+  addTimelineEntry: (
+    type: EntryType,
+    rawText: string,
+    activeDateKey: string,
+    extra?: Partial<Entry>
+  ) => Entry | null;
+  createEntry: (draft: Partial<Entry>) => Entry;
+  addAchievementEntry: (rawText: string) => Entry | null;
   updateEntry: (id: string, patch: Partial<Entry>) => void;
   toggleEntryCompleted: (id: string) => void;
+  toggleEntryAchievement: (id: string) => void;
+  cycleEventAttendance: (id: string) => void;
+  setEventAttendance: (id: string, attendance: EventAttendance) => void;
   deleteEntry: (id: string) => void;
+  hardDeleteEntry: (id: string) => void;
   duplicateEntry: (id: string) => Entry | null;
   moveEntryToDate: (id: string, dateKey: string) => void;
+
+  // Scratchpad actions
+  addScratchpad: (paletteIndex?: number) => ScratchpadCard;
+  updateScratchpad: (id: string, patch: Partial<ScratchpadCard>) => void;
+  deleteScratchpad: (id: string) => void;
+  sendScratchpadToTimeline: (id: string) => Entry | null;
+
+  // Custom Focus Tabs actions
+  addCustomTab: (name: string, color: string) => CustomFocusTab;
+  updateCustomTab: (id: string, patch: Partial<CustomFocusTab>) => void;
+  deleteCustomTab: (id: string) => void;
 
   // Notes & Notebooks actions
   addNotePage: (options?: {
@@ -231,13 +297,19 @@ interface WorkspaceContextValue {
   deleteNoteNotebook: (id: string) => void;
 
   // Habit actions
-  addHabit: (habit: Omit<Habit, 'id' | 'createdAt' | 'completions'>) => void;
+  addHabit: (habit: Omit<Habit, 'id' | 'createdAt' | 'completions'>) => Habit;
   updateHabit: (id: string, patch: Partial<Habit>) => void;
   deleteHabit: (id: string) => void;
   toggleHabitCompletion: (habitId: string, dateKey: string) => void;
 
   // Lists actions
-  addList: (title: string, icon: string) => ListCollection;
+  addList: (
+    title: string,
+    icon: string,
+    color?: string,
+    listType?: ListCollectionType
+  ) => ListCollection;
+  updateList: (id: string, patch: Partial<ListCollection>) => void;
   renameList: (id: string, title: string, icon?: string) => void;
   deleteList: (id: string) => void;
   addListItem: (listId: string, rawText: string, status?: ListItemStatus) => ListItem | null;
@@ -297,6 +369,7 @@ interface WorkspaceContextValue {
   updateSettings: (patch: Partial<WorkspaceSettings>) => void;
   updateGistConfig: (patch: Partial<GistSyncConfig>) => void;
   replaceWorkspace: (next: KansoWorkspace, toastMessage?: string) => void;
+  mergeRemoteWorkspace: (remote: KansoWorkspace, toastMessage?: string) => KansoWorkspace;
   clearWorkspaceData: () => void;
   restoreSampleData: () => void;
 }
@@ -390,7 +463,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   const addFocusItem = useCallback(
-    (bucket: Exclude<FocusBucket, null>, rawText: string): boolean => {
+    (
+      bucket: Exclude<FocusBucket, null> | 'custom-tab',
+      rawText: string,
+      tabId?: string
+    ): boolean => {
       const trimmed = rawText.trim();
       if (!trimmed) return false;
 
@@ -400,13 +477,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       if (bucket === 'x-active') {
         const activeCount = workspace.entries.filter(
-          (e) => e.focusBucket === 'x-active' && !e.completed
+          (e) =>
+            !e.deletedAt &&
+            (e.source === 'focus-active' || e.focusBucket === 'x-active') &&
+            !e.completed
         ).length;
         if (activeCount >= workspace.settings.xActiveLimit) {
-          pushToast(
-            `X-Active is at its ${workspace.settings.xActiveLimit}-task limit. Complete one or adjust the limit in Settings.`,
-            'error'
-          );
           return false;
         }
       }
@@ -418,12 +494,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           title: parsed.cleanTitle,
           content: '',
           createdAt: nowIso,
+          updatedAt: nowIso,
           scheduledAt: parsed.scheduledAt || nowIso,
           completedAt: null,
           endAt: parsed.endAt,
           completed: false,
           focusBucket: 'anchor',
-          tags: [],
+          source: 'focus-anchor',
+          tags: parsed.tags,
+          listIds: [],
         };
         mutateWorkspace((prev) => ({
           ...prev,
@@ -439,12 +518,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           title: parsed.cleanTitle,
           content: '',
           createdAt: nowIso,
+          updatedAt: nowIso,
           scheduledAt: parsed.scheduledAt,
           completedAt: null,
           endAt: parsed.endAt,
           completed: false,
           focusBucket: 'x-active',
-          tags: [],
+          source: 'focus-active',
+          tags: parsed.tags,
+          listIds: [],
         };
         mutateWorkspace((prev) => ({
           ...prev,
@@ -453,74 +535,148 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         return true;
       }
 
-      // bucket === 'completed': records a finished task directly (appears crossed-out on Timeline, no redundant log)
+      if (bucket === 'custom-tab') {
+        const customEntry: Entry = {
+          id: uid('ent'),
+          type: 'task',
+          title: parsed.cleanTitle,
+          content: '',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          scheduledAt: parsed.scheduledAt,
+          completedAt: null,
+          endAt: parsed.endAt,
+          completed: false,
+          focusBucket: null,
+          source: 'custom-tab',
+          tabId: tabId ?? null,
+          tags: parsed.tags,
+          listIds: [],
+        };
+        mutateWorkspace((prev) => ({
+          ...prev,
+          entries: [customEntry, ...prev.entries],
+        }));
+        return true;
+      }
+
+      // bucket === 'completed': Log Done creates a born-completed log entry appearing in both Focus & Timeline
       const finishedTime = parsed.scheduledAt || nowIso;
-      const completedEntry: Entry = {
+      const logEntry: Entry = {
         id: uid('ent'),
-        type: 'task',
+        type: 'log',
         title: parsed.cleanTitle,
         content: '',
-        createdAt: nowIso,
+        createdAt: finishedTime,
+        updatedAt: nowIso,
         scheduledAt: parsed.scheduledAt,
         completedAt: finishedTime,
         endAt: parsed.endAt,
         completed: true,
         focusBucket: 'completed',
-        tags: [],
+        source: 'timeline',
+        tags: parsed.tags,
+        listIds: [],
       };
 
       mutateWorkspace((prev) => ({
         ...prev,
-        entries: [completedEntry, ...prev.entries],
+        entries: [logEntry, ...prev.entries],
       }));
       pushToast(
-        `Recorded at ${formatTime(finishedTime, workspace.settings.timeFormat)}`,
+        `Logged at ${formatTime(finishedTime, workspace.settings.timeFormat)}`,
         'success'
       );
       return true;
     },
-    [workspace.entries, workspace.settings.timeFormat, workspace.settings.xActiveLimit, mutateWorkspace, pushToast]
+    [
+      workspace.entries,
+      workspace.settings.timeFormat,
+      workspace.settings.xActiveLimit,
+      mutateWorkspace,
+      pushToast,
+    ]
+  );
+
+  const clearFocusDayFromView = useCallback(
+    (dateKey: string) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: prev.entries.map((entry) => {
+          if (entry.deletedAt || !entry.completed) return entry;
+          const belongsToFocus =
+            entry.focusBucket !== null ||
+            entry.source === 'focus-anchor' ||
+            entry.source === 'focus-active';
+          if (!belongsToFocus) return entry;
+          const dayKey = getEntryDayKey(entry);
+          if (dayKey !== dateKey) return entry;
+          return {
+            ...entry,
+            source: 'timeline',
+            focusBucket: null,
+            updatedAt: nowIso,
+          };
+        }),
+      }));
+      pushToast('Cleared from Focus View (kept in Timeline)');
+    },
+    [mutateWorkspace, pushToast]
   );
 
   const addTimelineEntry = useCallback(
-    (type: EntryType, rawText: string, activeDateKey: string, extra?: Partial<Entry>): Entry | null => {
+    (
+      type: EntryType,
+      rawText: string,
+      activeDateKey: string,
+      extra?: Partial<Entry>
+    ): Entry | null => {
       const trimmed = rawText.trim();
       if (!trimmed) return null;
 
       const parsed = parseNlpInput(trimmed, activeDateKey, workspace.settings.timeFormat);
+      const effectiveType: EntryType = parsed.detectedType || type;
       const now = new Date();
+      const nowIso = now.toISOString();
       const todayKey = getTodayKey();
 
-      // Anchor createdAt to the viewed date when adding on a non-today date without an explicit timestamp
       const defaultIsoForDay =
         activeDateKey === todayKey
-          ? now.toISOString()
+          ? nowIso
           : buildDateAtTime(activeDateKey, now.getHours(), now.getMinutes());
 
       let scheduledAt = parsed.scheduledAt;
       let endAt = parsed.endAt;
 
-      if (type === 'timeblock') {
+      if (effectiveType === 'timeblock') {
         scheduledAt = scheduledAt || defaultIsoForDay;
         if (!endAt) {
           endAt = new Date(new Date(scheduledAt).getTime() + 60 * 60 * 1000).toISOString();
         }
-      } else if (type === 'event') {
+      } else if (effectiveType === 'event') {
         scheduledAt = scheduledAt || defaultIsoForDay;
       }
 
+      const isLog = effectiveType === 'log';
       const newEntry: Entry = {
         id: uid('ent'),
-        type,
+        type: effectiveType,
         title: parsed.cleanTitle,
         content: '',
-        createdAt: defaultIsoForDay,
+        createdAt: isLog ? parsed.scheduledAt || defaultIsoForDay : defaultIsoForDay,
+        updatedAt: nowIso,
         scheduledAt,
-        completedAt: null,
+        completedAt: isLog ? parsed.scheduledAt || defaultIsoForDay : null,
         endAt,
-        completed: false,
+        completed: isLog,
         focusBucket: null,
-        tags: [],
+        source: extra?.source ?? 'timeline',
+        tags: parsed.tags,
+        listIds: [],
+        syncToTimeline: effectiveType === 'note' ? true : undefined,
+        eventCategory: effectiveType === 'event' ? 'personal' : undefined,
+        attendance: effectiveType === 'event' ? null : undefined,
         ...extra,
       };
 
@@ -534,6 +690,78 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     [workspace.settings.timeFormat, mutateWorkspace]
   );
 
+  const createEntry = useCallback(
+    (draft: Partial<Entry>): Entry => {
+      const nowIso = new Date().toISOString();
+      const type: EntryType = draft.type || 'note';
+      const entry: Entry = {
+        id: uid('ent'),
+        type,
+        title: draft.title?.trim() || (type === 'note' ? 'Untitled Note' : 'Untitled'),
+        content: draft.content ?? '',
+        createdAt: draft.createdAt ?? nowIso,
+        updatedAt: nowIso,
+        scheduledAt: draft.scheduledAt ?? null,
+        completedAt: draft.completedAt ?? (type === 'log' ? nowIso : null),
+        endAt: draft.endAt ?? null,
+        completed: draft.completed ?? type === 'log',
+        focusBucket: draft.focusBucket ?? null,
+        source: draft.source ?? 'timeline',
+        tabId: draft.tabId ?? null,
+        tags: draft.tags ?? [],
+        pinned: draft.pinned ?? false,
+        location: draft.location ?? '',
+        isAchievement: draft.isAchievement ?? false,
+        eventCategory:
+          type === 'event' ? draft.eventCategory ?? 'personal' : draft.eventCategory,
+        attendance: type === 'event' ? draft.attendance ?? null : draft.attendance,
+        listIds: draft.listIds ?? [],
+        syncToTimeline: draft.syncToTimeline ?? (type === 'note' ? false : undefined),
+        ...draft,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: [entry, ...prev.entries],
+      }));
+      return entry;
+    },
+    [mutateWorkspace]
+  );
+
+  const addAchievementEntry = useCallback(
+    (rawText: string): Entry | null => {
+      const trimmed = rawText.trim();
+      if (!trimmed) return null;
+      const nowIso = new Date().toISOString();
+      const parsed = parseNlpInput(trimmed, getTodayKey(), workspace.settings.timeFormat);
+      const finishedIso = parsed.scheduledAt || nowIso;
+      const entry: Entry = {
+        id: uid('ent'),
+        type: parsed.detectedType && parsed.detectedType !== 'note' ? parsed.detectedType : 'log',
+        title: parsed.cleanTitle,
+        content: '',
+        createdAt: finishedIso,
+        updatedAt: nowIso,
+        scheduledAt: parsed.scheduledAt,
+        completedAt: finishedIso,
+        endAt: parsed.endAt,
+        completed: true,
+        focusBucket: null,
+        source: 'achievement',
+        isAchievement: true,
+        tags: parsed.tags,
+        listIds: [],
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: [entry, ...prev.entries],
+      }));
+      pushToast('Achievement recorded', 'success');
+      return entry;
+    },
+    [workspace.settings.timeFormat, mutateWorkspace, pushToast]
+  );
+
   const updateEntry = useCallback(
     (id: string, patch: Partial<Entry>) => {
       const nowIso = new Date().toISOString();
@@ -544,7 +772,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             ? {
                 ...entry,
                 ...patch,
-                updatedAt: entry.type === 'note' && patch.updatedAt === undefined ? nowIso : patch.updatedAt ?? entry.updatedAt,
+                updatedAt: patch.updatedAt ?? nowIso,
               }
             : entry
         ),
@@ -562,9 +790,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const nowIso = new Date().toISOString();
 
       // If reopening an X-Active task, verify capacity
-      if (!nextCompleted && target.focusBucket === 'x-active') {
+      if (!nextCompleted && (target.source === 'focus-active' || target.focusBucket === 'x-active')) {
         const activeCount = workspace.entries.filter(
-          (e) => e.focusBucket === 'x-active' && !e.completed
+          (e) =>
+            !e.deletedAt &&
+            (e.source === 'focus-active' || e.focusBucket === 'x-active') &&
+            !e.completed
         ).length;
         if (activeCount >= workspace.settings.xActiveLimit) {
           pushToast(
@@ -575,7 +806,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
       }
 
-      // Focus tasks appear directly on Timeline as crossed-out tasks at completedAt (no duplicate log spawned)
       mutateWorkspace((prev) => ({
         ...prev,
         entries: prev.entries.map((e) =>
@@ -584,22 +814,89 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 ...e,
                 completed: nextCompleted,
                 completedAt: nextCompleted ? nowIso : null,
+                // Un-completing a task auto-clears isAchievement
+                isAchievement: nextCompleted ? e.isAchievement : false,
+                updatedAt: nowIso,
               }
             : e
         ),
       }));
 
-      if (nextCompleted && target.focusBucket !== null) {
+      if (nextCompleted && (target.focusBucket !== null || target.source === 'focus-anchor' || target.source === 'focus-active')) {
         pushToast(
           `Completed at ${formatTime(nowIso, workspace.settings.timeFormat)}`,
           'success'
         );
       }
     },
-    [workspace.entries, workspace.settings.timeFormat, workspace.settings.xActiveLimit, mutateWorkspace, pushToast]
+    [
+      workspace.entries,
+      workspace.settings.timeFormat,
+      workspace.settings.xActiveLimit,
+      mutateWorkspace,
+      pushToast,
+    ]
+  );
+
+  const toggleEntryAchievement = useCallback(
+    (id: string) => {
+      const target = workspace.entries.find((e) => e.id === id);
+      if (!target) return;
+      const eligible =
+        target.type === 'log' ||
+        target.type === 'event' ||
+        (target.type === 'task' && target.completed);
+      if (!eligible) return;
+      const nextVal = !target.isAchievement;
+      const nowIso = new Date().toISOString();
+      updateEntry(id, {
+        isAchievement: nextVal,
+        completedAt: nextVal ? target.completedAt || nowIso : target.completedAt,
+      });
+      pushToast(nextVal ? 'Marked as Achievement' : 'Removed from Achievements', 'success');
+    },
+    [workspace.entries, updateEntry, pushToast]
+  );
+
+  const setEventAttendance = useCallback(
+    (id: string, attendance: EventAttendance) => {
+      const target = workspace.entries.find((e) => e.id === id);
+      if (!target) return;
+      const nowIso = new Date().toISOString();
+      updateEntry(id, {
+        attendance,
+        completed: attendance === 'attended',
+        completedAt: attendance === 'attended' ? target.completedAt || nowIso : null,
+      });
+    },
+    [workspace.entries, updateEntry]
+  );
+
+  const cycleEventAttendance = useCallback(
+    (id: string) => {
+      const target = workspace.entries.find((e) => e.id === id);
+      if (!target) return;
+      const next: EventAttendance =
+        !target.attendance ? 'attended' : target.attendance === 'attended' ? 'missed' : null;
+      setEventAttendance(id, next);
+    },
+    [workspace.entries, setEventAttendance]
   );
 
   const deleteEntry = useCallback(
+    (id: string) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: prev.entries.map((e) =>
+          e.id === id ? { ...e, deletedAt: nowIso, updatedAt: nowIso } : e
+        ),
+      }));
+    },
+    [mutateWorkspace]
+  );
+
+  const hardDeleteEntry = useCallback(
     (id: string) => {
       mutateWorkspace((prev) => ({
         ...prev,
@@ -613,12 +910,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     (id: string): Entry | null => {
       const original = workspace.entries.find((e) => e.id === id);
       if (!original) return null;
+      const nowIso = new Date().toISOString();
       const copy: Entry = {
         ...original,
         id: uid('ent'),
         title: `${original.title} (Copy)`,
-        createdAt: new Date().toISOString(),
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        deletedAt: null,
         focusBucket: original.focusBucket === 'x-active' ? null : original.focusBucket,
+        source: original.source === 'focus-active' ? 'timeline' : original.source,
       };
       mutateWorkspace((prev) => ({
         ...prev,
@@ -644,13 +945,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       };
 
       const patch: Partial<Entry> = {};
-      if (target.completedAt) {
+      if (target.completedAt && target.completed) {
         patch.completedAt = shiftIsoToDay(target.completedAt);
       } else if (target.scheduledAt) {
         patch.scheduledAt = shiftIsoToDay(target.scheduledAt);
         if (target.endAt) {
-          const duration = new Date(target.endAt).getTime() - new Date(target.scheduledAt).getTime();
-          patch.endAt = new Date(new Date(patch.scheduledAt!).getTime() + Math.max(duration, 15 * 60 * 1000)).toISOString();
+          const duration =
+            new Date(target.endAt).getTime() - new Date(target.scheduledAt).getTime();
+          patch.endAt = new Date(
+            new Date(patch.scheduledAt!).getTime() + Math.max(duration, 15 * 60 * 1000)
+          ).toISOString();
         }
       } else {
         patch.createdAt = shiftIsoToDay(target.createdAt) || buildDateAtTime(dateKey, 9, 0);
@@ -660,6 +964,148 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       pushToast(`Moved to ${toLocalDateKey(dateKey)}`);
     },
     [workspace.entries, updateEntry, pushToast]
+  );
+
+  // Scratchpad actions
+  const addScratchpad = useCallback(
+    (paletteIndex = 0): ScratchpadCard => {
+      const nowIso = new Date().toISOString();
+      const card: ScratchpadCard = {
+        id: uid('pad'),
+        content: '',
+        paletteIndex: paletteIndex % 5,
+        pinned: false,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        scratchpads: [card, ...(prev.scratchpads ?? [])],
+      }));
+      return card;
+    },
+    [mutateWorkspace]
+  );
+
+  const updateScratchpad = useCallback(
+    (id: string, patch: Partial<ScratchpadCard>) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        scratchpads: (prev.scratchpads ?? []).map((c) =>
+          c.id === id ? { ...c, ...patch, updatedAt: nowIso } : c
+        ),
+      }));
+    },
+    [mutateWorkspace]
+  );
+
+  const deleteScratchpad = useCallback(
+    (id: string) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        scratchpads: (prev.scratchpads ?? []).map((c) =>
+          c.id === id ? { ...c, deletedAt: nowIso, updatedAt: nowIso } : c
+        ),
+      }));
+    },
+    [mutateWorkspace]
+  );
+
+  const sendScratchpadToTimeline = useCallback(
+    (id: string): Entry | null => {
+      const card = (workspace.scratchpads ?? []).find((c) => c.id === id && !c.deletedAt);
+      if (!card) return null;
+      const lines = card.content
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      const title = lines[0]?.slice(0, 90) || 'Scratchpad Note';
+      const bodyLines = lines.length > 1 ? lines.slice(1) : lines;
+      const htmlContent = bodyLines
+        .map((l) => `<p>${l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
+        .join('');
+      const nowIso = new Date().toISOString();
+      const noteEntry: Entry = {
+        id: uid('ent'),
+        type: 'note',
+        title,
+        content: htmlContent,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        scheduledAt: null,
+        completedAt: null,
+        endAt: null,
+        completed: false,
+        focusBucket: null,
+        source: 'timeline',
+        syncToTimeline: true,
+        tags: ['scratchpad'],
+        listIds: [],
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: [noteEntry, ...prev.entries],
+        scratchpads: (prev.scratchpads ?? []).map((c) =>
+          c.id === id ? { ...c, deletedAt: nowIso, updatedAt: nowIso } : c
+        ),
+      }));
+      pushToast('Sent sticky note to Timeline', 'success');
+      return noteEntry;
+    },
+    [workspace.scratchpads, mutateWorkspace, pushToast]
+  );
+
+  // Custom Focus Tabs actions
+  const addCustomTab = useCallback(
+    (name: string, color: string): CustomFocusTab => {
+      const nowIso = new Date().toISOString();
+      const tab: CustomFocusTab = {
+        id: uid('ftab'),
+        name: name.trim() || 'Focus Tab',
+        color,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        customTabs: [...(prev.customTabs ?? []), tab],
+      }));
+      pushToast(`Tab "${tab.name}" created`, 'success');
+      return tab;
+    },
+    [mutateWorkspace, pushToast]
+  );
+
+  const updateCustomTab = useCallback(
+    (id: string, patch: Partial<CustomFocusTab>) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        customTabs: (prev.customTabs ?? []).map((t) =>
+          t.id === id ? { ...t, ...patch, updatedAt: nowIso } : t
+        ),
+      }));
+    },
+    [mutateWorkspace]
+  );
+
+  const deleteCustomTab = useCallback(
+    (id: string) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        customTabs: (prev.customTabs ?? []).map((t) =>
+          t.id === id ? { ...t, deletedAt: nowIso, updatedAt: nowIso } : t
+        ),
+        entries: prev.entries.map((e) =>
+          e.tabId === id ? { ...e, deletedAt: nowIso, updatedAt: nowIso } : e
+        ),
+      }));
+      pushToast('Custom tab and its tasks deleted');
+    },
+    [mutateWorkspace, pushToast]
   );
 
   // Notes & Notebooks actions
@@ -894,11 +1340,13 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // Habits
   const addHabit = useCallback(
-    (habit: Omit<Habit, 'id' | 'createdAt' | 'completions'>) => {
+    (habit: Omit<Habit, 'id' | 'createdAt' | 'completions'>): Habit => {
+      const nowIso = new Date().toISOString();
       const newHabit: Habit = {
         ...habit,
         id: uid('hab'),
-        createdAt: new Date().toISOString(),
+        createdAt: nowIso,
+        updatedAt: nowIso,
         completions: {},
       };
       mutateWorkspace((prev) => ({
@@ -906,15 +1354,19 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         habits: [...prev.habits, newHabit],
       }));
       pushToast(`Habit "${habit.title}" created`, 'success');
+      return newHabit;
     },
     [mutateWorkspace, pushToast]
   );
 
   const updateHabit = useCallback(
     (id: string, patch: Partial<Habit>) => {
+      const nowIso = new Date().toISOString();
       mutateWorkspace((prev) => ({
         ...prev,
-        habits: prev.habits.map((h) => (h.id === id ? { ...h, ...patch } : h)),
+        habits: prev.habits.map((h) =>
+          h.id === id ? { ...h, ...patch, updatedAt: nowIso } : h
+        ),
       }));
     },
     [mutateWorkspace]
@@ -922,9 +1374,18 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const deleteHabit = useCallback(
     (id: string) => {
+      const nowIso = new Date().toISOString();
       mutateWorkspace((prev) => ({
         ...prev,
-        habits: prev.habits.filter((h) => h.id !== id),
+        habits: prev.habits.map((h) =>
+          h.id === id ? { ...h, deletedAt: nowIso, updatedAt: nowIso } : h
+        ),
+        habitLogs: (prev.habitLogs ?? []).map((hl) =>
+          hl.habitId === id ? { ...hl, deletedAt: nowIso, updatedAt: nowIso } : hl
+        ),
+        entries: prev.entries.map((e) =>
+          e.habitId === id ? { ...e, deletedAt: nowIso, updatedAt: nowIso } : e
+        ),
       }));
       pushToast('Habit deleted');
     },
@@ -933,31 +1394,105 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const toggleHabitCompletion = useCallback(
     (habitId: string, dateKey: string) => {
-      mutateWorkspace((prev) => ({
-        ...prev,
-        habits: prev.habits.map((h) => {
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const todayKey = getTodayKey();
+      const logIso =
+        dateKey === todayKey
+          ? nowIso
+          : buildDateAtTime(dateKey, now.getHours(), now.getMinutes());
+
+      mutateWorkspace((prev) => {
+        const habit = prev.habits.find((h) => h.id === habitId);
+        if (!habit) return prev;
+        const wasDone = Boolean(habit.completions[dateKey]);
+
+        const nextHabits = prev.habits.map((h) => {
           if (h.id !== habitId) return h;
           const nextCompletions = { ...h.completions };
-          if (nextCompletions[dateKey]) {
+          if (wasDone) {
             delete nextCompletions[dateKey];
           } else {
             nextCompletions[dateKey] = true;
           }
-          return { ...h, completions: nextCompletions };
-        }),
-      }));
+          return { ...h, completions: nextCompletions, updatedAt: nowIso };
+        });
+
+        if (wasDone) {
+          // Turning OFF: soft-delete matching HabitLog and linked Timeline entry
+          return {
+            ...prev,
+            habits: nextHabits,
+            habitLogs: (prev.habitLogs ?? []).map((hl) =>
+              hl.habitId === habitId && hl.dateKey === dateKey && !hl.deletedAt
+                ? { ...hl, deletedAt: nowIso, updatedAt: nowIso }
+                : hl
+            ),
+            entries: prev.entries.map((e) =>
+              e.habitId === habitId && e.habitDateKey === dateKey && !e.deletedAt
+                ? { ...e, deletedAt: nowIso, updatedAt: nowIso }
+                : e
+            ),
+          };
+        }
+
+        // Turning ON: create linked Timeline log entry + HabitLog record
+        const entryId = uid('ent');
+        const linkedEntry: Entry = {
+          id: entryId,
+          type: 'log',
+          title: `Completed habit: ${habit.title}`,
+          content: '',
+          createdAt: logIso,
+          updatedAt: nowIso,
+          scheduledAt: null,
+          completedAt: logIso,
+          endAt: null,
+          completed: true,
+          focusBucket: null,
+          source: 'habit',
+          habitId,
+          habitDateKey: dateKey,
+          tags: ['habit'],
+          listIds: [],
+        };
+        const habitLog: HabitLog = {
+          id: uid('hlog'),
+          habitId,
+          dateKey,
+          entryId,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        };
+
+        return {
+          ...prev,
+          habits: nextHabits,
+          habitLogs: [habitLog, ...(prev.habitLogs ?? [])],
+          entries: [linkedEntry, ...prev.entries],
+        };
+      });
     },
     [mutateWorkspace]
   );
 
   // Lists
   const addList = useCallback(
-    (title: string, icon: string): ListCollection => {
+    (
+      title: string,
+      icon: string,
+      color = '#6366f1',
+      listType: ListCollectionType = 'custom'
+    ): ListCollection => {
+      const nowIso = new Date().toISOString();
       const created: ListCollection = {
         id: uid('list'),
         title: title.trim() || 'Untitled List',
         icon,
-        createdAt: new Date().toISOString(),
+        color,
+        listType,
+        createdAt: nowIso,
+        updatedAt: nowIso,
       };
       mutateWorkspace((prev) => ({
         ...prev,
@@ -969,24 +1504,46 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     [mutateWorkspace, pushToast]
   );
 
-  const renameList = useCallback(
-    (id: string, title: string, icon?: string) => {
+  const updateList = useCallback(
+    (id: string, patch: Partial<ListCollection>) => {
+      const nowIso = new Date().toISOString();
       mutateWorkspace((prev) => ({
         ...prev,
         lists: prev.lists.map((l) =>
-          l.id === id ? { ...l, title: title.trim() || l.title, icon: icon ?? l.icon } : l
+          l.id === id ? { ...l, ...patch, updatedAt: nowIso } : l
         ),
       }));
     },
     [mutateWorkspace]
   );
 
+  const renameList = useCallback(
+    (id: string, title: string, icon?: string) => {
+      updateList(id, { title: title.trim() || undefined, icon });
+    },
+    [updateList]
+  );
+
   const deleteList = useCallback(
     (id: string) => {
+      const nowIso = new Date().toISOString();
       mutateWorkspace((prev) => ({
         ...prev,
-        lists: prev.lists.filter((l) => l.id !== id),
-        listItems: prev.listItems.filter((item) => item.listId !== id),
+        lists: prev.lists.map((l) =>
+          l.id === id ? { ...l, deletedAt: nowIso, updatedAt: nowIso } : l
+        ),
+        listItems: prev.listItems.map((item) =>
+          item.listId === id ? { ...item, deletedAt: nowIso, updatedAt: nowIso } : item
+        ),
+        entries: prev.entries.map((entry) =>
+          entry.listIds && entry.listIds.includes(id)
+            ? {
+                ...entry,
+                listIds: entry.listIds.filter((lid) => lid !== id),
+                updatedAt: nowIso,
+              }
+            : entry
+        ),
       }));
       pushToast('List deleted');
     },
@@ -1003,9 +1560,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         id: uid('li'),
         listId,
         title: parsed.cleanTitle,
+        subtitle: '',
         status,
+        tags: parsed.tags,
         content: '',
         scheduledAt: parsed.scheduledAt,
+        completedAt: status === 'done' ? nowIso : null,
         createdAt: nowIso,
         updatedAt: nowIso,
       };
@@ -1020,11 +1580,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const updateListItem = useCallback(
     (id: string, patch: Partial<ListItem>) => {
+      const nowIso = new Date().toISOString();
       mutateWorkspace((prev) => ({
         ...prev,
-        listItems: prev.listItems.map((item) =>
-          item.id === id ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item
-        ),
+        listItems: prev.listItems.map((item) => {
+          if (item.id !== id) return item;
+          let completedAt = item.completedAt ?? null;
+          if (patch.completedAt !== undefined) {
+            completedAt = patch.completedAt;
+          } else if (patch.status === 'done' && item.status !== 'done') {
+            completedAt = nowIso;
+          } else if (patch.status && patch.status !== 'done') {
+            completedAt = null;
+          }
+          return { ...item, ...patch, completedAt, updatedAt: nowIso };
+        }),
       }));
     },
     [mutateWorkspace]
@@ -1032,9 +1602,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const deleteListItem = useCallback(
     (id: string) => {
+      const nowIso = new Date().toISOString();
       mutateWorkspace((prev) => ({
         ...prev,
-        listItems: prev.listItems.filter((item) => item.id !== id),
+        listItems: prev.listItems.map((item) =>
+          item.id === id ? { ...item, deletedAt: nowIso, updatedAt: nowIso } : item
+        ),
       }));
     },
     [mutateWorkspace]
@@ -1706,6 +2279,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setWorkspace({
         ...empty,
         ...next,
+        version: 3,
+        entries: migrateEntries(Array.isArray(next.entries) ? next.entries : []),
+        scratchpads: Array.isArray(next.scratchpads) ? next.scratchpads : [],
+        customTabs: Array.isArray(next.customTabs) ? next.customTabs : [],
+        habitLogs: Array.isArray(next.habitLogs) ? next.habitLogs : [],
         noteNotebooks: Array.isArray(next.noteNotebooks) ? next.noteNotebooks : [],
         books: normalizedLib.books,
         libraryFolders: normalizedLib.libraryFolders,
@@ -1723,6 +2301,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         settings: {
           ...empty.settings,
           ...(next.settings || {}),
+          timelineDisplayMode: next.settings?.timelineDisplayMode || 'default',
           epubPrefs: {
             ...empty.settings.epubPrefs!,
             ...(next.settings?.epubPrefs || {}),
@@ -1730,7 +2309,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         },
       });
 
-      // Mirror pulled bookmarks & highlights into IndexedDB so ReaderView sees them immediately
       void (async () => {
         try {
           await libraryDb.replaceAllAnnotations(
@@ -1745,6 +2323,18 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (toastMessage) pushToast(toastMessage, 'success');
     },
     [pushToast]
+  );
+
+  const mergeRemoteWorkspace = useCallback(
+    (remote: KansoWorkspace, toastMessage?: string): KansoWorkspace => {
+      const merged = mergeWorkspaces(workspace, {
+        ...remote,
+        entries: migrateEntries(Array.isArray(remote.entries) ? remote.entries : []),
+      });
+      replaceWorkspace(merged, toastMessage);
+      return merged;
+    },
+    [workspace, replaceWorkspace]
   );
 
   const clearWorkspaceData = useCallback(() => {
@@ -1779,12 +2369,26 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         pushToast,
         dismissToast,
         addFocusItem,
+        clearFocusDayFromView,
         addTimelineEntry,
+        createEntry,
+        addAchievementEntry,
         updateEntry,
         toggleEntryCompleted,
+        toggleEntryAchievement,
+        cycleEventAttendance,
+        setEventAttendance,
         deleteEntry,
+        hardDeleteEntry,
         duplicateEntry,
         moveEntryToDate,
+        addScratchpad,
+        updateScratchpad,
+        deleteScratchpad,
+        sendScratchpadToTimeline,
+        addCustomTab,
+        updateCustomTab,
+        deleteCustomTab,
         addNotePage,
         duplicateNotePage,
         archiveNotePage,
@@ -1800,6 +2404,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         deleteHabit,
         toggleHabitCompletion,
         addList,
+        updateList,
         renameList,
         deleteList,
         addListItem,
@@ -1834,6 +2439,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         updateSettings,
         updateGistConfig,
         replaceWorkspace,
+        mergeRemoteWorkspace,
         clearWorkspaceData,
         restoreSampleData,
       }}

@@ -171,7 +171,7 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
       >
         {/* Header */}
         <div className="h-14 px-6 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0">
-          <h2 className="font-serif-editorial text-lg font-semibold text-[var(--text-primary)]">
+          <h2 className="font-display text-base font-semibold text-[var(--text-primary)]">
             Edit Metadata
           </h2>
           <button

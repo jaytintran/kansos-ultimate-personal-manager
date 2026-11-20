@@ -798,30 +798,18 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
 
     return (
       <div className="flex flex-col h-[calc(100dvh-3rem-3.75rem-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] lg:h-dvh min-h-[520px] overflow-hidden">
-        {/* Top Utility & Layout Bar */}
+        {/* Bar 1: Compact Header */}
         <StreamerTopBar
           subView={subView}
           onChangeSubView={setSubView}
           activeCount={activeSlots.length}
           vaultCount={streams.length}
-          viewMode={viewMode}
-          onChangeViewMode={(mode) =>
-            updateStreamerState({ viewMode: mode, activePresetId: null })
-          }
-          layoutMode={streamerState.layoutMode}
-          onChangeLayoutMode={(mode) =>
-            updateStreamerState({ layoutMode: mode, activePresetId: null })
-          }
-          sizingMode={sizingMode}
-          onChangeSizingMode={(mode) =>
-            updateStreamerState({ sizingMode: mode, activePresetId: null })
-          }
           sidebarOpen={isLargeViewport ? desktopSidebarOpen : mobileSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
           onQuickAddUrl={handleQuickAddUrl}
         />
 
-        {/* Global Transport & Master Mixer Bar (shown on Live Grid) */}
+        {/* Bar 2: Unified 32px Transport, Mixer & Layout Control Bar (shown on Live Grid) */}
         {subView === 'grid' && (
           <StreamerTransportBar
             stackedCount={activeSlots.length}
@@ -830,6 +818,18 @@ export const StreamerView = forwardRef<StreamerControllerHandle, StreamerViewPro
             allActiveMuted={allActiveMuted}
             masterVolume={masterVolume}
             sleepRemainingSeconds={sleepRemainingSeconds}
+            viewMode={viewMode}
+            onChangeViewMode={(mode) =>
+              updateStreamerState({ viewMode: mode, activePresetId: null })
+            }
+            layoutMode={streamerState.layoutMode}
+            onChangeLayoutMode={(mode) =>
+              updateStreamerState({ layoutMode: mode, activePresetId: null })
+            }
+            sizingMode={sizingMode}
+            onChangeSizingMode={(mode) =>
+              updateStreamerState({ sizingMode: mode, activePresetId: null })
+            }
             onTogglePlayPauseAll={() => handleTogglePauseAll(false)}
             onToggleMuteAll={() => handleToggleViewMute(false)}
             onSyncAll={handleSyncAll}

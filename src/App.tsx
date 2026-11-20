@@ -16,16 +16,20 @@ import {
   SlidersHorizontal,
   Sun,
   Target,
+  Trophy,
   Volume2,
   VolumeX,
   X,
 } from 'lucide-react';
-import { EntryInspectorDrawer } from './components/EntryInspectorDrawer';
+import { DetailSheet } from './components/DetailSheet';
 import { KansoLogo } from './components/KansoLogo';
 import { SettingsSyncModal } from './components/SettingsSyncModal';
+import { TimestampFieldFocus, TimestampsModal } from './components/TimestampsModal';
+import { ContextMenuState, UniversalContextMenu } from './components/UniversalContextMenu';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
-import { ViewId } from './types';
+import { ContextMenuRecord, DetailSheetTarget, ViewId } from './types';
 import { getEntryDayKey, getTodayKey, isVisibleOnTimeline } from './utils/date';
+import { AchievementsView } from './views/AchievementsView';
 import { EventsView } from './views/EventsView';
 import { FocusView } from './views/FocusView';
 import { HabitsView } from './views/HabitsView';
@@ -48,12 +52,13 @@ interface NavItemDef {
 
 const DESKTOP_NAV_GROUPS: NavItemDef[][] = [
   [
-    { id: 'focus', label: 'Focus', description: 'Anchors & active queue', icon: Target },
+    { id: 'focus', label: 'Focus', description: 'Anchors, X-Active & tabs', icon: Target },
     { id: 'timeline', label: 'Timeline', description: 'Daily chronological spine', icon: GitCommitVertical },
-    { id: 'habits', label: 'Habits', description: 'Streaks & consistency', icon: Grid2x2Check },
+    { id: 'habits', label: 'Habits', description: 'Matrix, cards & streaks', icon: Grid2x2Check },
+    { id: 'achievements', label: 'Achievements', description: 'Milestones & completed wins', icon: Trophy },
   ],
   [
-    { id: 'notes', label: 'Notes', description: 'Markdown notebook', icon: FileText },
+    { id: 'notes', label: 'Notes', description: 'Card grid & rich editor', icon: FileText },
     { id: 'events', label: 'Events', description: 'Scheduled calendar items', icon: Calendar },
     { id: 'lists', label: 'Lists', description: 'Collections & backlogs', icon: ListTodo },
   ],
@@ -65,8 +70,8 @@ const DESKTOP_NAV_GROUPS: NavItemDef[][] = [
 
 const ALL_NAV_ITEMS: NavItemDef[] = DESKTOP_NAV_GROUPS.flat();
 
-const MOBILE_PRIMARY_IDS: ViewId[] = ['focus', 'timeline', 'habits', 'notes'];
-const MOBILE_MORE_IDS: ViewId[] = ['events', 'lists', 'library', 'streamer'];
+const MOBILE_PRIMARY_IDS: ViewId[] = ['focus', 'timeline', 'habits', 'achievements'];
+const MOBILE_MORE_IDS: ViewId[] = ['notes', 'events', 'lists', 'library', 'streamer'];
 
 const KansoShell: React.FC = () => {
   const { workspace, toasts, dismissToast, updateSettings } = useWorkspace();
@@ -80,13 +85,38 @@ const KansoShell: React.FC = () => {
     isAllPaused: false,
   });
   const streamerControllerRef = useRef<StreamerControllerHandle | null>(null);
-  const [inspectingEntryId, setInspectingEntryId] = useState<string | null>(null);
-  const [inspectingListItemId, setInspectingListItemId] = useState<string | null>(null);
+
+  // Shared Global Systems: Polymorphic DetailSheet, UniversalContextMenu, TimestampsModal
+  const [detailTarget, setDetailTarget] = useState<DetailSheetTarget | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [timestampsState, setTimestampsState] = useState<{
+    entryId: string;
+    focus?: TimestampFieldFocus;
+  } | null>(null);
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [libraryZenMode, setLibraryZenMode] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'appearance' | 'sync' | 'workspace'>(
     'appearance'
+  );
+
+  const handleOpenContextMenu = useCallback(
+    (record: ContextMenuRecord, e: React.MouseEvent) => {
+      setContextMenu({
+        record,
+        x: e.clientX,
+        y: e.clientY,
+      });
+    },
+    []
+  );
+
+  const handleOpenTimestamps = useCallback(
+    (entryId: string, focus?: TimestampFieldFocus) => {
+      setTimestampsState({ entryId, focus: focus ?? null });
+    },
+    []
   );
 
   const navigateToView = useCallback((view: ViewId) => {
@@ -122,18 +152,35 @@ const KansoShell: React.FC = () => {
   const todayKey = getTodayKey();
 
   const navCounts = useMemo(() => {
-    const activeFocus = workspace.entries.filter(
-      (e) => (e.focusBucket === 'anchor' || e.focusBucket === 'x-active') && !e.completed
+    const activeEntries = workspace.entries.filter((e) => !e.deletedAt);
+    const activeListsSet = new Set(workspace.lists.filter((l) => !l.deletedAt).map((l) => l.id));
+    const activeListItems = workspace.listItems.filter(
+      (i) => !i.deletedAt && activeListsSet.has(i.listId)
+    );
+    const activeHabits = workspace.habits.filter((h) => !h.deletedAt);
+
+    const activeFocus = activeEntries.filter(
+      (e) =>
+        (e.source === 'focus-anchor' ||
+          e.source === 'focus-active' ||
+          e.focusBucket === 'anchor' ||
+          e.focusBucket === 'x-active') &&
+        !e.completed
     ).length;
-    const todayTimeline = workspace.entries.filter(
+    const todayTimeline = activeEntries.filter(
       (e) => isVisibleOnTimeline(e) && getEntryDayKey(e) === todayKey
     ).length;
-    const notesCount = workspace.entries.filter(
+    const notesCount = activeEntries.filter(
       (e) => e.type === 'note' && !e.trashedAt && !e.archived && e.noteStatus !== 'archived'
     ).length;
-    const eventsCount = workspace.entries.filter((e) => e.type === 'event').length;
-    const habitsTodayLeft = workspace.habits.filter((h) => !h.completions[todayKey]).length;
-    const listsCount = workspace.listItems.length;
+    const eventsCount = activeEntries.filter((e) => e.type === 'event').length;
+    const habitsTodayLeft = activeHabits.filter((h) => !h.completions[todayKey]).length;
+    const achievementsCount =
+      activeListItems.filter((i) => i.status === 'done').length +
+      activeEntries.filter(
+        (e) => e.isAchievement && (e.type !== 'task' || e.completed)
+      ).length;
+    const listsCount = activeListItems.length;
     const libraryCount = workspace.books.length;
     const streamerCount = workspace.streamerState.activeStreamIds.length;
 
@@ -141,6 +188,7 @@ const KansoShell: React.FC = () => {
       focus: activeFocus,
       timeline: todayTimeline,
       habits: habitsTodayLeft,
+      achievements: achievementsCount,
       notes: notesCount,
       events: eventsCount,
       lists: listsCount,
@@ -150,6 +198,7 @@ const KansoShell: React.FC = () => {
   }, [
     workspace.entries,
     workspace.habits,
+    workspace.lists,
     workspace.listItems,
     workspace.books.length,
     workspace.streamerState.activeStreamIds.length,
@@ -172,14 +221,14 @@ const KansoShell: React.FC = () => {
   const activeViewDef = ALL_NAV_ITEMS.find((item) => item.id === activeView);
 
   const isEdgeToEdgeView =
-    activeView === 'streamer' || activeView === 'library' || activeView === 'notes';
+    activeView === 'streamer' || activeView === 'library' || activeView === 'lists';
 
   return (
     <div
       className="min-h-dvh flex flex-col lg:flex-row"
       style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}
     >
-      {/* Desktop Sidebar Navigation (240px — collapses cleanly during Zen Reader mode) */}
+      {/* Desktop Sidebar Navigation */}
       {!(activeView === 'library' && libraryZenMode) && (
         <aside
           className="hidden lg:flex lg:flex-col lg:w-60 lg:shrink-0 lg:sticky lg:top-0 lg:h-dvh border-r px-3.5 py-5"
@@ -188,218 +237,216 @@ const KansoShell: React.FC = () => {
             borderColor: 'var(--border-subtle)',
           }}
         >
-        {/* Single-line Brand Wordmark */}
-        <div className="px-2.5 pb-5 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <KansoLogo size={24} />
-            <span className="font-display text-lg font-bold tracking-tight whitespace-nowrap">
-              Kanso
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={toggleColorMode}
-            className="h-8 w-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)]"
-            style={{ color: 'var(--text-secondary)' }}
-            title={`Switch to ${workspace.settings.colorMode === 'dark' ? 'light' : 'dark'} mode`}
-            aria-label="Toggle light or dark mode"
-          >
-            {workspace.settings.colorMode === 'dark' ? (
-              <Sun className="w-4 h-4" />
-            ) : (
-              <Moon className="w-4 h-4" />
-            )}
-          </button>
-        </div>
-
-        {/* All 8 Views Cleanly Grouped */}
-        <nav className="flex-1 overflow-y-auto space-y-3" aria-label="Main workspace navigation">
-          {DESKTOP_NAV_GROUPS.map((group, groupIdx) => (
-            <div
-              key={groupIdx}
-              className={groupIdx > 0 ? 'pt-3 border-t space-y-1' : 'space-y-1'}
-              style={groupIdx > 0 ? { borderColor: 'var(--border-subtle)' } : undefined}
+          <div className="px-2.5 pb-5 flex items-center justify-between">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <KansoLogo size={24} />
+              <span className="font-display text-lg font-bold tracking-tight whitespace-nowrap">
+                Kanso
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={toggleColorMode}
+              className="h-8 w-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)]"
+              style={{ color: 'var(--text-secondary)' }}
+              title={`Switch to ${workspace.settings.colorMode === 'dark' ? 'light' : 'dark'} mode`}
+              aria-label="Toggle light or dark mode"
             >
-              {group.map((item) => {
-                const Icon = item.icon;
-                const active = activeView === item.id;
-                const count = navCounts[item.id];
-                const isStreamerRowWithControls =
-                  item.id === 'streamer' && showStreamerAudioControls;
+              {workspace.settings.colorMode === 'dark' ? (
+                <Sun className="w-4 h-4" />
+              ) : (
+                <Moon className="w-4 h-4" />
+              )}
+            </button>
+          </div>
 
-                if (isStreamerRowWithControls) {
+          <nav className="flex-1 overflow-y-auto space-y-3" aria-label="Main workspace navigation">
+            {DESKTOP_NAV_GROUPS.map((group, groupIdx) => (
+              <div
+                key={groupIdx}
+                className={groupIdx > 0 ? 'pt-3 border-t space-y-1' : 'space-y-1'}
+                style={groupIdx > 0 ? { borderColor: 'var(--border-subtle)' } : undefined}
+              >
+                {group.map((item) => {
+                  const Icon = item.icon;
+                  const active = activeView === item.id;
+                  const count = navCounts[item.id];
+                  const isStreamerRowWithControls =
+                    item.id === 'streamer' && showStreamerAudioControls;
+
+                  if (isStreamerRowWithControls) {
+                    return (
+                      <div
+                        key={item.id}
+                        className="w-full flex items-center justify-between gap-1.5 pl-3 pr-2 py-1.5 rounded-xl text-sm font-medium transition-colors"
+                        style={{
+                          backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
+                          color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => navigateToView(item.id)}
+                          className="flex items-center gap-2.5 min-w-0 flex-1 py-0.5 text-left whitespace-nowrap"
+                        >
+                          <Icon className="w-4 h-4 shrink-0" />
+                          <span className="truncate">{item.label}</span>
+                        </button>
+
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              streamerControllerRef.current?.togglePauseAll();
+                            }}
+                            className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)]"
+                            style={{
+                              color: streamerPlayback.isAllPaused
+                                ? 'var(--accent)'
+                                : 'var(--text-secondary)',
+                            }}
+                            title={
+                              streamerPlayback.isAllPaused
+                                ? 'Resume all streams'
+                                : 'Pause all streams'
+                            }
+                            aria-label={
+                              streamerPlayback.isAllPaused
+                                ? 'Resume all streams'
+                                : 'Pause all streams'
+                            }
+                          >
+                            {streamerPlayback.isAllPaused ? (
+                              <Play className="w-3.5 h-3.5" />
+                            ) : (
+                              <Pause className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              streamerControllerRef.current?.toggleViewMute();
+                            }}
+                            className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)]"
+                            style={{
+                              color: streamerPlayback.isViewMuted
+                                ? 'var(--danger)'
+                                : streamerPlayback.isPlaying
+                                ? 'var(--accent)'
+                                : 'var(--text-secondary)',
+                            }}
+                            title={
+                              streamerPlayback.isViewMuted
+                                ? 'Unmute Streamer'
+                                : 'Temporarily mute Streamer'
+                            }
+                            aria-label={
+                              streamerPlayback.isViewMuted
+                                ? 'Unmute Streamer'
+                                : 'Temporarily mute Streamer'
+                            }
+                          >
+                            {streamerPlayback.isViewMuted ? (
+                              <VolumeX className="w-3.5 h-3.5" />
+                            ) : (
+                              <Volume2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+
+                          <span
+                            className="text-xs font-mono tabular-nums pl-0.5 pr-0.5"
+                            style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
+                          >
+                            {count}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+
                   return (
-                    <div
+                    <button
                       key={item.id}
-                      className="w-full flex items-center justify-between gap-1.5 pl-3 pr-2 py-1.5 rounded-xl text-sm font-medium transition-colors"
+                      type="button"
+                      onClick={() => navigateToView(item.id)}
+                      className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors"
                       style={{
                         backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
                         color: active ? 'var(--accent)' : 'var(--text-secondary)',
                       }}
                     >
-                      <button
-                        type="button"
-                        onClick={() => navigateToView(item.id)}
-                        className="flex items-center gap-2.5 min-w-0 flex-1 py-0.5 text-left whitespace-nowrap"
-                      >
+                      <span className="flex items-center gap-2.5 whitespace-nowrap">
                         <Icon className="w-4 h-4 shrink-0" />
-                        <span className="truncate">{item.label}</span>
-                      </button>
-
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            streamerControllerRef.current?.togglePauseAll();
-                          }}
-                          className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)]"
-                          style={{
-                            color: streamerPlayback.isAllPaused
-                              ? 'var(--accent)'
-                              : 'var(--text-secondary)',
-                          }}
-                          title={
-                            streamerPlayback.isAllPaused
-                              ? 'Resume all streams'
-                              : 'Pause all streams'
-                          }
-                          aria-label={
-                            streamerPlayback.isAllPaused
-                              ? 'Resume all streams'
-                              : 'Pause all streams'
-                          }
-                        >
-                          {streamerPlayback.isAllPaused ? (
-                            <Play className="w-3.5 h-3.5" />
-                          ) : (
-                            <Pause className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            streamerControllerRef.current?.toggleViewMute();
-                          }}
-                          className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)]"
-                          style={{
-                            color: streamerPlayback.isViewMuted
-                              ? 'var(--danger)'
-                              : streamerPlayback.isPlaying
-                              ? 'var(--accent)'
-                              : 'var(--text-secondary)',
-                          }}
-                          title={
-                            streamerPlayback.isViewMuted
-                              ? 'Unmute Streamer'
-                              : 'Temporarily mute Streamer'
-                          }
-                          aria-label={
-                            streamerPlayback.isViewMuted
-                              ? 'Unmute Streamer'
-                              : 'Temporarily mute Streamer'
-                          }
-                        >
-                          {streamerPlayback.isViewMuted ? (
-                            <VolumeX className="w-3.5 h-3.5" />
-                          ) : (
-                            <Volume2 className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-
-                        <span
-                          className="text-xs font-mono tabular-nums pl-0.5 pr-0.5"
-                          style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
-                        >
-                          {count}
-                        </span>
-                      </div>
-                    </div>
+                        <span>{item.label}</span>
+                      </span>
+                      <span
+                        className="text-xs font-mono tabular-nums"
+                        style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
+                      >
+                        {count}
+                      </span>
+                    </button>
                   );
-                }
+                })}
+              </div>
+            ))}
+          </nav>
 
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => navigateToView(item.id)}
-                    className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors"
-                    style={{
-                      backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
-                      color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                    }}
-                  >
-                    <span className="flex items-center gap-2.5 whitespace-nowrap">
-                      <Icon className="w-4 h-4 shrink-0" />
-                      <span>{item.label}</span>
-                    </span>
-                    <span
-                      className="text-xs font-mono tabular-nums"
-                      style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
-                    >
-                      {count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-
-        {/* Bottom Utility Actions: Themes, Gist Sync, Settings */}
-        <div
-          className="pt-4 mt-4 border-t space-y-1 shrink-0"
-          style={{ borderColor: 'var(--border-subtle)' }}
-        >
-          <button
-            type="button"
-            onClick={() => openModal('appearance')}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
-            style={{ color: 'var(--text-secondary)' }}
+          {/* Bottom Utility Actions */}
+          <div
+            className="pt-4 mt-4 border-t space-y-1 shrink-0"
+            style={{ borderColor: 'var(--border-subtle)' }}
           >
-            <span className="flex items-center gap-2">
-              <Palette className="w-3.5 h-3.5" />
-              <span>Theme</span>
-            </span>
-            <span className="capitalize" style={{ color: 'var(--text-muted)' }}>
-              {workspace.settings.theme}
-            </span>
-          </button>
+            <button
+              type="button"
+              onClick={() => openModal('appearance')}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <span className="flex items-center gap-2">
+                <Palette className="w-3.5 h-3.5" />
+                <span>Theme</span>
+              </span>
+              <span className="capitalize" style={{ color: 'var(--text-muted)' }}>
+                {workspace.settings.theme}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => openModal('sync')}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            <span className="flex items-center gap-2">
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Gist Sync</span>
-            </span>
-            <span style={{ color: 'var(--text-muted)' }}>Push / Pull</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => openModal('sync')}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <span className="flex items-center gap-2">
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Gist Sync</span>
+              </span>
+              <span style={{ color: 'var(--text-muted)' }}>2-Way</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => openModal('workspace')}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            <span className="flex items-center gap-2">
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Workspace</span>
-            </span>
-            <span className="font-mono tabular-nums" style={{ color: 'var(--text-muted)' }}>
-              {workspace.settings.xActiveLimit}-Active
-            </span>
-          </button>
-        </div>
-      </aside>
+            <button
+              type="button"
+              onClick={() => openModal('workspace')}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <span className="flex items-center gap-2">
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Workspace</span>
+              </span>
+              <span className="font-mono tabular-nums" style={{ color: 'var(--text-muted)' }}>
+                {workspace.settings.xActiveLimit}-Active
+              </span>
+            </button>
+          </div>
+        </aside>
       )}
 
-      {/* Mobile Compact Sticky Top Bar (safe-area aware for notches/cutouts) */}
+      {/* Mobile Compact Sticky Top Bar */}
       <header
         className="lg:hidden sticky top-0 z-30 pt-safe border-b backdrop-blur-md"
         style={{
@@ -467,29 +514,40 @@ const KansoShell: React.FC = () => {
       >
         {activeView === 'focus' && (
           <FocusView
-            onInspectEntry={(id) => {
-              setInspectingListItemId(null);
-              setInspectingEntryId(id);
-            }}
+            onOpenDetail={setDetailTarget}
+            onOpenContextMenu={handleOpenContextMenu}
           />
         )}
         {activeView === 'timeline' && (
           <TimelineView
-            onInspectEntry={(id) => {
-              setInspectingListItemId(null);
-              setInspectingEntryId(id);
-            }}
+            onOpenDetail={setDetailTarget}
+            onOpenContextMenu={handleOpenContextMenu}
+            onOpenTimestamps={handleOpenTimestamps}
           />
         )}
-        {activeView === 'habits' && <HabitsView />}
-        {activeView === 'notes' && <NotesView />}
-        {activeView === 'events' && <EventsView />}
+        {activeView === 'habits' && <HabitsView onOpenDetail={setDetailTarget} />}
+        {activeView === 'achievements' && (
+          <AchievementsView
+            onOpenDetail={setDetailTarget}
+            onOpenContextMenu={handleOpenContextMenu}
+          />
+        )}
+        {activeView === 'notes' && (
+          <NotesView
+            onOpenDetail={setDetailTarget}
+            onOpenContextMenu={handleOpenContextMenu}
+          />
+        )}
+        {activeView === 'events' && (
+          <EventsView
+            onOpenDetail={setDetailTarget}
+            onOpenContextMenu={handleOpenContextMenu}
+          />
+        )}
         {activeView === 'lists' && (
           <ListsView
-            onInspectListItem={(id) => {
-              setInspectingEntryId(null);
-              setInspectingListItemId(id);
-            }}
+            onOpenDetail={setDetailTarget}
+            onOpenContextMenu={handleOpenContextMenu}
           />
         )}
         {activeView === 'library' && (
@@ -518,7 +576,7 @@ const KansoShell: React.FC = () => {
         )}
       </main>
 
-      {/* Mobile Bottom Thumb-Zone Navigation (5 Primary Tabs + More Sheet, gesture-bar safe) */}
+      {/* Mobile Bottom Thumb-Zone Navigation (Focus, Timeline, Habits, Achievements, More) */}
       <nav
         className="lg:hidden fixed bottom-0 left-0 right-0 z-30 border-t pb-safe"
         style={{
@@ -528,57 +586,59 @@ const KansoShell: React.FC = () => {
         aria-label="Mobile workspace navigation"
       >
         <div className="h-15 grid grid-cols-5 items-center px-1 px-safe">
-        {MOBILE_PRIMARY_IDS.map((id) => {
-          const item = ALL_NAV_ITEMS.find((n) => n.id === id)!;
-          const Icon = item.icon;
-          const active = activeView === item.id && !moreSheetOpen;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => {
-                setMoreSheetOpen(false);
-                navigateToView(item.id);
-              }}
-              className="flex flex-col items-center justify-center h-full gap-0.5 transition-colors"
-              style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
-            >
-              <Icon className="w-4.5 h-4.5" />
-              <span className="text-[10px] font-medium leading-none">{item.label}</span>
-            </button>
-          );
-        })}
+          {MOBILE_PRIMARY_IDS.map((id) => {
+            const item = ALL_NAV_ITEMS.find((n) => n.id === id)!;
+            const Icon = item.icon;
+            const active = activeView === item.id && !moreSheetOpen;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  setMoreSheetOpen(false);
+                  navigateToView(item.id);
+                }}
+                className="flex flex-col items-center justify-center h-full gap-0.5 transition-colors"
+                style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
+              >
+                <Icon className="w-4.5 h-4.5" />
+                <span className="text-[10px] font-medium leading-none">{item.label}</span>
+              </button>
+            );
+          })}
 
-        <button
-          type="button"
-          onClick={() => setMoreSheetOpen((prev) => !prev)}
-          className="flex flex-col items-center justify-center h-full gap-0.5 transition-colors"
-          style={{
-            color:
-              moreSheetOpen || isMoreViewActive || (showStreamerAudioControls && streamerPlayback.isPlaying)
-                ? streamerPlayback.isViewMuted && !moreSheetOpen && !isMoreViewActive
-                  ? 'var(--danger)'
-                  : 'var(--accent)'
-                : 'var(--text-muted)',
-          }}
-          aria-expanded={moreSheetOpen}
-          aria-label="More views"
-        >
-          {showStreamerAudioControls && activeView !== 'streamer' ? (
-            streamerPlayback.isViewMuted ? (
-              <VolumeX className="w-4.5 h-4.5" />
-            ) : streamerPlayback.isAllPaused ? (
-              <Pause className="w-4.5 h-4.5" />
+          <button
+            type="button"
+            onClick={() => setMoreSheetOpen((prev) => !prev)}
+            className="flex flex-col items-center justify-center h-full gap-0.5 transition-colors"
+            style={{
+              color:
+                moreSheetOpen ||
+                isMoreViewActive ||
+                (showStreamerAudioControls && streamerPlayback.isPlaying)
+                  ? streamerPlayback.isViewMuted && !moreSheetOpen && !isMoreViewActive
+                    ? 'var(--danger)'
+                    : 'var(--accent)'
+                  : 'var(--text-muted)',
+            }}
+            aria-expanded={moreSheetOpen}
+            aria-label="More views"
+          >
+            {showStreamerAudioControls && activeView !== 'streamer' ? (
+              streamerPlayback.isViewMuted ? (
+                <VolumeX className="w-4.5 h-4.5" />
+              ) : streamerPlayback.isAllPaused ? (
+                <Pause className="w-4.5 h-4.5" />
+              ) : (
+                <Volume2 className="w-4.5 h-4.5" />
+              )
             ) : (
-              <Volume2 className="w-4.5 h-4.5" />
-            )
-          ) : (
-            <MoreHorizontal className="w-4.5 h-4.5" />
-          )}
-          <span className="text-[10px] font-medium leading-none">
-            {isMoreViewActive && activeViewDef ? activeViewDef.label : 'More'}
-          </span>
-        </button>
+              <MoreHorizontal className="w-4.5 h-4.5" />
+            )}
+            <span className="text-[10px] font-medium leading-none">
+              {isMoreViewActive && activeViewDef ? activeViewDef.label : 'More'}
+            </span>
+          </button>
         </div>
       </nav>
 
@@ -829,14 +889,26 @@ const KansoShell: React.FC = () => {
         </div>
       )}
 
-      {/* Shared Entry / ListItem Tiptap & Timestamp Inspector */}
-      <EntryInspectorDrawer
-        entryId={inspectingEntryId}
-        listItemId={inspectingListItemId}
-        onClose={() => {
-          setInspectingEntryId(null);
-          setInspectingListItemId(null);
-        }}
+      {/* Polymorphic DetailSheet (all 6 modes) */}
+      <DetailSheet
+        target={detailTarget}
+        onClose={() => setDetailTarget(null)}
+        onOpenTimestamps={(entryId, focus) => handleOpenTimestamps(entryId, focus ?? null)}
+      />
+
+      {/* Universal Context Menu */}
+      <UniversalContextMenu
+        state={contextMenu}
+        onClose={() => setContextMenu(null)}
+        onOpenDetail={setDetailTarget}
+        onOpenTimestamps={(entryId) => handleOpenTimestamps(entryId, null)}
+      />
+
+      {/* Timestamps Modal */}
+      <TimestampsModal
+        entryId={timestampsState?.entryId ?? null}
+        initialFocus={timestampsState?.focus ?? null}
+        onClose={() => setTimestampsState(null)}
       />
 
       {/* Themes, Settings & GitHub Gist Sync Modal */}
@@ -846,7 +918,7 @@ const KansoShell: React.FC = () => {
         onClose={() => setSettingsOpen(false)}
       />
 
-      {/* Non-intrusive Toast Feedback (clear of floating bottom input bars) */}
+      {/* Non-intrusive Toast Feedback */}
       {toasts.length > 0 && (
         <div
           className="fixed bottom-36 lg:bottom-24 right-4 sm:right-6 z-50 flex flex-col gap-2 max-w-sm"

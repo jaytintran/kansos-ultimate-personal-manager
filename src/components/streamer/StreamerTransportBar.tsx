@@ -1,17 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   BookmarkPlus,
+  ChevronDown,
   Clock,
   Equal,
+  Grid2x2,
+  LayoutGrid,
+  Maximize2,
+  Minimize2,
   Pause,
   Play,
   RotateCcw,
+  Rows3,
+  SlidersHorizontal,
   Trash2,
   Volume1,
   Volume2,
   VolumeX,
   X,
 } from 'lucide-react';
+import { StreamLayoutMode, StreamSizingMode, StreamViewMode } from '../../types';
 
 interface StreamerTransportBarProps {
   stackedCount: number;
@@ -20,6 +28,12 @@ interface StreamerTransportBarProps {
   allActiveMuted: boolean;
   masterVolume: number;
   sleepRemainingSeconds: number | null;
+  viewMode: StreamViewMode;
+  onChangeViewMode: (mode: StreamViewMode) => void;
+  layoutMode: StreamLayoutMode;
+  onChangeLayoutMode: (mode: StreamLayoutMode) => void;
+  sizingMode: StreamSizingMode;
+  onChangeSizingMode: (mode: StreamSizingMode) => void;
   onTogglePlayPauseAll: () => void;
   onToggleMuteAll: () => void;
   onSyncAll: () => void;
@@ -31,6 +45,20 @@ interface StreamerTransportBarProps {
   onSaveStack: (name: string, category: string) => void;
   onClearStack: () => void;
 }
+
+const LAYOUT_PRESETS: { id: StreamLayoutMode; label: string }[] = [
+  { id: 'auto', label: 'Auto' },
+  { id: '1', label: '1' },
+  { id: '2', label: '2' },
+  { id: '2x2', label: '2×2' },
+  { id: '3x2', label: '3×2' },
+  { id: '3x3', label: '3×3' },
+  { id: '4x4', label: '4×4' },
+  { id: '5x5', label: '5×5' },
+  { id: '6x6', label: '6×6' },
+  { id: '7x7', label: '7×7' },
+  { id: '8x8', label: '8×8' },
+];
 
 const SLEEP_PRESETS = [15, 30, 45, 60, 90];
 const ROUTINE_CATEGORIES = ['Focus', 'Overnight', 'Study', 'Healing', 'General'];
@@ -48,6 +76,12 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
   allActiveMuted,
   masterVolume,
   sleepRemainingSeconds,
+  viewMode,
+  onChangeViewMode,
+  layoutMode,
+  onChangeLayoutMode,
+  sizingMode,
+  onChangeSizingMode,
   onTogglePlayPauseAll,
   onToggleMuteAll,
   onSyncAll,
@@ -59,28 +93,23 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
   onSaveStack,
   onClearStack,
 }) => {
-  const [sleepPopoverOpen, setSleepPopoverOpen] = useState(false);
+  const [openPopover, setOpenPopover] = useState<'layout' | 'mix' | 'sleep' | 'save' | null>(null);
   const [customSleepMins, setCustomSleepMins] = useState('25');
-  const [savePopoverOpen, setSavePopoverOpen] = useState(false);
   const [presetName, setPresetName] = useState('');
   const [presetCategory, setPresetCategory] = useState('Focus');
 
-  const sleepRef = useRef<HTMLDivElement | null>(null);
-  const saveRef = useRef<HTMLDivElement | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!sleepPopoverOpen && !savePopoverOpen) return;
+    if (!openPopover) return;
     const handlePointerDown = (e: MouseEvent) => {
-      if (sleepPopoverOpen && sleepRef.current && !sleepRef.current.contains(e.target as Node)) {
-        setSleepPopoverOpen(false);
-      }
-      if (savePopoverOpen && saveRef.current && !saveRef.current.contains(e.target as Node)) {
-        setSavePopoverOpen(false);
+      if (barRef.current && !barRef.current.contains(e.target as Node)) {
+        setOpenPopover(null);
       }
     };
     window.addEventListener('mousedown', handlePointerDown);
     return () => window.removeEventListener('mousedown', handlePointerDown);
-  }, [sleepPopoverOpen, savePopoverOpen]);
+  }, [openPopover]);
 
   const handleSaveSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,7 +117,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
     if (!trimmed) return;
     onSaveStack(trimmed, presetCategory);
     setPresetName('');
-    setSavePopoverOpen(false);
+    setOpenPopover(null);
   };
 
   const handleCustomSleepSubmit = (e: React.FormEvent) => {
@@ -96,195 +125,390 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
     const parsed = parseInt(customSleepMins, 10);
     if (!Number.isFinite(parsed) || parsed < 1) return;
     onStartSleepTimer(Math.min(480, parsed));
-    setSleepPopoverOpen(false);
+    setOpenPopover(null);
   };
 
   const showPauseLabel = isPlaying && !isAllPaused;
   const hasStreams = stackedCount > 0;
+  const activeLayoutLabel =
+    LAYOUT_PRESETS.find((p) => p.id === layoutMode || (p.id === '1' && layoutMode === '1x1'))
+      ?.label || 'Auto';
 
   return (
     <div
-      className="px-3.5 sm:px-5 py-2 border-b flex flex-wrap items-center justify-between gap-2.5 shrink-0"
+      ref={barRef}
+      className="px-4 sm:px-6 py-2 border-b flex flex-wrap items-center justify-between gap-2 shrink-0"
       style={{
         backgroundColor: 'var(--bg-canvas)',
         borderColor: 'var(--border-subtle)',
       }}
     >
-      {/* Left: Combined Play/Pause + Combined Mute/Unmute + Separate Sync + Master Mixer */}
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Global Transport */}
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            disabled={!hasStreams}
-            onClick={onTogglePlayPauseAll}
-            className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-45"
-            style={{
-              backgroundColor: 'var(--accent)',
-              color: 'var(--accent-fg)',
-            }}
-            title={showPauseLabel ? 'Pause all stacked streams' : 'Play all stacked streams'}
-          >
-            {showPauseLabel ? (
-              <>
-                <Pause className="w-3.5 h-3.5 fill-current" />
-                <span>Pause</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-3.5 h-3.5 fill-current" />
-                <span>Play All</span>
-              </>
-            )}
-          </button>
+      {/* Left: Transport + Master Volume + Quick Mix Popover */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          disabled={!hasStreams}
+          onClick={onTogglePlayPauseAll}
+          className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-45"
+          style={{
+            backgroundColor: 'var(--accent)',
+            color: 'var(--accent-fg)',
+          }}
+          title={showPauseLabel ? 'Pause all stacked streams' : 'Play all stacked streams'}
+        >
+          {showPauseLabel ? (
+            <>
+              <Pause className="w-3.5 h-3.5 fill-current" />
+              <span>Pause</span>
+            </>
+          ) : (
+            <>
+              <Play className="w-3.5 h-3.5 fill-current" />
+              <span>Play All</span>
+            </>
+          )}
+        </button>
 
+        {/* Segmented Mute + Sync */}
+        <div
+          className="inline-flex items-center h-8 rounded-lg border overflow-hidden shrink-0"
+          style={{
+            backgroundColor: 'var(--bg-surface)',
+            borderColor: 'var(--border-subtle)',
+          }}
+        >
           <button
             type="button"
             disabled={!hasStreams}
             onClick={onToggleMuteAll}
-            className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-45"
+            className="h-full px-2.5 text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-45 hover:bg-[var(--bg-surface-hover)]"
             style={{
-              backgroundColor: allActiveMuted ? 'var(--accent-soft)' : 'var(--bg-surface)',
-              borderColor: allActiveMuted ? 'var(--danger)' : 'var(--border-subtle)',
-              color: allActiveMuted ? 'var(--danger)' : 'var(--text-primary)',
+              backgroundColor: allActiveMuted ? 'var(--accent-soft)' : 'transparent',
+              color: allActiveMuted ? 'var(--danger)' : 'var(--text-secondary)',
             }}
             title={allActiveMuted ? 'Unmute all streams' : 'Mute all streams'}
           >
             {allActiveMuted ? (
-              <>
-                <VolumeX className="w-3.5 h-3.5" />
-                <span>Unmute</span>
-              </>
+              <VolumeX className="w-3.5 h-3.5" />
             ) : (
-              <>
-                <Volume2 className="w-3.5 h-3.5" />
-                <span>Mute</span>
-              </>
+              <Volume2 className="w-3.5 h-3.5" />
             )}
+            <span className="hidden sm:inline">{allActiveMuted ? 'Unmute' : 'Mute'}</span>
           </button>
-
           <button
             type="button"
             disabled={!hasStreams}
             onClick={onSyncAll}
-            className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)] disabled:opacity-45"
+            className="h-full px-2.5 border-l text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-45 hover:bg-[var(--bg-surface-hover)]"
             style={{
-              backgroundColor: 'var(--bg-surface)',
               borderColor: 'var(--border-subtle)',
-              color: 'var(--text-primary)',
+              color: 'var(--text-secondary)',
             }}
             title="Restart all stacked streams together from 0:00"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Sync</span>
+            <span className="hidden sm:inline">Sync</span>
           </button>
         </div>
 
-        <span
-          className="hidden sm:inline-block h-5 w-px"
-          style={{ backgroundColor: 'var(--border-subtle)' }}
-          aria-hidden="true"
-        />
-
-        {/* Master Volume Slider + Quiet Layer + Balance All */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div
-            className="h-8 px-2.5 rounded-lg border inline-flex items-center gap-2"
-            style={{
-              backgroundColor: 'var(--bg-surface)',
-              borderColor: 'var(--border-subtle)',
-            }}
+        {/* Master Volume Slider */}
+        <div
+          className="h-8 px-2.5 rounded-lg border inline-flex items-center gap-2 shrink-0"
+          style={{
+            backgroundColor: 'var(--bg-surface)',
+            borderColor: 'var(--border-subtle)',
+          }}
+        >
+          <span
+            className="text-[11px] font-medium whitespace-nowrap hidden sm:inline"
+            style={{ color: 'var(--text-secondary)' }}
           >
-            <span
-              className="text-[11px] font-medium whitespace-nowrap"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              Master
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={1}
-              value={masterVolume}
-              onChange={(e) => onChangeMasterVolume(Number(e.target.value))}
-              className="w-20 sm:w-24 cursor-pointer"
-              style={{ accentColor: 'var(--accent)' }}
-              aria-label="Master volume"
-            />
-            <span
-              className="text-[11px] font-mono tabular-nums w-8 text-right"
-              style={{ color: 'var(--accent)' }}
-            >
-              {masterVolume}%
-            </span>
-          </div>
+            Master
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={masterVolume}
+            onChange={(e) => onChangeMasterVolume(Number(e.target.value))}
+            className="w-16 sm:w-20 cursor-pointer"
+            style={{ accentColor: 'var(--accent)' }}
+            aria-label="Master volume"
+          />
+          <span
+            className="text-[11px] font-mono tabular-nums w-7 text-right"
+            style={{ color: 'var(--accent)' }}
+          >
+            {masterVolume}%
+          </span>
+        </div>
 
+        {/* Quick Mix Popover (Quiet Layer & Balance All) */}
+        <div className="relative">
           <button
             type="button"
             disabled={!hasStreams}
-            onClick={onQuietLayer}
-            className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)] disabled:opacity-45"
+            onClick={() => setOpenPopover((p) => (p === 'mix' ? null : 'mix'))}
+            className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)] disabled:opacity-45"
             style={{
-              backgroundColor: 'var(--bg-surface)',
-              borderColor: 'var(--border-subtle)',
-              color: 'var(--text-secondary)',
+              backgroundColor: openPopover === 'mix' ? 'var(--accent-soft)' : 'var(--bg-surface)',
+              borderColor: openPopover === 'mix' ? 'var(--accent)' : 'var(--border-subtle)',
+              color: openPopover === 'mix' ? 'var(--accent)' : 'var(--text-secondary)',
             }}
-            title="Lower all layers to a soft 20% background bed"
-          >
-            <Volume1 className="w-3.5 h-3.5" />
-            <span>Quiet Layer</span>
-          </button>
-
-          <button
-            type="button"
-            disabled={!hasStreams}
-            onClick={onBalanceAll}
-            className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)] disabled:opacity-45"
-            style={{
-              backgroundColor: 'var(--bg-surface)',
-              borderColor: 'var(--border-subtle)',
-              color: 'var(--text-secondary)',
-            }}
-            title="Equalize all stacked streams to 50%"
+            title="Quick volume mix presets"
           >
             <Equal className="w-3.5 h-3.5" />
-            <span>Balance All</span>
+            <span className="hidden md:inline">Mix</span>
+            <ChevronDown className="w-3 h-3 opacity-70" />
           </button>
+
+          {openPopover === 'mix' && (
+            <div
+              className="absolute left-0 mt-1.5 w-52 rounded-xl border p-1.5 space-y-1 z-40"
+              style={{
+                backgroundColor: 'var(--bg-elevated)',
+                borderColor: 'var(--border-strong)',
+                boxShadow: 'var(--shadow-popover)',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  onQuietLayer();
+                  setOpenPopover(null);
+                }}
+                className="w-full px-2.5 py-2 rounded-lg text-left transition-colors hover:bg-[var(--bg-surface-subtle)] flex items-start gap-2"
+              >
+                <Volume1
+                  className="w-3.5 h-3.5 mt-0.5 shrink-0"
+                  style={{ color: 'var(--accent)' }}
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                    Quiet Layer
+                  </div>
+                  <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                    Lower all layers to 20% bed
+                  </div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onBalanceAll();
+                  setOpenPopover(null);
+                }}
+                className="w-full px-2.5 py-2 rounded-lg text-left transition-colors hover:bg-[var(--bg-surface-subtle)] flex items-start gap-2"
+              >
+                <Equal
+                  className="w-3.5 h-3.5 mt-0.5 shrink-0"
+                  style={{ color: 'var(--accent)' }}
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                    Balance All
+                  </div>
+                  <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                    Equalize all streams to 50%
+                  </div>
+                </div>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Right: Sleep Timer + Count + Save Stack + Clear */}
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Sleep Timer with Fade-Out Popover */}
-        <div className="relative" ref={sleepRef}>
+      {/* Right: View Mode + Compact Layout Popover + Sleep Timer + Save + Clear */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {/* View Mode Switcher: Grid | Mixer | Tiles */}
+        <div
+          className="inline-flex items-center h-8 gap-0.5 p-0.5 rounded-lg border shrink-0"
+          style={{
+            backgroundColor: 'var(--bg-surface)',
+            borderColor: 'var(--border-subtle)',
+          }}
+          role="group"
+          aria-label="Live stack view mode"
+        >
+          {(
+            [
+              { id: 'grid', icon: LayoutGrid, label: 'Grid' },
+              { id: 'mixer', icon: SlidersHorizontal, label: 'Mixer' },
+              { id: 'tiles', icon: Rows3, label: 'Tiles' },
+            ] as {
+              id: StreamViewMode;
+              icon: React.ComponentType<{ className?: string }>;
+              label: string;
+            }[]
+          ).map((opt) => {
+            const Icon = opt.icon;
+            const active = viewMode === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => onChangeViewMode(opt.id)}
+                title={opt.label}
+                className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap"
+                style={{
+                  backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
+                  color: active ? 'var(--accent)' : 'var(--text-muted)',
+                }}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline">{opt.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Compact Layout & Sizing Popover (replaces 11-button horizontal preset strip + Fit/Canvas) */}
+        {viewMode !== 'mixer' && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setOpenPopover((p) => (p === 'layout' ? null : 'layout'))}
+              className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)]"
+              style={{
+                backgroundColor:
+                  openPopover === 'layout' ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                borderColor:
+                  openPopover === 'layout' ? 'var(--accent)' : 'var(--border-subtle)',
+                color: openPopover === 'layout' ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+              title="Grid columns & canvas sizing"
+            >
+              <Grid2x2 className="w-3.5 h-3.5" />
+              <span className="font-mono tabular-nums text-[11px]">{activeLayoutLabel}</span>
+              <span className="hidden sm:inline text-[11px] opacity-65">
+                · {sizingMode === 'fit' ? 'Fit' : 'Canvas'}
+              </span>
+              <ChevronDown className="w-3 h-3 opacity-70" />
+            </button>
+
+            {openPopover === 'layout' && (
+              <div
+                className="absolute right-0 mt-1.5 w-64 rounded-xl border p-3 space-y-3 z-40"
+                style={{
+                  backgroundColor: 'var(--bg-elevated)',
+                  borderColor: 'var(--border-strong)',
+                  boxShadow: 'var(--shadow-popover)',
+                }}
+              >
+                <div className="space-y-1.5">
+                  <div
+                    className="text-[11px] font-semibold uppercase tracking-wider"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Grid Columns
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {LAYOUT_PRESETS.map((opt) => {
+                      const active =
+                        layoutMode === opt.id || (opt.id === '1' && layoutMode === '1x1');
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => onChangeLayoutMode(opt.id)}
+                          className="h-7 rounded-md border text-[11px] font-mono tabular-nums font-medium transition-colors"
+                          style={{
+                            backgroundColor: active ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                            borderColor: active ? 'var(--accent)' : 'var(--border-subtle)',
+                            color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div
+                  className="space-y-1.5 pt-2 border-t"
+                  style={{ borderColor: 'var(--border-subtle)' }}
+                >
+                  <div
+                    className="text-[11px] font-semibold uppercase tracking-wider"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Viewport Sizing
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onChangeSizingMode('fit')}
+                      className="h-7 px-2 rounded-md border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors"
+                      style={{
+                        backgroundColor:
+                          sizingMode === 'fit' ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                        borderColor:
+                          sizingMode === 'fit' ? 'var(--accent)' : 'var(--border-subtle)',
+                        color:
+                          sizingMode === 'fit' ? 'var(--accent)' : 'var(--text-secondary)',
+                      }}
+                    >
+                      <Minimize2 className="w-3 h-3" />
+                      <span>Fit Width</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onChangeSizingMode('canvas')}
+                      className="h-7 px-2 rounded-md border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors"
+                      style={{
+                        backgroundColor:
+                          sizingMode === 'canvas' ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                        borderColor:
+                          sizingMode === 'canvas' ? 'var(--accent)' : 'var(--border-subtle)',
+                        color:
+                          sizingMode === 'canvas' ? 'var(--accent)' : 'var(--text-secondary)',
+                      }}
+                    >
+                      <Maximize2 className="w-3 h-3" />
+                      <span>Canvas</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Sleep Timer Popover */}
+        <div className="relative">
           <button
             type="button"
-            onClick={() => setSleepPopoverOpen((prev) => !prev)}
-            className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+            onClick={() => setOpenPopover((p) => (p === 'sleep' ? null : 'sleep'))}
+            className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)]"
             style={{
               backgroundColor:
-                sleepRemainingSeconds !== null ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                sleepRemainingSeconds !== null || openPopover === 'sleep'
+                  ? 'var(--accent-soft)'
+                  : 'var(--bg-surface)',
               borderColor:
-                sleepRemainingSeconds !== null ? 'var(--accent)' : 'var(--border-subtle)',
+                sleepRemainingSeconds !== null || openPopover === 'sleep'
+                  ? 'var(--accent)'
+                  : 'var(--border-subtle)',
               color:
-                sleepRemainingSeconds !== null ? 'var(--accent)' : 'var(--text-secondary)',
+                sleepRemainingSeconds !== null || openPopover === 'sleep'
+                  ? 'var(--accent)'
+                  : 'var(--text-secondary)',
             }}
             title="Sleep Timer with gradual fade-out pause"
           >
             <Clock className="w-3.5 h-3.5" />
             {sleepRemainingSeconds !== null ? (
-              <span className="font-mono tabular-nums">
-                {formatTimer(sleepRemainingSeconds)}
-              </span>
+              <span className="font-mono tabular-nums">{formatTimer(sleepRemainingSeconds)}</span>
             ) : (
-              <span>Sleep Timer</span>
+              <span className="hidden lg:inline">Timer</span>
             )}
           </button>
 
-          {sleepPopoverOpen && (
+          {openPopover === 'sleep' && (
             <div
-              className="absolute right-0 mt-2 w-64 rounded-xl border p-3 space-y-2.5 z-40"
+              className="absolute right-0 mt-1.5 w-64 rounded-xl border p-3 space-y-2.5 z-40"
               style={{
                 backgroundColor: 'var(--bg-elevated)',
                 borderColor: 'var(--border-strong)',
@@ -295,7 +519,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                 <span className="text-xs font-semibold">Sleep Timer (Fade-Out)</span>
                 <button
                   type="button"
-                  onClick={() => setSleepPopoverOpen(false)}
+                  onClick={() => setOpenPopover(null)}
                   className="h-6 w-6 flex items-center justify-center rounded-md"
                   style={{ color: 'var(--text-muted)' }}
                   aria-label="Close sleep timer menu"
@@ -315,7 +539,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                     type="button"
                     onClick={() => {
                       onStartSleepTimer(mins);
-                      setSleepPopoverOpen(false);
+                      setOpenPopover(null);
                     }}
                     className="h-7 rounded-lg border text-xs font-mono tabular-nums font-medium transition-colors hover:bg-[var(--bg-surface-hover)]"
                     style={{
@@ -332,7 +556,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                     type="button"
                     onClick={() => {
                       onCancelSleepTimer();
-                      setSleepPopoverOpen(false);
+                      setOpenPopover(null);
                     }}
                     className="h-7 rounded-lg border text-xs font-medium transition-colors"
                     style={{
@@ -379,33 +603,28 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
           )}
         </div>
 
-        <span
-          className="text-xs font-mono tabular-nums px-1 whitespace-nowrap"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          {stackedCount} stacked
-        </span>
-
         {/* Save Stack Popover */}
-        <div className="relative" ref={saveRef}>
+        <div className="relative">
           <button
             type="button"
             disabled={!hasStreams}
-            onClick={() => setSavePopoverOpen((prev) => !prev)}
+            onClick={() => setOpenPopover((p) => (p === 'save' ? null : 'save'))}
             className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)] disabled:opacity-45"
             style={{
-              backgroundColor: savePopoverOpen ? 'var(--accent-soft)' : 'var(--bg-surface)',
-              borderColor: savePopoverOpen ? 'var(--accent)' : 'var(--border-subtle)',
-              color: savePopoverOpen ? 'var(--accent)' : 'var(--text-primary)',
+              backgroundColor:
+                openPopover === 'save' ? 'var(--accent-soft)' : 'var(--bg-surface)',
+              borderColor: openPopover === 'save' ? 'var(--accent)' : 'var(--border-subtle)',
+              color: openPopover === 'save' ? 'var(--accent)' : 'var(--text-secondary)',
             }}
+            title="Save current stack as preset"
           >
             <BookmarkPlus className="w-3.5 h-3.5" />
-            <span>Save Stack</span>
+            <span className="hidden lg:inline">Save</span>
           </button>
 
-          {savePopoverOpen && (
+          {openPopover === 'save' && (
             <div
-              className="absolute right-0 mt-2 w-72 rounded-xl border p-3.5 space-y-2.5 z-40"
+              className="absolute right-0 mt-1.5 w-72 rounded-xl border p-3.5 space-y-2.5 z-40"
               style={{
                 backgroundColor: 'var(--bg-elevated)',
                 borderColor: 'var(--border-strong)',
@@ -416,7 +635,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                 <span className="text-xs font-semibold">Save Routine Stack Preset</span>
                 <button
                   type="button"
-                  onClick={() => setSavePopoverOpen(false)}
+                  onClick={() => setOpenPopover(null)}
                   className="h-6 w-6 flex items-center justify-center rounded-md"
                   style={{ color: 'var(--text-muted)' }}
                   aria-label="Close save stack dialog"
@@ -476,20 +695,22 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
           )}
         </div>
 
+        {/* Clear Stack */}
         <button
           type="button"
           disabled={!hasStreams}
           onClick={onClearStack}
-          className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)] disabled:opacity-45"
+          className="h-8 w-8 lg:w-auto lg:px-2.5 rounded-lg border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 hover:bg-[var(--bg-surface-hover)] disabled:opacity-45"
           style={{
             backgroundColor: 'var(--bg-surface)',
             borderColor: 'var(--border-subtle)',
             color: 'var(--text-muted)',
           }}
           title="Clear all stacked streams"
+          aria-label="Clear stack"
         >
           <Trash2 className="w-3.5 h-3.5" />
-          <span>Clear</span>
+          <span className="hidden xl:inline">Clear</span>
         </button>
       </div>
     </div>

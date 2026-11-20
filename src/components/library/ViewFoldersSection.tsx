@@ -125,7 +125,7 @@ const FolderMiniCover: React.FC<{book: BookRecord; cols: 1 | 2 | 3 | 4}> = ({boo
         {cols <= 2 ? (
           <>
             <p
-              className={`font-serif-editorial font-semibold leading-tight overflow-hidden ${
+              className={`font-sans font-medium leading-tight overflow-hidden ${
                 cols === 1 ? 'text-xs line-clamp-4' : 'text-[8px] line-clamp-3'
               }`}
             >
@@ -280,7 +280,7 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
               onClick={onOpenFolder}
               className="flex items-baseline gap-2 min-w-0 text-left group cursor-pointer"
             >
-              <span className="font-serif-editorial text-sm font-semibold text-[var(--text-primary)] group-hover:text-[var(--accent)] truncate transition-colors">
+              <span className="font-sans text-sm font-medium text-[var(--text-primary)] group-hover:text-[var(--accent)] truncate transition-colors">
                 {folder.name}
               </span>
               <span className="font-mono-tabular text-[11px] text-[var(--text-muted)] shrink-0">
@@ -421,7 +421,7 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
                   type="button"
                   onClick={() => (inspectorOpen ? onInspectBook(book) : onOpenBook(book))}
                   onDoubleClick={() => onOpenBook(book)}
-                  className="mt-2 text-left font-serif-editorial text-xs font-semibold leading-snug text-[var(--text-primary)] hover:text-[var(--accent)] line-clamp-2 cursor-pointer"
+                  className="mt-2 text-left font-sans text-xs font-medium leading-snug text-[var(--text-primary)] hover:text-[var(--accent)] line-clamp-2 cursor-pointer"
                   title={book.title}
                 >
                   {book.title}
@@ -768,9 +768,7 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
           <button
             type="button"
             onClick={onOpenFolder}
-            className={`text-left w-full font-serif-editorial font-semibold leading-snug text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors line-clamp-2 cursor-pointer ${
-              coverSize === 'compact' ? 'text-[13px]' : 'text-[15px]'
-            }`}
+            className="text-left w-full font-sans text-sm font-medium leading-snug text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors line-clamp-2 cursor-pointer"
           >
             {folder.name}
           </button>
@@ -840,7 +838,7 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
       {/* Section Header Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          <h2 className="font-serif-editorial text-sm font-semibold text-[var(--text-primary)]">
+          <h2 className="font-display text-sm font-semibold text-[var(--text-primary)]">
             Folders in {viewLabel}
           </h2>
           {viewFolders.length > 0 && (

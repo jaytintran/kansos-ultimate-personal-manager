@@ -57,7 +57,7 @@ export const FolderDropActionModal: React.FC<FolderDropActionModalProps> = ({
         {/* Header */}
         <div className="px-6 py-4 border-b border-[var(--border-subtle)] flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="font-serif-editorial text-lg font-semibold text-[var(--text-primary)] leading-snug">
+            <h2 className="font-display text-base font-semibold text-[var(--text-primary)] leading-snug">
               Add or Move to &ldquo;{pendingDrop.targetFolderName}&rdquo;?
             </h2>
             <p className="mt-1 text-xs text-[var(--text-secondary)]">

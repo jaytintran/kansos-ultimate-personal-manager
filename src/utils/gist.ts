@@ -17,6 +17,8 @@ export interface GistPullPreview {
     habits: number;
     lists: number;
     listItems: number;
+    scratchpads: number;
+    customTabs: number;
     books: number;
     streams: number;
   };
@@ -33,6 +35,95 @@ export function validateWorkspacePayload(data: unknown): data is KansoWorkspace 
     typeof obj.settings === 'object' &&
     obj.settings !== null
   );
+}
+
+function getRecordTimestamp(record: {
+  updatedAt?: string | number | null;
+  deletedAt?: string | null;
+  createdAt?: string | number | null;
+  addedAt?: string | number | null;
+}): number {
+  const candidates = [record.deletedAt, record.updatedAt, record.createdAt, record.addedAt];
+  let best = 0;
+  for (const c of candidates) {
+    if (typeof c === 'number' && !Number.isNaN(c)) {
+      if (c > best) best = c;
+    } else if (typeof c === 'string' && c) {
+      const ms = Date.parse(c);
+      if (!Number.isNaN(ms) && ms > best) best = ms;
+    }
+  }
+  return best;
+}
+
+/**
+ * Merges two arrays of records by `id`:
+ * - Remote newer than local -> overwrite with remote
+ * - Local newer than or equal to remote -> keep local
+ */
+export function mergeById<
+  T extends {
+    id: string;
+    updatedAt?: string | number | null;
+    deletedAt?: string | null;
+    createdAt?: string | number | null;
+    addedAt?: string | number | null;
+  }
+>(localList: T[] | undefined, remoteList: T[] | undefined): T[] {
+  const map = new Map<string, T>();
+  for (const item of localList ?? []) {
+    map.set(item.id, item);
+  }
+  for (const remoteItem of remoteList ?? []) {
+    const existing = map.get(remoteItem.id);
+    if (!existing) {
+      map.set(remoteItem.id, remoteItem);
+    } else {
+      const localTs = getRecordTimestamp(existing);
+      const remoteTs = getRecordTimestamp(remoteItem);
+      if (remoteTs > localTs) {
+        map.set(remoteItem.id, remoteItem);
+      }
+    }
+  }
+  return Array.from(map.values());
+}
+
+/**
+ * Two-way workspace merge by record ID + timestamp (newest wins).
+ * Respects soft-delete tombstones (`deletedAt`) so deletions sync cleanly across devices.
+ */
+export function mergeWorkspaces(local: KansoWorkspace, remote: KansoWorkspace): KansoWorkspace {
+  const localTs = Date.parse(local.updatedAt || '') || 0;
+  const remoteTs = Date.parse(remote.updatedAt || '') || 0;
+
+  return {
+    ...local,
+    version: Math.max(local.version || 2, remote.version || 2),
+    updatedAt: new Date().toISOString(),
+    entries: mergeById(local.entries, remote.entries),
+    scratchpads: mergeById(local.scratchpads, remote.scratchpads),
+    customTabs: mergeById(local.customTabs, remote.customTabs),
+    noteNotebooks: mergeById(local.noteNotebooks, remote.noteNotebooks),
+    habits: mergeById(local.habits, remote.habits),
+    habitLogs: mergeById(local.habitLogs, remote.habitLogs),
+    lists: mergeById(local.lists, remote.lists),
+    listItems: mergeById(local.listItems, remote.listItems),
+    books: mergeById(local.books, remote.books),
+    libraryFolders: mergeById(local.libraryFolders, remote.libraryFolders),
+    libraryCategories: mergeById(local.libraryCategories, remote.libraryCategories),
+    libraryViewFolders: mergeById(local.libraryViewFolders, remote.libraryViewFolders),
+    bookBookmarks: mergeById(local.bookBookmarks, remote.bookBookmarks),
+    bookHighlights: mergeById(local.bookHighlights, remote.bookHighlights),
+    streams: mergeById(local.streams, remote.streams),
+    streamFolders: mergeById(local.streamFolders, remote.streamFolders),
+    streamPresets: mergeById(local.streamPresets, remote.streamPresets),
+    streamerState: remoteTs > localTs ? remote.streamerState || local.streamerState : local.streamerState,
+    settings:
+      remoteTs > localTs
+        ? { ...local.settings, ...remote.settings }
+        : { ...remote.settings, ...local.settings },
+  };
 }
 
 export async function pushWorkspaceToGist(
@@ -165,10 +256,12 @@ export async function pullWorkspaceFromGist(config: GistSyncConfig): Promise<Gis
     remoteUpdatedAt: json.updated_at || parsed.updatedAt || new Date().toISOString(),
     workspace: parsed,
     summary: {
-      entries: parsed.entries.length,
-      habits: parsed.habits.length,
-      lists: parsed.lists.length,
-      listItems: parsed.listItems.length,
+      entries: parsed.entries.filter((e) => !e.deletedAt).length,
+      habits: parsed.habits.filter((h) => !h.deletedAt).length,
+      lists: parsed.lists.filter((l) => !l.deletedAt).length,
+      listItems: parsed.listItems.filter((i) => !i.deletedAt).length,
+      scratchpads: Array.isArray(parsed.scratchpads) ? parsed.scratchpads.filter((s) => !s.deletedAt).length : 0,
+      customTabs: Array.isArray(parsed.customTabs) ? parsed.customTabs.filter((t) => !t.deletedAt).length : 0,
       books: Array.isArray(parsed.books) ? parsed.books.length : 0,
       streams: Array.isArray(parsed.streams) ? parsed.streams.length : 0,
     },

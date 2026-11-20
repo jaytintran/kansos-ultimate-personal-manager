@@ -77,7 +77,7 @@ export const MobileBookActionSheet: React.FC<MobileBookActionSheetProps> = ({
           />
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="font-serif-editorial text-base font-semibold text-[var(--text-primary)] line-clamp-2 leading-snug">
+          <h2 className="font-display text-sm font-semibold text-[var(--text-primary)] line-clamp-2 leading-snug">
             {book.title}
           </h2>
           {book.subtitle?.trim() && (

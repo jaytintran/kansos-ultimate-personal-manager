@@ -131,7 +131,7 @@ export const StreamSlotCard: React.FC<StreamSlotCardProps> = ({
 
             <div className="min-w-0 flex-1">
               <div
-                className={`${isTiles ? 'text-xs' : 'text-xs sm:text-[13px]'} font-semibold truncate`}
+                className={`${isTiles ? 'text-xs' : 'text-sm'} font-medium leading-snug truncate`}
                 title={displayTitle}
               >
                 {displayTitle}

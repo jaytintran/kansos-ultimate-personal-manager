@@ -532,7 +532,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
             </>
           ) : (
             <>
-              <p className="font-serif-editorial text-xs font-semibold text-[var(--text-primary)] truncate">
+              <p className="font-sans text-xs font-medium text-[var(--text-primary)] truncate">
                 {primaryBook.title}
               </p>
               <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">

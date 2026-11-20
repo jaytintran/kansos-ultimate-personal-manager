@@ -2,6 +2,7 @@ export type ViewId =
   | 'focus'
   | 'timeline'
   | 'habits'
+  | 'achievements'
   | 'notes'
   | 'events'
   | 'lists'
@@ -10,9 +11,20 @@ export type ViewId =
 
 export type ThemeId = 'paper' | 'neon' | 'cyberpunk' | 'nordic' | 'emerald';
 export type ColorMode = 'light' | 'dark';
+export type TimelineDisplayMode = 'default' | 'compact' | 'flat';
 
 export type EntryType = 'log' | 'task' | 'event' | 'note' | 'timeblock';
 export type FocusBucket = 'anchor' | 'x-active' | 'completed' | null;
+export type EntrySource =
+  | 'timeline'
+  | 'focus-anchor'
+  | 'focus-active'
+  | 'custom-tab'
+  | 'habit'
+  | 'achievement';
+
+export type EventCategory = 'official' | 'personal';
+export type EventAttendance = 'attended' | 'missed' | null;
 
 export type NoteStatus = 'inbox' | 'draft' | 'active' | 'evergreen' | 'archived';
 export type NoteEditorWidth = 'normal' | 'full';
@@ -36,11 +48,19 @@ export interface Entry {
   endAt: string | null; // ISO string (for timeblocks / events)
   completed: boolean;
   focusBucket: FocusBucket;
+  source?: EntrySource;
+  tabId?: string | null;
   tags: string[];
   pinned?: boolean;
   location?: string;
+  isAchievement?: boolean;
+  eventCategory?: EventCategory;
+  attendance?: EventAttendance;
+  listIds?: string[];
+  habitId?: string | null;
+  habitDateKey?: string | null;
   sourceEntryId?: string | null;
-  // Notion-like Notes fields (all optional for full backward compatibility)
+  // Optional legacy/note fields preserved for backward compatibility
   parentId?: string | null;
   notebookId?: string | null;
   icon?: string;
@@ -53,42 +73,106 @@ export interface Entry {
   editorWidth?: NoteEditorWidth;
   editorFont?: NoteEditorFont;
   updatedAt?: string;
+  deletedAt?: string | null;
 }
 
-export type HabitFrequencyType = 'daily' | 'weekdays' | 'custom' | 'weekly';
+export interface ScratchpadCard {
+  id: string;
+  content: string;
+  paletteIndex: number; // 0..4
+  pinned: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+}
+
+export interface CustomFocusTab {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+}
+
+export type HabitFrequencyType =
+  | 'daily'
+  | 'weekdays'
+  | 'bi-weekly'
+  | 'weekly'
+  | 'monthly'
+  | 'custom';
 
 export interface Habit {
   id: string;
   title: string;
+  purpose?: string;
   icon: string; // Lucide icon name key
   color: string; // Hex accent color
   frequencyType: HabitFrequencyType;
   customDays?: number[]; // 0 = Sun .. 6 = Sat
   weeklyTarget?: number; // 1..7
   createdAt: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
   completions: Record<string, boolean>; // YYYY-MM-DD -> true
 }
 
+export interface HabitLog {
+  id: string;
+  habitId: string;
+  dateKey: string;
+  entryId: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+}
+
 export type ListItemStatus = 'inbox' | 'processing' | 'done' | 'maybe-later' | 'dropped';
+export type ListCollectionType = 'projects' | 'books' | 'courses' | 'custom';
 
 export interface ListCollection {
   id: string;
   title: string;
   icon: string;
+  color?: string;
+  listType?: ListCollectionType;
   createdAt: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
 }
 
 export interface ListItem {
   id: string;
   listId: string;
   title: string;
+  subtitle?: string;
   status: ListItemStatus;
+  tags?: string[];
   content: string; // Tiptap rich markdown content
   url?: string;
   scheduledAt: string | null;
+  completedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
 }
+
+// ==========================================================================
+// Shared UI Target Types (Polymorphic DetailSheet & Universal Context Menu)
+// ==========================================================================
+
+export type DetailSheetMode = 'note' | 'event' | 'task' | 'log' | 'habit' | 'list_item';
+
+export interface DetailSheetTarget {
+  mode: DetailSheetMode;
+  id?: string;
+  draft?: Partial<Entry> & Partial<Habit> & Partial<ListItem>;
+}
+
+export type ContextMenuRecord =
+  | { kind: 'entry'; entry: Entry }
+  | { kind: 'list_item'; item: ListItem };
 
 // ==========================================================================
 // Library (Offline EPUB, PDF & MOBI Manager + Studio Reader)
@@ -220,6 +304,7 @@ export interface WorkspaceSettings {
   colorMode: ColorMode;
   xActiveLimit: number;
   timeFormat: '12h' | '24h';
+  timelineDisplayMode?: TimelineDisplayMode;
   epubPrefs?: EpubReaderPrefs;
 }
 
@@ -228,15 +313,18 @@ export interface GistSyncConfig {
   gistId: string;
   filename: string;
   lastSyncedAt: string | null;
-  lastDirection: 'push' | 'pull' | null;
+  lastDirection: 'push' | 'pull' | 'full' | null;
 }
 
 export interface KansoWorkspace {
   version: number;
   updatedAt: string;
   entries: Entry[];
+  scratchpads?: ScratchpadCard[];
+  customTabs?: CustomFocusTab[];
   noteNotebooks?: NoteNotebook[];
   habits: Habit[];
+  habitLogs?: HabitLog[];
   lists: ListCollection[];
   listItems: ListItem[];
   books: BookRecord[];

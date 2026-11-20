@@ -1,4 +1,4 @@
-import { Entry } from '../types';
+import { Entry, Habit } from '../types';
 
 export function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -39,21 +39,69 @@ export function getEffectiveSortMs(entry: Pick<Entry, 'completedAt' | 'scheduled
   return new Date(getEffectiveSortIso(entry)).getTime();
 }
 
+export const getEntrySortTime = getEffectiveSortMs;
+
 export function getEntryDayKey(entry: Pick<Entry, 'completedAt' | 'scheduledAt' | 'createdAt'>): string {
   return toLocalDateKey(getEffectiveSortIso(entry));
 }
 
+export function isEntryActive(entry: Entry): boolean {
+  return !entry.deletedAt && !entry.trashedAt && !entry.archived && entry.noteStatus !== 'archived';
+}
+
+/**
+ * Timeline visibility rules:
+ * - Soft-deleted, trashed, or archived entries are hidden.
+ * - Focus Anchors never appear in Timeline (unless cleared from Focus View, which flips source -> 'timeline').
+ * - Focus Active & Custom Tab tasks stay hidden from Timeline while active; they appear once completed.
+ * - Standalone notes with syncToTimeline === false stay in Notes view only.
+ */
 export function isVisibleOnTimeline(entry: Entry): boolean {
-  if (entry.trashedAt || entry.archived || entry.noteStatus === 'archived') {
+  if (!isEntryActive(entry)) {
     return false;
   }
   if (entry.type === 'note' && entry.syncToTimeline === false) {
     return false;
   }
-  if (entry.focusBucket === 'x-active' && !entry.completed && !entry.scheduledAt) {
+  const source = entry.source;
+  if (source === 'focus-anchor' || (source === undefined && entry.focusBucket === 'anchor')) {
+    return false;
+  }
+  if (
+    (source === 'focus-active' || (source === undefined && entry.focusBucket === 'x-active')) &&
+    !entry.completed
+  ) {
+    return false;
+  }
+  if (source === 'custom-tab' && !entry.completed) {
     return false;
   }
   return true;
+}
+
+export function getCleanTitle(entry: Pick<Entry, 'title' | 'source'>): string {
+  if (entry.source === 'habit' && /^Completed habit:\s*/i.test(entry.title)) {
+    return entry.title.replace(/^Completed habit:\s*/i, '').trim() || entry.title;
+  }
+  return entry.title;
+}
+
+export function stripHtmlToText(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function countWordsFromHtml(html: string): number {
+  const text = stripHtmlToText(html);
+  if (!text) return 0;
+  return text.split(/\s+/).filter(Boolean).length;
 }
 
 export function formatTime(iso: string | null | undefined, format: '12h' | '24h' = '12h'): string {
@@ -74,6 +122,33 @@ export function formatShortDate(isoOrKey: string): string {
   const d = isoOrKey.length === 10 ? parseLocalDateKey(isoOrKey) : new Date(isoOrKey);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+export function formatDaySlashMonth(dateKey: string): string {
+  const d = parseLocalDateKey(dateKey);
+  return `${d.getDate()}/${d.getMonth() + 1}`;
+}
+
+/**
+ * Formats day strip labels matching:
+ * - Today, 15/11
+ * - Yesterday
+ * - Wed, 12/11 (same year)
+ * - Wed, 12/11/2024 (different year)
+ */
+export function formatCompactDayHeading(dateKey: string): string {
+  const today = getTodayKey();
+  const d = parseLocalDateKey(dateKey);
+  const ddmm = `${d.getDate()}/${d.getMonth() + 1}`;
+  if (dateKey === today) return `Today, ${ddmm}`;
+  if (dateKey === addDaysToKey(today, -1)) return 'Yesterday';
+  if (dateKey === addDaysToKey(today, 1)) return `Tomorrow, ${ddmm}`;
+  const weekday = d.toLocaleDateString(undefined, { weekday: 'short' });
+  const nowYear = new Date().getFullYear();
+  if (d.getFullYear() !== nowYear) {
+    return `${weekday}, ${ddmm}/${d.getFullYear()}`;
+  }
+  return `${weekday}, ${ddmm}`;
 }
 
 export function formatLongDate(dateKey: string): string {
@@ -191,10 +266,32 @@ export function getDayShortName(dateKey: string): string {
   return d.toLocaleDateString(undefined, { weekday: 'narrow' });
 }
 
+export function getDayAbbrev(dateKey: string): string {
+  const d = parseLocalDateKey(dateKey);
+  return d.toLocaleDateString(undefined, { weekday: 'short' });
+}
+
 export function getDayNumber(dateKey: string): number {
   return Number(dateKey.split('-')[2]);
 }
 
 export function getDayOfWeek(dateKey: string): number {
   return parseLocalDateKey(dateKey).getDay();
+}
+
+export function getRecentDateKeys(count: number): string[] {
+  return getRangeDateKeys(getTodayKey(), count);
+}
+
+export function isHabitScheduledOnDay(
+  habit: Pick<Habit, 'frequencyType' | 'customDays'>,
+  dateKey: string
+): boolean {
+  const dow = getDayOfWeek(dateKey);
+  if (habit.frequencyType === 'daily') return true;
+  if (habit.frequencyType === 'weekdays') return dow >= 1 && dow <= 5;
+  if (habit.frequencyType === 'custom' && Array.isArray(habit.customDays) && habit.customDays.length > 0) {
+    return habit.customDays.includes(dow);
+  }
+  return true;
 }

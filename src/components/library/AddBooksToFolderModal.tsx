@@ -51,7 +51,7 @@ export const AddBooksToFolderModal: React.FC<AddBooksToFolderModalProps> = ({
         {/* Header */}
         <div className="px-5 py-4 border-b border-[var(--border-subtle)] flex items-center justify-between gap-3 shrink-0">
           <div className="min-w-0">
-            <h2 className="font-serif-editorial text-base font-semibold text-[var(--text-primary)] truncate">
+            <h2 className="font-display text-base font-semibold text-[var(--text-primary)] truncate">
               Books in &ldquo;{folder.name}&rdquo;
             </h2>
             <p className="text-xs text-[var(--text-secondary)] mt-0.5">
@@ -136,7 +136,7 @@ export const AddBooksToFolderModal: React.FC<AddBooksToFolderModalProps> = ({
                     />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-serif-editorial text-xs font-semibold text-[var(--text-primary)] truncate">
+                    <div className="font-sans text-sm font-medium text-[var(--text-primary)] truncate">
                       {book.title}
                     </div>
                     <div className="text-[11px] text-[var(--text-secondary)] truncate">

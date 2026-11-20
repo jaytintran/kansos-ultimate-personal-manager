@@ -62,7 +62,7 @@ export const DuplicateImportModal: React.FC<DuplicateImportModalProps> = ({
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-[var(--accent)] shrink-0 mt-0.5" />
             <div>
-              <h2 className="font-serif-editorial text-lg font-semibold text-[var(--text-primary)]">
+              <h2 className="font-display text-base font-semibold text-[var(--text-primary)]">
                 Duplicate {items.length === 1 ? 'Book' : 'Books'} Detected
               </h2>
               <p className="mt-0.5 text-xs text-[var(--text-secondary)] leading-relaxed">
@@ -134,7 +134,7 @@ export const DuplicateImportModal: React.FC<DuplicateImportModalProps> = ({
                     />
                   </div>
                   <div className="min-w-0 space-y-1">
-                    <div className="font-serif-editorial text-sm font-semibold text-[var(--text-primary)] truncate">
+                    <div className="font-sans text-sm font-medium text-[var(--text-primary)] truncate">
                       {item.metadata.title}
                     </div>
                     <div className="text-xs text-[var(--text-secondary)] truncate">

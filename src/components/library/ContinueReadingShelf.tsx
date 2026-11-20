@@ -85,7 +85,7 @@ export const ContinueReadingShelf: React.FC<ContinueReadingShelfProps> = ({
       {activeReads.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-serif-editorial text-sm font-semibold text-[var(--text-primary)]">
+            <h2 className="font-display text-sm font-semibold text-[var(--text-primary)]">
               Continue Reading
             </h2>
             <span className="font-mono-tabular text-[11px] text-[var(--text-muted)]">
@@ -124,7 +124,7 @@ export const ContinueReadingShelf: React.FC<ContinueReadingShelfProps> = ({
                     <button
                       type="button"
                       onClick={() => onOpenBook(book)}
-                      className="text-left w-full font-serif-editorial text-[13px] font-semibold text-[var(--text-primary)] hover:text-[var(--accent)] truncate cursor-pointer"
+                      className="text-left w-full font-sans text-sm font-medium text-[var(--text-primary)] hover:text-[var(--accent)] truncate cursor-pointer"
                       title={book.title}
                     >
                       {book.title}

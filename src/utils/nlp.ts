@@ -1,14 +1,24 @@
+import { EntryType } from '../types';
 import { formatShortDate, formatTime, parseLocalDateKey, toLocalDateKey } from './date';
+
+export interface NlpTokenBadge {
+  kind: 'type' | 'date' | 'time' | 'range' | 'duration' | 'tag';
+  label: string;
+}
 
 export interface NlpParseResult {
   raw: string;
   cleanTitle: string;
+  detectedType: EntryType | null;
+  tags: string[];
   scheduledAt: string | null;
   endAt: string | null;
   hasExplicitDate: boolean;
   hasExplicitTime: boolean;
+  hasTimeRange: boolean;
   resolvedDateKey: string | null;
   matchedPhrases: string[];
+  tokens: NlpTokenBadge[];
   previewLabel: string | null;
 }
 
@@ -62,6 +72,15 @@ const MONTHS: Record<string, number> = {
 const MONTH_PATTERN =
   'january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec';
 
+const TYPE_FLAGS: Record<string, EntryType> = {
+  '/task': 'task',
+  '/log': 'log',
+  '/note': 'note',
+  '/event': 'event',
+  '/timeblock': 'timeblock',
+  '/block': 'timeblock',
+};
+
 function parseClockToken(
   hourStr: string,
   minuteStr: string | undefined,
@@ -83,9 +102,6 @@ function parseClockToken(
   return { hours, minutes };
 }
 
-/**
- * Validates calendar day/month (and optional year) and rolls past yearless dates forward to next year.
- */
 function resolveCalendarDate(
   day: number,
   monthIndex: number,
@@ -98,12 +114,10 @@ function resolveCalendarDate(
   if (year < 100) year += 2000;
 
   const candidate = new Date(year, monthIndex, day, 0, 0, 0, 0);
-  // Reject invalid calendar overflow (e.g. 31 Feb -> March 3)
   if (candidate.getMonth() !== monthIndex || candidate.getDate() !== day) {
     return null;
   }
 
-  // If no explicit year was supplied and the date has already passed this year, roll to next year
   if (explicitYear === undefined && candidate.getTime() < todayMidnight.getTime()) {
     const nextYearCandidate = new Date(year + 1, monthIndex, day, 0, 0, 0, 0);
     if (nextYearCandidate.getMonth() === monthIndex && nextYearCandidate.getDate() === day) {
@@ -123,14 +137,14 @@ function addMonthsClamped(base: Date, monthsToAdd: number): Date {
 }
 
 /**
- * Offline natural-language date & timestamp extractor for all Kanso input bars & details editors.
- * Supports:
- * - DD/MM and DD/MM/YYYY numeric dates: "22/11", "on 22/11", "5/12/2026"
- * - Natural dates: "23 December", "23rd Dec", "Dec 23", "December 23rd 2026"
- * - Relative calendars: "next week" (same weekday +7d), "next month", "in 3 days", "in 2 weeks", "in 1 month"
- * - Day keywords & weekdays: "today", "tomorrow", "tmr", "yesterday", "next monday", "this friday", "on tue"
- * - Relative clocks: "in 30m", "in 2h", "in 45 mins"
- * - Clock slots & ranges: "at 5pm", "@ 9:15am", "14:30", "from 2pm to 3:30pm", "2pm-3:30pm", "for 45m", "for 1.5h"
+ * Deterministic natural-language parser for all Kanso input bars.
+ * Recognizes:
+ * - Type flags: /task, /log, /note, /event, /timeblock
+ * - Hashtags: #tag
+ * - Times: at 3pm, at 3:30pm, 9:00am, at 14:00, at noon, at midnight, at 1pm30
+ * - Relative durations: in 30 mins, in 2 hours, in 3 weeks
+ * - Dates: today, tonight, tomorrow, in 2 days, next monday, this friday, 15/11, Nov 15
+ * - Time blocks: from 1pm to 3pm, from 1pm30 to 2pm, from 8:30am to 10:45am, for 2h30m, for 45m, <from 1pm to 3pm>
  */
 export function parseNlpInput(
   input: string,
@@ -142,18 +156,53 @@ export function parseNlpInput(
     return {
       raw,
       cleanTitle: '',
+      detectedType: null,
+      tags: [],
       scheduledAt: null,
       endAt: null,
       hasExplicitDate: false,
       hasExplicitTime: false,
+      hasTimeRange: false,
       resolvedDateKey: null,
       matchedPhrases: [],
+      tokens: [],
       previewLabel: null,
     };
   }
 
   let working = input;
   const matchedPhrases: string[] = [];
+  const tokens: NlpTokenBadge[] = [];
+  let detectedType: EntryType | null = null;
+  const tags: string[] = [];
+
+  // 0a. Type flags: /task, /log, /note, /event, /timeblock
+  const typeFlagRe = /(?:^|\s)(\/(?:task|log|note|event|timeblock|block))(?=\s|$)/i;
+  const typeMatch = working.match(typeFlagRe);
+  if (typeMatch) {
+    const flag = typeMatch[1].toLowerCase();
+    detectedType = TYPE_FLAGS[flag] ?? null;
+    if (detectedType) {
+      matchedPhrases.push(typeMatch[1]);
+      tokens.push({ kind: 'type', label: detectedType === 'timeblock' ? 'Time Block' : detectedType });
+      working = working.replace(typeMatch[0], ' ');
+    }
+  }
+
+  // 0b. Hashtags: #tag
+  const tagRe = /(?:^|\s)#([a-zA-Z0-9_-]+)/g;
+  working = working.replace(tagRe, (full, tagName: string) => {
+    const clean = tagName.toLowerCase();
+    if (!tags.includes(clean)) {
+      tags.push(clean);
+      tokens.push({ kind: 'tag', label: `#${clean}` });
+    }
+    matchedPhrases.push(`#${tagName}`);
+    return ' ';
+  });
+
+  // 0c. Unwrap bracket time-block syntax: <from 1pm to 3pm>
+  working = working.replace(/<\s*(from\s+[^>]+)\s*>/gi, ' $1 ');
 
   const now = new Date();
   const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
@@ -182,7 +231,7 @@ export function parseNlpInput(
 
   // 2. Date expressions (run if relative time wasn't matched)
   if (!relTimeMatch) {
-    // 2a. Relative multi-day/week/month offset: "in 3 days", "in 2 weeks", "in 1 month", "in 4d", "in 2w"
+    // 2a. Relative multi-day/week/month offset: "in 3 days", "in 2 weeks", "in 1 month"
     const relDateRe = /\bin\s+(\d+)\s*(d|day|days|w|wk|wks|week|weeks|mo|mos|month|months)\b/i;
     const relDateMatch = working.match(relDateRe);
     if (relDateMatch) {
@@ -204,7 +253,7 @@ export function parseNlpInput(
       working = working.replace(relDateMatch[0], ' ');
     }
 
-    // 2b. "next week" (same weekday +7 days) or "next month" (same day +1 month)
+    // 2b. "next week" / "next month"
     if (!hasExplicitDay) {
       const nextPeriodRe = /\bnext\s+(week|month)\b/i;
       const periodMatch = working.match(nextPeriodRe);
@@ -223,7 +272,7 @@ export function parseNlpInput(
       }
     }
 
-    // 2c. Explicit numeric DD/MM(/YYYY) date: "22/11", "on 22/11", "05/12/2026"
+    // 2c. Numeric DD/MM(/YYYY): "15/11", "on 22/11", "05/12/2026"
     if (!hasExplicitDay) {
       const ddmmyyyyRe = /\b(?:on\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/i;
       const slashMatch = working.match(ddmmyyyyRe);
@@ -241,7 +290,7 @@ export function parseNlpInput(
       }
     }
 
-    // 2d. Natural Day + Month: "23 December", "23rd Dec", "on 23 December 2026"
+    // 2d. Day + Month: "15 Nov", "23rd Dec"
     if (!hasExplicitDay) {
       const dayMonthRe = new RegExp(
         `\\b(?:on\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH_PATTERN})(?:[\\s,]+(\\d{4}))?\\b`,
@@ -262,7 +311,7 @@ export function parseNlpInput(
       }
     }
 
-    // 2e. Natural Month + Day: "December 23", "Dec 23rd", "on Dec 23, 2026"
+    // 2e. Month + Day: "Nov 15", "December 23rd"
     if (!hasExplicitDay) {
       const monthDayRe = new RegExp(
         `\\b(?:on\\s+)?(${MONTH_PATTERN})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:[\\s,]+(\\d{4}))?\\b`,
@@ -283,15 +332,18 @@ export function parseNlpInput(
       }
     }
 
-    // 2f. Day keywords: "tomorrow", "tmr", "yesterday", "today"
+    // 2f. Day keywords: "tonight", "tomorrow", "tmr", "yesterday", "today"
     if (!hasExplicitDay) {
-      const dayKeywordRe = /\b(tomorrow|tmr|yesterday|today)\b/i;
+      const dayKeywordRe = /\b(tonight|tomorrow|tmr|yesterday|today)\b/i;
       const dayMatch = working.match(dayKeywordRe);
       if (dayMatch) {
         const token = dayMatch[1].toLowerCase();
         const d = new Date(todayMidnight);
         if (token === 'tomorrow' || token === 'tmr') d.setDate(d.getDate() + 1);
         if (token === 'yesterday') d.setDate(d.getDate() - 1);
+        if (token === 'tonight' && !startClock) {
+          startClock = { hours: 20, minutes: 0 };
+        }
         targetDate = d;
         hasExplicitDay = true;
         matchedPhrases.push(dayMatch[0]);
@@ -323,16 +375,22 @@ export function parseNlpInput(
     }
   }
 
-  // 3. Time range: "from 2pm to 3:30pm" or "2pm-3:30pm" or "14:00 - 15:30"
+  // 3. Time range including 1pm30 form:
+  // "from 1pm to 3pm", "from 1pm30 to 2pm", "from 8:30am to 10:45am", "2pm-3:30pm", "14:00 - 15:30"
   if (!startClock) {
     const rangeRe =
-      /(?:\bfrom\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:to|-|–)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i;
+      /(?:\bfrom\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(\d{2})?\s*(?:to|-|–)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(\d{2})?\b/i;
     const rangeMatch = working.match(rangeRe);
-    if (rangeMatch && (rangeMatch[3] || rangeMatch[6] || rangeMatch[2] || rangeMatch[5])) {
-      const startMeridiem = rangeMatch[3] || rangeMatch[6];
-      const endMeridiem = rangeMatch[6] || rangeMatch[3];
-      const parsedStart = parseClockToken(rangeMatch[1], rangeMatch[2], startMeridiem);
-      const parsedEnd = parseClockToken(rangeMatch[4], rangeMatch[5], endMeridiem);
+    if (
+      rangeMatch &&
+      (rangeMatch[3] || rangeMatch[7] || rangeMatch[2] || rangeMatch[6])
+    ) {
+      const startMeridiem = rangeMatch[3] || rangeMatch[7];
+      const endMeridiem = rangeMatch[7] || rangeMatch[3];
+      const startMin = rangeMatch[2] || (rangeMatch[3] ? rangeMatch[4] : undefined);
+      const endMin = rangeMatch[6] || (rangeMatch[7] ? rangeMatch[8] : undefined);
+      const parsedStart = parseClockToken(rangeMatch[1], startMin, startMeridiem);
+      const parsedEnd = parseClockToken(rangeMatch[5], endMin, endMeridiem);
       if (parsedStart && parsedEnd) {
         startClock = parsedStart;
         endClock = parsedEnd;
@@ -342,12 +400,25 @@ export function parseNlpInput(
     }
   }
 
-  // 4. Explicit "at <time>" or "@ <time>" (e.g. "at 5pm", "at 4:30pm", "at 14:00", "@ 9am")
+  // 4a. "at noon" / "at midnight" / standalone "noon" / "midnight"
   if (!startClock) {
-    const atTimeRe = /(?:\bat\s+|@\s*)(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i;
+    const namedClockRe = /\b(?:at\s+)?(noon|midnight)\b/i;
+    const namedMatch = working.match(namedClockRe);
+    if (namedMatch) {
+      const word = namedMatch[1].toLowerCase();
+      startClock = word === 'noon' ? { hours: 12, minutes: 0 } : { hours: 0, minutes: 0 };
+      matchedPhrases.push(namedMatch[0]);
+      working = working.replace(namedMatch[0], ' ');
+    }
+  }
+
+  // 4b. Explicit "at <time>" or "@ <time>" including "at 1pm30"
+  if (!startClock) {
+    const atTimeRe = /(?:\bat\s+|@\s*)(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(\d{2})?\b/i;
     const atMatch = working.match(atTimeRe);
     if (atMatch && (atMatch[3] || atMatch[2])) {
-      const parsed = parseClockToken(atMatch[1], atMatch[2], atMatch[3]);
+      const mins = atMatch[2] || (atMatch[3] ? atMatch[4] : undefined);
+      const parsed = parseClockToken(atMatch[1], mins, atMatch[3]);
       if (parsed) {
         startClock = parsed;
         matchedPhrases.push(atMatch[0]);
@@ -356,12 +427,13 @@ export function parseNlpInput(
     }
   }
 
-  // 5. Standalone clock with explicit am/pm or 24h HH:MM (e.g., "Coffee 4:30pm", "Sync 14:30")
+  // 5. Standalone clock with explicit am/pm (including 1pm30) or 24h HH:MM
   if (!startClock) {
-    const bareMeridiemRe = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i;
+    const bareMeridiemRe = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)(\d{2})?\b/i;
     const bareMatch = working.match(bareMeridiemRe);
     if (bareMatch) {
-      const parsed = parseClockToken(bareMatch[1], bareMatch[2], bareMatch[3]);
+      const mins = bareMatch[2] || bareMatch[4];
+      const parsed = parseClockToken(bareMatch[1], mins, bareMatch[3]);
       if (parsed) {
         startClock = parsed;
         matchedPhrases.push(bareMatch[0]);
@@ -381,15 +453,23 @@ export function parseNlpInput(
     }
   }
 
-  // 6. Optional duration suffix: "for 45m", "for 1.5h", "for 2 hours"
-  const durationRe = /\bfor\s+(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b/i;
-  const durMatch = working.match(durationRe);
-  if (durMatch) {
-    const qty = parseFloat(durMatch[1]);
-    const unit = durMatch[2].toLowerCase();
-    durationMinutes = Math.round(unit.startsWith('h') ? qty * 60 : qty);
-    matchedPhrases.push(durMatch[0]);
-    working = working.replace(durMatch[0], ' ');
+  // 6. Duration suffix: "for 2h30m", "for 45m", "for 1.5h", "for 2 hours"
+  const compoundDurRe = /\bfor\s+(\d+)\s*h(?:rs?|ours?)?\s*(\d+)\s*m(?:ins?|inutes?)?\b/i;
+  const compoundMatch = working.match(compoundDurRe);
+  if (compoundMatch) {
+    durationMinutes = parseInt(compoundMatch[1], 10) * 60 + parseInt(compoundMatch[2], 10);
+    matchedPhrases.push(compoundMatch[0]);
+    working = working.replace(compoundMatch[0], ' ');
+  } else {
+    const durationRe = /\bfor\s+(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b/i;
+    const durMatch = working.match(durationRe);
+    if (durMatch) {
+      const qty = parseFloat(durMatch[1]);
+      const unit = durMatch[2].toLowerCase();
+      durationMinutes = Math.round(unit.startsWith('h') ? qty * 60 : qty);
+      matchedPhrases.push(durMatch[0]);
+      working = working.replace(durMatch[0], ' ');
+    }
   }
 
   let scheduledAt: string | null = null;
@@ -426,7 +506,6 @@ export function parseNlpInput(
       endAt = new Date(startDate.getTime() + durationMinutes * 60 * 1000).toISOString();
     }
   } else if (hasExplicitDay) {
-    // Explicit day like "22/11", "23 December", "next week" without clock -> 9:00 AM default
     const startDate = new Date(
       targetDate.getFullYear(),
       targetDate.getMonth(),
@@ -440,35 +519,65 @@ export function parseNlpInput(
     if (durationMinutes) {
       endAt = new Date(startDate.getTime() + durationMinutes * 60 * 1000).toISOString();
     }
+  } else if (durationMinutes) {
+    // Duration without explicit start time (e.g. "Deep work for 45m"): anchor to current time on baseDate
+    const startDate = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate(),
+      now.getHours(),
+      now.getMinutes(),
+      0,
+      0
+    );
+    scheduledAt = startDate.toISOString();
+    endAt = new Date(startDate.getTime() + durationMinutes * 60 * 1000).toISOString();
   }
 
   const cleanTitle = working.replace(/\s{2,}/g, ' ').trim() || input.trim();
   const resolvedDateKey = scheduledAt ? toLocalDateKey(scheduledAt) : null;
+  const hasTimeRange = Boolean(scheduledAt && endAt);
 
+  const todayKey = toLocalDateKey(now);
   let previewLabel: string | null = null;
   if (scheduledAt) {
-    const todayKey = toLocalDateKey(now);
     const schedKey = toLocalDateKey(scheduledAt);
     const dayStr = schedKey === todayKey ? 'Today' : formatShortDate(schedKey);
     const startStr = formatTime(scheduledAt, timeFormat);
+    if (hasExplicitDay || schedKey !== (baseDateKey || todayKey)) {
+      tokens.push({ kind: 'date', label: dayStr });
+    }
     if (endAt) {
-      previewLabel = `${dayStr} · ${startStr} – ${formatTime(endAt, timeFormat)}`;
+      const rangeStr = `${startStr} – ${formatTime(endAt, timeFormat)}`;
+      tokens.push({ kind: 'range', label: rangeStr });
+      previewLabel = `${dayStr} · ${rangeStr}`;
     } else if (hasExplicitTime) {
+      tokens.push({ kind: 'time', label: startStr });
       previewLabel = `${dayStr} · ${startStr}`;
     } else {
       previewLabel = `${dayStr} · ${startStr}`;
     }
   }
+  if (durationMinutes && !endClock) {
+    const hrs = Math.floor(durationMinutes / 60);
+    const mins = durationMinutes % 60;
+    const durLabel = hrs > 0 && mins > 0 ? `${hrs}h ${mins}m` : hrs > 0 ? `${hrs}h` : `${mins}m`;
+    tokens.push({ kind: 'duration', label: durLabel });
+  }
 
   return {
     raw,
     cleanTitle,
+    detectedType,
+    tags,
     scheduledAt,
     endAt,
     hasExplicitDate: hasExplicitDay,
     hasExplicitTime,
+    hasTimeRange,
     resolvedDateKey,
     matchedPhrases,
+    tokens,
     previewLabel,
   };
 }

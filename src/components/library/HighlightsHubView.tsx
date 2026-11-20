@@ -108,7 +108,7 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
         <Highlighter className="w-7 h-7 text-[var(--text-muted)] mb-3" />
-        <h2 className="font-serif-editorial text-xl font-semibold text-[var(--text-primary)]">
+        <h2 className="font-display text-lg font-semibold text-[var(--text-primary)]">
           No highlights or study notes yet
         </h2>
         <p className="mt-2 text-xs text-[var(--text-secondary)] max-w-sm leading-relaxed">
@@ -226,7 +226,7 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
       {/* Results List */}
       {filtered.length === 0 ? (
         <div className="py-16 text-center space-y-2">
-          <p className="font-serif-editorial text-base text-[var(--text-primary)]">
+          <p className="font-display text-sm font-medium text-[var(--text-primary)]">
             No highlights match those filters
           </p>
           <button
@@ -270,7 +270,7 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
                       <button
                         type="button"
                         onClick={() => onOpenPassage(book, hl.unitIndex)}
-                        className="font-serif-editorial text-sm font-semibold text-[var(--text-primary)] hover:text-[var(--accent)] truncate block text-left cursor-pointer"
+                        className="font-sans text-sm font-medium text-[var(--text-primary)] hover:text-[var(--accent)] truncate block text-left cursor-pointer"
                       >
                         {book.title}
                       </button>
@@ -350,7 +350,7 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
                 </div>
 
                 {/* Passage Quote */}
-                <blockquote className="pl-10 font-serif-editorial text-[15px] leading-relaxed text-[var(--text-primary)]">
+                <blockquote className="pl-10 font-sans text-sm leading-relaxed text-[var(--text-primary)]">
                   &ldquo;{hl.selectedText}&rdquo;
                 </blockquote>
 

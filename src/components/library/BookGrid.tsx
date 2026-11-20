@@ -277,9 +277,7 @@ export const BookGrid: React.FC<BookGridProps> = ({
                 type="button"
                 onClick={(e) => handleCardPrimaryClick(book, e)}
                 onDoubleClick={() => onOpenBook(book)}
-                className={`text-left w-full font-serif-editorial font-semibold leading-snug text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors line-clamp-2 cursor-pointer ${
-                  coverSize === 'compact' ? 'text-[13px]' : 'text-[15px]'
-                }`}
+                className="text-left w-full font-sans text-sm font-medium leading-snug text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors line-clamp-2 cursor-pointer"
               >
                 {book.title}
               </button>

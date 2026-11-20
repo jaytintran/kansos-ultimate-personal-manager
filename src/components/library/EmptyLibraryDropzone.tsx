@@ -51,7 +51,7 @@ export const EmptyLibraryDropzone: React.FC<EmptyLibraryDropzoneProps> = ({
           <BookUp className="w-5 h-5 text-[var(--accent)]" />
         </div>
 
-        <h1 className="font-serif-editorial text-2xl md:text-3xl font-semibold tracking-tight text-[var(--text-primary)] [text-wrap:balance]">
+        <h1 className="font-display text-xl md:text-2xl font-semibold tracking-tight text-[var(--text-primary)] [text-wrap:balance]">
           Your offline reading room awaits
         </h1>
 

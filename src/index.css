@@ -303,6 +303,15 @@
   background: var(--text-muted);
 }
 
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* ==========================================================================
    Tiptap Markdown Editor Styles
    ========================================================================== */
@@ -1077,6 +1086,119 @@
 
 .animate-folio-sheet-up {
   animation: folioSheetUp 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ==========================================================================
+   RichContent Syntax Highlighting (lowlight / hljs) & Editorial Utilities
+   ========================================================================== */
+
+:root,
+[data-theme] {
+  --color-entity-violet: #7c3aed;
+  --color-entity-blue: #2563eb;
+  --color-entity-emerald: #059669;
+  --color-entity-amber: #b45309;
+  --color-entity-rose: #e11d48;
+}
+
+.dark,
+[data-theme].dark {
+  --color-entity-violet: #c4b5fd;
+  --color-entity-blue: #93c5fd;
+  --color-entity-emerald: #6ee7b7;
+  --color-entity-amber: #fcd34d;
+  --color-entity-rose: #fda4af;
+}
+
+.kanso-rich-content pre {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  margin: 0.45rem 0;
+  overflow-x: auto;
+}
+
+.kanso-rich-content pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-name,
+.hljs-tag {
+  color: var(--color-entity-violet);
+}
+
+.hljs-string,
+.hljs-title,
+.hljs-section,
+.hljs-attribute,
+.hljs-literal,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-addition {
+  color: var(--color-entity-emerald);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-meta,
+.hljs-attr {
+  color: var(--color-entity-amber);
+}
+
+.hljs-function,
+.hljs-title.function_,
+.hljs-class,
+.hljs-title.class_,
+.hljs-variable,
+.hljs-params {
+  color: var(--color-entity-blue);
+}
+
+.hljs-deletion,
+.hljs-regexp,
+.hljs-link {
+  color: var(--color-entity-rose);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.kanso-card-fade {
+  position: relative;
+}
+
+.kanso-card-fade::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2.25rem;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent 0%, var(--bg-surface) 92%);
+}
+
+.kanso-spine-stroke {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--accent) 42%, var(--spine-line)) 0%,
+    var(--spine-line) 50%,
+    color-mix(in srgb, var(--accent) 28%, var(--spine-line)) 100%
+  );
 }
 
 @media (prefers-reduced-motion: reduce) {

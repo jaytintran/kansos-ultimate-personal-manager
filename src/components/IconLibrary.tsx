@@ -108,14 +108,22 @@ export const HABIT_COLOR_SWATCHES = [
   '#334155',
 ];
 
+const LOWER_ICON_MAP: Record<
+  string,
+  React.ComponentType<{ className?: string; style?: React.CSSProperties }>
+> = Object.fromEntries(Object.entries(ICON_MAP).map(([k, v]) => [k.toLowerCase(), v]));
+
 export const DynamicIcon: React.FC<{
   name: string;
   className?: string;
   style?: React.CSSProperties;
 }> = ({ name, className = 'w-4 h-4', style }) => {
-  const Icon = ICON_MAP[name] || Target;
+  const Icon = ICON_MAP[name] || LOWER_ICON_MAP[name.toLowerCase()] || Target;
   return <Icon className={className} style={style} />;
 };
+
+export const HabitIcon = DynamicIcon;
+export const ListIcon = DynamicIcon;
 
 export const ENTRY_TYPE_META: Record<
   EntryType,

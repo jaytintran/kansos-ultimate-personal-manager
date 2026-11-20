@@ -565,7 +565,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex items-baseline gap-2.5 flex-wrap">
-                <h2 className="font-serif-editorial text-lg font-semibold text-[var(--text-primary)]">
+                <h2 className="font-display text-base font-semibold text-[var(--text-primary)]">
                   Bulk Edit
                 </h2>
                 <span className="font-mono-tabular text-xs text-[var(--text-muted)]">

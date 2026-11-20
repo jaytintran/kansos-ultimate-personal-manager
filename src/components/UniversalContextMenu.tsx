@@ -1,0 +1,462 @@
+import React, { useEffect, useState } from 'react';
+import {
+  CalendarClock,
+  CheckCircle2,
+  Clock,
+  Copy,
+  Edit3,
+  Plus,
+  Tag,
+  Trash2,
+  Trophy,
+  X,
+  XCircle,
+} from 'lucide-react';
+import { useWorkspace } from '../context/WorkspaceContext';
+import { ContextMenuRecord, DetailSheetTarget } from '../types';
+import { addDaysToKey, getTodayKey } from '../utils/date';
+
+export interface ContextMenuState {
+  record: ContextMenuRecord;
+  x: number;
+  y: number;
+}
+
+interface UniversalContextMenuProps {
+  state: ContextMenuState | null;
+  onClose: () => void;
+  onOpenDetail: (target: DetailSheetTarget) => void;
+  onOpenTimestamps: (entryId: string) => void;
+}
+
+export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
+  state,
+  onClose,
+  onOpenDetail,
+  onOpenTimestamps,
+}) => {
+  const {
+    workspace,
+    updateEntry,
+    toggleEntryAchievement,
+    setEventAttendance,
+    duplicateEntry,
+    moveEntryToDate,
+    deleteEntry,
+    updateListItem,
+    deleteListItem,
+  } = useWorkspace();
+
+  const [subPanel, setSubPanel] = useState<'none' | 'reschedule' | 'tags'>('none');
+  const [tagDraft, setTagDraft] = useState('');
+
+  useEffect(() => {
+    setSubPanel('none');
+    setTagDraft('');
+  }, [state]);
+
+  useEffect(() => {
+    if (!state) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (subPanel !== 'none') setSubPanel('none');
+        else onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [state, subPanel, onClose]);
+
+  if (!state) return null;
+
+  const { record } = state;
+  // Pull fresh entity from workspace so inline tag edits stay live
+  const freshEntry =
+    record.kind === 'entry'
+      ? workspace.entries.find((e) => e.id === record.entry.id) || record.entry
+      : null;
+  const freshListItem =
+    record.kind === 'list_item'
+      ? workspace.listItems.find((i) => i.id === record.item.id) || record.item
+      : null;
+
+  const isEntry = Boolean(freshEntry);
+  const title = freshEntry ? freshEntry.title : freshListItem?.title || '';
+  const currentTags = freshEntry ? freshEntry.tags || [] : freshListItem?.tags || [];
+
+  // Eligibility rules
+  const canAchievement = Boolean(
+    freshEntry &&
+      (freshEntry.type === 'log' ||
+        freshEntry.type === 'event' ||
+        (freshEntry.type === 'task' && freshEntry.completed))
+  );
+  const canTimestamps = Boolean(freshEntry);
+  const canDuplicate = Boolean(freshEntry);
+  const isEvent = Boolean(freshEntry && freshEntry.type === 'event');
+  const canReschedule = Boolean(
+    freshEntry &&
+      !freshEntry.completed &&
+      (freshEntry.type === 'task' || freshEntry.type === 'event' || freshEntry.type === 'timeblock')
+  );
+
+  const handleOpenDetails = () => {
+    if (freshEntry) {
+      const mode =
+        freshEntry.type === 'note'
+          ? 'note'
+          : freshEntry.type === 'event'
+          ? 'event'
+          : freshEntry.type === 'log'
+          ? 'log'
+          : 'task';
+      onOpenDetail({ mode, id: freshEntry.id });
+    } else if (freshListItem) {
+      onOpenDetail({ mode: 'list_item', id: freshListItem.id });
+    }
+    onClose();
+  };
+
+  const handleAddTag = (raw: string) => {
+    const clean = raw.trim().replace(/^#/, '').toLowerCase();
+    if (!clean || currentTags.includes(clean)) {
+      setTagDraft('');
+      return;
+    }
+    const next = [...currentTags, clean];
+    if (freshEntry) updateEntry(freshEntry.id, { tags: next });
+    else if (freshListItem) updateListItem(freshListItem.id, { tags: next });
+    setTagDraft('');
+  };
+
+  const handleRemoveTag = (tag: string) => {
+    const next = currentTags.filter((t) => t !== tag);
+    if (freshEntry) updateEntry(freshEntry.id, { tags: next });
+    else if (freshListItem) updateListItem(freshListItem.id, { tags: next });
+  };
+
+  const handleDelete = () => {
+    if (freshEntry) deleteEntry(freshEntry.id);
+    else if (freshListItem) deleteListItem(freshListItem.id);
+    onClose();
+  };
+
+  const todayKey = getTodayKey();
+
+  // Compute safe desktop viewport position
+  const menuWidth = 248;
+  const menuHeight = 360;
+  const safeX =
+    typeof window !== 'undefined'
+      ? Math.min(Math.max(12, state.x), window.innerWidth - menuWidth - 12)
+      : state.x;
+  const safeY =
+    typeof window !== 'undefined'
+      ? Math.min(Math.max(12, state.y), window.innerHeight - menuHeight - 12)
+      : state.y;
+
+  const btnCls =
+    'w-full flex items-center gap-2.5 px-3 py-2.5 sm:py-2 rounded-lg text-xs font-medium text-left transition-colors hover:bg-[var(--bg-surface-subtle)]';
+
+  const menuContent = (
+    <div className="space-y-0.5">
+      <div
+        className="px-3 py-1.5 text-[11px] font-semibold truncate border-b mb-1"
+        style={{ color: 'var(--text-muted)', borderColor: 'var(--border-subtle)' }}
+      >
+        {title || 'Untitled'}
+      </div>
+
+      {subPanel === 'none' && (
+        <>
+          <button
+            type="button"
+            onClick={handleOpenDetails}
+            className={btnCls}
+            style={{ color: 'var(--text-primary)' }}
+          >
+            <Edit3 className="w-3.5 h-3.5" style={{ color: 'var(--text-secondary)' }} />
+            <span>Edit Details</span>
+          </button>
+
+          {canAchievement && freshEntry && (
+            <button
+              type="button"
+              onClick={() => {
+                toggleEntryAchievement(freshEntry.id);
+                onClose();
+              }}
+              className={btnCls}
+              style={{
+                color: freshEntry.isAchievement ? 'var(--warning)' : 'var(--text-primary)',
+              }}
+            >
+              <Trophy className="w-3.5 h-3.5" style={{ color: 'var(--warning)' }} />
+              <span>
+                {freshEntry.isAchievement ? 'Unmark Achievement' : 'Mark as Achievement'}
+              </span>
+            </button>
+          )}
+
+          {canTimestamps && freshEntry && (
+            <button
+              type="button"
+              onClick={() => {
+                const id = freshEntry.id;
+                onClose();
+                onOpenTimestamps(id);
+              }}
+              className={btnCls}
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <Clock className="w-3.5 h-3.5" style={{ color: 'var(--text-secondary)' }} />
+              <span>Edit Timestamps</span>
+            </button>
+          )}
+
+          {canDuplicate && freshEntry && (
+            <button
+              type="button"
+              onClick={() => {
+                duplicateEntry(freshEntry.id);
+                onClose();
+              }}
+              className={btnCls}
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <Copy className="w-3.5 h-3.5" style={{ color: 'var(--text-secondary)' }} />
+              <span>Duplicate</span>
+            </button>
+          )}
+
+          {isEvent && freshEntry && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setEventAttendance(
+                    freshEntry.id,
+                    freshEntry.attendance === 'attended' ? null : 'attended'
+                  );
+                  onClose();
+                }}
+                className={btnCls}
+                style={{ color: 'var(--success)' }}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>
+                  {freshEntry.attendance === 'attended' ? 'Clear attended' : 'Mark attended'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEventAttendance(
+                    freshEntry.id,
+                    freshEntry.attendance === 'missed' ? null : 'missed'
+                  );
+                  onClose();
+                }}
+                className={btnCls}
+                style={{ color: 'var(--danger)' }}
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>
+                  {freshEntry.attendance === 'missed' ? 'Clear missed' : 'Mark missed'}
+                </span>
+              </button>
+            </>
+          )}
+
+          {canReschedule && (
+            <button
+              type="button"
+              onClick={() => setSubPanel('reschedule')}
+              className={btnCls}
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <CalendarClock className="w-3.5 h-3.5" style={{ color: 'var(--text-secondary)' }} />
+              <span>Reschedule</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setSubPanel('tags')}
+            className={btnCls}
+            style={{ color: 'var(--text-primary)' }}
+          >
+            <Tag className="w-3.5 h-3.5" style={{ color: 'var(--text-secondary)' }} />
+            <span>Tags {currentTags.length > 0 ? `(${currentTags.length})` : ''}</span>
+          </button>
+
+          <div className="my-1 border-t" style={{ borderColor: 'var(--border-subtle)' }} />
+
+          <button
+            type="button"
+            onClick={handleDelete}
+            className={btnCls}
+            style={{ color: 'var(--danger)' }}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Delete</span>
+          </button>
+        </>
+      )}
+
+      {subPanel === 'reschedule' && freshEntry && (
+        <div className="space-y-1 p-1">
+          <div className="flex items-center justify-between px-2 py-1">
+            <span className="text-[11px] font-semibold" style={{ color: 'var(--text-secondary)' }}>
+              Reschedule to
+            </span>
+            <button
+              type="button"
+              onClick={() => setSubPanel('none')}
+              className="text-[11px]"
+              style={{ color: 'var(--accent)' }}
+            >
+              Back
+            </button>
+          </div>
+          {[
+            { label: 'Today', key: todayKey },
+            { label: 'Tomorrow', key: addDaysToKey(todayKey, 1) },
+            { label: '+2 Days', key: addDaysToKey(todayKey, 2) },
+          ].map((opt) => (
+            <button
+              key={opt.label}
+              type="button"
+              onClick={() => {
+                moveEntryToDate(freshEntry.id, opt.key);
+                onClose();
+              }}
+              className={btnCls}
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <CalendarClock className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
+              <span>{opt.label}</span>
+              <span className="ml-auto font-mono text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                {opt.key.slice(5)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {subPanel === 'tags' && (
+        <div className="space-y-2.5 p-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold" style={{ color: 'var(--text-secondary)' }}>
+              {isEntry ? 'Entry Tags' : 'Item Tags'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSubPanel('none')}
+              className="text-[11px]"
+              style={{ color: 'var(--accent)' }}
+            >
+              Done
+            </button>
+          </div>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleAddTag(tagDraft);
+            }}
+            className="flex items-center gap-1.5"
+          >
+            <input
+              type="text"
+              value={tagDraft}
+              onChange={(e) => setTagDraft(e.target.value)}
+              placeholder="Add tag..."
+              autoFocus
+              className="flex-1 min-w-0 h-8 px-2.5 rounded-lg border text-xs outline-none"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-primary)',
+              }}
+            />
+            <button
+              type="submit"
+              className="h-8 w-8 flex items-center justify-center rounded-lg shrink-0"
+              style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-fg)' }}
+              aria-label="Add tag"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </form>
+
+          {currentTags.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {currentTags.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => handleRemoveTag(tag)}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-mono"
+                  style={{
+                    backgroundColor: 'var(--bg-surface-subtle)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  <span>#{tag}</span>
+                  <X className="w-3 h-3 opacity-60" />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              No tags yet.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Actions menu">
+      <div className="fixed inset-0 bg-black/25 sm:bg-transparent" onClick={onClose} />
+
+      {/* Desktop Floating Popover */}
+      <div
+        className="hidden sm:block fixed z-10 w-[248px] rounded-xl border p-1.5"
+        style={{
+          left: safeX,
+          top: safeY,
+          backgroundColor: 'var(--bg-elevated)',
+          borderColor: 'var(--border-strong)',
+          boxShadow: 'var(--shadow-popover)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {menuContent}
+      </div>
+
+      {/* Mobile Slide-Up Bottom Action Sheet */}
+      <div
+        className="sm:hidden fixed bottom-0 left-0 right-0 z-10 rounded-t-2xl border-t px-3 pt-2.5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]"
+        style={{
+          backgroundColor: 'var(--bg-elevated)',
+          borderColor: 'var(--border-strong)',
+          boxShadow: 'var(--shadow-popover)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-center pb-2">
+          <span
+            className="w-10 h-1 rounded-full"
+            style={{ backgroundColor: 'var(--border-strong)' }}
+          />
+        </div>
+        {menuContent}
+      </div>
+    </div>
+  );
+};

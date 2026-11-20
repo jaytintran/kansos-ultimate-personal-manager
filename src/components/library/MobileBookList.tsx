@@ -87,7 +87,7 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
             {/* Book Details & Clean Unboxed Metadata */}
             <div className="flex-1 min-w-0">
               <div className="flex items-start gap-1.5">
-                <h3 className="font-serif-editorial text-[15px] font-semibold leading-snug text-[var(--text-primary)] line-clamp-2 flex-1">
+                <h3 className="font-sans text-sm font-medium leading-snug text-[var(--text-primary)] line-clamp-2 flex-1">
                   {book.title}
                 </h3>
                 {book.isFavorite && (

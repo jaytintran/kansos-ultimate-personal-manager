@@ -3,16 +3,17 @@ import {
   ArrowLeft,
   ArrowUpNarrowWide,
   CheckSquare,
+  ChevronDown,
   Command,
   FolderPlus,
-  HardDrive,
   LayoutGrid,
   List,
-  PanelLeftOpen,
   PanelRight,
+  Pencil,
   Plus,
   Search,
   SlidersHorizontal,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react';
@@ -30,7 +31,6 @@ import {BulkEditModal, type BulkEditPatch} from '../components/library/BulkEditM
 import {CommandPalette} from '../components/library/CommandPalette';
 import {ConfirmDeleteModal} from '../components/library/ConfirmDeleteModal';
 import {ContinueReadingShelf} from '../components/library/ContinueReadingShelf';
-import {DisplayOptionsPopover} from '../components/library/DisplayOptionsPopover';
 import {
   DuplicateImportModal,
   type DuplicateResolutionAction,
@@ -44,10 +44,10 @@ import {
 } from '../components/library/FolderDropActionModal';
 import {HighlightsHubView} from '../components/library/HighlightsHubView';
 import {ImportBackupModal} from '../components/library/ImportBackupModal';
-import {
-  type ActiveLibraryFilter,
-  LibrarySidebar,
-} from '../components/library/LibrarySidebar';
+import {LibraryFolderModal} from '../components/library/LibraryFolderModal';
+import {LibraryOptionsPopover} from '../components/library/LibraryOptionsPopover';
+import {LibraryShelfStrip} from '../components/library/LibraryShelfStrip';
+import type {ActiveLibraryFilter} from '../components/library/LibrarySidebar';
 import {MetadataDrawer} from '../components/library/MetadataDrawer';
 import {MobileBookActionSheet} from '../components/library/MobileBookActionSheet';
 import {MobileBookList} from '../components/library/MobileBookList';
@@ -129,7 +129,6 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     updateReaderPrefs,
     resetReaderPrefs,
     updateCardDetails,
-    toggleSidebarSection,
   } = useLibraryPreferences();
 
   const books = workspace.books;
@@ -164,7 +163,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [storageManagerOpen, setStorageManagerOpen] = useState(false);
   const [displayPopoverOpen, setDisplayPopoverOpen] = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [folderModal, setFolderModal] = useState<
+    {mode: 'create'} | {mode: 'edit'; folder: FolderRecord} | null
+  >(null);
   const [mobileFilterSheetOpen, setMobileFilterSheetOpen] = useState(false);
   const [mobileActionBook, setMobileActionBook] = useState<BookRecord | null>(null);
   const [organizeTargetIds, setOrganizeTargetIds] = useState<string[] | null>(null);
@@ -1484,127 +1485,167 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         onCloseBookTab={handleCloseBookTab}
       />
 
-      {/* Main Library Studio Shell: Collapsible Left Rail · Center Shelf · Optional Split Inspector */}
+      {/* Main Library Studio Shell: Full-Width Shelf + Optional Split Inspector */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
-        <LibrarySidebar
-          books={books}
-          folders={folders}
-          categories={categories}
-          allTags={allTags}
-          totalHighlightsCount={highlights.length}
-          activeFilter={activeFilter}
-          selectedTags={selectedTags}
-          collapsedSections={prefs.collapsedSections}
-          sidebarWidth={prefs.sidebarWidth}
-          isExportingBackup={isExportingBackup}
-          isParsingBackup={isParsingBackup}
-          onSidebarWidthChange={(w) => updateUiPrefs({sidebarWidth: w})}
-          onToggleSection={toggleSidebarSection}
-          onSelectFilter={(filter) => setActiveFilter(filter)}
-          onToggleTag={(tag) =>
-            setSelectedTags((prev) =>
-              prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
-            )
-          }
-          onClearTags={() => setSelectedTags([])}
-          onCreateFolder={(name, parentId, color) => {
-            void handleCreateFolder(name, parentId ?? null, color ?? 'neutral');
-          }}
-          onUpdateFolder={handleUpdateFolder}
-          onDeleteFolder={handleDeleteFolder}
-          onCreateCategory={(name) => {
-            void handleCreateCategory(name);
-          }}
-          onDeleteCategory={handleDeleteCategory}
-          onDropBooksToFolder={handleDropBooksToSidebarFolder}
-          onDropBooksToCategory={(bookIds, categoryId) => {
-            const set = new Set(bookIds);
-            updateLibraryState((prev) => ({
-              books: prev.books.map((b) => (set.has(b.id) ? {...b, categoryId} : b)),
-            }));
-            notify('Category updated', 'success');
-          }}
-          onDropBooksToTag={(bookIds, tagName) => {
-            const set = new Set(bookIds);
-            updateLibraryState((prev) => ({
-              books: prev.books.map((b) =>
-                set.has(b.id)
-                  ? {...b, tags: Array.from(new Set([...b.tags, tagName]))}
-                  : b
-              ),
-            }));
-            notify(`Tagged with #${tagName}`, 'success');
-          }}
-          onDropBooksToFavorites={(bookIds) => {
-            const set = new Set(bookIds);
-            updateLibraryState((prev) => ({
-              books: prev.books.map((b) => (set.has(b.id) ? {...b, isFavorite: true} : b)),
-            }));
-            notify('Added to Favorites', 'success');
-          }}
-          onExportBackup={() => void handleExportBackup()}
-          onSelectImportBackupFile={(file) => void handleSelectBackupFile(file)}
-          onOpenStorageManager={() => setStorageManagerOpen(true)}
-          isCollapsedDesktop={prefs.sidebarCollapsedDesktop}
-          onCollapseDesktop={() => updateUiPrefs({sidebarCollapsedDesktop: true})}
-          isOpenMobile={mobileSidebarOpen}
-          onCloseMobile={() => setMobileSidebarOpen(false)}
-        />
-
         {/* Center Library Workspace */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          {/* Top Library Command Bar */}
-          <header className="h-14 px-3 sm:px-5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] flex items-center justify-between gap-2 sm:gap-3 shrink-0">
-            {/* Left: Sidebar toggle + Active View Title */}
-            <div className="flex items-center gap-2 min-w-0">
-              {prefs.sidebarCollapsedDesktop && (
+          {/* Bar 1: Compact Unified Header (52px) */}
+          <header className="h-[52px] px-4 sm:px-6 border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)] flex items-center justify-between gap-2 sm:gap-3 shrink-0">
+            {/* Left: Active View Title + Inline Count */}
+            <div className="flex items-baseline gap-2.5 min-w-0">
+              <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight text-[var(--text-primary)] truncate">
+                {drilledViewFolder ? drilledViewFolder.name : activeViewLabel}
+              </h1>
+              <span className="font-mono tabular-nums text-xs text-[var(--text-muted)] shrink-0">
+                {activeFilter.kind === 'smart' && activeFilter.id === 'highlights'
+                  ? highlights.length
+                  : visibleBooks.length}
+              </span>
+            </div>
+
+            {/* Right: Active Folder/Category Actions + Inspector + Primary Import CTA */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {!drilledViewFolder && activeFilter.kind === 'folder' && (() => {
+                const activeFolder = folders.find((f) => f.id === activeFilter.id);
+                if (!activeFolder) return null;
+                return (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setFolderModal({mode: 'edit', folder: activeFolder})}
+                      title="Edit folder"
+                      className="h-8 px-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteFolder(activeFolder.id)}
+                      title="Delete folder (books are preserved)"
+                      className="h-8 px-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--danger)] hover:bg-[var(--bg-surface-hover)] text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Delete</span>
+                    </button>
+                  </>
+                );
+              })()}
+
+              {!drilledViewFolder && activeFilter.kind === 'category' && (() => {
+                const activeCategory = categories.find((c) => c.id === activeFilter.id);
+                if (!activeCategory) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCategory(activeCategory.id)}
+                    title="Delete category"
+                    className="h-8 px-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--danger)] hover:bg-[var(--bg-surface-hover)] text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Delete</span>
+                  </button>
+                );
+              })()}
+
+              {!(activeFilter.kind === 'smart' && activeFilter.id === 'highlights') && (
                 <button
                   type="button"
-                  onClick={() => updateUiPrefs({sidebarCollapsedDesktop: false})}
-                  title="Show shelves sidebar"
-                  aria-label="Show shelves sidebar"
-                  className="hidden lg:inline-flex p-1.5 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                  onClick={() => {
+                    const next = !inspectorOpen;
+                    setInspectorOpen(next);
+                    if (next && !inspectedBookId && visibleBooks[0]) {
+                      setInspectedBookId(visibleBooks[0].id);
+                    }
+                  }}
+                  title="Toggle Book Inspector pane"
+                  aria-label="Toggle Book Inspector"
+                  className={`hidden md:inline-flex items-center gap-1.5 h-8 px-2.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
+                    inspectorOpen
+                      ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                      : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
                 >
-                  <PanelLeftOpen className="w-4 h-4" />
+                  <PanelRight className="w-3.5 h-3.5" />
+                  <span className="hidden lg:inline">Inspector</span>
                 </button>
               )}
 
+              {/* Primary Import CTA */}
               <button
                 type="button"
-                onClick={() => setMobileSidebarOpen(true)}
-                aria-label="Open library shelves"
-                className="lg:hidden min-w-[40px] min-h-[40px] inline-flex items-center justify-center rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                disabled={isImporting}
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:opacity-60 transition-colors cursor-pointer whitespace-nowrap"
               >
-                <PanelLeftOpen className="w-4.5 h-4.5" />
+                <Plus className="w-3.5 h-3.5" />
+                <span>{isImporting ? 'Importing…' : 'Import'}</span>
               </button>
-
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h1 className="font-serif-editorial text-base sm:text-lg font-semibold text-[var(--text-primary)] truncate">
-                    {drilledViewFolder ? drilledViewFolder.name : activeViewLabel}
-                  </h1>
-                  <span className="font-mono-tabular text-xs text-[var(--text-muted)] shrink-0">
-                    {activeFilter.kind === 'smart' && activeFilter.id === 'highlights'
-                      ? highlights.length
-                      : visibleBooks.length}
-                  </span>
-                </div>
-              </div>
             </div>
+          </header>
 
-            {/* Center: Search & Command Palette */}
-            {!(activeFilter.kind === 'smart' && activeFilter.id === 'highlights') && (
-              <div className="hidden md:flex items-center gap-1.5 flex-1 max-w-sm">
-                <div className="relative flex-1">
+          {/* Horizontal Scrolling Shelf Strip (Smart Shelves + Folders + Categories) */}
+          <LibraryShelfStrip
+            books={books}
+            folders={folders}
+            categories={categories}
+            totalHighlightsCount={highlights.length}
+            activeFilter={activeFilter}
+            onSelectFilter={(filter) => setActiveFilter(filter)}
+            onRequestCreateFolder={() => setFolderModal({mode: 'create'})}
+            onDropBooksToFolder={handleDropBooksToSidebarFolder}
+            onDropBooksToCategory={(bookIds, categoryId) => {
+              const set = new Set(bookIds);
+              updateLibraryState((prev) => ({
+                books: prev.books.map((b) => (set.has(b.id) ? {...b, categoryId} : b)),
+              }));
+              notify('Category updated', 'success');
+            }}
+            onDropBooksToFavorites={(bookIds) => {
+              const set = new Set(bookIds);
+              updateLibraryState((prev) => ({
+                books: prev.books.map((b) => (set.has(b.id) ? {...b, isFavorite: true} : b)),
+              }));
+              notify('Added to Favorites', 'success');
+            }}
+          />
+
+          {/* Bar 2: Unified 32px Control Toolbar (Search · Sort · View · Options ▾ · Select) */}
+          {!(activeFilter.kind === 'smart' && activeFilter.id === 'highlights') && (
+            <div className="px-4 sm:px-6 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)]/70 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              {/* Left: Drill-down Breadcrumb + Unified Search + Active Tag Chips */}
+              <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[200px]">
+                {drilledViewFolder && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setDrilledViewFolderId(null)}
+                      className="inline-flex items-center gap-1 h-8 px-2.5 text-xs font-medium rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--accent)] cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Back</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAddingBooksToViewFolder(drilledViewFolder)}
+                      className="inline-flex items-center gap-1 h-8 px-2.5 text-xs font-medium rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--accent)] cursor-pointer"
+                    >
+                      <FolderPlus className="w-3.5 h-3.5" />
+                      <span>Add Books</span>
+                    </button>
+                  </div>
+                )}
+
+                <div className="relative flex-1 min-w-[160px] max-w-xs">
                   <Search className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Filter titles, authors, tags…"
-                    className="w-full pl-8 pr-7 py-1.5 text-xs rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+                    className="w-full h-8 pl-8 pr-12 text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--accent)]"
                   />
-                  {searchQuery && (
+                  {searchQuery ? (
                     <button
                       type="button"
                       onClick={() => setSearchQuery('')}
@@ -1613,212 +1654,18 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setCommandPaletteOpen(true)}
+                      title="Command Palette (Cmd/Ctrl+K)"
+                      className="hidden sm:inline-flex items-center gap-0.5 absolute right-1.5 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] font-mono tabular-nums rounded border border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                    >
+                      <Command className="w-2.5 h-2.5" />
+                      <span>K</span>
+                    </button>
                   )}
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => setCommandPaletteOpen(true)}
-                  title="Command Palette (Cmd/Ctrl+K)"
-                  className="inline-flex items-center gap-1 px-2 py-1.5 text-[11px] font-mono-tabular rounded-md border border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] cursor-pointer shrink-0"
-                >
-                  <Command className="w-3 h-3" />
-                  <span>K</span>
-                </button>
-              </div>
-            )}
-
-            {/* Right: Controls & Import */}
-            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 relative">
-              {!(activeFilter.kind === 'smart' && activeFilter.id === 'highlights') && (
-                <>
-                  {/* Desktop View Mode Toggle */}
-                  <div className="hidden lg:inline-flex items-center p-0.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-canvas)]">
-                    <button
-                      type="button"
-                      onClick={() => updateUiPrefs({viewMode: 'grid'})}
-                      title="Grid view"
-                      aria-label="Grid view"
-                      className={`p-1.5 rounded transition-colors cursor-pointer ${
-                        prefs.viewMode === 'grid'
-                          ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
-                          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateUiPrefs({viewMode: 'table'})}
-                      title="Table view"
-                      aria-label="Table view"
-                      className={`p-1.5 rounded transition-colors cursor-pointer ${
-                        prefs.viewMode === 'table'
-                          ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
-                          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      <List className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Desktop Display Options Popover Trigger */}
-                  <div className="hidden lg:block relative">
-                    <button
-                      type="button"
-                      onClick={() => setDisplayPopoverOpen((v) => !v)}
-                      title="Cover size & card metadata display"
-                      className={`inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
-                        displayPopoverOpen
-                          ? 'border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]'
-                          : 'border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      <SlidersHorizontal className="w-3.5 h-3.5" />
-                    </button>
-                    {displayPopoverOpen && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-30"
-                          onClick={() => setDisplayPopoverOpen(false)}
-                        />
-                        <div className="absolute right-0 top-10 z-40">
-                          <DisplayOptionsPopover
-                            coverSize={prefs.coverSize}
-                            cardDetails={prefs.cardDetails}
-                            onCoverSizeChange={(coverSize) => updateUiPrefs({coverSize})}
-                            onCardDetailsChange={updateCardDetails}
-                          />
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Desktop Inspector Toggle */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !inspectorOpen;
-                      setInspectorOpen(next);
-                      if (next && !inspectedBookId && visibleBooks[0]) {
-                        setInspectedBookId(visibleBooks[0].id);
-                      }
-                    }}
-                    title="Toggle Book Inspector pane"
-                    aria-label="Toggle Book Inspector"
-                    className={`hidden md:inline-flex p-1.5 rounded-md border transition-colors cursor-pointer ${
-                      inspectorOpen
-                        ? 'border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]'
-                        : 'border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                  >
-                    <PanelRight className="w-3.5 h-3.5" />
-                  </button>
-
-                  {/* Mobile Filter/Sort Trigger */}
-                  <button
-                    type="button"
-                    onClick={() => setMobileFilterSheetOpen(true)}
-                    aria-label="Filter and sort books"
-                    className={`lg:hidden min-w-[40px] min-h-[40px] inline-flex items-center justify-center rounded-md border transition-colors cursor-pointer ${
-                      hasActiveFilters
-                        ? 'border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]'
-                        : 'border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-secondary)]'
-                    }`}
-                  >
-                    <SlidersHorizontal className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-
-              {/* Storage Manager Quick Button */}
-              <button
-                type="button"
-                onClick={() => setStorageManagerOpen(true)}
-                title="Offline Storage Manager & Deduplication"
-                aria-label="Storage Manager"
-                className="hidden sm:inline-flex p-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
-              >
-                <HardDrive className="w-3.5 h-3.5" />
-              </button>
-
-              {/* Primary Import CTA */}
-              <button
-                type="button"
-                disabled={isImporting}
-                onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:opacity-60 transition-colors cursor-pointer whitespace-nowrap"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>{isImporting ? 'Importing…' : 'Import'}</span>
-              </button>
-            </div>
-          </header>
-
-          {/* Secondary Compact Filter / Sort / Drill-Down Bar (when viewing Books) */}
-          {!(activeFilter.kind === 'smart' && activeFilter.id === 'highlights') && (
-            <div className="px-3 sm:px-5 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)]/70 flex flex-wrap items-center justify-between gap-2 shrink-0">
-              {/* Mobile inline search */}
-              <div className="md:hidden relative w-full">
-                <Search className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search library…"
-                  className="w-full pl-8 pr-7 py-1.5 text-xs rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    aria-label="Clear search"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] cursor-pointer"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {/* Left: Drill-down Breadcrumb OR Format Filter + Select Mode */}
-              <div className="flex flex-wrap items-center gap-2">
-                {drilledViewFolder ? (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setDrilledViewFolderId(null)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--accent)] cursor-pointer"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Back to {activeViewLabel}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAddingBooksToViewFolder(drilledViewFolder)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--accent)] cursor-pointer"
-                    >
-                      <FolderPlus className="w-3.5 h-3.5" />
-                      <span>Add Books</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="hidden lg:inline-flex items-center p-0.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[11px]">
-                    {(['all', 'epub', 'pdf', 'mobi'] as const).map((fmt) => (
-                      <button
-                        key={fmt}
-                        type="button"
-                        onClick={() => setFormatFilter(fmt)}
-                        className={`px-2 py-0.5 rounded uppercase font-medium transition-colors cursor-pointer ${
-                          formatFilter === fmt
-                            ? 'bg-[var(--bg-elevated)] text-[var(--accent)] shadow-xs'
-                            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                        }`}
-                      >
-                        {fmt}
-                      </button>
-                    ))}
-                  </div>
-                )}
 
                 {selectedTags.map((tag) => (
                   <button
@@ -1827,7 +1674,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     onClick={() =>
                       setSelectedTags((prev) => prev.filter((t) => t !== tag))
                     }
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded border border-[var(--accent)]/40 bg-[var(--bg-accent-subtle)] text-[var(--accent)] cursor-pointer"
+                    className="inline-flex items-center gap-1 h-7 px-2 text-[11px] rounded-md border border-[var(--accent)]/40 bg-[var(--accent-soft)] text-[var(--accent)] cursor-pointer"
                   >
                     <span>#{tag}</span>
                     <X className="w-3 h-3" />
@@ -1835,60 +1682,161 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 ))}
               </div>
 
-              {/* Right: Desktop Group, Sort, Direction & Multi-Select Toggle */}
-              <div className="hidden lg:flex items-center gap-2">
-                <select
-                  value={prefs.groupBy}
-                  onChange={(e) =>
-                    updateUiPrefs({groupBy: e.target.value as GroupByField})
-                  }
-                  aria-label="Group books by"
-                  className="px-2 py-1 text-[11px] rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] cursor-pointer"
-                >
-                  <option value="none">No grouping</option>
-                  <option value="status">Group: Status</option>
-                  <option value="format">Group: Format</option>
-                  <option value="author">Group: Author</option>
-                  <option value="category">Group: Category</option>
-                </select>
+              {/* Right: Sort · View · Options ▾ · Select (Unified 32px Controls) */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                {/* Desktop Sort + Direction */}
+                <div className="hidden lg:flex items-center gap-1">
+                  <select
+                    value={prefs.sortField}
+                    onChange={(e) =>
+                      updateUiPrefs({sortField: e.target.value as SortField})
+                    }
+                    aria-label="Sort books by"
+                    className="h-8 px-2.5 text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] outline-none cursor-pointer"
+                  >
+                    <option value="lastReadAt">Sort: Recently Read</option>
+                    <option value="addedAt">Sort: Date Added</option>
+                    <option value="title">Sort: Title</option>
+                    <option value="author">Sort: Author</option>
+                    <option value="progress">Sort: Progress</option>
+                    <option value="fileSize">Sort: File Size</option>
+                    <option value="year">Sort: Year</option>
+                  </select>
 
-                <select
-                  value={prefs.sortField}
-                  onChange={(e) =>
-                    updateUiPrefs({sortField: e.target.value as SortField})
-                  }
-                  aria-label="Sort books by"
-                  className="px-2 py-1 text-[11px] rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] cursor-pointer"
-                >
-                  <option value="lastReadAt">Sort: Recently Read</option>
-                  <option value="addedAt">Sort: Date Added</option>
-                  <option value="title">Sort: Title</option>
-                  <option value="author">Sort: Author</option>
-                  <option value="progress">Sort: Progress</option>
-                  <option value="fileSize">Sort: File Size</option>
-                  <option value="year">Sort: Year</option>
-                </select>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateUiPrefs({
+                        sortDirection: prefs.sortDirection === 'asc' ? 'desc' : 'asc',
+                      })
+                    }
+                    title={
+                      prefs.sortDirection === 'asc' ? 'Ascending order' : 'Descending order'
+                    }
+                    aria-label="Toggle sort direction"
+                    className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+                  >
+                    {prefs.sortDirection === 'asc' ? (
+                      <ArrowUpNarrowWide className="w-3.5 h-3.5" />
+                    ) : (
+                      <ArrowDownWideNarrow className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    updateUiPrefs({
-                      sortDirection: prefs.sortDirection === 'asc' ? 'desc' : 'asc',
-                    })
-                  }
-                  title={
-                    prefs.sortDirection === 'asc' ? 'Ascending order' : 'Descending order'
-                  }
-                  aria-label="Toggle sort direction"
-                  className="p-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
-                >
-                  {prefs.sortDirection === 'asc' ? (
-                    <ArrowUpNarrowWide className="w-3.5 h-3.5" />
-                  ) : (
-                    <ArrowDownWideNarrow className="w-3.5 h-3.5" />
-                  )}
-                </button>
+                {/* Desktop View Mode Segmented Control */}
+                <div className="hidden lg:inline-flex items-center h-8 p-0.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+                  <button
+                    type="button"
+                    onClick={() => updateUiPrefs({viewMode: 'grid'})}
+                    title="Grid view"
+                    aria-label="Grid view"
+                    className={`h-full px-2 rounded-md transition-colors cursor-pointer ${
+                      prefs.viewMode === 'grid'
+                        ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                        : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateUiPrefs({viewMode: 'table'})}
+                    title="Table view"
+                    aria-label="Table view"
+                    className={`h-full px-2 rounded-md transition-colors cursor-pointer ${
+                      prefs.viewMode === 'table'
+                        ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                        : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                  </button>
+                </div>
 
+                {/* Consolidated Options Popover (Format, Group, Display, Tags, Categories, Storage, Backup) */}
+                {(() => {
+                  const activeOptionsCount =
+                    (formatFilter !== 'all' ? 1 : 0) +
+                    (prefs.groupBy !== 'none' ? 1 : 0) +
+                    selectedTags.length;
+                  const totalBytes = books.reduce((sum, b) => sum + (b.fileSize || 0), 0);
+
+                  return (
+                    <div className="hidden lg:block relative">
+                      <button
+                        type="button"
+                        onClick={() => setDisplayPopoverOpen((v) => !v)}
+                        title="Format, grouping, cover display, tags, backup & storage"
+                        className={`inline-flex items-center gap-1.5 h-8 px-2.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
+                          displayPopoverOpen || activeOptionsCount > 0
+                            ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                            : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        }`}
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                        <span>Options</span>
+                        {activeOptionsCount > 0 && (
+                          <span className="font-mono tabular-nums text-[10px] px-1 rounded bg-[var(--accent)] text-[var(--accent-contrast)]">
+                            {activeOptionsCount}
+                          </span>
+                        )}
+                        <ChevronDown className="w-3 h-3 opacity-70" />
+                      </button>
+
+                      {displayPopoverOpen && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-30"
+                            onClick={() => setDisplayPopoverOpen(false)}
+                          />
+                          <div className="absolute right-0 top-10 z-40">
+                            <LibraryOptionsPopover
+                              formatFilter={formatFilter}
+                              groupBy={prefs.groupBy}
+                              coverSize={prefs.coverSize}
+                              cardDetails={prefs.cardDetails}
+                              allTags={allTags}
+                              selectedTags={selectedTags}
+                              categories={categories}
+                              activeFilter={activeFilter}
+                              totalBytes={totalBytes}
+                              isExportingBackup={isExportingBackup}
+                              isParsingBackup={isParsingBackup}
+                              onFormatFilterChange={setFormatFilter}
+                              onGroupByChange={(groupBy) => updateUiPrefs({groupBy})}
+                              onCoverSizeChange={(coverSize) => updateUiPrefs({coverSize})}
+                              onCardDetailsChange={updateCardDetails}
+                              onToggleTag={(tag) =>
+                                setSelectedTags((prev) =>
+                                  prev.includes(tag)
+                                    ? prev.filter((t) => t !== tag)
+                                    : [...prev, tag]
+                                )
+                              }
+                              onClearTags={() => setSelectedTags([])}
+                              onSelectCategory={(categoryId) =>
+                                setActiveFilter({kind: 'category', id: categoryId})
+                              }
+                              onCreateCategory={(name) => {
+                                void handleCreateCategory(name);
+                              }}
+                              onDeleteCategory={handleDeleteCategory}
+                              onExportBackup={() => void handleExportBackup()}
+                              onSelectImportBackupFile={(file) =>
+                                void handleSelectBackupFile(file)
+                              }
+                              onOpenStorageManager={() => setStorageManagerOpen(true)}
+                              onClose={() => setDisplayPopoverOpen(false)}
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Desktop Multi-Select Toggle */}
                 {visibleBooks.length > 0 && (
                   <button
                     type="button"
@@ -1897,9 +1845,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       else setSelectedIds(new Set([visibleBooks[0].id]));
                     }}
                     title={selectedIds.size > 0 ? 'Exit selection' : 'Select multiple books'}
-                    className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border transition-colors cursor-pointer ${
+                    className={`hidden lg:inline-flex items-center gap-1 h-8 px-2.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
                       selectedIds.size > 0
-                        ? 'border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]'
+                        ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
                         : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                     }`}
                   >
@@ -1907,6 +1855,21 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     <span>{selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select'}</span>
                   </button>
                 )}
+
+                {/* Mobile Filter/Sort Trigger (<lg) */}
+                <button
+                  type="button"
+                  onClick={() => setMobileFilterSheetOpen(true)}
+                  aria-label="Filter, sort, and display options"
+                  className={`lg:hidden h-8 px-2.5 inline-flex items-center gap-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
+                    hasActiveFilters
+                      ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                      : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)]'
+                  }`}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span>Options</span>
+                </button>
               </div>
             </div>
           )}
@@ -1994,7 +1957,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 {/* Empty filtered state */}
                 {visibleBooks.length === 0 ? (
                   <div className="py-16 text-center space-y-2 border border-dashed border-[var(--border-subtle)] rounded-xl">
-                    <p className="font-serif-editorial text-base text-[var(--text-primary)]">
+                    <p className="font-display text-sm font-medium text-[var(--text-primary)]">
                       No books in this view
                     </p>
                     <p className="text-xs text-[var(--text-muted)]">
@@ -2192,7 +2155,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       {isFileDragActive && (
         <div className="absolute inset-0 z-50 bg-[var(--bg-canvas)]/90 backdrop-blur-xs flex flex-col items-center justify-center p-6 pointer-events-none border-2 border-dashed border-[var(--accent)] m-3 rounded-xl">
           <Upload className="w-8 h-8 text-[var(--accent)] mb-2" />
-          <p className="font-serif-editorial text-lg font-semibold text-[var(--text-primary)]">
+          <p className="font-display text-base font-semibold text-[var(--text-primary)]">
             Drop ebooks to import into Kanso Library
           </p>
           <p className="text-xs text-[var(--text-secondary)] mt-1">
@@ -2500,6 +2463,23 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         onApply={handleApplyMobileOrganize}
         onClose={() => setOrganizeTargetIds(null)}
       />
+
+      {/* Create / Edit Library Folder Modal */}
+      {folderModal && (
+        <LibraryFolderModal
+          mode={folderModal.mode}
+          folder={folderModal.mode === 'edit' ? folderModal.folder : undefined}
+          folders={folders}
+          onClose={() => setFolderModal(null)}
+          onSave={({name, color, parentId}) => {
+            if (folderModal.mode === 'create') {
+              void handleCreateFolder(name, parentId, color);
+            } else {
+              handleUpdateFolder(folderModal.folder.id, {name, color});
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

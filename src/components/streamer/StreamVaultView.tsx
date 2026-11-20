@@ -365,31 +365,31 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
           {/* Row 1: Breadcrumb + Title + Contextual Stack Actions */}
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex items-start gap-2.5 min-w-0">
-              <button
-                type="button"
-                onClick={() => setMobileSidebarOpen(true)}
-                className="lg:hidden mt-0.5 h-9 w-9 rounded-lg border flex items-center justify-center shrink-0"
-                style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--border-subtle)',
-                  color: 'var(--text-primary)',
-                }}
-                aria-label="Open folders and channels sidebar"
-              >
-                <Menu className="w-4 h-4" />
-              </button>
-
-              <div className="min-w-0">
-                <div
-                  className="text-[11px] font-medium truncate"
-                  style={{ color: 'var(--text-muted)' }}
+                <button
+                  type="button"
+                  onClick={() => setMobileSidebarOpen(true)}
+                  className="lg:hidden mt-0.5 h-8 w-8 rounded-lg border flex items-center justify-center shrink-0"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-primary)',
+                  }}
+                  aria-label="Open folders and channels sidebar"
                 >
-                  {scopeMeta.breadcrumb}
-                </div>
-                <div className="flex items-baseline gap-2.5 mt-0.5 flex-wrap">
-                  <h2 className="font-display text-base sm:text-lg font-bold tracking-tight truncate">
-                    {scopeMeta.title}
-                  </h2>
+                  <Menu className="w-4 h-4" />
+                </button>
+
+                <div className="min-w-0">
+                  <div
+                    className="text-[11px] font-medium truncate"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    {scopeMeta.breadcrumb}
+                  </div>
+                  <div className="flex items-baseline gap-2.5 mt-0.5 flex-wrap">
+                    <h2 className="font-display text-base font-semibold tracking-tight truncate">
+                      {scopeMeta.title}
+                    </h2>
                   <span
                     className="text-xs font-mono tabular-nums"
                     style={{ color: 'var(--text-muted)' }}
@@ -450,7 +450,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               <button
                 type="button"
                 onClick={() => setDrawerState({ open: true, mode: 'create' })}
-                className="h-9 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
                 style={{
                   backgroundColor: 'var(--accent)',
                   color: 'var(--accent-fg)',
@@ -462,19 +462,19 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
             </div>
           </div>
 
-          {/* Row 2: Search + Sort + Grid/Table Toggle */}
+          {/* Row 2: Unified 32px Search + Sort + Grid/Table Toggle */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative flex-1 min-w-[200px]">
               <Search
-                className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
                 style={{ color: 'var(--text-muted)' }}
               />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search titles, channels, topics, tags, affirmations, or notes..."
-                className="w-full h-9 pl-9 pr-8 rounded-lg border text-xs outline-none"
+                placeholder="Search titles, channels, topics, tags, or notes..."
+                className="w-full h-8 pl-8 pr-7 rounded-lg border text-xs outline-none"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   borderColor: 'var(--border-subtle)',
@@ -485,7 +485,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
-                  className="h-6 w-6 rounded flex items-center justify-center absolute right-1.5 top-1/2 -translate-y-1/2"
+                  className="h-6 w-6 rounded flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2"
                   style={{ color: 'var(--text-muted)' }}
                   aria-label="Clear search"
                 >
@@ -498,7 +498,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as VaultSortMode)}
-              className="h-9 px-2.5 rounded-lg border text-xs font-medium outline-none shrink-0"
+              className="h-8 px-2.5 rounded-lg border text-xs font-medium outline-none shrink-0"
               style={{
                 backgroundColor: 'var(--bg-surface)',
                 borderColor: 'var(--border-subtle)',
@@ -515,9 +515,9 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
 
             {/* Grid / Table Segmented View Switch */}
             <div
-              className="inline-flex items-center gap-0.5 p-1 rounded-lg border shrink-0"
+              className="inline-flex items-center h-8 gap-0.5 p-0.5 rounded-lg border shrink-0"
               style={{
-                backgroundColor: 'var(--bg-surface-subtle)',
+                backgroundColor: 'var(--bg-surface)',
                 borderColor: 'var(--border-subtle)',
               }}
               role="group"
@@ -526,10 +526,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('grid')}
-                className="h-7 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
                 style={{
-                  backgroundColor: viewMode === 'grid' ? 'var(--bg-surface)' : 'transparent',
-                  color: viewMode === 'grid' ? 'var(--accent)' : 'var(--text-secondary)',
+                  backgroundColor: viewMode === 'grid' ? 'var(--accent-soft)' : 'transparent',
+                  color: viewMode === 'grid' ? 'var(--accent)' : 'var(--text-muted)',
                 }}
                 aria-label="Grid cards view"
               >
@@ -539,10 +539,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('table')}
-                className="h-7 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
                 style={{
-                  backgroundColor: viewMode === 'table' ? 'var(--bg-surface)' : 'transparent',
-                  color: viewMode === 'table' ? 'var(--accent)' : 'var(--text-secondary)',
+                  backgroundColor: viewMode === 'table' ? 'var(--accent-soft)' : 'transparent',
+                  color: viewMode === 'table' ? 'var(--accent)' : 'var(--text-muted)',
                 }}
                 aria-label="Dense table view"
               >
@@ -713,7 +713,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                           }
                           className="text-left min-w-0 flex-1"
                         >
-                          <h3 className="text-xs font-semibold leading-snug line-clamp-2 hover:underline">
+                          <h3 className="text-sm font-medium leading-snug line-clamp-2 hover:underline">
                             {item.customLabel || item.title}
                           </h3>
                         </button>

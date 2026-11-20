@@ -93,7 +93,7 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
   const panelBody = !book ? (
     <div className="flex flex-col h-full">
       <div className="h-14 px-5 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0">
-        <span className="font-serif-editorial text-sm font-semibold text-[var(--text-primary)]">
+        <span className="font-display text-sm font-semibold text-[var(--text-primary)]">
           Book Inspector
         </span>
         <button
@@ -107,7 +107,7 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
       </div>
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
         <BookOpen className="w-6 h-6 text-[var(--text-muted)] mb-3" />
-        <p className="font-serif-editorial text-sm font-medium text-[var(--text-primary)]">
+        <p className="font-sans text-sm font-medium text-[var(--text-primary)]">
           Select a book to inspect
         </p>
         <p className="mt-1.5 text-xs text-[var(--text-muted)] leading-relaxed max-w-[220px]">
@@ -120,7 +120,7 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="h-14 px-5 border-b border-[var(--border-subtle)] flex items-center justify-between gap-2 shrink-0">
-        <span className="font-serif-editorial text-sm font-semibold text-[var(--text-primary)] truncate">
+        <span className="font-display text-sm font-semibold text-[var(--text-primary)] truncate">
           Book Inspector
         </span>
         <div className="flex items-center gap-1 shrink-0">
@@ -173,7 +173,7 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
             />
           </div>
 
-          <h2 className="mt-4 font-serif-editorial text-base font-semibold leading-snug text-[var(--text-primary)]">
+          <h2 className="mt-4 font-display text-base font-semibold leading-snug text-[var(--text-primary)]">
             {book.title}
           </h2>
           {book.subtitle?.trim() && (
@@ -394,7 +394,7 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
                       </span>
                       <span>{formatShortDate(hl.createdAt)}</span>
                     </div>
-                    <p className="font-serif-editorial text-xs text-[var(--text-primary)] line-clamp-3 leading-relaxed">
+                    <p className="font-sans text-xs text-[var(--text-primary)] line-clamp-3 leading-relaxed">
                       &ldquo;{hl.selectedText}&rdquo;
                     </p>
                     {hl.note && (

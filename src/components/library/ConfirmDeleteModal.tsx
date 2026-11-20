@@ -34,7 +34,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
               <div className="w-9 h-9 rounded-md bg-[var(--danger)]/12 text-[var(--danger)] flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-4 h-4" />
               </div>
-              <h2 className="font-serif-editorial text-lg font-semibold text-[var(--text-primary)]">
+              <h2 className="font-display text-base font-semibold text-[var(--text-primary)]">
                 Delete {booksToDelete.length}{' '}
                 {booksToDelete.length === 1 ? 'book' : 'books'}?
               </h2>

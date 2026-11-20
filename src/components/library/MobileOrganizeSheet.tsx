@@ -640,7 +640,7 @@ export const MobileOrganizeSheet: React.FC<MobileOrganizeSheetProps> = ({
           {/* Sticky Drawer Header */}
           <div className="px-6 py-3.5 border-b border-[var(--border-subtle)] flex items-start justify-between gap-3 shrink-0">
             <div className="min-w-0">
-              <h2 className="font-serif-editorial text-lg font-semibold text-[var(--text-primary)] truncate">
+              <h2 className="font-display text-base font-semibold text-[var(--text-primary)] truncate">
                 {title}
               </h2>
               <p className="text-xs text-[var(--text-muted)] truncate mt-0.5">{subtitle}</p>

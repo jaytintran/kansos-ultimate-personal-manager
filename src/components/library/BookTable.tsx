@@ -207,7 +207,7 @@ export const BookTable: React.FC<BookTableProps> = ({
                           if (inspectorOpen) onInspectBook(book);
                           else onOpenBook(book);
                         }}
-                        className="block w-full font-serif-editorial text-sm font-medium text-[var(--text-primary)] hover:text-[var(--accent)] truncate text-left cursor-pointer"
+                        className="block w-full font-sans text-sm font-medium text-[var(--text-primary)] hover:text-[var(--accent)] truncate text-left cursor-pointer"
                       >
                         {book.title}
                       </button>

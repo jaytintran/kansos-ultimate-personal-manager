@@ -43,7 +43,7 @@ export const ImportBackupModal: React.FC<ImportBackupModalProps> = ({
           <div className="flex items-start gap-3 min-w-0">
             <ArchiveRestore className="w-5 h-5 text-[var(--accent)] shrink-0 mt-0.5" />
             <div className="min-w-0">
-              <h2 className="font-serif-editorial text-lg font-semibold text-[var(--text-primary)]">
+              <h2 className="font-display text-base font-semibold text-[var(--text-primary)]">
                 Import Library Backup
               </h2>
               <p className="mt-0.5 text-xs text-[var(--text-secondary)] truncate">

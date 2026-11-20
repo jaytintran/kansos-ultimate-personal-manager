@@ -558,7 +558,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
           className="flex items-center gap-2 text-left cursor-pointer whitespace-nowrap shrink-0"
         >
           <BookMarked className="w-4 h-4 text-[var(--accent)] shrink-0" />
-          <span className="font-serif-editorial text-base font-semibold tracking-tight text-[var(--text-primary)]">
+          <span className="font-display text-base font-semibold tracking-tight text-[var(--text-primary)]">
             Shelves
           </span>
         </button>
