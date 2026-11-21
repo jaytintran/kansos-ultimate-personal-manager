@@ -150,6 +150,7 @@ export interface ParsedChapter {
   href: string;
   title: string;
   html: string;
+  publisherCss?: string;
 }
 
 export interface ParsedTocItem {
@@ -212,6 +213,7 @@ export interface ReaderPreferences {
   contrastPreset: ReaderContrastPreset;
   brightness: number; // 75..115 (%)
   readingLayout: 'scroll' | 'page' | 'spread';
+  publisherStyles: boolean;
   pdfViewMode: PdfViewMode;
   pdfLayout: 'continuous' | 'single';
   pdfFitMode: 'width' | 'manual';

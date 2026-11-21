@@ -9,6 +9,12 @@ export interface ScrubberMarker {
   pct: number; // 0..100
 }
 
+export interface ScrubberBookmarkMarker {
+  id: string;
+  label: string;
+  pct: number; // 0..100
+}
+
 interface ReaderScrubberProps {
   visible: boolean;
   isPinned: boolean;
@@ -17,9 +23,11 @@ interface ReaderScrubberProps {
   progressPct: number; // 0..100
   currentLabel: string;
   virtualPageLabel?: string;
+  compactVirtualPageLabel?: string;
   chapterMinutesLeft: number | null;
   bookMinutesLeft: number;
   markers: ScrubberMarker[];
+  bookmarkMarkers?: ScrubberBookmarkMarker[];
   canStepPrev: boolean;
   canStepNext: boolean;
   onStepPrev: () => void;
@@ -38,9 +46,11 @@ export const ReaderScrubber: React.FC<ReaderScrubberProps> = ({
   progressPct,
   currentLabel,
   virtualPageLabel,
+  compactVirtualPageLabel,
   chapterMinutesLeft,
   bookMinutesLeft,
   markers,
+  bookmarkMarkers = [],
   canStepPrev,
   canStepNext,
   onStepPrev,
@@ -106,7 +116,7 @@ export const ReaderScrubber: React.FC<ReaderScrubberProps> = ({
       onMouseLeave={onMouseLeave}
       className={positioningClass}
     >
-      <div className="px-3 sm:px-5 h-13 flex items-center gap-2 sm:gap-4">
+      <div className="px-2.5 sm:px-5 h-12 sm:h-13 flex items-center gap-1.5 sm:gap-4">
         {/* Left: Current location & virtual page / chapter time */}
         <div className="hidden md:flex flex-col min-w-[175px] max-w-[240px] shrink-0">
           <span className="text-[11px] font-medium text-[var(--text-primary)] truncate">
@@ -124,14 +134,14 @@ export const ReaderScrubber: React.FC<ReaderScrubberProps> = ({
         </div>
 
         {/* Center: Step buttons + Interactive Scrubber Track */}
-        <div className="flex-1 flex items-center gap-2.5 min-w-0">
+        <div className="flex-1 flex items-center gap-1.5 sm:gap-2.5 min-w-0">
           <button
             type="button"
             disabled={!canStepPrev}
             onClick={onStepPrev}
             title={format === 'pdf' ? 'Previous page' : 'Previous section or spread'}
             aria-label="Previous"
-            className="min-w-[40px] min-h-[40px] lg:min-w-0 lg:min-h-0 flex items-center justify-center p-1.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer shrink-0"
+            className="w-9 h-9 lg:w-8 lg:h-8 flex items-center justify-center rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer shrink-0"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -187,6 +197,16 @@ export const ReaderScrubber: React.FC<ReaderScrubberProps> = ({
                 />
               ))}
 
+              {/* Page-Level Bookmark Markers */}
+              {bookmarkMarkers.map((bm) => (
+                <span
+                  key={bm.id}
+                  aria-hidden="true"
+                  style={{left: `${Math.min(100, Math.max(0, bm.pct))}%`}}
+                  className="pointer-events-none absolute -top-1.5 -translate-x-1/2 w-1.5 h-1.5 rotate-45 bg-[var(--accent)] ring-1 ring-[var(--bg-surface)]"
+                />
+              ))}
+
               {/* Scrubber Thumb */}
               <div
                 style={{left: `${Math.min(100, Math.max(0, displayedPct))}%`}}
@@ -201,17 +221,17 @@ export const ReaderScrubber: React.FC<ReaderScrubberProps> = ({
             onClick={onStepNext}
             title={format === 'pdf' ? 'Next page' : 'Next section or spread'}
             aria-label="Next"
-            className="min-w-[40px] min-h-[40px] lg:min-w-0 lg:min-h-0 flex items-center justify-center p-1.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer shrink-0"
+            className="w-9 h-9 lg:w-8 lg:h-8 flex items-center justify-center rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer shrink-0"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
         {/* Right: Virtual page / book time left, percentage & independent Pin Bottom Bar toggle */}
-        <div className="flex items-center gap-2 text-right shrink-0">
-          {format !== 'pdf' && virtualPageLabel && (
+        <div className="flex items-center gap-1.5 sm:gap-2 text-right shrink-0">
+          {format !== 'pdf' && (compactVirtualPageLabel || virtualPageLabel) && (
             <span className="md:hidden font-mono-tabular text-[10px] text-[var(--text-muted)] whitespace-nowrap">
-              {virtualPageLabel}
+              {compactVirtualPageLabel ?? virtualPageLabel}
             </span>
           )}
           {format !== 'pdf' && (
@@ -219,7 +239,7 @@ export const ReaderScrubber: React.FC<ReaderScrubberProps> = ({
               {formatReadingTime(bookMinutesLeft)} left
             </span>
           )}
-          <span className="font-mono-tabular text-xs font-medium text-[var(--text-primary)] w-9 text-right">
+          <span className="font-mono-tabular text-xs font-medium text-[var(--text-primary)] min-w-[2.25rem] text-right">
             {Math.round(displayedPct)}%
           </span>
           <div className="hidden lg:block h-4 w-px bg-[var(--border-subtle)] mx-0.5" />

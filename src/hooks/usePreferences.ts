@@ -33,6 +33,7 @@ export const DEFAULT_READER_PREFS: ReaderPreferences = {
   contrastPreset: 'balanced',
   brightness: 100,
   readingLayout: 'scroll',
+  publisherStyles: false,
   pdfViewMode: 'original',
   pdfLayout: 'continuous',
   pdfFitMode: 'width',

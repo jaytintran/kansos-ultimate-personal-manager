@@ -84,6 +84,107 @@ export function resolveReaderFont(fontFamily: ReaderFontFamily): ReaderFontOptio
   return READER_FONT_OPTIONS.find((f) => f.id === normalized) ?? READER_FONT_OPTIONS[0];
 }
 
+export interface TypographyPreset {
+  id: 'paperback' | 'editorial' | 'compact' | 'large';
+  label: string;
+  description: string;
+  patch: Partial<ReaderPreferences>;
+}
+
+export const TYPOGRAPHY_PRESETS: TypographyPreset[] = [
+  {
+    id: 'paperback',
+    label: 'Paperback',
+    description: 'Classic indented prose',
+    patch: {
+      fontFamily: 'literata',
+      fontSize: 18,
+      fontWeight: 400,
+      lineHeight: 1.65,
+      paragraphSpacing: 0.3,
+      textIndent: 1.4,
+      textAlign: 'justify',
+      wordSpacing: 0,
+      letterSpacing: 0,
+      pageMargins: 48,
+      pageWidth: 680,
+    },
+  },
+  {
+    id: 'editorial',
+    label: 'Editorial',
+    description: 'Airy Kanso default',
+    patch: {
+      fontFamily: 'source-serif',
+      fontSize: 18,
+      fontWeight: 400,
+      lineHeight: 1.72,
+      paragraphSpacing: 0.9,
+      textIndent: 0,
+      textAlign: 'left',
+      wordSpacing: 0,
+      letterSpacing: 0,
+      pageMargins: 48,
+      pageWidth: 720,
+    },
+  },
+  {
+    id: 'compact',
+    label: 'Compact',
+    description: 'Crisp sans, high density',
+    patch: {
+      fontFamily: 'dm-sans',
+      fontSize: 16,
+      fontWeight: 400,
+      lineHeight: 1.55,
+      paragraphSpacing: 0.6,
+      textIndent: 0,
+      textAlign: 'left',
+      wordSpacing: 0,
+      letterSpacing: 0,
+      pageMargins: 36,
+      pageWidth: 780,
+    },
+  },
+  {
+    id: 'large',
+    label: 'Large Focus',
+    description: 'Relaxed large print',
+    patch: {
+      fontFamily: 'literata',
+      fontSize: 22,
+      fontWeight: 400,
+      lineHeight: 1.85,
+      paragraphSpacing: 1.0,
+      textIndent: 0,
+      textAlign: 'left',
+      wordSpacing: 0.02,
+      letterSpacing: 0,
+      pageMargins: 40,
+      pageWidth: 740,
+    },
+  },
+];
+
+export function findActiveTypographyPreset(prefs: ReaderPreferences): TypographyPreset['id'] | null {
+  const fontId = resolveReaderFont(prefs.fontFamily).id;
+  for (const preset of TYPOGRAPHY_PRESETS) {
+    const p = preset.patch;
+    if (
+      fontId === p.fontFamily &&
+      prefs.fontSize === p.fontSize &&
+      (prefs.fontWeight ?? 400) === p.fontWeight &&
+      Math.abs(prefs.lineHeight - (p.lineHeight ?? 1.72)) < 0.03 &&
+      Math.abs(prefs.paragraphSpacing - (p.paragraphSpacing ?? 0.9)) < 0.06 &&
+      Math.abs(prefs.textIndent - (p.textIndent ?? 0)) < 0.06 &&
+      prefs.textAlign === p.textAlign
+    ) {
+      return preset.id;
+    }
+  }
+  return null;
+}
+
 export function resolveReaderTextInk(
   contrastPreset: ReaderContrastPreset | undefined,
   theme: ThemeMode

@@ -2,6 +2,8 @@ import {
   AlignJustify,
   AlignLeft,
   BookOpen,
+  ChevronDown,
+  ChevronUp,
   Columns2,
   FileText,
   Minus,
@@ -10,11 +12,18 @@ import {
   Plus,
   RotateCcw,
   ScrollText,
+  SlidersHorizontal,
+  Sparkles,
   Sun,
   Type,
 } from 'lucide-react';
-import React from 'react';
-import {READER_FONT_OPTIONS, resolveReaderFont} from '../../lib/readerUtils';
+import React, {useState} from 'react';
+import {
+  findActiveTypographyPreset,
+  READER_FONT_OPTIONS,
+  resolveReaderFont,
+  TYPOGRAPHY_PRESETS,
+} from '../../lib/readerUtils';
 import type {
   BookFormat,
   ReaderContrastPreset,
@@ -50,9 +59,11 @@ export const TypographyPopover: React.FC<TypographyPopoverProps> = ({
   onUpdate,
   onReset,
 }) => {
+  const [showSpacingAdvanced, setShowSpacingAdvanced] = useState(false);
   const isPdf = format === 'pdf';
   const showReflowControls = !isPdf || prefs.pdfViewMode === 'reflow';
   const activeFont = resolveReaderFont(prefs.fontFamily);
+  const activePresetId = findActiveTypographyPreset(prefs);
   const serifFonts = READER_FONT_OPTIONS.filter((f) => f.group === 'serif');
   const sansMonoFonts = READER_FONT_OPTIONS.filter((f) => f.group !== 'serif');
 
@@ -364,6 +375,81 @@ export const TypographyPopover: React.FC<TypographyPopoverProps> = ({
             </div>
           </div>
 
+          {/* Formatting Mode: Clean Kanso vs Publisher Styles (EPUB) */}
+          {!isPdf && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] font-medium text-[var(--text-muted)]">Formatting</span>
+                <span className="text-[10px] text-[var(--text-muted)]">
+                  {prefs.publisherStyles
+                    ? 'Original alignment, verse & ornaments'
+                    : 'Uniform Kanso typography'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-md bg-[var(--bg-sidebar)]">
+                <button
+                  type="button"
+                  onClick={() => onUpdate({publisherStyles: false})}
+                  className={`py-1.5 px-2 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
+                    !prefs.publisherStyles
+                      ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  Clean Kanso
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onUpdate({publisherStyles: true})}
+                  className={`py-1.5 px-2 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
+                    prefs.publisherStyles
+                      ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  Publisher Styles
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 1-Click Typography Presets */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--text-muted)]">
+                <Sparkles className="w-3 h-3 text-[var(--accent)]" />
+                Presets
+              </span>
+              {activePresetId && (
+                <span className="text-[10px] text-[var(--text-muted)]">
+                  {TYPOGRAPHY_PRESETS.find((p) => p.id === activePresetId)?.description}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {TYPOGRAPHY_PRESETS.map((preset) => {
+                const selected = activePresetId === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => onUpdate(preset.patch)}
+                    className={`px-2.5 py-1.5 rounded-md border text-left transition-colors cursor-pointer ${
+                      selected
+                        ? 'border-[var(--accent)] ring-1 ring-[var(--accent)] bg-[var(--bg-surface)] text-[var(--text-primary)]'
+                        : 'border-[var(--border-subtle)] bg-[var(--bg-sidebar)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]'
+                    }`}
+                  >
+                    <div className="text-xs font-medium truncate">{preset.label}</div>
+                    <div className="text-[10px] text-[var(--text-muted)] truncate">
+                      {preset.description}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Expanded Typeface Family Picker */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -554,111 +640,135 @@ export const TypographyPopover: React.FC<TypographyPopoverProps> = ({
             </div>
           </div>
 
-          {/* Word Spacing & Letter Spacing */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-medium text-[var(--text-muted)]">Word Spacing</span>
-                <span className="font-mono-tabular text-[11px] text-[var(--text-primary)]">
-                  {prefs.wordSpacing >= 0 ? `+${prefs.wordSpacing.toFixed(2)}` : prefs.wordSpacing.toFixed(2)}em
-                </span>
-              </div>
-              <input
-                type="range"
-                min={-0.04}
-                max={0.36}
-                step={0.02}
-                value={prefs.wordSpacing}
-                onChange={(e) => onUpdate({wordSpacing: parseFloat(e.target.value)})}
-                aria-label="Word spacing"
-                className="w-full accent-[var(--accent)] cursor-pointer"
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-medium text-[var(--text-muted)]">Letter Spacing</span>
-                <span className="font-mono-tabular text-[11px] text-[var(--text-primary)]">
-                  {prefs.letterSpacing >= 0
-                    ? `+${prefs.letterSpacing.toFixed(2)}`
-                    : prefs.letterSpacing.toFixed(2)}
-                  em
-                </span>
-              </div>
-              <input
-                type="range"
-                min={-0.02}
-                max={0.12}
-                step={0.01}
-                value={prefs.letterSpacing}
-                onChange={(e) => onUpdate({letterSpacing: parseFloat(e.target.value)})}
-                aria-label="Letter spacing"
-                className="w-full accent-[var(--accent)] cursor-pointer"
-              />
-            </div>
-          </div>
-
-          {/* First-Line Indent & Page Margins */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-medium text-[var(--text-muted)]">First Indent</span>
-                <span className="font-mono-tabular text-[11px] text-[var(--text-primary)]">
-                  {prefs.textIndent.toFixed(1)}em
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={2.2}
-                step={0.2}
-                value={prefs.textIndent}
-                onChange={(e) => onUpdate({textIndent: parseFloat(e.target.value)})}
-                aria-label="First-line paragraph indent"
-                className="w-full accent-[var(--accent)] cursor-pointer"
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-medium text-[var(--text-muted)]">Page Margins</span>
-                <span className="font-mono-tabular text-[11px] text-[var(--text-primary)]">
-                  {prefs.pageMargins}px
-                </span>
-              </div>
-              <input
-                type="range"
-                min={16}
-                max={96}
-                step={4}
-                value={prefs.pageMargins}
-                onChange={(e) => onUpdate({pageMargins: parseInt(e.target.value, 10)})}
-                aria-label="Page side margins"
-                className="w-full accent-[var(--accent)] cursor-pointer"
-              />
-            </div>
-          </div>
-
-          {/* Column / Spread Width */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] font-medium text-[var(--text-muted)]">
-                {prefs.readingLayout === 'spread' ? 'Spread Width' : 'Column Width'}
+          {/* Collapsible Fine-Tune Spacing & Width */}
+          <div className="pt-2 border-t border-[var(--border-subtle)]">
+            <button
+              type="button"
+              onClick={() => setShowSpacingAdvanced((v) => !v)}
+              aria-expanded={showSpacingAdvanced}
+              className="w-full flex items-center justify-between py-1 text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                Spacing, Indent &amp; Page Width
               </span>
-              <span className="font-mono-tabular text-[11px] text-[var(--text-primary)]">
-                {prefs.pageWidth}px
-              </span>
-            </div>
-            <input
-              type="range"
-              min={540}
-              max={960}
-              step={20}
-              value={prefs.pageWidth}
-              onChange={(e) => onUpdate({pageWidth: parseInt(e.target.value, 10)})}
-              aria-label="Reading column width"
-              className="w-full accent-[var(--accent)] cursor-pointer"
-            />
+              {showSpacingAdvanced ? (
+                <ChevronUp className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+              )}
+            </button>
+
+            {showSpacingAdvanced && (
+              <div className="pt-3 space-y-3.5">
+                {/* Word Spacing & Letter Spacing */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-medium text-[var(--text-muted)]">Word Spacing</span>
+                      <span className="font-mono-tabular text-[11px] text-[var(--text-primary)]">
+                        {prefs.wordSpacing >= 0 ? `+${prefs.wordSpacing.toFixed(2)}` : prefs.wordSpacing.toFixed(2)}em
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={-0.04}
+                      max={0.36}
+                      step={0.02}
+                      value={prefs.wordSpacing}
+                      onChange={(e) => onUpdate({wordSpacing: parseFloat(e.target.value)})}
+                      aria-label="Word spacing"
+                      className="w-full accent-[var(--accent)] cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-medium text-[var(--text-muted)]">Letter Spacing</span>
+                      <span className="font-mono-tabular text-[11px] text-[var(--text-primary)]">
+                        {prefs.letterSpacing >= 0
+                          ? `+${prefs.letterSpacing.toFixed(2)}`
+                          : prefs.letterSpacing.toFixed(2)}
+                        em
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={-0.02}
+                      max={0.12}
+                      step={0.01}
+                      value={prefs.letterSpacing}
+                      onChange={(e) => onUpdate({letterSpacing: parseFloat(e.target.value)})}
+                      aria-label="Letter spacing"
+                      className="w-full accent-[var(--accent)] cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* First-Line Indent & Page Margins */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-medium text-[var(--text-muted)]">First Indent</span>
+                      <span className="font-mono-tabular text-[11px] text-[var(--text-primary)]">
+                        {prefs.textIndent.toFixed(1)}em
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={2.2}
+                      step={0.2}
+                      value={prefs.textIndent}
+                      onChange={(e) => onUpdate({textIndent: parseFloat(e.target.value)})}
+                      aria-label="First-line paragraph indent"
+                      className="w-full accent-[var(--accent)] cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-medium text-[var(--text-muted)]">Page Margins</span>
+                      <span className="font-mono-tabular text-[11px] text-[var(--text-primary)]">
+                        {prefs.pageMargins}px
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={16}
+                      max={96}
+                      step={4}
+                      value={prefs.pageMargins}
+                      onChange={(e) => onUpdate({pageMargins: parseInt(e.target.value, 10)})}
+                      aria-label="Page side margins"
+                      className="w-full accent-[var(--accent)] cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Column / Spread Width */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[11px] font-medium text-[var(--text-muted)]">
+                      {prefs.readingLayout === 'spread' ? 'Spread Width' : 'Column Width'}
+                    </span>
+                    <span className="font-mono-tabular text-[11px] text-[var(--text-primary)]">
+                      {prefs.pageWidth}px
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={540}
+                    max={960}
+                    step={20}
+                    value={prefs.pageWidth}
+                    onChange={(e) => onUpdate({pageWidth: parseInt(e.target.value, 10)})}
+                    aria-label="Reading column width"
+                    className="w-full accent-[var(--accent)] cursor-pointer"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

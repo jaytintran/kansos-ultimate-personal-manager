@@ -1,8 +1,13 @@
 import {
   ArrowLeft,
+  Check,
   ChevronLeft,
   ChevronRight,
+  Copy,
+  FileText,
+  PanelRight,
   StickyNote,
+  Trash2,
   X,
 } from 'lucide-react';
 import React, {
@@ -44,6 +49,16 @@ interface SelectionMenuState {
   suffix: string;
   x: number;
   y: number;
+  placeBelow: boolean;
+}
+
+interface ActiveHighlightPopoverState {
+  highlight: HighlightRecord;
+  x: number;
+  y: number;
+  placeBelow: boolean;
+  editingNote: boolean;
+  noteDraft: string;
 }
 
 interface JumpHistoryEntry {
@@ -106,6 +121,9 @@ interface ReflowableViewportProps {
     color: HighlightColor;
     note: string;
   }) => void;
+  onUpdateHighlight?: (updated: HighlightRecord) => void;
+  onDeleteHighlight?: (id: string) => void;
+  onSendToNotes?: (excerptText: string, locationLabel: string) => void;
   onFocusHighlight: (highlightId: string) => void;
   onScrollDirection?: (dir: 'up' | 'down') => void;
   onCenterTap?: () => void;
@@ -183,6 +201,25 @@ function extractFootnoteHtml(
   return clone.innerHTML || `<p>${text}</p>`;
 }
 
+function hydrateChapterProseDom(
+  el: HTMLElement,
+  chapter: ParsedChapter,
+  publisherStyles: boolean
+) {
+  el.innerHTML = chapter.html;
+  if (publisherStyles) {
+    el.dataset.pubCh = String(chapter.index);
+    el.querySelectorAll<HTMLElement>('[data-folio-pub-style]').forEach((node) => {
+      const pubStyle = node.getAttribute('data-folio-pub-style');
+      if (pubStyle) {
+        node.setAttribute('style', pubStyle);
+      }
+    });
+  } else {
+    delete el.dataset.pubCh;
+  }
+}
+
 function applyHighlightsToDom(container: HTMLElement, highlights: HighlightRecord[]) {
   if (highlights.length === 0) return;
 
@@ -216,10 +253,35 @@ function applyHighlightsToDom(container: HTMLElement, highlights: HighlightRecor
     let matchIndex = -1;
     if (hl.prefixContext) {
       const searchWithPrefix = hl.prefixContext + hl.selectedText;
-      const idx = fullText.indexOf(searchWithPrefix);
-      if (idx !== -1) {
-        matchIndex = idx + hl.prefixContext.length;
+      let searchFrom = 0;
+      let firstPrefixHit = -1;
+      while (searchFrom < fullText.length) {
+        const idx = fullText.indexOf(searchWithPrefix, searchFrom);
+        if (idx === -1) break;
+        const candidateStart = idx + hl.prefixContext.length;
+        if (firstPrefixHit === -1) firstPrefixHit = candidateStart;
+        if (
+          hl.suffixContext &&
+          fullText
+            .slice(
+              candidateStart + hl.selectedText.length,
+              candidateStart + hl.selectedText.length + hl.suffixContext.length
+            )
+            .startsWith(hl.suffixContext.slice(0, Math.min(12, hl.suffixContext.length)))
+        ) {
+          matchIndex = candidateStart;
+          break;
+        }
+        searchFrom = idx + 1;
       }
+      if (matchIndex === -1 && firstPrefixHit !== -1) {
+        matchIndex = firstPrefixHit;
+      }
+    }
+    if (matchIndex === -1 && hl.suffixContext) {
+      const searchWithSuffix = hl.selectedText + hl.suffixContext;
+      const sIdx = fullText.indexOf(searchWithSuffix);
+      if (sIdx !== -1) matchIndex = sIdx;
     }
     if (matchIndex === -1) {
       matchIndex = fullText.indexOf(hl.selectedText);
@@ -338,6 +400,7 @@ interface ContinuousChapterCardProps {
   searchMatch: {query: string; occurrenceInUnit: number; nonce: number} | null;
   pendingAnchorId: string | null;
   fontClass: string;
+  publisherStyles: boolean;
   proseCustomStyles: React.CSSProperties;
   pageMargins: number;
   brightness: number;
@@ -362,6 +425,7 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
     searchMatch,
     pendingAnchorId,
     fontClass,
+    publisherStyles,
     proseCustomStyles,
     pageMargins,
     brightness,
@@ -391,13 +455,13 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
       [chapter.index, onProseRef]
     );
 
-    // Hydrate chapter HTML, highlights, and search matches when near viewport
+    // Hydrate chapter HTML, publisher styling, highlights, and search matches when near viewport
     useLayoutEffect(() => {
       if (!isHydrated) return;
       const el = proseElRef.current;
       if (!el) return;
 
-      el.innerHTML = chapter.html;
+      hydrateChapterProseDom(el, chapter, publisherStyles);
       applyHighlightsToDom(el, highlights);
 
       let searchEl: HTMLElement | null = null;
@@ -425,8 +489,8 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
       }
     }, [
       isHydrated,
-      chapter.html,
-      chapter.index,
+      chapter,
+      publisherStyles,
       highlights,
       searchMatch,
       pendingAnchorId,
@@ -535,11 +599,16 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
               </div>
             )}
 
+            {publisherStyles && chapter.publisherCss && (
+              <style data-folio-publisher-css={String(chapter.index)}>
+                {chapter.publisherCss}
+              </style>
+            )}
             <div
               ref={setProseElement}
               onMouseUp={() => onMouseUpProse(chapter.index)}
               onTouchEnd={() => onMouseUpProse(chapter.index)}
-              className={`folio-prose ${fontClass} ${
+              className={`folio-prose ${publisherStyles ? 'folio-prose--publisher' : ''} ${fontClass} ${
                 voiceTapActive ? 'folio-voice-tap-active' : ''
               }`}
               style={proseCustomStyles}
@@ -593,6 +662,9 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
   onChapterChange,
   onScrollProgress,
   onCreateHighlight,
+  onUpdateHighlight,
+  onDeleteHighlight,
+  onSendToNotes,
   onFocusHighlight,
   onScrollDirection,
   onCenterTap,
@@ -622,6 +694,8 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
   activeChapterRef.current = chapterIndex;
   const prevJumpNonceRef = useRef<number>(jumpNonce);
   const prevLayoutRef = useRef<ReaderPreferences['readingLayout']>(prefs.readingLayout);
+  const lastHandledChapterRef = useRef<number>(-1);
+  const lastHandledJumpNonceRef = useRef<number>(-1);
 
   const isPaginated = prefs.readingLayout === 'page' || prefs.readingLayout === 'spread';
   const isSpread = prefs.readingLayout === 'spread';
@@ -632,6 +706,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
   });
   const [spreadIndex, setSpreadIndex] = useState<number>(0);
   const [totalSpreads, setTotalSpreads] = useState<number>(1);
+  const [animateSpreadTurn, setAnimateSpreadTurn] = useState<boolean>(false);
 
   const [visibleSet, setVisibleSet] = useState<Set<number>>(() => new Set([chapterIndex]));
   const [pendingAnchor, setPendingAnchor] = useState<{
@@ -644,6 +719,9 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteColor, setNoteColor] = useState<HighlightColor>('amber');
   const [noteText, setNoteText] = useState('');
+  const [activeHighlightPopover, setActiveHighlightPopover] =
+    useState<ActiveHighlightPopoverState | null>(null);
+  const [copiedHighlightId, setCopiedHighlightId] = useState<string | null>(null);
 
   const [footnotePreview, setFootnotePreview] = useState<FootnotePreviewState | null>(null);
   const [lightboxImage, setLightboxImage] = useState<LightboxImageState | null>(null);
@@ -653,7 +731,11 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
   const hasNextChapter = chapterIndex < chapters.length - 1;
   const isTwoColumn = isSpread && spreadDims.width >= 680;
   const columnGap = isTwoColumn ? 56 : 32;
-  const spreadStepPx = spreadDims.width + columnGap;
+  const colWidth = isTwoColumn
+    ? Math.max(120, Math.floor((spreadDims.width - columnGap) / 2))
+    : Math.max(160, spreadDims.width);
+  const spreadFrameWidth = isTwoColumn ? colWidth * 2 + columnGap : colWidth;
+  const spreadStepPx = spreadFrameWidth + columnGap;
   const totalVirtualPages = metrics?.totalVirtualPages ?? chapters.length;
 
   // Group highlights per chapter once so all mounted cards restore cleanly
@@ -839,6 +921,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
 
     setSelectionMenu(null);
     setNoteOpen(false);
+    setActiveHighlightPopover(null);
     setFootnotePreview(null);
 
     return () => window.cancelAnimationFrame(raf);
@@ -862,6 +945,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     chapters,
     voiceSkipNoise,
     visibleSet,
+    prefs.publisherStyles,
     prefs.fontFamily,
     prefs.fontSize,
     prefs.fontWeight,
@@ -875,14 +959,14 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     prefs.pageWidth,
   ]);
 
-  // Paginated Mode (Single-Page & Two-Page Spread): Synchronous layout + pagination calculation
+  // Paginated Mode (Single-Page & Two-Page Spread): Synchronous layout + pixel-accurate pagination
   useLayoutEffect(() => {
     if (!isPaginated) return;
     const el = paginatedProseRef.current;
     if (!el || !chapter) return;
 
     const currentHighlights = highlightsByChapter.get(chapterIndex) ?? [];
-    el.innerHTML = chapter.html;
+    hydrateChapterProseDom(el, chapter, prefs.publisherStyles);
     applyHighlightsToDom(el, currentHighlights);
 
     let searchEl: HTMLElement | null = null;
@@ -906,10 +990,22 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     const anchorToResolve =
       targetAnchorId || (pendingAnchor?.chapterIndex === chapterIndex ? pendingAnchor.anchorId : null);
 
-    const isExplicitJump = prevJumpNonceRef.current !== jumpNonce;
+    const isNewChapterOrJump =
+      lastHandledChapterRef.current !== chapterIndex ||
+      lastHandledJumpNonceRef.current !== jumpNonce ||
+      prevLayoutRef.current !== prefs.readingLayout;
     const layoutChanged = prevLayoutRef.current !== prefs.readingLayout;
+    const isExplicitJump = prevJumpNonceRef.current !== jumpNonce;
+
     const effectiveRatio =
-      layoutChanged && !isExplicitJump ? currentRatioRef.current : initialScrollRatio;
+      isNewChapterOrJump && !layoutChanged
+        ? initialScrollRatio
+        : layoutChanged && isExplicitJump
+          ? initialScrollRatio
+          : currentRatioRef.current;
+
+    lastHandledChapterRef.current = chapterIndex;
+    lastHandledJumpNonceRef.current = jumpNonce;
     prevLayoutRef.current = prefs.readingLayout;
     prevJumpNonceRef.current = jumpNonce;
 
@@ -936,11 +1032,14 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       nextIdx = Math.min(count - 1, Math.max(0, Math.round(effectiveRatio * (count - 1))));
     }
 
+    // Snap immediately on chapter/resize/search/TOC jumps instead of sliding across intermediate spreads
+    setAnimateSpreadTurn(false);
     setSpreadIndex(nextIdx);
     currentRatioRef.current = count > 1 ? nextIdx / (count - 1) : 0;
 
     setSelectionMenu(null);
     setNoteOpen(false);
+    setActiveHighlightPopover(null);
     setFootnotePreview(null);
     lastAutoScrolledSentenceRef.current = -1;
 
@@ -957,6 +1056,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     jumpNonce,
     voiceSkipNoise,
     prefs.readingLayout,
+    prefs.publisherStyles,
     spreadDims.width,
     spreadDims.height,
     prefs.fontFamily,
@@ -1034,6 +1134,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
           Math.max(0, Math.floor(offsetLeft / Math.max(1, spreadStepPx)))
         );
         if (targetSpread !== spreadIndex) {
+          setAnimateSpreadTurn(Math.abs(targetSpread - spreadIndex) === 1);
           setSpreadIndex(targetSpread);
           const ratio = totalSpreads > 1 ? targetSpread / (totalSpreads - 1) : 0;
           currentRatioRef.current = ratio;
@@ -1077,15 +1178,18 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
   ]);
 
   const stepPrev = useCallback(() => {
+    setActiveHighlightPopover(null);
     if (isPaginated) {
       if (spreadIndex > 0) {
         const next = spreadIndex - 1;
+        setAnimateSpreadTurn(true);
         setSpreadIndex(next);
         const ratio = totalSpreads > 1 ? next / (totalSpreads - 1) : 0;
         currentRatioRef.current = ratio;
         onScrollProgress(ratio);
         onScrollDirection?.('down');
       } else if (hasPrevChapter) {
+        setAnimateSpreadTurn(false);
         onChapterChange(chapterIndex - 1, 1);
       }
     } else if (hasPrevChapter) {
@@ -1103,15 +1207,18 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
   ]);
 
   const stepNext = useCallback(() => {
+    setActiveHighlightPopover(null);
     if (isPaginated) {
       if (spreadIndex < totalSpreads - 1) {
         const next = spreadIndex + 1;
+        setAnimateSpreadTurn(true);
         setSpreadIndex(next);
         const ratio = totalSpreads > 1 ? next / (totalSpreads - 1) : 1;
         currentRatioRef.current = ratio;
         onScrollProgress(ratio);
         onScrollDirection?.('down');
       } else if (hasNextChapter) {
+        setAnimateSpreadTurn(false);
         onChapterChange(chapterIndex + 1, 0);
       }
     } else if (hasNextChapter) {
@@ -1141,9 +1248,18 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     [stepPrev, stepNext, getFirstVisibleSentenceIndex]
   );
 
-  // Keyboard navigation: ArrowLeft/Right and Space/Shift+Space cross chapters seamlessly
+  // Keyboard navigation: ArrowLeft/Right, PageUp/PageDown, Home/End, Space, and Escape
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (activeHighlightPopover || selectionMenu) {
+          e.preventDefault();
+          setActiveHighlightPopover(null);
+          setSelectionMenu(null);
+          setNoteOpen(false);
+        }
+        return;
+      }
       if (lightboxImage || footnotePreview) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
@@ -1151,12 +1267,45 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
         return;
       }
 
-      if (e.key === 'ArrowLeft') {
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
         e.preventDefault();
-        stepPrev();
-      } else if (e.key === 'ArrowRight') {
+        if (isPaginated || e.key === 'ArrowLeft') {
+          stepPrev();
+        } else {
+          const scroller = scrollContainerRef.current;
+          if (scroller) {
+            scroller.scrollBy({
+              top: -Math.max(260, Math.round(scroller.clientHeight * 0.85)),
+              behavior: 'smooth',
+            });
+          }
+        }
+      } else if (e.key === 'ArrowRight' || e.key === 'PageDown') {
         e.preventDefault();
-        stepNext();
+        if (isPaginated || e.key === 'ArrowRight') {
+          stepNext();
+        } else {
+          const scroller = scrollContainerRef.current;
+          if (scroller) {
+            scroller.scrollBy({
+              top: Math.max(260, Math.round(scroller.clientHeight * 0.85)),
+              behavior: 'smooth',
+            });
+          }
+        }
+      } else if (e.key === 'Home' && isPaginated) {
+        e.preventDefault();
+        setAnimateSpreadTurn(false);
+        setSpreadIndex(0);
+        currentRatioRef.current = 0;
+        onScrollProgress(0);
+      } else if (e.key === 'End' && isPaginated) {
+        e.preventDefault();
+        const last = Math.max(0, totalSpreads - 1);
+        setAnimateSpreadTurn(false);
+        setSpreadIndex(last);
+        currentRatioRef.current = totalSpreads > 1 ? 1 : 0;
+        onScrollProgress(currentRatioRef.current);
       } else if (e.code === 'Space' && !voiceActive) {
         // Yield Spacebar to Voice Narration Play/Pause when Voice mode is open
         if (tag === 'BUTTON' || tag === 'A') return;
@@ -1175,7 +1324,18 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [stepPrev, stepNext, isPaginated, voiceActive, lightboxImage, footnotePreview]);
+  }, [
+    stepPrev,
+    stepNext,
+    isPaginated,
+    totalSpreads,
+    onScrollProgress,
+    voiceActive,
+    lightboxImage,
+    footnotePreview,
+    activeHighlightPopover,
+    selectionMenu,
+  ]);
 
   // Debounced mouse-wheel page turning for Single-Page and Two-Page Spread modes
   const wheelAccumRef = useRef(0);
@@ -1317,48 +1477,71 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     };
   }, []);
 
-  const handleMouseUpOnChapter = useCallback((targetChapterIdx: number) => {
-    const prose = isPaginated
-      ? paginatedProseRef.current
-      : proseRefs.current.get(targetChapterIdx);
-    if (!prose) return;
+  const handleMouseUpOnChapter = useCallback(
+    (targetChapterIdx: number) => {
+      const prose = isPaginated
+        ? paginatedProseRef.current
+        : proseRefs.current.get(targetChapterIdx);
+      if (!prose) return;
 
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
-      if (!noteOpen) setSelectionMenu(null);
-      return;
-    }
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+        if (!noteOpen) setSelectionMenu(null);
+        return;
+      }
 
-    const range = sel.getRangeAt(0);
-    if (!prose.contains(range.commonAncestorContainer)) {
-      if (!noteOpen) setSelectionMenu(null);
-      return;
-    }
+      const range = sel.getRangeAt(0);
+      if (!prose.contains(range.commonAncestorContainer)) {
+        if (!noteOpen) setSelectionMenu(null);
+        return;
+      }
 
-    const selectedText = sel.toString().trim();
-    if (selectedText.length < 2) {
-      if (!noteOpen) setSelectionMenu(null);
-      return;
-    }
+      const rawText = sel.toString();
+      const selectedText = rawText.trim();
+      if (selectedText.length < 2) {
+        if (!noteOpen) setSelectionMenu(null);
+        return;
+      }
 
-    const rect = range.getBoundingClientRect();
-    const fullText = prose.textContent || '';
-    const idx = fullText.indexOf(selectedText);
-    const prefix = idx > 0 ? fullText.slice(Math.max(0, idx - 24), idx) : '';
-    const suffix =
-      idx !== -1 ? fullText.slice(idx + selectedText.length, idx + selectedText.length + 24) : '';
+      const rect = range.getBoundingClientRect();
+      const fullText = prose.textContent || '';
+      let startOffset = -1;
+      try {
+        const preRange = document.createRange();
+        preRange.selectNodeContents(prose);
+        preRange.setEnd(range.startContainer, range.startOffset);
+        const leadingTrim = rawText.length - rawText.trimStart().length;
+        startOffset = preRange.toString().length + leadingTrim;
+      } catch {
+        startOffset = fullText.indexOf(selectedText);
+      }
 
-    setSelectionMenu({
-      unitIndex: targetChapterIdx,
-      text: selectedText,
-      prefix,
-      suffix,
-      x: Math.min(window.innerWidth - 160, Math.max(160, rect.left + rect.width / 2)),
-      y: Math.max(72, rect.top - 12),
-    });
-    setNoteOpen(false);
-    setNoteText('');
-  }, [isPaginated, noteOpen]);
+      const prefix =
+        startOffset > 0 ? fullText.slice(Math.max(0, startOffset - 28), startOffset) : '';
+      const suffix =
+        startOffset >= 0
+          ? fullText.slice(
+              startOffset + selectedText.length,
+              startOffset + selectedText.length + 28
+            )
+          : '';
+
+      const placeBelow = rect.top < 120;
+      setActiveHighlightPopover(null);
+      setSelectionMenu({
+        unitIndex: targetChapterIdx,
+        text: selectedText,
+        prefix,
+        suffix,
+        x: Math.min(window.innerWidth - 160, Math.max(160, rect.left + rect.width / 2)),
+        y: placeBelow ? Math.min(window.innerHeight - 90, rect.bottom + 12) : Math.max(72, rect.top - 12),
+        placeBelow,
+      });
+      setNoteOpen(false);
+      setNoteText('');
+    },
+    [isPaginated, noteOpen]
+  );
 
   const touchStartRef = useRef<{x: number; y: number; time: number} | null>(null);
   const justSwipedRef = useRef(false);
@@ -1458,7 +1641,30 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
 
     const hlMark = el.closest('mark.folio-hl') as HTMLElement | null;
     if (hlMark?.dataset.highlightId) {
-      onFocusHighlight(hlMark.dataset.highlightId);
+      e.stopPropagation();
+      const matchedHl = allHighlights.find((h) => h.id === hlMark.dataset.highlightId);
+      if (matchedHl) {
+        const rect = hlMark.getBoundingClientRect();
+        const placeBelow = rect.top < 230;
+        setSelectionMenu(null);
+        setActiveHighlightPopover({
+          highlight: matchedHl,
+          x: Math.min(window.innerWidth - 172, Math.max(172, rect.left + rect.width / 2)),
+          y: placeBelow
+            ? Math.min(window.innerHeight - 24, rect.bottom + 10)
+            : Math.max(24, rect.top - 10),
+          placeBelow,
+          editingNote: false,
+          noteDraft: matchedHl.note,
+        });
+      } else {
+        onFocusHighlight(hlMark.dataset.highlightId);
+      }
+      return;
+    }
+
+    if (activeHighlightPopover) {
+      setActiveHighlightPopover(null);
       return;
     }
 
@@ -1617,9 +1823,9 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
   const canGoPrev = isPaginated ? spreadIndex > 0 || hasPrevChapter : hasPrevChapter;
   const canGoNext = isPaginated ? spreadIndex < totalSpreads - 1 || hasNextChapter : hasNextChapter;
 
-  const paginatedTopPad = headerPinned ? 'pt-11' : topOverlayActive ? 'pt-24' : 'pt-11';
+  const paginatedTopPad = headerPinned ? 'pt-12' : topOverlayActive ? 'pt-24 sm:pt-25' : 'pt-12';
   const paginatedBottomPad = bottomBarPinned ? 'pb-4' : bottomOverlayActive ? 'pb-16' : 'pb-5';
-  const scrollTopPad = headerPinned ? 'pt-12' : 'pt-28';
+  const scrollTopPad = headerPinned ? 'pt-13' : 'pt-28';
   const scrollBottomPad = bottomBarPinned ? 'pb-14' : 'pb-28';
 
   const paginatedMaxWidth = isSpread
@@ -1634,8 +1840,8 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
           topOverlayActive ? 'top-2 opacity-0' : 'top-2.5 opacity-100'
         }`}
       >
-        <div className="pointer-events-auto inline-flex items-center gap-2.5 px-3 py-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)]/94 backdrop-blur-xs shadow-xs text-[11px] max-w-[calc(100vw-2rem)]">
-          <span className="text-[var(--text-secondary)] truncate max-w-[160px] sm:max-w-[280px]">
+        <div className="pointer-events-auto inline-flex items-center gap-2 sm:gap-2.5 px-3 py-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)]/94 backdrop-blur-xs shadow-xs text-[11px] max-w-[calc(100vw-2rem)]">
+          <span className="text-[var(--text-secondary)] truncate max-w-[140px] sm:max-w-[280px]">
             {chapter?.title}
           </span>
           <span aria-hidden="true" className="text-[var(--border-strong)]">
@@ -1679,7 +1885,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
           onWheel={handlePaginatedWheel}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
-          className={`flex-1 min-h-0 flex flex-col justify-between px-3 sm:px-10 lg:px-14 transition-[padding] duration-180 ${paginatedTopPad} ${paginatedBottomPad}`}
+          className={`flex-1 min-h-0 flex flex-col justify-between px-2.5 sm:px-10 lg:px-14 transition-[padding] duration-180 ${paginatedTopPad} ${paginatedBottomPad}`}
         >
           <div
             className="mx-auto w-full flex-1 min-h-0 flex flex-col relative"
@@ -1692,10 +1898,10 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                 paddingRight: `clamp(16px, 4vw, ${pageMarginsValue}px)`,
                 ...(brightnessValue !== 100 ? {filter: `brightness(${brightnessValue / 100})`} : {}),
               }}
-              className="folio-page-card rounded-lg flex-1 min-h-0 flex flex-col py-5 sm:py-7 relative"
+              className="folio-page-card rounded-lg flex-1 min-h-0 flex flex-col py-4 sm:py-7 relative"
             >
               {/* Quiet Top Sheet Running Header */}
-              <div className="mb-4 pb-2 border-b border-[var(--border-subtle)]/75 flex items-center justify-between text-[11px] text-[var(--text-muted)] shrink-0">
+              <div className="mb-3 sm:mb-4 pb-2 border-b border-[var(--border-subtle)]/75 flex items-center justify-between text-[11px] text-[var(--text-muted)] shrink-0">
                 <span className="truncate">{chapter?.title}</span>
                 <span className="font-mono-tabular shrink-0 ml-4">
                   {isTwoColumn ? 'Spread' : 'Page'} {spreadIndex + 1} / {totalSpreads}
@@ -1712,21 +1918,24 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                   />
                 )}
 
+                {prefs.publisherStyles && chapter?.publisherCss && (
+                  <style data-folio-publisher-css={String(chapter.index)}>
+                    {chapter.publisherCss}
+                  </style>
+                )}
+
                 <div
                   ref={paginatedProseRef}
                   onMouseUp={() => handleMouseUpOnChapter(chapterIndex)}
                   onTouchEnd={() => handleMouseUpOnChapter(chapterIndex)}
-                  className={`folio-prose folio-spread-content ${fontClass} ${
+                  className={`folio-prose ${prefs.publisherStyles ? 'folio-prose--publisher' : ''} folio-spread-content ${fontClass} ${
                     voiceActive && voiceTapToRead ? 'folio-voice-tap-active' : ''
-                  } transition-transform duration-200 ease-out`}
+                  } ${animateSpreadTurn ? 'transition-transform duration-200 ease-out' : ''}`}
                   style={{
                     ...proseCustomStyles,
+                    width: `${spreadFrameWidth}px`,
                     height: `${spreadDims.height}px`,
-                    columnWidth: `${
-                      isTwoColumn
-                        ? Math.floor((spreadDims.width - columnGap) / 2)
-                        : spreadDims.width
-                    }px`,
+                    columnWidth: `${colWidth}px`,
                     columnGap: `${columnGap}px`,
                     transform: `translateX(-${spreadIndex * spreadStepPx}px)`,
                   }}
@@ -1774,7 +1983,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
           className="flex-1 overflow-y-auto folio-reading-desk relative"
         >
           <div
-            className={`mx-auto px-3 sm:px-8 space-y-6 ${scrollTopPad} ${scrollBottomPad}`}
+            className={`mx-auto px-2.5 sm:px-8 space-y-5 sm:space-y-6 ${scrollTopPad} ${scrollBottomPad}`}
             style={{maxWidth: `${prefs.pageWidth + 112}px`}}
           >
             {chapters.map((ch) => {
@@ -1808,6 +2017,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                     pendingAnchor?.chapterIndex === ch.index ? pendingAnchor.anchorId : null
                   }
                   fontClass={fontClass}
+                  publisherStyles={prefs.publisherStyles}
                   proseCustomStyles={proseCustomStyles}
                   pageMargins={pageMarginsValue}
                   brightness={brightnessValue}
@@ -1842,15 +2052,254 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       {/* Illustration Zoom Lightbox */}
       <ImageLightbox image={lightboxImage} onClose={() => setLightboxImage(null)} />
 
-      {/* Floating Highlight & Note Toolbar */}
-      {selectionMenu && (
+      {/* Inline Existing Highlight Popover (Recolor, Note, Copy, Study Pane, Delete) */}
+      {activeHighlightPopover && (
         <div
           style={{
-            left: `${selectionMenu.x}px`,
-            top: `${selectionMenu.y}px`,
+            left: `${activeHighlightPopover.x}px`,
+            top: `${activeHighlightPopover.y}px`,
           }}
           onClick={(e) => e.stopPropagation()}
-          className="fixed z-50 -translate-x-1/2 -translate-y-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-xl p-2"
+          className={`fixed z-50 w-76 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 ${
+            activeHighlightPopover.placeBelow ? '' : '-translate-y-full'
+          } rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-2xl p-3 space-y-2.5`}
+        >
+          {/* Top Row: Color Swatches + Quick Actions */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              {HIGHLIGHT_COLORS.map((c) => {
+                const active = activeHighlightPopover.highlight.color === c.id;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    title={`Switch to ${c.label}`}
+                    aria-label={`Switch highlight color to ${c.label}`}
+                    onClick={() => {
+                      const updated: HighlightRecord = {
+                        ...activeHighlightPopover.highlight,
+                        color: c.id,
+                      };
+                      onUpdateHighlight?.(updated);
+                      setActiveHighlightPopover((prev) =>
+                        prev ? {...prev, highlight: updated} : null
+                      );
+                    }}
+                    className={`w-4 h-4 rounded-full border border-black/15 transition-transform cursor-pointer ${
+                      active
+                        ? 'ring-2 ring-[var(--text-primary)] ring-offset-1 ring-offset-[var(--bg-elevated)] scale-110'
+                        : 'opacity-70 hover:opacity-100'
+                    }`}
+                    style={{backgroundColor: c.swatch}}
+                  />
+                );
+              })}
+            </div>
+
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                title="Copy highlighted quote"
+                aria-label="Copy highlight text"
+                onClick={() => {
+                  const hl = activeHighlightPopover.highlight;
+                  void navigator.clipboard?.writeText(hl.selectedText).then(() => {
+                    setCopiedHighlightId(hl.id);
+                    window.setTimeout(() => {
+                      setCopiedHighlightId((curr) => (curr === hl.id ? null : curr));
+                    }, 1600);
+                  });
+                }}
+                className="p-1.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              >
+                {copiedHighlightId === activeHighlightPopover.highlight.id ? (
+                  <Check className="w-3.5 h-3.5 text-[var(--accent)]" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+              </button>
+
+              {onSendToNotes && (
+                <button
+                  type="button"
+                  title="Send excerpt to Kanso Notes"
+                  aria-label="Send excerpt to Kanso Notes"
+                  onClick={() => {
+                    const hl = activeHighlightPopover.highlight;
+                    const body = [
+                      hl.selectedText,
+                      hl.note.trim() ? `Note: ${hl.note.trim()}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join('\n\n');
+                    const loc = `Section ${hl.unitIndex + 1}`;
+                    if (body) onSendToNotes(body, loc);
+                  }}
+                  className="p-1.5 rounded text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              <button
+                type="button"
+                title="Open in Study Pane"
+                aria-label="Open in Study Pane"
+                onClick={() => {
+                  const id = activeHighlightPopover.highlight.id;
+                  setActiveHighlightPopover(null);
+                  onFocusHighlight(id);
+                }}
+                className="p-1.5 rounded text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              >
+                <PanelRight className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                title="Delete highlight"
+                aria-label="Delete highlight"
+                onClick={() => {
+                  const id = activeHighlightPopover.highlight.id;
+                  setActiveHighlightPopover(null);
+                  onDeleteHighlight?.(id);
+                }}
+                className="p-1.5 rounded text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                aria-label="Close highlight popover"
+                onClick={() => setActiveHighlightPopover(null)}
+                className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Quote Excerpt */}
+          <p className="font-serif-editorial text-xs leading-relaxed text-[var(--text-secondary)] line-clamp-2 border-l-2 border-[var(--border-strong)] pl-2">
+            &ldquo;{activeHighlightPopover.highlight.selectedText}&rdquo;
+          </p>
+
+          {/* Inline Note Viewer / Editor */}
+          {activeHighlightPopover.editingNote ? (
+            <div className="space-y-2">
+              <textarea
+                rows={3}
+                autoFocus
+                value={activeHighlightPopover.noteDraft}
+                onChange={(e) =>
+                  setActiveHighlightPopover((prev) =>
+                    prev ? {...prev, noteDraft: e.target.value} : null
+                  )
+                }
+                placeholder="Write a reflection or note..."
+                className="w-full px-2.5 py-1.5 text-xs rounded border border-[var(--border-strong)] bg-[var(--bg-input)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveHighlightPopover((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            editingNote: false,
+                            noteDraft: prev.highlight.note,
+                          }
+                        : null
+                    )
+                  }
+                  className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updated: HighlightRecord = {
+                      ...activeHighlightPopover.highlight,
+                      note: activeHighlightPopover.noteDraft.trim(),
+                    };
+                    onUpdateHighlight?.(updated);
+                    setActiveHighlightPopover((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            highlight: updated,
+                            editingNote: false,
+                            noteDraft: updated.note,
+                          }
+                        : null
+                    );
+                  }}
+                  className="px-2.5 py-1 text-xs font-medium rounded bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] cursor-pointer"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          ) : activeHighlightPopover.highlight.note ? (
+            <div className="space-y-1">
+              <p className="text-xs text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap">
+                {activeHighlightPopover.highlight.note}
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveHighlightPopover((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          editingNote: true,
+                          noteDraft: prev.highlight.note,
+                        }
+                      : null
+                  )
+                }
+                className="text-[11px] text-[var(--accent)] hover:underline cursor-pointer"
+              >
+                Edit note
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() =>
+                setActiveHighlightPopover((prev) =>
+                  prev ? {...prev, editingNote: true, noteDraft: ''} : null
+                )
+              }
+              className="inline-flex items-center gap-1 text-[11px] text-[var(--text-secondary)] hover:text-[var(--accent)] cursor-pointer"
+            >
+              <StickyNote className="w-3 h-3" />
+              <span>Add note</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Floating Highlight & Note Toolbar (Docked bottom-center on mobile to clear OS callout bar) */}
+      {selectionMenu && (
+        <div
+          style={
+            typeof window !== 'undefined' && window.innerWidth >= 1024
+              ? {
+                  left: `${selectionMenu.x}px`,
+                  top: `${selectionMenu.y}px`,
+                }
+              : undefined
+          }
+          onClick={(e) => e.stopPropagation()}
+          className={`fixed z-50 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-xl p-2 ${
+            typeof window !== 'undefined' && window.innerWidth >= 1024
+              ? `-translate-x-1/2 ${selectionMenu.placeBelow ? '' : '-translate-y-full'}`
+              : 'bottom-16 left-1/2 -translate-x-1/2 max-w-[calc(100vw-1.5rem)]'
+          }`}
         >
           {!noteOpen ? (
             <div className="flex items-center gap-2">

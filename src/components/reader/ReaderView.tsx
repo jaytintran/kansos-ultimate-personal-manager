@@ -52,7 +52,11 @@ import {AudiobookExpandedView} from './AudiobookExpandedView';
 import {AudiobookPlayerBar} from './AudiobookPlayerBar';
 import {PdfViewport} from './PdfViewport';
 import {ReaderDrawer, type ReaderDrawerTab} from './ReaderDrawer';
-import {ReaderScrubber, type ScrubberMarker} from './ReaderScrubber';
+import {
+  ReaderScrubber,
+  type ScrubberBookmarkMarker,
+  type ScrubberMarker,
+} from './ReaderScrubber';
 import {ReaderTabStrip} from './ReaderTabStrip';
 import {
   ReflowableViewport,
@@ -339,20 +343,6 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       setPdfJumpNonce((n) => n + 1);
     }
   }, [book.format, prefs.pdfViewMode]);
-
-  // Ctrl+F / Cmd+F opens or focuses the in-book Search tab
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        setHeaderRevealed(true);
-        setDrawerTab('search');
-        setDrawerOpen(true);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
 
   // On mobile (<1024px), reader bars stay retractable via center-tap without overwriting desktop pin preferences
   const effectivePinHeader = isMobileViewport ? false : prefs.pinHeader;
@@ -672,6 +662,40 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     }
   }, [narrator.status, onNarrationStart]);
 
+  // Ctrl+F / Cmd+F opens or focuses Search; Escape dismisses open overlays or unpinned drawer
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setHeaderRevealed(true);
+        setDrawerTab('search');
+        setDrawerOpen(true);
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (typographyOpen) {
+          setTypographyOpen(false);
+        }
+        if (voiceSettingsOpen) {
+          narrator.stopPreview();
+          setVoiceSettingsOpen(false);
+        }
+        if (drawerOpen && (isMobileViewport || !prefs.pinLeftSidebar)) {
+          setDrawerOpen(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    typographyOpen,
+    voiceSettingsOpen,
+    drawerOpen,
+    isMobileViewport,
+    prefs.pinLeftSidebar,
+    narrator.stopPreview,
+  ]);
+
   // Trigger deferred PDF sentence play once the target PDF page's sentences arrive
   useEffect(() => {
     const pending = pendingPdfStartRef.current;
@@ -880,14 +904,68 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     [searchMatches, activeSearchMatch, handleJumpToUnit]
   );
 
-  // Bookmarks
-  const isCurrentUnitBookmarked = useMemo(
-    () => bookmarks.some((b) => b.unitIndex === unitIndex),
-    [bookmarks, unitIndex]
+  // Page-level Bookmarks
+  const findBookmarkAtCurrentLocation = useCallback(
+    (ratio: number): BookmarkRecord | undefined => {
+      if (book.format === 'pdf' && !isPdfReflow) {
+        return bookmarks.find((b) => b.unitIndex === unitIndex);
+      }
+      const chPages = !isPdfReflow
+        ? reflowableMetrics?.chapters[unitIndex]?.virtualPageCount ?? 1
+        : 1;
+      const tolerance = isPdfReflow
+        ? 0.16
+        : Math.min(0.14, Math.max(0.03, 0.85 / Math.max(1, chPages)));
+
+      let bestMatch: BookmarkRecord | undefined;
+      let bestDist = Infinity;
+      for (const b of bookmarks) {
+        if (b.unitIndex !== unitIndex) continue;
+        const dist = Math.abs((b.scrollRatio ?? 0) - ratio);
+        if (dist <= tolerance && dist < bestDist) {
+          bestDist = dist;
+          bestMatch = b;
+        }
+      }
+      return bestMatch;
+    },
+    [bookmarks, book.format, isPdfReflow, unitIndex, reflowableMetrics]
   );
 
+  const currentBookmark = useMemo(
+    () => findBookmarkAtCurrentLocation(liveScrollRatio),
+    [findBookmarkAtCurrentLocation, liveScrollRatio]
+  );
+  const isCurrentUnitBookmarked = Boolean(currentBookmark);
+
+  const bookmarkMarkers = useMemo<ScrubberBookmarkMarker[]>(() => {
+    if (bookmarks.length === 0) return [];
+    if (book.format === 'pdf') {
+      return bookmarks.map((bm) => ({
+        id: bm.id,
+        label: bm.label,
+        pct:
+          totalUnits <= 1
+            ? 0
+            : Math.min(100, Math.max(0, ((bm.unitIndex - 1) / Math.max(1, totalUnits - 1)) * 100)),
+      }));
+    }
+    if (!reflowableMetrics) return [];
+    return bookmarks.map((bm) => {
+      const ch = reflowableMetrics.chapters[bm.unitIndex] ?? reflowableMetrics.chapters[0];
+      const wordsAtBm = ch.startWordOffset + ch.wordCount * (bm.scrollRatio ?? 0);
+      const pct = Math.min(100, Math.max(0, (wordsAtBm / Math.max(1, reflowableMetrics.totalWords)) * 100));
+      return {
+        id: bm.id,
+        label: bm.label,
+        pct,
+      };
+    });
+  }, [bookmarks, book.format, totalUnits, reflowableMetrics]);
+
   const handleToggleBookmark = async () => {
-    const existing = bookmarks.find((b) => b.unitIndex === unitIndex);
+    const ratio = currentScrollRatioRef.current;
+    const existing = findBookmarkAtCurrentLocation(ratio);
     if (existing) {
       await libraryDb.deleteBookmark(existing.id);
       setBookmarks((prev) => prev.filter((b) => b.id !== existing.id));
@@ -901,23 +979,46 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         ? crypto.randomUUID()
         : `bm-${Date.now()}`;
 
-    const excerpt =
+    let excerpt = `Saved on page ${unitIndex} of ${totalUnits}`;
+    if (book.format !== 'pdf' || isPdfReflow) {
+      const metricIdx = isPdfReflow ? Math.max(0, unitIndex - 1) : unitIndex;
+      const plainText = reflowableMetrics?.chapters[metricIdx]?.plainText || '';
+      if (plainText) {
+        let startIdx = Math.floor(plainText.length * Math.min(0.95, Math.max(0, ratio)));
+        if (startIdx > 0) {
+          const nextSpace = plainText.indexOf(' ', startIdx);
+          if (nextSpace !== -1 && nextSpace - startIdx < 32) {
+            startIdx = nextSpace + 1;
+          }
+        }
+        const slice = plainText.slice(startIdx, startIdx + 140).trim();
+        excerpt = slice || plainText.slice(0, 140).trim();
+      }
+    }
+
+    const label =
       book.format === 'pdf'
-        ? `Saved on page ${unitIndex} of ${totalUnits}`
-        : (reflowableMetrics?.chapters[unitIndex]?.plainText || '').slice(0, 140);
+        ? currentUnitLabel
+        : reflowableMetrics
+          ? `${currentUnitLabel} · p. ${getVirtualPageAtLocation(reflowableMetrics, unitIndex, ratio)}`
+          : currentUnitLabel;
 
     const bm: BookmarkRecord = {
       id,
       bookId: book.id,
       unitIndex,
-      scrollRatio: currentScrollRatioRef.current,
-      label: currentUnitLabel,
+      scrollRatio: ratio,
+      label,
       excerpt,
       createdAt: Date.now(),
     };
 
     await libraryDb.saveBookmark(bm);
-    setBookmarks((prev) => [...prev, bm].sort((a, b) => a.unitIndex - b.unitIndex));
+    setBookmarks((prev) =>
+      [...prev, bm].sort(
+        (a, b) => a.unitIndex - b.unitIndex || (a.scrollRatio ?? 0) - (b.scrollRatio ?? 0)
+      )
+    );
     onAnnotationsChange?.();
     onNotify('Bookmark saved', 'success');
   };
@@ -1045,7 +1146,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         />
 
         <header
-          className={`h-12 px-2.5 sm:px-5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/96 backdrop-blur-xs flex items-center justify-between gap-2 sm:gap-3 ${
+          className={`h-12 px-2 sm:px-4 lg:px-5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/96 backdrop-blur-xs flex items-center justify-between gap-1.5 sm:gap-3 ${
             openBooks.length === 0 ? 'pt-safe lg:pt-0' : ''
           }`}
         >
@@ -1058,13 +1159,13 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
                 setDrawerOpen(true);
               }}
               title="Table of contents and bookmarks"
-              className={`min-w-[40px] min-h-[40px] lg:min-w-0 lg:min-h-0 inline-flex items-center justify-center gap-1.5 px-2 lg:px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+              className={`w-9 h-9 md:w-auto md:h-8 md:px-2.5 inline-flex items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                 prefs.pinLeftSidebar && drawerTab === 'toc'
                   ? 'text-[var(--accent)] bg-[var(--bg-accent-subtle)]'
                   : 'text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
               }`}
             >
-              <List className="w-4 h-4 text-current opacity-80" />
+              <List className="w-4 h-4 text-current opacity-85" />
               <span className="hidden md:inline">Contents</span>
             </button>
 
@@ -1076,19 +1177,19 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               }}
               title="Search inside book (Ctrl+F)"
               aria-label="Search inside book"
-              className={`min-w-[40px] min-h-[40px] lg:min-w-0 lg:min-h-0 inline-flex items-center justify-center gap-1.5 px-2 lg:px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+              className={`w-9 h-9 lg:w-auto lg:h-8 lg:px-2.5 inline-flex items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                 searchQuery.trim().length >= 2 || (prefs.pinLeftSidebar && drawerTab === 'search')
                   ? 'text-[var(--accent)] bg-[var(--bg-accent-subtle)]'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
               }`}
             >
-              <Search className="w-3.5 h-3.5" />
+              <Search className="w-4 h-4 lg:w-3.5 lg:h-3.5" />
               <span className="hidden lg:inline">Search</span>
             </button>
           </div>
 
           {/* Center: Book Title & Subtitle */}
-          <div className="min-w-0 flex-1 text-center">
+          <div className="min-w-0 flex-1 text-center px-1">
             <div className="font-serif-editorial text-sm font-semibold leading-tight text-[var(--text-primary)] truncate">
               {book.title}
             </div>
@@ -1119,7 +1220,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
                 }
                 aria-label="Toggle PDF reflow mode"
                 aria-pressed={isPdfReflow}
-                className={`inline-flex items-center gap-1.5 px-2 lg:px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                className={`h-9 sm:h-8 inline-flex items-center justify-center gap-1.5 px-2 lg:px-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                   isPdfReflow
                     ? 'text-[var(--accent)] bg-[var(--bg-accent-subtle)]'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
@@ -1127,12 +1228,12 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               >
                 {isPdfReflow ? (
                   <>
-                    <Type className="w-3.5 h-3.5 shrink-0" />
+                    <Type className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
                     <span className="hidden sm:inline">Reflow</span>
                   </>
                 ) : (
                   <>
-                    <FileText className="w-3.5 h-3.5 shrink-0" />
+                    <FileText className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
                     <span className="hidden sm:inline">Original</span>
                   </>
                 )}
@@ -1159,7 +1260,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
                       : 'Two-Page Spread — switch to Continuous Scroll'
                 }
                 aria-label="Cycle reading layout mode"
-                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer whitespace-nowrap"
+                className="hidden sm:inline-flex items-center justify-center gap-1.5 w-8 h-8 xl:w-auto xl:px-2.5 rounded-md text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer whitespace-nowrap"
               >
                 {prefs.readingLayout === 'spread' ? (
                   <>
@@ -1188,7 +1289,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               title={voiceOpen ? 'Close Audiobook Voice Reader' : 'Listen with synchronized voice narration'}
               aria-label={voiceOpen ? 'Close voice narration' : 'Start voice narration'}
               aria-pressed={voiceOpen}
-              className={`min-w-[40px] min-h-[40px] lg:min-w-0 lg:min-h-0 inline-flex items-center justify-center gap-1.5 px-2 lg:px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap disabled:opacity-40 ${
+              className={`w-9 h-9 md:w-auto md:h-8 md:px-2.5 inline-flex items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap disabled:opacity-40 ${
                 voiceOpen
                   ? 'text-[var(--accent)] bg-[var(--bg-accent-subtle)]'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
@@ -1205,7 +1306,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               onClick={() => setStudyPaneOpen((v) => !v)}
               title="Toggle side-by-side Notes & Highlights study pane"
               aria-label="Toggle Study Pane"
-              className={`min-w-[40px] min-h-[40px] lg:min-w-0 lg:min-h-0 inline-flex items-center justify-center gap-1.5 px-2 lg:px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+              className={`relative w-9 h-9 md:w-auto md:h-8 md:px-2.5 inline-flex items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                 studyPaneOpen
                   ? 'text-[var(--accent)] bg-[var(--bg-accent-subtle)]'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
@@ -1214,18 +1315,23 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               <PanelRight className="w-4 h-4" />
               <span className="hidden md:inline">Study Notes</span>
               {highlights.length > 0 && (
-                <span className="font-mono-tabular text-[11px] opacity-80">
-                  {highlights.length}
-                </span>
+                <>
+                  <span className="hidden md:inline font-mono-tabular text-[11px] opacity-80">
+                    {highlights.length}
+                  </span>
+                  <span className="md:hidden absolute top-1 right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] font-mono-tabular text-[9px] font-semibold leading-[14px] text-center">
+                    {highlights.length > 99 ? '99+' : highlights.length}
+                  </span>
+                </>
               )}
             </button>
 
             <button
               type="button"
               onClick={handleToggleBookmark}
-              title={isCurrentUnitBookmarked ? 'Remove bookmark' : 'Bookmark this location'}
-              aria-label={isCurrentUnitBookmarked ? 'Remove bookmark' : 'Bookmark current location'}
-              className={`min-w-[40px] min-h-[40px] lg:min-w-0 lg:min-h-0 inline-flex items-center justify-center p-2 rounded-md transition-colors cursor-pointer ${
+              title={isCurrentUnitBookmarked ? 'Remove bookmark at this position' : 'Bookmark this page'}
+              aria-label={isCurrentUnitBookmarked ? 'Remove bookmark' : 'Bookmark current page'}
+              className={`w-9 h-9 lg:w-8 lg:h-8 inline-flex items-center justify-center rounded-md transition-colors cursor-pointer ${
                 isCurrentUnitBookmarked
                   ? 'text-[var(--accent)] bg-[var(--bg-accent-subtle)]'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
@@ -1239,7 +1345,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               onClick={() => setTypographyOpen((v) => !v)}
               title="Typography and display settings"
               aria-label="Typography settings"
-              className={`min-w-[40px] min-h-[40px] lg:min-w-0 lg:min-h-0 inline-flex items-center justify-center p-2 rounded-md transition-colors cursor-pointer ${
+              className={`w-9 h-9 lg:w-8 lg:h-8 inline-flex items-center justify-center rounded-md transition-colors cursor-pointer ${
                 typographyOpen
                   ? 'text-[var(--accent)] bg-[var(--bg-accent-subtle)]'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
@@ -1253,7 +1359,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               onClick={onToggleTheme}
               title={`Cycle reading surface (${prefs.theme === 'kanso' ? 'Kanso → Sepia' : prefs.theme === 'sepia' ? 'Sepia → Dark' : 'Dark → Kanso'})`}
               aria-label="Cycle reading surface theme"
-              className="hidden sm:inline-flex p-2 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer"
+              className="hidden sm:inline-flex items-center justify-center w-9 h-9 lg:w-8 lg:h-8 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer"
             >
               {prefs.theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
@@ -1268,7 +1374,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
                 title={zenMode ? 'Exit Zen Reader (show Kanso sidebar)' : 'Zen Reader (hide Kanso sidebar for wide spreads)'}
                 aria-label={zenMode ? 'Exit Zen Reader' : 'Enter Zen Reader'}
                 aria-pressed={zenMode}
-                className={`hidden lg:inline-flex p-2 rounded-md transition-colors cursor-pointer ${
+                className={`hidden lg:inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors cursor-pointer ${
                   zenMode
                     ? 'text-[var(--accent)] bg-[var(--bg-accent-subtle)]'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
@@ -1293,7 +1399,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               }
               aria-label={prefs.pinHeader ? 'Unpin header' : 'Pin header'}
               aria-pressed={prefs.pinHeader}
-              className={`hidden lg:inline-flex p-2 rounded-md transition-colors cursor-pointer ${
+              className={`hidden lg:inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors cursor-pointer ${
                 prefs.pinHeader
                   ? 'text-[var(--accent)] bg-[var(--bg-accent-subtle)]'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
@@ -1454,6 +1560,15 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
                     unitIndex: (payload.unitIndex ?? Math.max(0, unitIndex - 1)) + 1,
                   })
                 }
+                onUpdateHighlight={(updated) =>
+                  void handleUpdateHighlight({...updated, unitIndex: updated.unitIndex + 1})
+                }
+                onDeleteHighlight={(id) => void handleDeleteHighlight(id)}
+                onSendToNotes={
+                  onSendHighlightToNotes
+                    ? (excerpt, _loc) => onSendHighlightToNotes(book.title, excerpt, `Page ${unitIndex}`)
+                    : undefined
+                }
                 onFocusHighlight={(hlId) => {
                   setFocusedHighlightId(hlId);
                   setStudyPaneOpen(true);
@@ -1523,6 +1638,13 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
             }
             onScrollProgress={handleScrollProgress}
             onCreateHighlight={handleCreateHighlight}
+            onUpdateHighlight={(updated) => void handleUpdateHighlight(updated)}
+            onDeleteHighlight={(id) => void handleDeleteHighlight(id)}
+            onSendToNotes={
+              onSendHighlightToNotes
+                ? (excerpt, loc) => onSendHighlightToNotes(book.title, excerpt, loc)
+                : undefined
+            }
             onFocusHighlight={(hlId) => {
               setFocusedHighlightId(hlId);
               setStudyPaneOpen(true);
@@ -1730,9 +1852,15 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               ? `Page ${currentVirtualPage} of ${totalVirtualPages}`
               : undefined
           }
+          compactVirtualPageLabel={
+            book.format !== 'pdf' && reflowableMetrics
+              ? `${currentVirtualPage}/${totalVirtualPages}`
+              : undefined
+          }
           chapterMinutesLeft={chapterMinutesLeft}
           bookMinutesLeft={bookMinutesLeft}
           markers={scrubberMarkers}
+          bookmarkMarkers={bookmarkMarkers}
           canStepPrev={
             book.format === 'pdf'
               ? unitIndex > 1 ||

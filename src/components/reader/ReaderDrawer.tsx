@@ -371,8 +371,8 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
                         {format === 'pdf'
                           ? `Page ${bm.unitIndex}`
                           : chapterStartPages?.[bm.unitIndex]
-                            ? `Page ${chapterStartPages[bm.unitIndex]} · Ch. ${bm.unitIndex + 1}`
-                            : `Section ${bm.unitIndex + 1}`}{' '}
+                            ? `Ch. ${bm.unitIndex + 1} · ${Math.round((bm.scrollRatio ?? 0) * 100)}%`
+                            : `Section ${bm.unitIndex + 1} · ${Math.round((bm.scrollRatio ?? 0) * 100)}%`}{' '}
                         · {formatShortDate(bm.createdAt)}
                       </div>
                     </button>

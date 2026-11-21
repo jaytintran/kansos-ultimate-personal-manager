@@ -774,6 +774,10 @@
 }
 
 /* Archival Virtual Page Card & Two-Page Codex Gutter */
+.folio-reading-desk {
+  background-color: color-mix(in srgb, var(--bg-canvas) 93%, var(--border-subtle) 7%);
+}
+
 .folio-page-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
@@ -791,6 +795,37 @@
   );
 }
 
+/* Paginated Single-Page / Two-Page Codex Multi-Column Frame */
+.folio-spread-content {
+  column-fill: auto;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.folio-spread-content h1,
+.folio-spread-content h2,
+.folio-spread-content h3,
+.folio-spread-content h4 {
+  break-after: avoid;
+  page-break-after: avoid;
+}
+
+.folio-spread-content figure,
+.folio-spread-content table,
+.folio-spread-content pre,
+.folio-spread-content blockquote {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.folio-spread-content img,
+.folio-spread-content svg {
+  max-height: calc(100% - 2rem);
+  max-width: 100%;
+  object-fit: contain;
+  break-inside: avoid;
+}
+
 /* Reflowable EPUB / MOBI / PDF-Reflow Prose Typography */
 .folio-prose {
   font-family: var(--folio-font-family, 'Source Serif 4', Georgia, serif);
@@ -804,6 +839,10 @@
   word-break: break-word;
   overflow-wrap: anywhere;
   hyphens: auto;
+}
+
+.folio-prose--publisher {
+  color: var(--folio-text-ink, var(--text-primary));
 }
 
 .folio-prose h1,

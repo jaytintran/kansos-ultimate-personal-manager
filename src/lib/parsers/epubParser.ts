@@ -38,6 +38,101 @@ function guessMime(path: string): string {
   return 'image/jpeg';
 }
 
+const DISALLOWED_CSS_PROPS = new Set([
+  'color',
+  'background',
+  'background-color',
+  'background-image',
+  'font-family',
+  'position',
+  'top',
+  'right',
+  'bottom',
+  'left',
+  'z-index',
+  'overflow',
+  'overflow-x',
+  'overflow-y',
+  'height',
+  'min-height',
+  'max-height',
+]);
+
+function filterCssDeclarations(declBlock: string): string {
+  const kept: string[] = [];
+  for (const rawDecl of declBlock.split(';')) {
+    const colonIdx = rawDecl.indexOf(':');
+    if (colonIdx === -1) continue;
+    const prop = rawDecl.slice(0, colonIdx).trim().toLowerCase();
+    const val = rawDecl.slice(colonIdx + 1).trim();
+    if (!prop || !val) continue;
+    if (DISALLOWED_CSS_PROPS.has(prop)) continue;
+    if (/expression\s*\(|javascript:|url\s*\(\s*['"]?https?:/i.test(val)) continue;
+    if (prop === 'font-size' && /(px|pt)$/i.test(val)) continue;
+    kept.push(`${prop}: ${val}`);
+  }
+  return kept.join('; ');
+}
+
+function scopeCssRuleBlock(cssText: string, scopeSelector: string): string {
+  const cleaned = cssText
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/@(charset|import|namespace)[^;]*;/gi, '')
+    .replace(/@(font-face|page)\s*\{[^{}]*\}/gi, '');
+
+  const out: string[] = [];
+  let i = 0;
+  const len = cleaned.length;
+
+  while (i < len) {
+    while (i < len && /\s/.test(cleaned[i])) i++;
+    if (i >= len) break;
+
+    const braceOpen = cleaned.indexOf('{', i);
+    if (braceOpen === -1) break;
+    const selectorRaw = cleaned.slice(i, braceOpen).trim();
+
+    let depth = 1;
+    let j = braceOpen + 1;
+    while (j < len && depth > 0) {
+      if (cleaned[j] === '{') depth++;
+      else if (cleaned[j] === '}') depth--;
+      j++;
+    }
+    const inner = cleaned.slice(braceOpen + 1, j - 1);
+    i = j;
+
+    if (!selectorRaw) continue;
+    if (selectorRaw.startsWith('@media') || selectorRaw.startsWith('@supports')) {
+      const nested = scopeCssRuleBlock(inner, scopeSelector);
+      if (nested.trim()) {
+        out.push(`${selectorRaw} {\n${nested}\n}`);
+      }
+      continue;
+    }
+    if (selectorRaw.startsWith('@')) continue;
+
+    const filteredDecls = filterCssDeclarations(inner);
+    if (!filteredDecls) continue;
+
+    const scopedSelectors = selectorRaw
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s && !s.includes('::'))
+      .map((s) => {
+        if (/^(html|body)$/i.test(s)) return scopeSelector;
+        const stripped = s.replace(/^(html|body)\s+/i, '');
+        return `${scopeSelector} ${stripped}`;
+      });
+
+    if (scopedSelectors.length > 0) {
+      out.push(`${scopedSelectors.join(', ')} { ${filteredDecls}; }`);
+    }
+  }
+
+  return out.join('\n');
+}
+
 function findZipFile(zip: JSZip, targetPath: string): JSZip.JSZipObject | null {
   const exact = zip.file(targetPath);
   if (exact) return exact;
@@ -209,6 +304,7 @@ async function parseEpubCore(
 
   const cleanupUrls: string[] = [];
   const blobUrlCache = new Map<string, string>();
+  const cssFileCache = new Map<string, string>();
   const chapters: ParsedChapter[] = [];
 
   const expandXhtmlSelfClosingTags = (xhtml: string): string => {
@@ -225,20 +321,51 @@ async function parseEpubCore(
     if (!file) continue;
     const rawHtml = await file.async('string');
     const htmlDoc = parser.parseFromString(expandXhtmlSelfClosingTags(rawHtml), 'text/html');
+    const chapterDir = entry.fullPath.includes('/')
+      ? entry.fullPath.slice(0, entry.fullPath.lastIndexOf('/'))
+      : '';
+    const scopeSelector = `.folio-prose.folio-prose--publisher[data-pub-ch="${chIdx}"]`;
+
+    // Extract linked & inline publisher stylesheets into scoped safe CSS for Publisher Styles mode
+    const cssParts: string[] = [];
+    const linkedStyles = Array.from(
+      htmlDoc.querySelectorAll('link[rel~="stylesheet"][href], link[href$=".css"]')
+    );
+    for (const linkEl of linkedStyles) {
+      const href = linkEl.getAttribute('href');
+      if (!href || /^(https?:|data:)/i.test(href)) continue;
+      const cssPath = resolveRelativePath(chapterDir, decodeURIComponent(href));
+      const cacheKey = `${chIdx}:${cssPath}`;
+      let scoped = cssFileCache.get(cacheKey);
+      if (scoped === undefined) {
+        const cssFile = findZipFile(zip, cssPath);
+        const cssStr = cssFile ? await cssFile.async('string') : '';
+        scoped = cssStr ? scopeCssRuleBlock(cssStr, scopeSelector) : '';
+        cssFileCache.set(cacheKey, scoped);
+      }
+      if (scoped) cssParts.push(scoped);
+    }
+    htmlDoc.querySelectorAll('style').forEach((styleEl) => {
+      const cssStr = styleEl.textContent || '';
+      if (cssStr.trim()) {
+        const scoped = scopeCssRuleBlock(cssStr, scopeSelector);
+        if (scoped) cssParts.push(scoped);
+      }
+    });
+    const publisherCss = cssParts.join('\n').trim() || undefined;
 
     // Remove unsafe or conflicting tags
     htmlDoc.querySelectorAll('script, style, link, iframe, object, embed').forEach((el) => el.remove());
 
-    // Strip inline font/color/underline declarations from publisher HTML so Kanso themes & typography win cleanly
+    // Store safe inline formatting (align, indent, margins, italics, borders) in data-folio-pub-style
+    // so Clean Kanso mode renders uniformly while Publisher mode restores authentic book layout instantly.
     htmlDoc.querySelectorAll<HTMLElement>('[style]').forEach((el) => {
-      el.style.removeProperty('color');
-      el.style.removeProperty('background-color');
-      el.style.removeProperty('font-family');
-      el.style.removeProperty('text-decoration');
-      el.style.removeProperty('text-decoration-line');
-      if (!el.getAttribute('style')?.trim()) {
-        el.removeAttribute('style');
+      const rawStyle = el.getAttribute('style') || '';
+      const safeInline = filterCssDeclarations(rawStyle);
+      if (safeInline) {
+        el.setAttribute('data-folio-pub-style', safeInline);
       }
+      el.removeAttribute('style');
     });
 
     // Scope element IDs so multiple chapters in Continuous Scroll never collide
@@ -265,10 +392,6 @@ async function parseEpubCore(
       }
       a.parentNode?.replaceChild(span, a);
     });
-
-    const chapterDir = entry.fullPath.includes('/')
-      ? entry.fullPath.slice(0, entry.fullPath.lastIndexOf('/'))
-      : '';
 
     // Rewrite internal links & footnotes to data-folio-chapter / data-folio-anchor
     htmlDoc.querySelectorAll('a[href]').forEach((a) => {
@@ -353,6 +476,7 @@ async function parseEpubCore(
       href: entry.fullPath,
       title: chapterTitle,
       html: bodyHtml,
+      publisherCss,
     });
   }
 
