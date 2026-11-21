@@ -331,6 +331,11 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   const slashIndexRef = useRef(0);
   const filteredSlashRef = useRef<SlashItem[]>(SLASH_ITEMS);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const editorRef = useRef<Editor | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const lastEmittedHtmlRef = useRef<string>(content || '');
+  const prevDocIdRef = useRef<string>(docId);
 
   const filteredSlash = useMemo(() => {
     const q = slashQuery.trim().toLowerCase();
@@ -417,7 +422,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
         if (!htmlData && textData && looksLikeMarkdown(textData)) {
           event.preventDefault();
           const converted = markdownToHtml(textData);
-          editor?.chain().focus().insertContent(converted).run();
+          editorRef.current?.chain().focus().insertContent(converted).run();
           return true;
         }
         return false;
@@ -437,12 +442,13 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
         }
         if (event.key === 'Enter') {
           const selected = items[slashIndexRef.current];
-          if (selected && editor) {
+          const activeEd = editorRef.current;
+          if (selected && activeEd) {
             event.preventDefault();
             if (slashRangeRef.current) {
-              editor.chain().focus().deleteRange(slashRangeRef.current).run();
+              activeEd.chain().focus().deleteRange(slashRangeRef.current).run();
             }
-            selected.action(editor);
+            selected.action(activeEd);
             setSlashOpen(false);
             setSlashQuery('');
             return true;
@@ -469,7 +475,9 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     },
     onUpdate: ({ editor: ed }) => {
       const html = ed.getHTML();
-      onChange(html === '<p></p>' ? '' : html);
+      const normalized = html === '<p></p>' ? '' : html;
+      lastEmittedHtmlRef.current = normalized;
+      onChangeRef.current(normalized);
 
       // Detect slash command token at cursor
       const { from } = ed.state.selection;
@@ -506,6 +514,8 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     },
   });
 
+  editorRef.current = editor;
+
   useEffect(() => {
     onEditorReady?.(editor ?? null);
     return () => onEditorReady?.(null);
@@ -513,14 +523,21 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
 
   useEffect(() => {
     if (!editor) return;
+    const docChanged = prevDocIdRef.current !== docId;
+    prevDocIdRef.current = docId;
+
+    const normalizedNext = content || '';
+    if (!docChanged && normalizedNext === lastEmittedHtmlRef.current) {
+      return;
+    }
+
     const currentHtml = editor.getHTML();
     const normalizedCurrent = currentHtml === '<p></p>' ? '' : currentHtml;
-    const normalizedNext = content || '';
     if (normalizedCurrent !== normalizedNext) {
       editor.commands.setContent(normalizedNext, { emitUpdate: false });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId, editor]);
+    lastEmittedHtmlRef.current = normalizedNext;
+  }, [docId, editor, content]);
 
   // Dismiss floating selection bar on scroll so it never drifts away from text
   useEffect(() => {

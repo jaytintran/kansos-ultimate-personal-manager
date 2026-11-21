@@ -202,39 +202,112 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
   const [mobilePropsCollapsed, setMobilePropsCollapsed] = useState(false);
 
-  // Shared draft state
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [tags, setTags] = useState<string[]>([]);
+  const activeLists = useMemo(() => workspace.lists, [workspace.lists]);
+  const sessionDraftDocIdRef = useRef(
+    `draft-${target?.mode ?? "item"}-${Date.now().toString(36)}`,
+  );
+
+  const initialEntrySrc = isEntryMode
+    ? existingEntry || (target?.draft as Partial<Entry> | undefined)
+    : undefined;
+  const initialHabitSrc =
+    target?.mode === "habit"
+      ? existingHabit || (target?.draft as Partial<Habit> | undefined)
+      : undefined;
+  const initialListSrc =
+    target?.mode === "list_item"
+      ? existingListItem || (target?.draft as Partial<ListItem> | undefined)
+      : undefined;
+
+  // Shared draft state (initialized synchronously so Render #1 has full title & content)
+  const [title, setTitle] = useState(
+    () =>
+      (isEntryMode
+        ? initialEntrySrc?.title
+        : target?.mode === "habit"
+          ? initialHabitSrc?.title
+          : initialListSrc?.title) ?? "",
+  );
+  const [content, setContent] = useState(
+    () =>
+      (isEntryMode
+        ? initialEntrySrc?.content
+        : target?.mode === "list_item"
+          ? initialListSrc?.content
+          : "") ?? "",
+  );
+  const [tags, setTags] = useState<string[]>(
+    () =>
+      (isEntryMode
+        ? initialEntrySrc?.tags
+        : target?.mode === "list_item"
+          ? initialListSrc?.tags
+          : []) ?? [],
+  );
   const [tagInput, setTagInput] = useState("");
-  const [pinned, setPinned] = useState(false);
-  const [location, setLocation] = useState("");
-  const [eventCategory, setEventCategory] = useState<EventCategory>("personal");
-  const [attendance, setAttendance] = useState<EventAttendance>(null);
-  const [listIds, setListIds] = useState<string[]>([]);
-  const [syncToTimeline, setSyncToTimeline] = useState(false);
-  const [notebookId, setNotebookId] = useState<string | null>(null);
+  const [pinned, setPinned] = useState(() => Boolean(initialEntrySrc?.pinned));
+  const [location, setLocation] = useState(
+    () => initialEntrySrc?.location ?? "",
+  );
+  const [eventCategory, setEventCategory] = useState<EventCategory>(
+    () => initialEntrySrc?.eventCategory ?? "personal",
+  );
+  const [attendance, setAttendance] = useState<EventAttendance>(
+    () => initialEntrySrc?.attendance ?? null,
+  );
+  const [listIds, setListIds] = useState<string[]>(
+    () => initialEntrySrc?.listIds ?? [],
+  );
+  const [syncToTimeline, setSyncToTimeline] = useState(() =>
+    Boolean(
+      initialEntrySrc?.syncToTimeline ??
+        (target?.mode === "note" && !existingEntry
+          ? workspace.settings.defaultNoteTimelineSync
+          : false),
+    ),
+  );
+  const [notebookId, setNotebookId] = useState<string | null>(
+    () => initialEntrySrc?.notebookId ?? null,
+  );
 
   // Habit draft state
-  const [habitPurpose, setHabitPurpose] = useState("");
-  const [habitColor, setHabitColor] = useState(HABIT_COLOR_PRESETS[0]);
-  const [habitIcon, setHabitIcon] = useState("Flame");
-  const [habitFreq, setHabitFreq] = useState<HabitFrequencyType>("daily");
-  const [habitCustomDays, setHabitCustomDays] = useState<number[]>([1, 3, 5]);
-  const [habitWeeklyTarget, setHabitWeeklyTarget] = useState(4);
+  const [habitPurpose, setHabitPurpose] = useState(
+    () => initialHabitSrc?.purpose ?? "",
+  );
+  const [habitColor, setHabitColor] = useState(
+    () => initialHabitSrc?.color ?? HABIT_COLOR_PRESETS[0],
+  );
+  const [habitIcon, setHabitIcon] = useState(
+    () => initialHabitSrc?.icon ?? "Flame",
+  );
+  const [habitFreq, setHabitFreq] = useState<HabitFrequencyType>(
+    () => initialHabitSrc?.frequencyType ?? "daily",
+  );
+  const [habitCustomDays, setHabitCustomDays] = useState<number[]>(
+    () => initialHabitSrc?.customDays ?? [1, 3, 5],
+  );
+  const [habitWeeklyTarget, setHabitWeeklyTarget] = useState(
+    () => initialHabitSrc?.weeklyTarget ?? 4,
+  );
 
   // List item draft state
-  const [listSubtitle, setListSubtitle] = useState("");
-  const [listStatus, setListStatus] = useState<ListItemStatus>("inbox");
-  const [listId, setListId] = useState("");
-  const [listDueDate, setListDueDate] = useState("");
+  const [listSubtitle, setListSubtitle] = useState(
+    () => initialListSrc?.subtitle ?? "",
+  );
+  const [listStatus, setListStatus] = useState<ListItemStatus>(
+    () => initialListSrc?.status ?? "inbox",
+  );
+  const [listId, setListId] = useState(
+    () => initialListSrc?.listId ?? activeLists[0]?.id ?? "",
+  );
+  const [listDueDate, setListDueDate] = useState(() =>
+    initialListSrc?.scheduledAt ? initialListSrc.scheduledAt.slice(0, 10) : "",
+  );
 
   const lastSavedSnapRef = useRef<string>("");
   const debounceTimerRef = useRef<number | null>(null);
   const isComposingRef = useRef(false);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
-
-  const activeLists = useMemo(() => workspace.lists, [workspace.lists]);
 
   // Auto-resize display title textarea
   useEffect(() => {
@@ -359,10 +432,17 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
   const flushSave = useCallback(() => {
     if (!target) return;
 
+    const liveHtml =
+      editorInstance && !editorInstance.isDestroyed
+        ? editorInstance.getHTML()
+        : null;
+    const effectiveContent =
+      liveHtml !== null ? (liveHtml === "<p></p>" ? "" : liveHtml) : content;
+
     if (isEntryMode) {
       const snapObj = {
         title,
-        content,
+        content: effectiveContent,
         tags,
         pinned,
         location,
@@ -379,7 +459,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
         title:
           title.trim() ||
           (target.mode === "note" ? "Untitled Note" : "Untitled"),
-        content,
+        content: effectiveContent,
         tags,
         pinned,
         location,
@@ -392,7 +472,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
 
       if (activeId) {
         updateEntry(activeId, patch);
-      } else if (title.trim() || content.trim()) {
+      } else if (title.trim() || effectiveContent.trim()) {
         const created = createEntry({
           ...(target.draft as Partial<Entry>),
           type: target.mode as Entry["type"],
@@ -400,6 +480,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
         });
         setCreatedId(created.id);
       }
+      if (effectiveContent !== content) setContent(effectiveContent);
       lastSavedSnapRef.current = snap;
     } else if (target.mode === "habit") {
       const snapObj = {
@@ -435,7 +516,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
         listStatus,
         listId,
         tags,
-        content,
+        content: effectiveContent,
         listDueDate,
       };
       const snap = JSON.stringify(snapObj);
@@ -450,18 +531,24 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
         status: listStatus,
         listId,
         tags,
-        content,
+        content: effectiveContent,
         scheduledAt,
       };
 
       if (activeId) {
         updateListItem(activeId, patch);
+        if (effectiveContent !== content) setContent(effectiveContent);
         lastSavedSnapRef.current = snap;
-      } else if (title.trim() && listId) {
-        const created = addListItem(listId, title.trim(), listStatus);
+      } else if ((title.trim() || effectiveContent.trim()) && listId) {
+        const created = addListItem(
+          listId,
+          title.trim() || "Untitled Item",
+          listStatus,
+        );
         if (created) {
           updateListItem(created.id, patch);
           setCreatedId(created.id);
+          if (effectiveContent !== content) setContent(effectiveContent);
           lastSavedSnapRef.current = snap;
         }
       }
@@ -470,6 +557,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
     target,
     isEntryMode,
     activeId,
+    editorInstance,
     title,
     content,
     tags,
@@ -1616,7 +1704,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
               {hasRichEditor && (
                 <div className="pt-1">
                   <TiptapEditor
-                    docId={activeId || `draft-${target.mode}`}
+                    docId={target.id || sessionDraftDocIdRef.current}
                     content={content}
                     onChange={setContent}
                     variant="borderless"
