@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from "react";
 import {
   Archive,
   ArchiveRestore,
@@ -16,21 +16,24 @@ import {
   Table2,
   Trash2,
   X,
-} from 'lucide-react';
-import { Entry, NoteNotebook, NoteStatus } from '../../types';
-import { formatShortDate } from '../../utils/date';
-import { computeNoteBacklinks, stripHtmlToText } from '../../utils/noteMarkdown';
+} from "lucide-react";
+import { Entry, NoteNotebook, NoteStatus } from "../../types";
+import { formatShortDate } from "../../utils/date";
+import {
+  computeNoteBacklinks,
+  stripHtmlToText,
+} from "../../utils/noteMarkdown";
 import {
   NOTE_STATUS_OPTIONS,
   NOTE_TEMPLATES,
   NoteTemplateDef,
   getNoteStatusMeta,
   resolveCoverStyle,
-} from '../../utils/noteTemplates';
-import { NotesScope } from './NotesSidebarTree';
+} from "../../utils/noteTemplates";
+import { NotesScope } from "./NotesSidebarTree";
 
-export type NotesBrowserViewMode = 'gallery' | 'table' | 'list';
-export type NotesSortField = 'updated' | 'created' | 'title' | 'backlinks';
+export type NotesBrowserViewMode = "gallery" | "table" | "list";
+export type NotesSortField = "updated" | "created" | "title" | "backlinks";
 
 interface NotesDatabaseHomeProps {
   notes: Entry[];
@@ -46,9 +49,6 @@ interface NotesDatabaseHomeProps {
   onUpdateNote: (id: string, patch: Partial<Entry>) => void;
   onArchiveNote: (id: string, archived: boolean) => void;
   onTrashNote: (id: string) => void;
-  onRestoreNote: (id: string) => void;
-  onPermanentDelete: (id: string) => void;
-  onEmptyTrash: () => void;
 }
 
 export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
@@ -65,50 +65,43 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
   onUpdateNote,
   onArchiveNote,
   onTrashNote,
-  onRestoreNote,
-  onPermanentDelete,
-  onEmptyTrash,
 }) => {
-  const [viewMode, setViewMode] = useState<NotesBrowserViewMode>('gallery');
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<NoteStatus | 'all'>('all');
+  const [viewMode, setViewMode] = useState<NotesBrowserViewMode>("gallery");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<NoteStatus | "all">("all");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [sortField, setSortField] = useState<NotesSortField>('updated');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [captureDraft, setCaptureDraft] = useState('');
+  const [sortField, setSortField] = useState<NotesSortField>("updated");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [captureDraft, setCaptureDraft] = useState("");
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
-  const [confirmEmptyTrashOpen, setConfirmEmptyTrashOpen] = useState(false);
 
   const notebookMap = useMemo(
     () => new Map(notebooks.map((nb) => [nb.id, nb])),
-    [notebooks]
+    [notebooks],
   );
 
   const noteTitleMap = useMemo(
     () => new Map(notes.map((n) => [n.id, n])),
-    [notes]
+    [notes],
   );
 
   // Compute incoming backlink counts once per notes array
   const backlinkCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const note of notes) {
-      if (!note.trashedAt) {
-        counts.set(note.id, computeNoteBacklinks(note, notes).length);
-      }
+      counts.set(note.id, computeNoteBacklinks(note, notes).length);
     }
     return counts;
   }, [notes]);
 
   const scopedNotes = useMemo(() => {
     return notes.filter((n) => {
-      if (scope.type === 'trash') return Boolean(n.trashedAt);
-      if (n.trashedAt) return false;
-      const isArchived = Boolean(n.archived) || n.noteStatus === 'archived';
-      if (scope.type === 'archive') return isArchived;
+      const isArchived = Boolean(n.archived) || n.noteStatus === "archived";
+      if (scope.type === "archive") return isArchived;
       if (isArchived) return false;
-      if (scope.type === 'favorites') return Boolean(n.favorite) || Boolean(n.pinned);
-      if (scope.type === 'notebook') return n.notebookId === scope.notebookId;
+      if (scope.type === "favorites")
+        return Boolean(n.favorite) || Boolean(n.pinned);
+      if (scope.type === "notebook") return n.notebookId === scope.notebookId;
       return true;
     });
   }, [notes, scope]);
@@ -126,7 +119,8 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
   const filteredNotes = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = scopedNotes.filter((n) => {
-      if (statusFilter !== 'all' && (n.noteStatus ?? 'draft') !== statusFilter) return false;
+      if (statusFilter !== "all" && (n.noteStatus ?? "draft") !== statusFilter)
+        return false;
       if (tagFilter && !n.tags.includes(tagFilter)) return false;
       if (!q) return true;
       return (
@@ -138,37 +132,45 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
 
     return list.sort((a, b) => {
       let cmp = 0;
-      if (sortField === 'title') {
-        cmp = (a.title || 'Untitled').localeCompare(b.title || 'Untitled');
-      } else if (sortField === 'created') {
+      if (sortField === "title") {
+        cmp = (a.title || "Untitled").localeCompare(b.title || "Untitled");
+      } else if (sortField === "created") {
         cmp = Date.parse(a.createdAt) - Date.parse(b.createdAt);
-      } else if (sortField === 'backlinks') {
+      } else if (sortField === "backlinks") {
         cmp = (backlinkCounts.get(a.id) || 0) - (backlinkCounts.get(b.id) || 0);
       } else {
         cmp =
-          Date.parse(a.updatedAt || a.createdAt) - Date.parse(b.updatedAt || b.createdAt);
+          Date.parse(a.updatedAt || a.createdAt) -
+          Date.parse(b.updatedAt || b.createdAt);
       }
-      return sortDir === 'asc' ? cmp : -cmp;
+      return sortDir === "asc" ? cmp : -cmp;
     });
-  }, [scopedNotes, statusFilter, tagFilter, search, sortField, sortDir, backlinkCounts]);
+  }, [
+    scopedNotes,
+    statusFilter,
+    tagFilter,
+    search,
+    sortField,
+    sortDir,
+    backlinkCounts,
+  ]);
 
   const scopeTitle = useMemo(() => {
-    if (scope.type === 'favorites') return 'Favorites';
-    if (scope.type === 'archive') return 'Archive';
-    if (scope.type === 'trash') return 'Trash Bin';
-    if (scope.type === 'notebook') {
+    if (scope.type === "favorites") return "Favorites";
+    if (scope.type === "archive") return "Archive";
+    if (scope.type === "notebook") {
       const nb = notebookMap.get(scope.notebookId);
-      return nb ? `${nb.icon} ${nb.name}` : 'Notebook';
+      return nb ? `${nb.icon} ${nb.name}` : "Notebook";
     }
-    return 'All Notes';
+    return "All Notes";
   }, [scope, notebookMap]);
 
   const handleSortToggle = (field: NotesSortField) => {
     if (sortField === field) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortField(field);
-      setSortDir(field === 'title' ? 'asc' : 'desc');
+      setSortDir(field === "title" ? "asc" : "desc");
     }
   };
 
@@ -177,7 +179,7 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
     const clean = captureDraft.trim();
     if (!clean) return;
     onQuickCapture(clean);
-    setCaptureDraft('');
+    setCaptureDraft("");
   };
 
   return (
@@ -186,7 +188,7 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
         {/* Top Scope Header */}
         <header
           className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b"
-          style={{ borderColor: 'var(--border-subtle)' }}
+          style={{ borderColor: "var(--border-subtle)" }}
         >
           <div className="flex items-center gap-2.5 min-w-0">
             <button
@@ -194,9 +196,9 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
               onClick={onOpenMobileTree}
               className="lg:hidden h-9 w-9 rounded-lg border flex items-center justify-center shrink-0"
               style={{
-                backgroundColor: 'var(--bg-surface)',
-                borderColor: 'var(--border-subtle)',
-                color: 'var(--text-secondary)',
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-secondary)",
               }}
               aria-label="Open notebooks drawer"
             >
@@ -208,9 +210,9 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                 onClick={onExpandSidebar}
                 className="hidden lg:flex h-8 w-8 rounded-lg border items-center justify-center shrink-0 transition-colors hover:bg-[var(--bg-surface-subtle)]"
                 style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--border-subtle)',
-                  color: 'var(--text-secondary)',
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
                 }}
                 title="Expand sidebar"
                 aria-label="Expand notes sidebar"
@@ -222,85 +224,78 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
               <h1 className="font-display text-xl sm:text-2xl font-bold tracking-tight truncate">
                 {scopeTitle}
               </h1>
-              <p className="text-xs font-mono tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                {filteredNotes.length}{' '}
-                {filteredNotes.length === 1 ? 'page' : 'pages'}
-                {scope.type === 'trash' && ' · restore anytime or permanently delete'}
+              <p
+                className="text-xs font-mono tabular-nums"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {filteredNotes.length}{" "}
+                {filteredNotes.length === 1 ? "page" : "pages"}
               </p>
             </div>
           </div>
 
-          {scope.type === 'trash' ? (
-            filteredNotes.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setConfirmEmptyTrashOpen(true)}
-                className="h-9 px-3.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition-colors"
-                style={{
-                  borderColor: 'var(--danger)',
-                  color: 'var(--danger)',
-                  backgroundColor: 'var(--bg-surface)',
-                }}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Empty Trash</span>
-              </button>
-            )
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setTemplateModalOpen(true)}
-                className="h-9 px-3 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 transition-colors hover:bg-[var(--bg-surface-subtle)]"
-                style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--border-subtle)',
-                  color: 'var(--text-primary)',
-                }}
-              >
-                <Sparkles className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
-                <span>Templates</span>
-              </button>
-              <button
-                type="button"
-                onClick={onCreateBlank}
-                className="h-9 px-3.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-transform active:scale-95"
-                style={{
-                  backgroundColor: 'var(--accent)',
-                  color: 'var(--accent-fg)',
-                }}
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>New Page</span>
-              </button>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setTemplateModalOpen(true)}
+              className="h-9 px-3 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 transition-colors hover:bg-[var(--bg-surface-subtle)]"
+              style={{
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-primary)",
+              }}
+            >
+              <Sparkles
+                className="w-3.5 h-3.5"
+                style={{ color: "var(--accent)" }}
+              />
+              <span>Templates</span>
+            </button>
+            <button
+              type="button"
+              onClick={onCreateBlank}
+              className="h-9 px-3.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-transform active:scale-95"
+              style={{
+                backgroundColor: "var(--accent)",
+                color: "var(--accent-fg)",
+              }}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Page</span>
+            </button>
+          </div>
         </header>
 
         {/* Quick Capture Bar (hidden inside Trash/Archive) */}
-        {scope.type !== 'trash' && scope.type !== 'archive' && (
+        {scope.type !== "archive" && (
           <form
             onSubmit={handleQuickCaptureSubmit}
             className="flex items-center gap-2 rounded-xl border px-3 py-1.5"
             style={{
-              backgroundColor: 'var(--bg-surface)',
-              borderColor: 'var(--border-subtle)',
+              backgroundColor: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
             }}
           >
-            <Plus className="w-4 h-4 shrink-0" style={{ color: 'var(--accent)' }} />
+            <Plus
+              className="w-4 h-4 shrink-0"
+              style={{ color: "var(--accent)" }}
+            />
             <input
               type="text"
               value={captureDraft}
               onChange={(e) => setCaptureDraft(e.target.value)}
               placeholder="Quick capture a thought or page title... (Press Enter to create & open)"
               className="flex-1 min-w-0 h-8 bg-transparent text-sm outline-none"
-              style={{ color: 'var(--text-primary)' }}
+              style={{ color: "var(--text-primary)" }}
             />
             {captureDraft.trim() && (
               <button
                 type="submit"
                 className="h-7 px-3 rounded-lg text-xs font-semibold shrink-0"
-                style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-fg)' }}
+                style={{
+                  backgroundColor: "var(--accent)",
+                  color: "var(--accent-fg)",
+                }}
               >
                 Capture
               </button>
@@ -314,62 +309,69 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
             <div
               className="flex items-center gap-2 px-3 h-8 rounded-lg border w-full sm:w-56"
               style={{
-                backgroundColor: 'var(--bg-surface)',
-                borderColor: 'var(--border-subtle)',
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
               }}
             >
-              <Search className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-muted)' }} />
+              <Search
+                className="w-3.5 h-3.5 shrink-0"
+                style={{ color: "var(--text-muted)" }}
+              />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search title, body, tags..."
                 className="w-full bg-transparent text-xs outline-none"
-                style={{ color: 'var(--text-primary)' }}
+                style={{ color: "var(--text-primary)" }}
               />
               {search && (
                 <button
                   type="button"
-                  onClick={() => setSearch('')}
+                  onClick={() => setSearch("")}
                   aria-label="Clear search"
-                  style={{ color: 'var(--text-muted)' }}
+                  style={{ color: "var(--text-muted)" }}
                 >
                   <X className="w-3 h-3" />
                 </button>
               )}
             </div>
 
-            {scope.type !== 'archive' && scope.type !== 'trash' && (
+            {scope.type !== "archive" && (
               <select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as NoteStatus | 'all')}
+                onChange={(e) =>
+                  setStatusFilter(e.target.value as NoteStatus | "all")
+                }
                 aria-label="Filter by status"
                 className="h-8 px-2.5 rounded-lg border text-xs outline-none"
                 style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--border-subtle)',
-                  color: 'var(--text-secondary)',
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
                 }}
               >
                 <option value="all">All Statuses</option>
-                {NOTE_STATUS_OPTIONS.filter((s) => s.id !== 'archived').map((st) => (
-                  <option key={st.id} value={st.id}>
-                    {st.label}
-                  </option>
-                ))}
+                {NOTE_STATUS_OPTIONS.filter((s) => s.id !== "archived").map(
+                  (st) => (
+                    <option key={st.id} value={st.id}>
+                      {st.label}
+                    </option>
+                  ),
+                )}
               </select>
             )}
 
             {availableTags.length > 0 && (
               <select
-                value={tagFilter || ''}
+                value={tagFilter || ""}
                 onChange={(e) => setTagFilter(e.target.value || null)}
                 aria-label="Filter by tag"
                 className="h-8 px-2.5 rounded-lg border text-xs outline-none"
                 style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--border-subtle)',
-                  color: 'var(--text-secondary)',
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
                 }}
               >
                 <option value="">All Tags</option>
@@ -389,9 +391,9 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
               aria-label="Sort notes"
               className="h-8 px-2.5 rounded-lg border text-xs outline-none"
               style={{
-                backgroundColor: 'var(--bg-surface)',
-                borderColor: 'var(--border-subtle)',
-                color: 'var(--text-secondary)',
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-secondary)",
               }}
             >
               <option value="updated">Sort: Recently updated</option>
@@ -400,45 +402,45 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
               <option value="backlinks">Sort: Backlinks</option>
             </select>
 
-            {scope.type !== 'trash' && (
-              <div
-                className="inline-flex items-center p-0.5 rounded-lg border"
-                style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--border-subtle)',
-                }}
-                role="tablist"
-                aria-label="Notes layout view"
-              >
-                {(
-                  [
-                    { id: 'gallery', label: 'Gallery', icon: LayoutGrid },
-                    { id: 'table', label: 'Table', icon: Table2 },
-                    { id: 'list', label: 'List', icon: List },
-                  ] as const
-                ).map((mode) => {
-                  const Icon = mode.icon;
-                  const active = viewMode === mode.id;
-                  return (
-                    <button
-                      key={mode.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setViewMode(mode.id)}
-                      className="h-7 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors"
-                      style={{
-                        backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
-                        color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                      }}
-                    >
-                      <Icon className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">{mode.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <div
+              className="inline-flex items-center p-0.5 rounded-lg border"
+              style={{
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+              }}
+              role="tablist"
+              aria-label="Notes layout view"
+            >
+              {(
+                [
+                  { id: "gallery", label: "Gallery", icon: LayoutGrid },
+                  { id: "table", label: "Table", icon: Table2 },
+                  { id: "list", label: "List", icon: List },
+                ] as const
+              ).map((mode) => {
+                const Icon = mode.icon;
+                const active = viewMode === mode.id;
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setViewMode(mode.id)}
+                    className="h-7 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors"
+                    style={{
+                      backgroundColor: active
+                        ? "var(--accent-soft)"
+                        : "transparent",
+                      color: active ? "var(--accent)" : "var(--text-secondary)",
+                    }}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">{mode.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -447,32 +449,38 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
           <div
             className="rounded-2xl border py-16 px-6 text-center space-y-3"
             style={{
-              backgroundColor: 'var(--bg-surface)',
-              borderColor: 'var(--border-subtle)',
+              backgroundColor: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
             }}
           >
-            <FileText className="w-8 h-8 mx-auto opacity-50" style={{ color: 'var(--text-muted)' }} />
+            <FileText
+              className="w-8 h-8 mx-auto opacity-50"
+              style={{ color: "var(--text-muted)" }}
+            />
             <div className="space-y-1">
-              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                {scope.type === 'trash'
-                  ? 'Trash is empty'
-                  : scope.type === 'archive'
-                  ? 'No archived notes'
-                  : 'No notes match this view'}
+              <p
+                className="text-sm font-semibold"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {scope.type === "archive"
+                  ? "No archived notes"
+                  : "No notes match this view"}
               </p>
-              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                {scope.type === 'trash'
-                  ? 'Deleted pages land here so you can safely restore them anytime.'
-                  : 'Capture a quick thought above, start from a template, or clear filters.'}
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                "Capture a quick thought above, start from a template, or clear
+                filters."
               </p>
             </div>
-            {scope.type !== 'trash' && scope.type !== 'archive' && (
+            {scope.type !== "archive" && (
               <div className="pt-2 flex items-center justify-center gap-2">
                 <button
                   type="button"
                   onClick={onCreateBlank}
                   className="h-9 px-4 rounded-xl text-xs font-semibold"
-                  style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-fg)' }}
+                  style={{
+                    backgroundColor: "var(--accent)",
+                    color: "var(--accent-fg)",
+                  }}
                 >
                   Create Blank Page
                 </button>
@@ -481,8 +489,8 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                   onClick={() => setTemplateModalOpen(true)}
                   className="h-9 px-4 rounded-xl border text-xs font-medium"
                   style={{
-                    borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-primary)',
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-primary)",
                   }}
                 >
                   Browse Templates
@@ -490,69 +498,19 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
               </div>
             )}
           </div>
-        ) : scope.type === 'trash' ? (
-          /* Trash Restore & Permanent Delete List */
-          <div
-            className="rounded-2xl border divide-y overflow-hidden"
-            style={{
-              backgroundColor: 'var(--bg-surface)',
-              borderColor: 'var(--border-subtle)',
-            }}
-          >
-            {filteredNotes.map((note) => (
-              <div
-                key={note.id}
-                className="px-4 py-3 flex flex-wrap items-center justify-between gap-3"
-              >
-                <div className="min-w-0 flex items-center gap-2.5">
-                  <span className="text-base shrink-0">{note.icon || '📝'}</span>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold truncate">
-                      {note.title || 'Untitled Note'}
-                    </div>
-                    <div className="text-[11px] font-mono tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                      Deleted {formatShortDate(note.trashedAt || note.createdAt)}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => onRestoreNote(note.id)}
-                    className="h-8 px-3 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-subtle)]"
-                    style={{
-                      borderColor: 'var(--border-subtle)',
-                      color: 'var(--accent)',
-                    }}
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Restore</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onPermanentDelete(note.id)}
-                    className="h-8 px-3 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-subtle)]"
-                    style={{
-                      borderColor: 'var(--border-subtle)',
-                      color: 'var(--danger)',
-                    }}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete Forever</span>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : viewMode === 'gallery' ? (
+        ) : viewMode === "gallery" ? (
           /* 1. Gallery Cards View */
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredNotes.map((note) => {
               const excerpt = stripHtmlToText(note.content);
               const coverStyle = resolveCoverStyle(note.coverPreset);
-              const nb = note.notebookId ? notebookMap.get(note.notebookId) : null;
+              const nb = note.notebookId
+                ? notebookMap.get(note.notebookId)
+                : null;
               const statusMeta = getNoteStatusMeta(note.noteStatus);
-              const parent = note.parentId ? noteTitleMap.get(note.parentId) : null;
+              const parent = note.parentId
+                ? noteTitleMap.get(note.parentId)
+                : null;
               const linkCount = backlinkCounts.get(note.id) || 0;
 
               return (
@@ -562,23 +520,23 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
+                    if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
                       onOpenNote(note.id);
                     }
                   }}
                   className="group rounded-2xl border overflow-hidden flex flex-col transition-all hover:-translate-y-0.5 cursor-pointer"
                   style={{
-                    backgroundColor: 'var(--bg-surface)',
-                    borderColor: 'var(--border-subtle)',
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
                   }}
                 >
                   {/* Subtle Cover Header */}
                   <div
                     className="h-16 relative border-b shrink-0"
                     style={{
-                      borderColor: 'var(--border-subtle)',
-                      backgroundColor: 'var(--bg-surface-subtle)',
+                      borderColor: "var(--border-subtle)",
+                      backgroundColor: "var(--bg-surface-subtle)",
                       ...(coverStyle || {}),
                     }}
                   >
@@ -589,16 +547,25 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                           e.stopPropagation();
                           onUpdateNote(note.id, { favorite: !note.favorite });
                         }}
-                        aria-label={note.favorite ? 'Remove from favorites' : 'Add to favorites'}
+                        aria-label={
+                          note.favorite
+                            ? "Remove from favorites"
+                            : "Add to favorites"
+                        }
                         className="h-7 w-7 rounded-lg flex items-center justify-center transition-colors backdrop-blur-sm"
                         style={{
-                          backgroundColor: 'color-mix(in srgb, var(--bg-surface) 80%, transparent)',
-                          color: note.favorite ? 'var(--accent)' : 'var(--text-muted)',
+                          backgroundColor:
+                            "color-mix(in srgb, var(--bg-surface) 80%, transparent)",
+                          color: note.favorite
+                            ? "var(--accent)"
+                            : "var(--text-muted)",
                         }}
                       >
-                        <Star className={`w-3.5 h-3.5 ${note.favorite ? 'fill-current' : ''}`} />
+                        <Star
+                          className={`w-3.5 h-3.5 ${note.favorite ? "fill-current" : ""}`}
+                        />
                       </button>
-                      {scope.type === 'archive' ? (
+                      {scope.type === "archive" ? (
                         <button
                           type="button"
                           onClick={(e) => {
@@ -609,8 +576,9 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                           aria-label="Unarchive note"
                           className="h-7 w-7 rounded-lg flex items-center justify-center backdrop-blur-sm"
                           style={{
-                            backgroundColor: 'color-mix(in srgb, var(--bg-surface) 80%, transparent)',
-                            color: 'var(--accent)',
+                            backgroundColor:
+                              "color-mix(in srgb, var(--bg-surface) 80%, transparent)",
+                            color: "var(--accent)",
                           }}
                         >
                           <ArchiveRestore className="w-3.5 h-3.5" />
@@ -622,12 +590,13 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                             e.stopPropagation();
                             onTrashNote(note.id);
                           }}
-                          title="Move to Trash"
+                          title="Delete Note"
                           aria-label="Move note to Trash"
                           className="h-7 w-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm"
                           style={{
-                            backgroundColor: 'color-mix(in srgb, var(--bg-surface) 80%, transparent)',
-                            color: 'var(--danger)',
+                            backgroundColor:
+                              "color-mix(in srgb, var(--bg-surface) 80%, transparent)",
+                            color: "var(--danger)",
                           }}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -640,35 +609,38 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                     <div>
                       <div className="flex items-start gap-2">
                         <span className="text-lg leading-none mt-0.5 shrink-0">
-                          {note.icon || '📝'}
+                          {note.icon || "📝"}
                         </span>
                         <div className="min-w-0 flex-1">
                           {parent && (
                             <div
                               className="text-[11px] truncate mb-0.5"
-                              style={{ color: 'var(--text-muted)' }}
+                              style={{ color: "var(--text-muted)" }}
                             >
-                              {parent.icon || '📝'} {parent.title} /
+                              {parent.icon || "📝"} {parent.title} /
                             </div>
                           )}
                           <h2 className="font-display text-sm font-bold leading-snug line-clamp-2">
-                            {note.title || 'Untitled Note'}
+                            {note.title || "Untitled Note"}
                           </h2>
                         </div>
                       </div>
 
                       <p
                         className="mt-2 text-xs leading-relaxed line-clamp-3"
-                        style={{ color: 'var(--text-secondary)' }}
+                        style={{ color: "var(--text-secondary)" }}
                       >
-                        {excerpt || 'Empty page — click to begin writing.'}
+                        {excerpt || "Empty page — click to begin writing."}
                       </p>
                     </div>
 
                     {/* Clean Unboxed Single-Line Metadata */}
                     <div
                       className="pt-2.5 border-t flex items-center justify-between gap-2 text-[11px]"
-                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-muted)' }}
+                      style={{
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-muted)",
+                      }}
                     >
                       <div className="flex items-center gap-1.5 min-w-0 truncate">
                         <span className="inline-flex items-center gap-1 shrink-0">
@@ -692,7 +664,7 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                         )}
                       </div>
                       <span className="font-mono tabular-nums shrink-0">
-                        {linkCount > 0 ? `${linkCount} links · ` : ''}
+                        {linkCount > 0 ? `${linkCount} links · ` : ""}
                         {formatShortDate(note.updatedAt || note.createdAt)}
                       </span>
                     </div>
@@ -701,13 +673,13 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
               );
             })}
           </div>
-        ) : viewMode === 'table' ? (
+        ) : viewMode === "table" ? (
           /* 2. Dense Sortable Database Table View */
           <div
             className="rounded-2xl border overflow-x-auto"
             style={{
-              backgroundColor: 'var(--bg-surface)',
-              borderColor: 'var(--border-subtle)',
+              backgroundColor: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
             }}
           >
             <table className="w-full text-left border-collapse text-xs">
@@ -715,15 +687,15 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                 <tr
                   className="border-b text-[11px] font-semibold uppercase tracking-wider"
                   style={{
-                    backgroundColor: 'var(--bg-surface-subtle)',
-                    borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-muted)',
+                    backgroundColor: "var(--bg-surface-subtle)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-muted)",
                   }}
                 >
                   <th className="py-2.5 px-3.5">
                     <button
                       type="button"
-                      onClick={() => handleSortToggle('title')}
+                      onClick={() => handleSortToggle("title")}
                       className="inline-flex items-center gap-1 hover:text-[var(--text-primary)]"
                     >
                       <span>Page</span>
@@ -736,7 +708,7 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                   <th className="py-2.5 px-3 text-right hidden sm:table-cell">
                     <button
                       type="button"
-                      onClick={() => handleSortToggle('backlinks')}
+                      onClick={() => handleSortToggle("backlinks")}
                       className="inline-flex items-center gap-1 hover:text-[var(--text-primary)]"
                     >
                       <span>Links</span>
@@ -746,7 +718,7 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                   <th className="py-2.5 px-3 text-right">
                     <button
                       type="button"
-                      onClick={() => handleSortToggle('updated')}
+                      onClick={() => handleSortToggle("updated")}
                       className="inline-flex items-center gap-1 hover:text-[var(--text-primary)]"
                     >
                       <span>Updated</span>
@@ -756,9 +728,14 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                   <th className="py-2.5 px-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
+              <tbody
+                className="divide-y"
+                style={{ borderColor: "var(--border-subtle)" }}
+              >
                 {filteredNotes.map((note) => {
-                  const nb = note.notebookId ? notebookMap.get(note.notebookId) : null;
+                  const nb = note.notebookId
+                    ? notebookMap.get(note.notebookId)
+                    : null;
                   const linkCount = backlinkCounts.get(note.id) || 0;
                   return (
                     <tr
@@ -768,34 +745,40 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                     >
                       <td className="py-2.5 px-3.5 font-medium max-w-[260px]">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="shrink-0">{note.icon || '📝'}</span>
-                          <span className="truncate font-semibold" style={{ color: 'var(--text-primary)' }}>
-                            {note.title || 'Untitled Note'}
+                          <span className="shrink-0">{note.icon || "📝"}</span>
+                          <span
+                            className="truncate font-semibold"
+                            style={{ color: "var(--text-primary)" }}
+                          >
+                            {note.title || "Untitled Note"}
                           </span>
                         </div>
                       </td>
-                      <td className="py-2.5 px-3 whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
-                        {nb ? `${nb.icon} ${nb.name}` : '—'}
+                      <td
+                        className="py-2.5 px-3 whitespace-nowrap"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
+                        {nb ? `${nb.icon} ${nb.name}` : "—"}
                       </td>
                       <td
                         className="py-2.5 px-3 whitespace-nowrap"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <select
-                          value={note.noteStatus ?? 'draft'}
+                          value={note.noteStatus ?? "draft"}
                           onChange={(e) => {
                             const nextStatus = e.target.value as NoteStatus;
                             onUpdateNote(note.id, {
                               noteStatus: nextStatus,
-                              archived: nextStatus === 'archived',
+                              archived: nextStatus === "archived",
                             });
                           }}
                           aria-label={`Status for ${note.title}`}
                           className="h-7 px-2 rounded-md border text-[11px] outline-none"
                           style={{
-                            backgroundColor: 'var(--bg-canvas)',
-                            borderColor: 'var(--border-subtle)',
-                            color: 'var(--text-primary)',
+                            backgroundColor: "var(--bg-canvas)",
+                            borderColor: "var(--border-subtle)",
+                            color: "var(--text-primary)",
                           }}
                         >
                           {NOTE_STATUS_OPTIONS.map((st) => (
@@ -805,13 +788,24 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                           ))}
                         </select>
                       </td>
-                      <td className="py-2.5 px-3 hidden md:table-cell max-w-[180px] truncate" style={{ color: 'var(--text-muted)' }}>
-                        {note.tags.length > 0 ? note.tags.map((t) => `#${t}`).join(' ') : '—'}
+                      <td
+                        className="py-2.5 px-3 hidden md:table-cell max-w-[180px] truncate"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {note.tags.length > 0
+                          ? note.tags.map((t) => `#${t}`).join(" ")
+                          : "—"}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-mono tabular-nums hidden sm:table-cell" style={{ color: 'var(--text-muted)' }}>
+                      <td
+                        className="py-2.5 px-3 text-right font-mono tabular-nums hidden sm:table-cell"
+                        style={{ color: "var(--text-muted)" }}
+                      >
                         {linkCount}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-mono tabular-nums whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+                      <td
+                        className="py-2.5 px-3 text-right font-mono tabular-nums whitespace-nowrap"
+                        style={{ color: "var(--text-muted)" }}
+                      >
                         {formatShortDate(note.updatedAt || note.createdAt)}
                       </td>
                       <td
@@ -821,27 +815,44 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                         <div className="inline-flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => onUpdateNote(note.id, { favorite: !note.favorite })}
+                            onClick={() =>
+                              onUpdateNote(note.id, {
+                                favorite: !note.favorite,
+                              })
+                            }
                             aria-label="Toggle favorite"
                             className="h-7 w-7 rounded-md inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)]"
-                            style={{ color: note.favorite ? 'var(--accent)' : 'var(--text-muted)' }}
+                            style={{
+                              color: note.favorite
+                                ? "var(--accent)"
+                                : "var(--text-muted)",
+                            }}
                           >
-                            <Star className={`w-3.5 h-3.5 ${note.favorite ? 'fill-current' : ''}`} />
+                            <Star
+                              className={`w-3.5 h-3.5 ${note.favorite ? "fill-current" : ""}`}
+                            />
                           </button>
                           <button
                             type="button"
                             onClick={() =>
-                              scope.type === 'archive'
+                              scope.type === "archive"
                                 ? onArchiveNote(note.id, false)
                                 : onTrashNote(note.id)
                             }
-                            aria-label={scope.type === 'archive' ? 'Unarchive' : 'Move to trash'}
+                            aria-label={
+                              scope.type === "archive"
+                                ? "Unarchive"
+                                : "Delete Note"
+                            }
                             className="h-7 w-7 rounded-md inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)]"
                             style={{
-                              color: scope.type === 'archive' ? 'var(--accent)' : 'var(--danger)',
+                              color:
+                                scope.type === "archive"
+                                  ? "var(--accent)"
+                                  : "var(--danger)",
                             }}
                           >
-                            {scope.type === 'archive' ? (
+                            {scope.type === "archive" ? (
                               <ArchiveRestore className="w-3.5 h-3.5" />
                             ) : (
                               <Trash2 className="w-3.5 h-3.5" />
@@ -860,12 +871,14 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
           <div
             className="rounded-2xl border divide-y overflow-hidden"
             style={{
-              backgroundColor: 'var(--bg-surface)',
-              borderColor: 'var(--border-subtle)',
+              backgroundColor: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
             }}
           >
             {filteredNotes.map((note) => {
-              const nb = note.notebookId ? notebookMap.get(note.notebookId) : null;
+              const nb = note.notebookId
+                ? notebookMap.get(note.notebookId)
+                : null;
               const statusMeta = getNoteStatusMeta(note.noteStatus);
               const excerpt = stripHtmlToText(note.content);
               return (
@@ -875,7 +888,7 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
+                    if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
                       onOpenNote(note.id);
                     }
@@ -883,11 +896,13 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                   className="px-4 py-3 flex items-center justify-between gap-3 cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]"
                 >
                   <div className="min-w-0 flex-1 flex items-center gap-3">
-                    <span className="text-base shrink-0">{note.icon || '📝'}</span>
+                    <span className="text-base shrink-0">
+                      {note.icon || "📝"}
+                    </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold truncate">
-                          {note.title || 'Untitled Note'}
+                          {note.title || "Untitled Note"}
                         </span>
                         <span
                           className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -896,18 +911,27 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                         />
                       </div>
                       {excerpt && (
-                        <p className="text-xs truncate mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                        <p
+                          className="text-xs truncate mt-0.5"
+                          style={{ color: "var(--text-secondary)" }}
+                        >
                           {excerpt}
                         </p>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 shrink-0 text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                  <div
+                    className="flex items-center gap-3 shrink-0 text-[11px]"
+                    style={{ color: "var(--text-muted)" }}
+                  >
                     {nb && <span className="hidden sm:inline">{nb.name}</span>}
                     {note.tags.length > 0 && (
                       <span className="hidden md:inline">
-                        {note.tags.slice(0, 2).map((t) => `#${t}`).join(' ')}
+                        {note.tags
+                          .slice(0, 2)
+                          .map((t) => `#${t}`)
+                          .join(" ")}
                       </span>
                     )}
                     <span className="font-mono tabular-nums">
@@ -921,11 +945,17 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                       }}
                       aria-label="Toggle favorite"
                       className="h-7 w-7 rounded-md flex items-center justify-center hover:bg-[var(--bg-surface-hover)]"
-                      style={{ color: note.favorite ? 'var(--accent)' : 'var(--text-muted)' }}
+                      style={{
+                        color: note.favorite
+                          ? "var(--accent)"
+                          : "var(--text-muted)",
+                      }}
                     >
-                      <Star className={`w-3.5 h-3.5 ${note.favorite ? 'fill-current' : ''}`} />
+                      <Star
+                        className={`w-3.5 h-3.5 ${note.favorite ? "fill-current" : ""}`}
+                      />
                     </button>
-                    {scope.type === 'archive' ? (
+                    {scope.type === "archive" ? (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -934,7 +964,7 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                         }}
                         aria-label="Unarchive"
                         className="h-7 w-7 rounded-md flex items-center justify-center hover:bg-[var(--bg-surface-hover)]"
-                        style={{ color: 'var(--accent)' }}
+                        style={{ color: "var(--accent)" }}
                       >
                         <ArchiveRestore className="w-3.5 h-3.5" />
                       </button>
@@ -948,7 +978,7 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                         title="Archive"
                         aria-label="Archive note"
                         className="h-7 w-7 rounded-md flex items-center justify-center hover:bg-[var(--bg-surface-hover)]"
-                        style={{ color: 'var(--text-muted)' }}
+                        style={{ color: "var(--text-muted)" }}
                       >
                         <Archive className="w-3.5 h-3.5" />
                       </button>
@@ -976,15 +1006,20 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
           <div
             className="relative z-10 w-full max-w-xl rounded-2xl border p-5 space-y-4"
             style={{
-              backgroundColor: 'var(--bg-elevated)',
-              borderColor: 'var(--border-subtle)',
-              boxShadow: 'var(--shadow-popover)',
+              backgroundColor: "var(--bg-elevated)",
+              borderColor: "var(--border-subtle)",
+              boxShadow: "var(--shadow-popover)",
             }}
           >
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="font-display text-base font-bold">Start from Template</h2>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                <h2 className="font-display text-base font-bold">
+                  Start from Template
+                </h2>
+                <p
+                  className="text-xs mt-0.5"
+                  style={{ color: "var(--text-muted)" }}
+                >
                   Pre-structured blocks for learning, synthesis, and reflection.
                 </p>
               </div>
@@ -992,7 +1027,7 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                 type="button"
                 onClick={() => setTemplateModalOpen(false)}
                 className="h-8 w-8 rounded-lg flex items-center justify-center"
-                style={{ color: 'var(--text-muted)' }}
+                style={{ color: "var(--text-muted)" }}
                 aria-label="Close templates"
               >
                 <X className="w-4 h-4" />
@@ -1012,15 +1047,15 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                     }}
                     className="rounded-xl border overflow-hidden text-left transition-all hover:border-[var(--accent)] flex flex-col"
                     style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      borderColor: 'var(--border-subtle)',
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
                     }}
                   >
                     <div
                       className="h-8 w-full border-b"
                       style={{
-                        borderColor: 'var(--border-subtle)',
-                        backgroundColor: 'var(--bg-surface-subtle)',
+                        borderColor: "var(--border-subtle)",
+                        backgroundColor: "var(--bg-surface-subtle)",
                         ...(cover || {}),
                       }}
                     />
@@ -1029,70 +1064,16 @@ export const NotesDatabaseHome: React.FC<NotesDatabaseHomeProps> = ({
                         <span>{tpl.icon}</span>
                         <span>{tpl.name}</span>
                       </div>
-                      <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                      <p
+                        className="text-xs leading-relaxed"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
                         {tpl.description}
                       </p>
                     </div>
                   </button>
                 );
               })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Confirm Empty Trash Modal (no window.confirm) */}
-      {confirmEmptyTrashOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Empty Trash confirmation"
-        >
-          <div
-            className="fixed inset-0 bg-black/45 backdrop-blur-[2px]"
-            onClick={() => setConfirmEmptyTrashOpen(false)}
-          />
-          <div
-            className="relative z-10 w-full max-w-sm rounded-2xl border p-5 space-y-4"
-            style={{
-              backgroundColor: 'var(--bg-elevated)',
-              borderColor: 'var(--border-subtle)',
-              boxShadow: 'var(--shadow-popover)',
-            }}
-          >
-            <div className="space-y-1.5">
-              <h3 className="font-display text-base font-bold">Empty Trash?</h3>
-              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                Permanently delete all {filteredNotes.length} trashed notes? This cannot be undone.
-              </p>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirmEmptyTrashOpen(false)}
-                className="h-9 px-3.5 rounded-lg border text-xs font-medium"
-                style={{
-                  borderColor: 'var(--border-subtle)',
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onEmptyTrash();
-                  setConfirmEmptyTrashOpen(false);
-                }}
-                className="h-9 px-4 rounded-lg text-xs font-semibold"
-                style={{
-                  backgroundColor: 'var(--danger)',
-                  color: '#ffffff',
-                }}
-              >
-                Empty Trash
-              </button>
             </div>
           </div>
         </div>

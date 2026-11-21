@@ -73,7 +73,6 @@ export const FocusView: React.FC<FocusViewProps> = ({
     clearFocusDayFromView,
     updateEntry,
     toggleEntryCompleted,
-    hardDeleteEntry,
     addScratchpad,
     updateScratchpad,
     deleteScratchpad,
@@ -81,6 +80,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
     addCustomTab,
     updateCustomTab,
     deleteCustomTab,
+    deleteEntry,
   } = useWorkspace();
 
   const [activeTab, setActiveTab] = useState<"today" | "scratchpad" | string>(
@@ -119,7 +119,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
   const xLimit = workspace.settings.xActiveLimit;
 
   const activeCustomTabs = useMemo(
-    () => (workspace.customTabs ?? []).filter((t) => !t.deletedAt),
+    () => workspace.customTabs ?? [],
     [workspace.customTabs],
   );
 
@@ -134,10 +134,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
     }
   }, [activeTab, activeCustomTabs]);
 
-  const activeEntries = useMemo(
-    () => workspace.entries.filter((e) => !e.deletedAt),
-    [workspace.entries],
-  );
+  const activeEntries = useMemo(() => workspace.entries, [workspace.entries]);
 
   // Today tab buckets
   const anchors = useMemo(
@@ -205,14 +202,12 @@ export const FocusView: React.FC<FocusViewProps> = ({
   // Scratchpad cards (pinned first, then updatedAt desc)
   const scratchpads = useMemo(
     () =>
-      (workspace.scratchpads ?? [])
-        .filter((c) => !c.deletedAt)
-        .sort((a, b) => {
-          if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-          return (
-            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-          );
-        }),
+      (workspace.scratchpads ?? []).sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return (
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
+      }),
     [workspace.scratchpads],
   );
 
@@ -829,7 +824,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      hardDeleteEntry(entry.id);
+                                      deleteEntry(entry.id);
                                     }}
                                     className="h-7 w-7 flex items-center justify-center rounded-md sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0 hover:bg-[var(--bg-surface)]"
                                     style={{ color: "var(--danger)" }}

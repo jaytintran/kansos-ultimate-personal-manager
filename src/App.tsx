@@ -225,15 +225,12 @@ const KansoShell: React.FC = () => {
   const todayKey = getTodayKey();
 
   const navCounts = useMemo(() => {
-    const activeEntries = workspace.entries.filter((e) => !e.deletedAt);
-    const activeListsSet = new Set(
-      workspace.lists.filter((l) => !l.deletedAt).map((l) => l.id),
+    const activeEntries = workspace.entries;
+    const activeListsSet = new Set(workspace.lists.map((l) => l.id));
+    const activeListItems = workspace.listItems.filter((i) =>
+      activeListsSet.has(i.listId),
     );
-    const activeListItems = workspace.listItems.filter(
-      (i) => !i.deletedAt && activeListsSet.has(i.listId),
-    );
-    const activeHabits = workspace.habits.filter((h) => !h.deletedAt);
-
+    const activeHabits = workspace.habits;
     const activeFocus = activeEntries.filter(
       (e) =>
         (e.source === "focus-anchor" ||
@@ -246,11 +243,7 @@ const KansoShell: React.FC = () => {
       (e) => isVisibleOnTimeline(e) && getEntryDayKey(e) === todayKey,
     ).length;
     const notesCount = activeEntries.filter(
-      (e) =>
-        e.type === "note" &&
-        !e.trashedAt &&
-        !e.archived &&
-        e.noteStatus !== "archived",
+      (e) => e.type === "note" && !e.archived && e.noteStatus !== "archived",
     ).length;
     const eventsCount = activeEntries.filter((e) => e.type === "event").length;
     const habitsTodayLeft = activeHabits.filter(

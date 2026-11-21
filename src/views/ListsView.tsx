@@ -130,10 +130,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
     updateListItem,
   } = useWorkspace();
 
-  const activeLists = useMemo(
-    () => workspace.lists.filter((l) => !l.deletedAt),
-    [workspace.lists],
-  );
+  const activeLists = useMemo(() => workspace.lists, [workspace.lists]);
 
   const [selectedListId, setSelectedListId] = useState<string>(
     () => activeLists[0]?.id || "",
@@ -232,18 +229,13 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const listItemCountsByCollection = useMemo(() => {
     const map = new Map<string, number>();
     workspace.listItems.forEach((item) => {
-      if (!item.deletedAt) {
-        map.set(item.listId, (map.get(item.listId) || 0) + 1);
-      }
+      map.set(item.listId, (map.get(item.listId) || 0) + 1);
     });
     return map;
   }, [workspace.listItems]);
 
   const listItemsAll = useMemo(
-    () =>
-      workspace.listItems.filter(
-        (i) => !i.deletedAt && i.listId === selectedListId,
-      ),
+    () => workspace.listItems.filter((i) => i.listId === selectedListId),
     [workspace.listItems, selectedListId],
   );
 
@@ -288,11 +280,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const linkedNotes = useMemo(
     () =>
       workspace.entries.filter(
-        (e) =>
-          !e.deletedAt &&
-          e.type === "note" &&
-          !e.trashedAt &&
-          (e.listIds || []).includes(selectedListId),
+        (e) => e.type === "note" && (e.listIds || []).includes(selectedListId),
       ),
     [workspace.entries, selectedListId],
   );
@@ -300,10 +288,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const linkedEvents = useMemo(
     () =>
       workspace.entries.filter(
-        (e) =>
-          !e.deletedAt &&
-          e.type === "event" &&
-          (e.listIds || []).includes(selectedListId),
+        (e) => e.type === "event" && (e.listIds || []).includes(selectedListId),
       ),
     [workspace.entries, selectedListId],
   );

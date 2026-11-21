@@ -145,10 +145,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
 
   // Aggregate standalone + Timeline-born active notes
   const allNotes = useMemo(
-    () =>
-      workspace.entries.filter(
-        (e) => e.type === "note" && !e.deletedAt && !e.trashedAt && !e.archived,
-      ),
+    () => workspace.entries.filter((e) => e.type === "note" && !e.archived),
     [workspace.entries],
   );
 

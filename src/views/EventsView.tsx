@@ -89,7 +89,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
   }, [filters]);
 
   const allEvents = useMemo(
-    () => workspace.entries.filter((e) => e.type === "event" && !e.deletedAt),
+    () => workspace.entries.filter((e) => e.type === "event"),
     [workspace.entries],
   );
 

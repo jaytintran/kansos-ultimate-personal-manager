@@ -1,5 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Editor } from '@tiptap/react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Editor } from "@tiptap/react";
 import {
   ArrowLeft,
   BookOpen,
@@ -29,8 +35,8 @@ import {
   Type,
   Users,
   X,
-} from 'lucide-react';
-import { useWorkspace } from '../context/WorkspaceContext';
+} from "lucide-react";
+import { useWorkspace } from "../context/WorkspaceContext";
 import {
   DetailSheetTarget,
   Entry,
@@ -41,7 +47,7 @@ import {
   ListCollectionType,
   ListItem,
   ListItemStatus,
-} from '../types';
+} from "../types";
 import {
   addDaysToKey,
   formatCompactDayHeading,
@@ -51,29 +57,34 @@ import {
   getRecentDateKeys,
   getTodayKey,
   isHabitScheduledOnDay,
-} from '../utils/date';
-import { EntryTypeIcon, HABIT_ICON_KEYS, HabitIcon, ListIcon } from './IconLibrary';
-import { TimestampFieldFocus } from './TimestampsModal';
-import { TiptapEditor, TiptapThumbToolbar } from './TiptapEditor';
+} from "../utils/date";
+import {
+  EntryTypeIcon,
+  HABIT_ICON_KEYS,
+  HabitIcon,
+  ListIcon,
+} from "./IconLibrary";
+import { TimestampFieldFocus } from "./TimestampsModal";
+import { TiptapEditor, TiptapThumbToolbar } from "./TiptapEditor";
 
 const HABIT_COLOR_PRESETS = [
-  '#b45309',
-  '#4f46e5',
-  '#059669',
-  '#0284c7',
-  '#e11d48',
-  '#9333ea',
-  '#d97706',
+  "#b45309",
+  "#4f46e5",
+  "#059669",
+  "#0284c7",
+  "#e11d48",
+  "#9333ea",
+  "#d97706",
 ];
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const LIST_STATUS_OPTIONS: { id: ListItemStatus; label: string }[] = [
-  { id: 'inbox', label: 'Inbox' },
-  { id: 'processing', label: 'In Progress' },
-  { id: 'done', label: 'Completed' },
-  { id: 'maybe-later', label: 'Maybe Later' },
-  { id: 'dropped', label: 'Dropped' },
+  { id: "inbox", label: "Inbox" },
+  { id: "processing", label: "In Progress" },
+  { id: "done", label: "Completed" },
+  { id: "maybe-later", label: "Maybe Later" },
+  { id: "dropped", label: "Dropped" },
 ];
 
 const ITEM_META: Record<
@@ -81,24 +92,24 @@ const ITEM_META: Record<
   { subtitleLabel: string; subtitlePlaceholder: string; dueLabel: string }
 > = {
   books: {
-    subtitleLabel: 'Author',
-    subtitlePlaceholder: 'e.g. Martin Kleppmann',
-    dueLabel: 'Finish by',
+    subtitleLabel: "Author",
+    subtitlePlaceholder: "e.g. Martin Kleppmann",
+    dueLabel: "Finish by",
   },
   projects: {
-    subtitleLabel: 'Scope',
-    subtitlePlaceholder: 'e.g. Mobile + Desktop rollout',
-    dueLabel: 'Deadline',
+    subtitleLabel: "Scope",
+    subtitlePlaceholder: "e.g. Mobile + Desktop rollout",
+    dueLabel: "Deadline",
   },
   courses: {
-    subtitleLabel: 'Provider',
-    subtitlePlaceholder: 'e.g. MIT OCW / Frontend Masters',
-    dueLabel: 'Complete by',
+    subtitleLabel: "Provider",
+    subtitlePlaceholder: "e.g. MIT OCW / Frontend Masters",
+    dueLabel: "Complete by",
   },
   custom: {
-    subtitleLabel: 'Subtitle',
-    subtitlePlaceholder: 'Short context or subtitle...',
-    dueLabel: 'Due date',
+    subtitleLabel: "Subtitle",
+    subtitlePlaceholder: "Short context or subtitle...",
+    dueLabel: "Due date",
   },
 };
 
@@ -111,14 +122,14 @@ const PropertyRow: React.FC<{
 }> = ({ icon, label, children, alignTop = false }) => (
   <div
     className={`flex ${
-      alignTop ? 'items-start' : 'items-center'
+      alignTop ? "items-start" : "items-center"
     } gap-2 py-1 min-h-[32px] text-xs`}
   >
     <div
       className={`w-[104px] shrink-0 flex items-center gap-2 select-none ${
-        alignTop ? 'pt-1' : ''
+        alignTop ? "pt-1" : ""
       }`}
-      style={{ color: 'var(--text-muted)' }}
+      style={{ color: "var(--text-muted)" }}
     >
       <span className="shrink-0 opacity-80">{icon}</span>
       <span className="truncate font-medium">{label}</span>
@@ -133,7 +144,7 @@ interface DetailSheetProps {
   onOpenTimestamps: (entryId: string, focus?: TimestampFieldFocus) => void;
 }
 
-export const DetailSheet: React.FC<DetailSheetProps> = ({
+const DetailSheetInner: React.FC<DetailSheetProps> = ({
   target,
   onClose,
   onOpenTimestamps,
@@ -157,33 +168,33 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
   } = useWorkspace();
 
   const isEntryMode =
-    target?.mode === 'note' ||
-    target?.mode === 'event' ||
-    target?.mode === 'task' ||
-    target?.mode === 'log';
+    target?.mode === "note" ||
+    target?.mode === "event" ||
+    target?.mode === "task" ||
+    target?.mode === "log";
 
   const existingEntry = useMemo(
     () =>
       isEntryMode && target?.id
-        ? workspace.entries.find((e) => e.id === target.id && !e.deletedAt) || null
+        ? workspace.entries.find((e) => e.id === target.id) || null
         : null,
-    [isEntryMode, target?.id, workspace.entries]
+    [isEntryMode, target?.id, workspace.entries],
   );
 
   const existingHabit = useMemo(
     () =>
-      target?.mode === 'habit' && target?.id
-        ? workspace.habits.find((h) => h.id === target.id && !h.deletedAt) || null
+      target?.mode === "habit" && target?.id
+        ? workspace.habits.find((h) => h.id === target.id) || null
         : null,
-    [target?.mode, target?.id, workspace.habits]
+    [target?.mode, target?.id, workspace.habits],
   );
 
   const existingListItem = useMemo(
     () =>
-      target?.mode === 'list_item' && target?.id
-        ? workspace.listItems.find((i) => i.id === target.id && !i.deletedAt) || null
+      target?.mode === "list_item" && target?.id
+        ? workspace.listItems.find((i) => i.id === target.id) || null
         : null,
-    [target?.mode, target?.id, workspace.listItems]
+    [target?.mode, target?.id, workspace.listItems],
   );
 
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -192,65 +203,62 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
   const [mobilePropsCollapsed, setMobilePropsCollapsed] = useState(false);
 
   // Shared draft state
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
   const [tags, setTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState('');
+  const [tagInput, setTagInput] = useState("");
   const [pinned, setPinned] = useState(false);
-  const [location, setLocation] = useState('');
-  const [eventCategory, setEventCategory] = useState<EventCategory>('personal');
+  const [location, setLocation] = useState("");
+  const [eventCategory, setEventCategory] = useState<EventCategory>("personal");
   const [attendance, setAttendance] = useState<EventAttendance>(null);
   const [listIds, setListIds] = useState<string[]>([]);
   const [syncToTimeline, setSyncToTimeline] = useState(false);
   const [notebookId, setNotebookId] = useState<string | null>(null);
 
   // Habit draft state
-  const [habitPurpose, setHabitPurpose] = useState('');
+  const [habitPurpose, setHabitPurpose] = useState("");
   const [habitColor, setHabitColor] = useState(HABIT_COLOR_PRESETS[0]);
-  const [habitIcon, setHabitIcon] = useState('Flame');
-  const [habitFreq, setHabitFreq] = useState<HabitFrequencyType>('daily');
+  const [habitIcon, setHabitIcon] = useState("Flame");
+  const [habitFreq, setHabitFreq] = useState<HabitFrequencyType>("daily");
   const [habitCustomDays, setHabitCustomDays] = useState<number[]>([1, 3, 5]);
   const [habitWeeklyTarget, setHabitWeeklyTarget] = useState(4);
 
   // List item draft state
-  const [listSubtitle, setListSubtitle] = useState('');
-  const [listStatus, setListStatus] = useState<ListItemStatus>('inbox');
-  const [listId, setListId] = useState('');
-  const [listDueDate, setListDueDate] = useState('');
+  const [listSubtitle, setListSubtitle] = useState("");
+  const [listStatus, setListStatus] = useState<ListItemStatus>("inbox");
+  const [listId, setListId] = useState("");
+  const [listDueDate, setListDueDate] = useState("");
 
-  const lastSavedSnapRef = useRef<string>('');
+  const lastSavedSnapRef = useRef<string>("");
   const debounceTimerRef = useRef<number | null>(null);
   const isComposingRef = useRef(false);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const activeLists = useMemo(
-    () => workspace.lists.filter((l) => !l.deletedAt),
-    [workspace.lists]
-  );
+  const activeLists = useMemo(() => workspace.lists, [workspace.lists]);
 
   // Auto-resize display title textarea
   useEffect(() => {
     const el = titleRef.current;
     if (!el) return;
-    el.style.height = 'auto';
+    el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
   }, [title, target?.id, target?.mode]);
 
   // Hydrate form when target changes
   useEffect(() => {
     setCreatedId(null);
-    setTagInput('');
+    setTagInput("");
     setMobilePropsCollapsed(false);
     if (!target) return;
 
     if (isEntryMode) {
       const src = existingEntry || (target.draft as Partial<Entry> | undefined);
-      const nextTitle = src?.title ?? '';
-      const nextContent = src?.content ?? '';
+      const nextTitle = src?.title ?? "";
+      const nextContent = src?.content ?? "";
       const nextTags = src?.tags ?? [];
       const nextPinned = Boolean(src?.pinned);
-      const nextLocation = src?.location ?? '';
-      const nextCat: EventCategory = src?.eventCategory ?? 'personal';
+      const nextLocation = src?.location ?? "";
+      const nextCat: EventCategory = src?.eventCategory ?? "personal";
       const nextAtt: EventAttendance = src?.attendance ?? null;
       const nextListIds = src?.listIds ?? [];
       const nextSync = Boolean(src?.syncToTimeline);
@@ -279,13 +287,13 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
         syncToTimeline: nextSync,
         notebookId: nextNotebookId,
       });
-    } else if (target.mode === 'habit') {
+    } else if (target.mode === "habit") {
       const src = existingHabit || (target.draft as Partial<Habit> | undefined);
-      const nextTitle = src?.title ?? '';
-      const nextPurpose = src?.purpose ?? '';
+      const nextTitle = src?.title ?? "";
+      const nextPurpose = src?.purpose ?? "";
       const nextColor = src?.color ?? HABIT_COLOR_PRESETS[0];
-      const nextIcon = src?.icon ?? 'Flame';
-      const nextFreq: HabitFrequencyType = src?.frequencyType ?? 'daily';
+      const nextIcon = src?.icon ?? "Flame";
+      const nextFreq: HabitFrequencyType = src?.frequencyType ?? "daily";
       const nextDays = src?.customDays ?? [1, 3, 5];
       const nextTarget = src?.weeklyTarget ?? 4;
 
@@ -306,15 +314,16 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
         habitCustomDays: nextDays,
         habitWeeklyTarget: nextTarget,
       });
-    } else if (target.mode === 'list_item') {
-      const src = existingListItem || (target.draft as Partial<ListItem> | undefined);
-      const nextTitle = src?.title ?? '';
-      const nextSub = src?.subtitle ?? '';
-      const nextStatus: ListItemStatus = src?.status ?? 'inbox';
-      const nextListId = src?.listId ?? activeLists[0]?.id ?? '';
+    } else if (target.mode === "list_item") {
+      const src =
+        existingListItem || (target.draft as Partial<ListItem> | undefined);
+      const nextTitle = src?.title ?? "";
+      const nextSub = src?.subtitle ?? "";
+      const nextStatus: ListItemStatus = src?.status ?? "inbox";
+      const nextListId = src?.listId ?? activeLists[0]?.id ?? "";
       const nextTags = src?.tags ?? [];
-      const nextContent = src?.content ?? '';
-      const nextDue = src?.scheduledAt ? src.scheduledAt.slice(0, 10) : '';
+      const nextContent = src?.content ?? "";
+      const nextDue = src?.scheduledAt ? src.scheduledAt.slice(0, 10) : "";
 
       setTitle(nextTitle);
       setListSubtitle(nextSub);
@@ -335,7 +344,11 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.mode, target?.id, (target?.draft as Partial<Entry> | undefined)?.notebookId]);
+  }, [
+    target?.mode,
+    target?.id,
+    (target?.draft as Partial<Entry> | undefined)?.notebookId,
+  ]);
 
   // Flush save routine with snapshot deduplication
   const flushSave = useCallback(() => {
@@ -358,16 +371,18 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
       if (snap === lastSavedSnapRef.current) return;
 
       const patch: Partial<Entry> = {
-        title: title.trim() || (target.mode === 'note' ? 'Untitled Note' : 'Untitled'),
+        title:
+          title.trim() ||
+          (target.mode === "note" ? "Untitled Note" : "Untitled"),
         content,
         tags,
         pinned,
         location,
-        eventCategory: target.mode === 'event' ? eventCategory : undefined,
-        attendance: target.mode === 'event' ? attendance : undefined,
+        eventCategory: target.mode === "event" ? eventCategory : undefined,
+        attendance: target.mode === "event" ? attendance : undefined,
         listIds,
-        syncToTimeline: target.mode === 'note' ? syncToTimeline : undefined,
-        notebookId: target.mode === 'note' ? notebookId : undefined,
+        syncToTimeline: target.mode === "note" ? syncToTimeline : undefined,
+        notebookId: target.mode === "note" ? notebookId : undefined,
       };
 
       if (activeId) {
@@ -375,13 +390,13 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
       } else if (title.trim() || content.trim()) {
         const created = createEntry({
           ...(target.draft as Partial<Entry>),
-          type: target.mode as Entry['type'],
+          type: target.mode as Entry["type"],
           ...patch,
         });
         setCreatedId(created.id);
       }
       lastSavedSnapRef.current = snap;
-    } else if (target.mode === 'habit') {
+    } else if (target.mode === "habit") {
       const snapObj = {
         title,
         habitPurpose,
@@ -395,20 +410,20 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
       if (snap === lastSavedSnapRef.current) return;
 
       const patch = {
-        title: title.trim() || 'Untitled Habit',
+        title: title.trim() || "Untitled Habit",
         purpose: habitPurpose.trim(),
         color: habitColor,
         icon: habitIcon,
         frequencyType: habitFreq,
-        customDays: habitFreq === 'custom' ? habitCustomDays : undefined,
-        weeklyTarget: habitFreq === 'weekly' ? habitWeeklyTarget : undefined,
+        customDays: habitFreq === "custom" ? habitCustomDays : undefined,
+        weeklyTarget: habitFreq === "weekly" ? habitWeeklyTarget : undefined,
       };
 
       if (activeId) {
         updateHabit(activeId, patch);
         lastSavedSnapRef.current = snap;
       }
-    } else if (target.mode === 'list_item') {
+    } else if (target.mode === "list_item") {
       const snapObj = {
         title,
         listSubtitle,
@@ -421,9 +436,11 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
       const snap = JSON.stringify(snapObj);
       if (snap === lastSavedSnapRef.current) return;
 
-      const scheduledAt = listDueDate ? new Date(`${listDueDate}T12:00:00`).toISOString() : null;
+      const scheduledAt = listDueDate
+        ? new Date(`${listDueDate}T12:00:00`).toISOString()
+        : null;
       const patch: Partial<ListItem> = {
-        title: title.trim() || 'Untitled Item',
+        title: title.trim() || "Untitled Item",
         subtitle: listSubtitle.trim(),
         status: listStatus,
         listId,
@@ -478,13 +495,14 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
   // Debounced 500ms autosave
   useEffect(() => {
     if (!target) return;
-    if (target.mode === 'habit' && !activeId) return;
+    if (target.mode === "habit" && !activeId) return;
     if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = window.setTimeout(() => {
       flushSave();
     }, 500);
     return () => {
-      if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
+      if (debounceTimerRef.current)
+        window.clearTimeout(debounceTimerRef.current);
     };
   }, [target, activeId, flushSave]);
 
@@ -497,21 +515,21 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
   useEffect(() => {
     if (!target) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !isComposingRef.current && !e.isComposing) {
+      if (e.key === "Escape" && !isComposingRef.current && !e.isComposing) {
         e.preventDefault();
         handleClose();
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [target, handleClose]);
 
   // Same-list tags for ListItem autocomplete
   const sameListTags = useMemo(() => {
-    if (target?.mode !== 'list_item' || !listId) return [];
+    if (target?.mode !== "list_item" || !listId) return [];
     const set = new Set<string>();
     for (const item of workspace.listItems) {
-      if (!item.deletedAt && item.listId === listId) {
+      if (item.listId === listId) {
         (item.tags || []).forEach((t) => set.add(t));
       }
     }
@@ -521,8 +539,11 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
   // Habit 30-day analytics
   const habitRecent30 = useMemo(() => getRecentDateKeys(30), []);
   const liveHabit = useMemo(
-    () => (activeId ? workspace.habits.find((h) => h.id === activeId) || existingHabit : null),
-    [activeId, workspace.habits, existingHabit]
+    () =>
+      activeId
+        ? workspace.habits.find((h) => h.id === activeId) || existingHabit
+        : null,
+    [activeId, workspace.habits, existingHabit],
   );
 
   const habitStats = useMemo(() => {
@@ -550,8 +571,11 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
         if (liveHabit.completions[key]) doneCount++;
       }
     }
-    const adherence = scheduledCount > 0 ? Math.round((doneCount / scheduledCount) * 100) : 0;
-    const total = Object.keys(liveHabit.completions).filter((k) => liveHabit.completions[k]).length;
+    const adherence =
+      scheduledCount > 0 ? Math.round((doneCount / scheduledCount) * 100) : 0;
+    const total = Object.keys(liveHabit.completions).filter(
+      (k) => liveHabit.completions[k],
+    ).length;
     return { streak, adherence, total };
   }, [liveHabit, habitRecent30]);
 
@@ -563,34 +587,34 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
       : null;
 
   const isCreateMode = !activeId;
-  const modeLabel: Record<DetailSheetTarget['mode'], string> = {
-    note: 'Note',
-    event: 'Event',
-    task: 'Task',
-    log: 'Log',
-    habit: 'Habit',
-    list_item: 'List Item',
+  const modeLabel: Record<DetailSheetTarget["mode"], string> = {
+    note: "Note",
+    event: "Event",
+    task: "Task",
+    log: "Log",
+    habit: "Habit",
+    list_item: "List Item",
   };
 
   const handleAddTag = (raw: string) => {
-    const clean = raw.trim().replace(/^#/, '').toLowerCase();
+    const clean = raw.trim().replace(/^#/, "").toLowerCase();
     if (!clean || tags.includes(clean)) {
-      setTagInput('');
+      setTagInput("");
       return;
     }
     setTags((prev) => [...prev, clean]);
-    setTagInput('');
+    setTagInput("");
   };
 
   const handleDeleteCurrent = () => {
     if (isEntryMode && activeId) {
       deleteEntry(activeId);
       pushToast(`${modeLabel[target.mode]} deleted`);
-    } else if (target.mode === 'habit' && activeId) {
+    } else if (target.mode === "habit" && activeId) {
       deleteHabit(activeId);
-    } else if (target.mode === 'list_item' && activeId) {
+    } else if (target.mode === "list_item" && activeId) {
       deleteListItem(activeId);
-      pushToast('List item deleted');
+      pushToast("List item deleted");
     }
     onClose();
   };
@@ -603,17 +627,17 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
       icon: habitIcon,
       color: habitColor,
       frequencyType: habitFreq,
-      customDays: habitFreq === 'custom' ? habitCustomDays : undefined,
-      weeklyTarget: habitFreq === 'weekly' ? habitWeeklyTarget : undefined,
+      customDays: habitFreq === "custom" ? habitCustomDays : undefined,
+      weeklyTarget: habitFreq === "weekly" ? habitWeeklyTarget : undefined,
     });
     onClose();
   };
 
   const currentListCollection = activeLists.find((l) => l.id === listId);
-  const itemMeta = ITEM_META[currentListCollection?.listType || 'custom'];
+  const itemMeta = ITEM_META[currentListCollection?.listType || "custom"];
   const timeFormat = workspace.settings.timeFormat;
   const todayKey = getTodayKey();
-  const hasRichEditor = isEntryMode || target.mode === 'list_item';
+  const hasRichEditor = isEntryMode || target.mode === "list_item";
 
   // Reusable Notion-style borderless property rows (rendered in right rail on desktop & directly under title on mobile)
   const renderPropertyRows = () => {
@@ -621,14 +645,19 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
       return (
         <div className="space-y-0.5">
           {/* Task Status row */}
-          {liveEntry && liveEntry.type === 'task' && (
-            <PropertyRow icon={<CheckCircle2 className="w-3.5 h-3.5" />} label="Status">
+          {liveEntry && liveEntry.type === "task" && (
+            <PropertyRow
+              icon={<CheckCircle2 className="w-3.5 h-3.5" />}
+              label="Status"
+            >
               <button
                 type="button"
                 onClick={() => toggleEntryCompleted(liveEntry.id)}
                 className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 -mx-1 font-medium transition-colors hover:bg-[var(--bg-surface-hover)]"
                 style={{
-                  color: liveEntry.completed ? 'var(--success)' : 'var(--text-primary)',
+                  color: liveEntry.completed
+                    ? "var(--success)"
+                    : "var(--text-primary)",
                 }}
               >
                 {liveEntry.completed ? (
@@ -636,19 +665,22 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                 ) : (
                   <Circle className="w-3.5 h-3.5 opacity-60" />
                 )}
-                <span>{liveEntry.completed ? 'Completed' : 'Open'}</span>
+                <span>{liveEntry.completed ? "Completed" : "Open"}</span>
               </button>
             </PropertyRow>
           )}
 
           {/* Date row */}
           {liveEntry && (
-            <PropertyRow icon={<Calendar className="w-3.5 h-3.5" />} label="Date">
+            <PropertyRow
+              icon={<Calendar className="w-3.5 h-3.5" />}
+              label="Date"
+            >
               <button
                 type="button"
-                onClick={() => onOpenTimestamps(liveEntry.id, 'date')}
+                onClick={() => onOpenTimestamps(liveEntry.id, "date")}
                 className="w-full text-left rounded-md px-2 py-1 -mx-1 font-mono tabular-nums transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{ color: 'var(--text-primary)' }}
+                style={{ color: "var(--text-primary)" }}
               >
                 {formatCompactDayHeading(getEntryDayKey(liveEntry))}
               </button>
@@ -657,12 +689,15 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
 
           {/* Created time */}
           {liveEntry && (
-            <PropertyRow icon={<Clock className="w-3.5 h-3.5" />} label="Created">
+            <PropertyRow
+              icon={<Clock className="w-3.5 h-3.5" />}
+              label="Created"
+            >
               <button
                 type="button"
-                onClick={() => onOpenTimestamps(liveEntry.id, 'created')}
+                onClick={() => onOpenTimestamps(liveEntry.id, "created")}
                 className="w-full text-left rounded-md px-2 py-1 -mx-1 font-mono tabular-nums transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{ color: 'var(--text-secondary)' }}
+                style={{ color: "var(--text-secondary)" }}
               >
                 {formatTime(liveEntry.createdAt, timeFormat)}
               </button>
@@ -671,49 +706,63 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
 
           {/* Scheduled time */}
           {liveEntry &&
-            (liveEntry.scheduledAt || liveEntry.type === 'task' || liveEntry.type === 'event') && (
-              <PropertyRow icon={<CalendarClock className="w-3.5 h-3.5" />} label="Scheduled">
+            (liveEntry.scheduledAt ||
+              liveEntry.type === "task" ||
+              liveEntry.type === "event") && (
+              <PropertyRow
+                icon={<CalendarClock className="w-3.5 h-3.5" />}
+                label="Scheduled"
+              >
                 <button
                   type="button"
-                  onClick={() => onOpenTimestamps(liveEntry.id, 'scheduled')}
+                  onClick={() => onOpenTimestamps(liveEntry.id, "scheduled")}
                   className="w-full text-left rounded-md px-2 py-1 -mx-1 font-mono tabular-nums transition-colors hover:bg-[var(--bg-surface-hover)]"
                   style={{
                     color: liveEntry.scheduledAt
-                      ? 'var(--color-entity-blue)'
-                      : 'var(--text-muted)',
+                      ? "var(--color-entity-blue)"
+                      : "var(--text-muted)",
                   }}
                 >
                   {liveEntry.scheduledAt
                     ? formatTime(liveEntry.scheduledAt, timeFormat)
-                    : 'Empty'}
+                    : "Empty"}
                 </button>
               </PropertyRow>
             )}
 
           {/* Completed time */}
-          {liveEntry && (liveEntry.completedAt || liveEntry.type === 'task') && (
-            <PropertyRow icon={<Check className="w-3.5 h-3.5" />} label="Completed">
-              <button
-                type="button"
-                onClick={() => onOpenTimestamps(liveEntry.id, 'completed')}
-                className="w-full text-left rounded-md px-2 py-1 -mx-1 font-mono tabular-nums transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{
-                  color: liveEntry.completedAt ? 'var(--success)' : 'var(--text-muted)',
-                }}
+          {liveEntry &&
+            (liveEntry.completedAt || liveEntry.type === "task") && (
+              <PropertyRow
+                icon={<Check className="w-3.5 h-3.5" />}
+                label="Completed"
               >
-                {liveEntry.completedAt
-                  ? formatTime(liveEntry.completedAt, timeFormat)
-                  : 'Empty'}
-              </button>
-            </PropertyRow>
-          )}
+                <button
+                  type="button"
+                  onClick={() => onOpenTimestamps(liveEntry.id, "completed")}
+                  className="w-full text-left rounded-md px-2 py-1 -mx-1 font-mono tabular-nums transition-colors hover:bg-[var(--bg-surface-hover)]"
+                  style={{
+                    color: liveEntry.completedAt
+                      ? "var(--success)"
+                      : "var(--text-muted)",
+                  }}
+                >
+                  {liveEntry.completedAt
+                    ? formatTime(liveEntry.completedAt, timeFormat)
+                    : "Empty"}
+                </button>
+              </PropertyRow>
+            )}
 
           {/* Event Category, Attendance, Location */}
-          {target.mode === 'event' && (
+          {target.mode === "event" && (
             <>
-              <PropertyRow icon={<Tag className="w-3.5 h-3.5" />} label="Category">
+              <PropertyRow
+                icon={<Tag className="w-3.5 h-3.5" />}
+                label="Category"
+              >
                 <div className="flex items-center gap-1 -mx-1">
-                  {(['official', 'personal'] as EventCategory[]).map((cat) => {
+                  {(["official", "personal"] as EventCategory[]).map((cat) => {
                     const active = eventCategory === cat;
                     return (
                       <button
@@ -722,8 +771,12 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                         onClick={() => setEventCategory(cat)}
                         className="px-2 py-1 rounded-md text-xs font-medium capitalize transition-colors"
                         style={{
-                          backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
-                          color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                          backgroundColor: active
+                            ? "var(--accent-soft)"
+                            : "transparent",
+                          color: active
+                            ? "var(--accent)"
+                            : "var(--text-secondary)",
                         }}
                       >
                         {cat}
@@ -733,13 +786,16 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                 </div>
               </PropertyRow>
 
-              <PropertyRow icon={<Users className="w-3.5 h-3.5" />} label="Attendance">
+              <PropertyRow
+                icon={<Users className="w-3.5 h-3.5" />}
+                label="Attendance"
+              >
                 <div className="flex items-center gap-1 -mx-1 flex-wrap">
                   {(
                     [
-                      { id: null, label: 'Pending' },
-                      { id: 'attended', label: 'Attended' },
-                      { id: 'missed', label: 'Missed' },
+                      { id: null, label: "Pending" },
+                      { id: "attended", label: "Attended" },
+                      { id: "missed", label: "Missed" },
                     ] as { id: EventAttendance; label: string }[]
                   ).map((opt) => {
                     const active = attendance === opt.id;
@@ -749,19 +805,22 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                         type="button"
                         onClick={() => {
                           setAttendance(opt.id);
-                          if (liveEntry) setEventAttendance(liveEntry.id, opt.id);
+                          if (liveEntry)
+                            setEventAttendance(liveEntry.id, opt.id);
                         }}
                         className="px-2 py-1 rounded-md text-xs font-medium transition-colors"
                         style={{
-                          backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
+                          backgroundColor: active
+                            ? "var(--accent-soft)"
+                            : "transparent",
                           color:
-                            active && opt.id === 'attended'
-                              ? 'var(--success)'
-                              : active && opt.id === 'missed'
-                              ? 'var(--danger)'
-                              : active
-                              ? 'var(--accent)'
-                              : 'var(--text-secondary)',
+                            active && opt.id === "attended"
+                              ? "var(--success)"
+                              : active && opt.id === "missed"
+                                ? "var(--danger)"
+                                : active
+                                  ? "var(--accent)"
+                                  : "var(--text-secondary)",
                         }}
                       >
                         {opt.label}
@@ -771,32 +830,45 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                 </div>
               </PropertyRow>
 
-              <PropertyRow icon={<MapPin className="w-3.5 h-3.5" />} label="Location">
+              <PropertyRow
+                icon={<MapPin className="w-3.5 h-3.5" />}
+                label="Location"
+              >
                 <input
                   type="text"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   placeholder="Empty"
                   className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs outline-none transition-colors hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] placeholder:opacity-50"
-                  style={{ color: 'var(--text-primary)' }}
+                  style={{ color: "var(--text-primary)" }}
                 />
               </PropertyRow>
             </>
           )}
 
           {/* Note Notebook & Timeline sync */}
-          {target.mode === 'note' && (
+          {target.mode === "note" && (
             <>
-              <PropertyRow icon={<BookOpen className="w-3.5 h-3.5" />} label="Notebook">
+              <PropertyRow
+                icon={<BookOpen className="w-3.5 h-3.5" />}
+                label="Notebook"
+              >
                 <select
-                  value={notebookId || ''}
+                  value={notebookId || ""}
                   onChange={(e) => setNotebookId(e.target.value || null)}
                   className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
-                  style={{ color: notebookId ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                  style={{
+                    color: notebookId
+                      ? "var(--text-primary)"
+                      : "var(--text-muted)",
+                  }}
                 >
                   <option
                     value=""
-                    style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                    style={{
+                      backgroundColor: "var(--bg-elevated)",
+                      color: "var(--text-primary)",
+                    }}
                   >
                     No notebook
                   </option>
@@ -804,7 +876,10 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                     <option
                       key={nb.id}
                       value={nb.id}
-                      style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                      style={{
+                        backgroundColor: "var(--bg-elevated)",
+                        color: "var(--text-primary)",
+                      }}
                     >
                       {nb.name}
                     </option>
@@ -812,7 +887,10 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                 </select>
               </PropertyRow>
 
-              <PropertyRow icon={<Eye className="w-3.5 h-3.5" />} label="Timeline">
+              <PropertyRow
+                icon={<Eye className="w-3.5 h-3.5" />}
+                label="Timeline"
+              >
                 <button
                   type="button"
                   onClick={() => setSyncToTimeline((v) => !v)}
@@ -822,14 +900,24 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                   <span
                     className="h-4 w-7 rounded-full p-0.5 transition-colors flex items-center"
                     style={{
-                      backgroundColor: syncToTimeline ? 'var(--accent)' : 'var(--border-strong)',
-                      justifyContent: syncToTimeline ? 'flex-end' : 'flex-start',
+                      backgroundColor: syncToTimeline
+                        ? "var(--accent)"
+                        : "var(--border-strong)",
+                      justifyContent: syncToTimeline
+                        ? "flex-end"
+                        : "flex-start",
                     }}
                   >
                     <span className="w-3 h-3 rounded-full bg-white shadow-xs" />
                   </span>
-                  <span style={{ color: syncToTimeline ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                    {syncToTimeline ? 'Shown on spine' : 'Notes only'}
+                  <span
+                    style={{
+                      color: syncToTimeline
+                        ? "var(--text-primary)"
+                        : "var(--text-muted)",
+                    }}
+                  >
+                    {syncToTimeline ? "Shown on spine" : "Notes only"}
                   </span>
                 </button>
               </PropertyRow>
@@ -837,17 +925,23 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
           )}
 
           {/* Tags */}
-          <PropertyRow icon={<Hash className="w-3.5 h-3.5" />} label="Tags" alignTop>
+          <PropertyRow
+            icon={<Hash className="w-3.5 h-3.5" />}
+            label="Tags"
+            alignTop
+          >
             <div className="flex flex-wrap items-center gap-1 -mx-1 px-1 py-0.5">
               {tags.map((tag) => (
                 <button
                   key={tag}
                   type="button"
-                  onClick={() => setTags((prev) => prev.filter((t) => t !== tag))}
+                  onClick={() =>
+                    setTags((prev) => prev.filter((t) => t !== tag))
+                  }
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-mono transition-colors hover:bg-[var(--bg-surface-hover)]"
                   style={{
-                    backgroundColor: 'var(--accent-soft)',
-                    color: 'var(--accent)',
+                    backgroundColor: "var(--accent-soft)",
+                    color: "var(--accent)",
                   }}
                   title={`Remove #${tag}`}
                 >
@@ -871,59 +965,72 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                   }}
                   placeholder="+ Add tag"
                   className="w-24 bg-transparent rounded-md px-1.5 py-0.5 text-xs font-mono outline-none transition-colors hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] placeholder:opacity-55"
-                  style={{ color: 'var(--text-primary)' }}
+                  style={{ color: "var(--text-primary)" }}
                 />
               </form>
             </div>
           </PropertyRow>
 
           {/* Linked Lists (Notes & Events) */}
-          {(target.mode === 'note' || target.mode === 'event') && activeLists.length > 0 && (
-            <PropertyRow icon={<Link2 className="w-3.5 h-3.5" />} label="Lists" alignTop>
-              <div className="flex flex-wrap items-center gap-1 -mx-1 px-1 py-0.5">
-                {activeLists.map((l) => {
-                  const linked = listIds.includes(l.id);
-                  return (
-                    <button
-                      key={l.id}
-                      type="button"
-                      onClick={() =>
-                        setListIds((prev) =>
-                          linked ? prev.filter((id) => id !== l.id) : [...prev, l.id]
-                        )
-                      }
-                      className="px-2 py-0.5 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-hover)]"
-                      style={{
-                        backgroundColor: linked ? 'var(--accent-soft)' : 'transparent',
-                        color: linked ? 'var(--accent)' : 'var(--text-muted)',
-                      }}
-                    >
-                      <span>{l.title}</span>
-                      {linked && <Check className="w-3 h-3" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </PropertyRow>
-          )}
+          {(target.mode === "note" || target.mode === "event") &&
+            activeLists.length > 0 && (
+              <PropertyRow
+                icon={<Link2 className="w-3.5 h-3.5" />}
+                label="Lists"
+                alignTop
+              >
+                <div className="flex flex-wrap items-center gap-1 -mx-1 px-1 py-0.5">
+                  {activeLists.map((l) => {
+                    const linked = listIds.includes(l.id);
+                    return (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() =>
+                          setListIds((prev) =>
+                            linked
+                              ? prev.filter((id) => id !== l.id)
+                              : [...prev, l.id],
+                          )
+                        }
+                        className="px-2 py-0.5 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-hover)]"
+                        style={{
+                          backgroundColor: linked
+                            ? "var(--accent-soft)"
+                            : "transparent",
+                          color: linked ? "var(--accent)" : "var(--text-muted)",
+                        }}
+                      >
+                        <span>{l.title}</span>
+                        {linked && <Check className="w-3 h-3" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </PropertyRow>
+            )}
         </div>
       );
     }
 
-    if (target.mode === 'habit') {
+    if (target.mode === "habit") {
       return (
         <div className="space-y-1">
           {/* Schedule Cadence */}
-          <PropertyRow icon={<Repeat className="w-3.5 h-3.5" />} label="Cadence" alignTop>
+          <PropertyRow
+            icon={<Repeat className="w-3.5 h-3.5" />}
+            label="Cadence"
+            alignTop
+          >
             <div className="space-y-2 -mx-1 px-1">
               <div className="flex flex-wrap gap-1">
                 {(
                   [
-                    { id: 'daily', label: 'Daily' },
-                    { id: 'bi-weekly', label: 'Bi-weekly' },
-                    { id: 'weekly', label: 'Weekly' },
-                    { id: 'monthly', label: 'Monthly' },
-                    { id: 'custom', label: 'Custom' },
+                    { id: "daily", label: "Daily" },
+                    { id: "bi-weekly", label: "Bi-weekly" },
+                    { id: "weekly", label: "Weekly" },
+                    { id: "monthly", label: "Monthly" },
+                    { id: "custom", label: "Custom" },
                   ] as { id: HabitFrequencyType; label: string }[]
                 ).map((opt) => {
                   const active = habitFreq === opt.id;
@@ -934,8 +1041,12 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                       onClick={() => setHabitFreq(opt.id)}
                       className="px-2 py-1 rounded-md text-xs font-medium transition-colors"
                       style={{
-                        backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
-                        color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                        backgroundColor: active
+                          ? "var(--accent-soft)"
+                          : "transparent",
+                        color: active
+                          ? "var(--accent)"
+                          : "var(--text-secondary)",
                       }}
                     >
                       {opt.label}
@@ -944,7 +1055,7 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                 })}
               </div>
 
-              {habitFreq === 'custom' && (
+              {habitFreq === "custom" && (
                 <div className="flex flex-wrap items-center gap-1">
                   {WEEKDAYS.map((day, idx) => {
                     const selected = habitCustomDays.includes(idx);
@@ -958,13 +1069,15 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                               ? prev.length > 1
                                 ? prev.filter((d) => d !== idx)
                                 : prev
-                              : [...prev, idx].sort()
+                              : [...prev, idx].sort(),
                           )
                         }
                         className="h-7 w-8 rounded-md text-[11px] font-medium transition-colors"
                         style={{
-                          backgroundColor: selected ? habitColor : 'var(--bg-surface-hover)',
-                          color: selected ? '#fff' : 'var(--text-secondary)',
+                          backgroundColor: selected
+                            ? habitColor
+                            : "var(--bg-surface-hover)",
+                          color: selected ? "#fff" : "var(--text-secondary)",
                         }}
                       >
                         {day.slice(0, 2)}
@@ -974,20 +1087,25 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                 </div>
               )}
 
-              {habitFreq === 'weekly' && (
-                <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+              {habitFreq === "weekly" && (
+                <div
+                  className="flex items-center gap-2 text-xs"
+                  style={{ color: "var(--text-secondary)" }}
+                >
                   <input
                     type="number"
                     min={1}
                     max={7}
                     value={habitWeeklyTarget}
                     onChange={(e) =>
-                      setHabitWeeklyTarget(Math.max(1, Math.min(7, Number(e.target.value) || 1)))
+                      setHabitWeeklyTarget(
+                        Math.max(1, Math.min(7, Number(e.target.value) || 1)),
+                      )
                     }
                     className="w-14 h-7 px-2 rounded-md font-mono text-center outline-none"
                     style={{
-                      backgroundColor: 'var(--bg-surface-hover)',
-                      color: 'var(--text-primary)',
+                      backgroundColor: "var(--bg-surface-hover)",
+                      color: "var(--text-primary)",
                     }}
                   />
                   <span>days / week</span>
@@ -1007,22 +1125,28 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                   className="w-5 h-5 rounded-full flex items-center justify-center transition-transform"
                   style={{
                     backgroundColor: hex,
-                    transform: habitColor === hex ? 'scale(1.18)' : 'scale(1)',
+                    transform: habitColor === hex ? "scale(1.18)" : "scale(1)",
                     boxShadow:
                       habitColor === hex
                         ? `0 0 0 2px var(--bg-canvas), 0 0 0 3.5px ${hex}`
-                        : 'none',
+                        : "none",
                   }}
                   aria-label={`Color ${hex}`}
                 >
-                  {habitColor === hex && <Check className="w-3 h-3 text-white" />}
+                  {habitColor === hex && (
+                    <Check className="w-3 h-3 text-white" />
+                  )}
                 </button>
               ))}
             </div>
           </PropertyRow>
 
           {/* Icon Picker */}
-          <PropertyRow icon={<Sparkles className="w-3.5 h-3.5" />} label="Icon" alignTop>
+          <PropertyRow
+            icon={<Sparkles className="w-3.5 h-3.5" />}
+            label="Icon"
+            alignTop
+          >
             <div className="flex flex-wrap gap-1 -mx-1 px-1 py-0.5">
               {HABIT_ICON_KEYS.map((key) => {
                 const active = habitIcon.toLowerCase() === key.toLowerCase();
@@ -1033,8 +1157,10 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                     onClick={() => setHabitIcon(key)}
                     className="h-7 w-7 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)]"
                     style={{
-                      backgroundColor: active ? `${habitColor}22` : 'transparent',
-                      color: active ? habitColor : 'var(--text-muted)',
+                      backgroundColor: active
+                        ? `${habitColor}22`
+                        : "transparent",
+                      color: active ? habitColor : "var(--text-muted)",
                     }}
                     aria-label={key}
                     title={key}
@@ -1052,29 +1178,38 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
     // LIST ITEM MODE
     return (
       <div className="space-y-0.5">
-        <PropertyRow icon={<Type className="w-3.5 h-3.5" />} label={itemMeta.subtitleLabel}>
+        <PropertyRow
+          icon={<Type className="w-3.5 h-3.5" />}
+          label={itemMeta.subtitleLabel}
+        >
           <input
             type="text"
             value={listSubtitle}
             onChange={(e) => setListSubtitle(e.target.value)}
             placeholder={itemMeta.subtitlePlaceholder}
             className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs outline-none transition-colors hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] placeholder:opacity-50"
-            style={{ color: 'var(--text-primary)' }}
+            style={{ color: "var(--text-primary)" }}
           />
         </PropertyRow>
 
-        <PropertyRow icon={<ListChecks className="w-3.5 h-3.5" />} label="Status">
+        <PropertyRow
+          icon={<ListChecks className="w-3.5 h-3.5" />}
+          label="Status"
+        >
           <select
             value={listStatus}
             onChange={(e) => setListStatus(e.target.value as ListItemStatus)}
             className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
-            style={{ color: 'var(--text-primary)' }}
+            style={{ color: "var(--text-primary)" }}
           >
             {LIST_STATUS_OPTIONS.map((opt) => (
               <option
                 key={opt.id}
                 value={opt.id}
-                style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                style={{
+                  backgroundColor: "var(--bg-elevated)",
+                  color: "var(--text-primary)",
+                }}
               >
                 {opt.label}
               </option>
@@ -1082,18 +1217,24 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
           </select>
         </PropertyRow>
 
-        <PropertyRow icon={<FolderKanban className="w-3.5 h-3.5" />} label="List">
+        <PropertyRow
+          icon={<FolderKanban className="w-3.5 h-3.5" />}
+          label="List"
+        >
           <select
             value={listId}
             onChange={(e) => setListId(e.target.value)}
             className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
-            style={{ color: 'var(--text-primary)' }}
+            style={{ color: "var(--text-primary)" }}
           >
             {activeLists.map((l) => (
               <option
                 key={l.id}
                 value={l.id}
-                style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                style={{
+                  backgroundColor: "var(--bg-elevated)",
+                  color: "var(--text-primary)",
+                }}
               >
                 {l.title}
               </option>
@@ -1101,21 +1242,29 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
           </select>
         </PropertyRow>
 
-        <PropertyRow icon={<Calendar className="w-3.5 h-3.5" />} label={itemMeta.dueLabel} alignTop>
+        <PropertyRow
+          icon={<Calendar className="w-3.5 h-3.5" />}
+          label={itemMeta.dueLabel}
+          alignTop
+        >
           <div className="space-y-1.5 -mx-1 px-1">
             <input
               type="date"
               value={listDueDate}
               onChange={(e) => setListDueDate(e.target.value)}
               className="w-full bg-transparent rounded-md px-1.5 py-1 text-xs font-mono outline-none transition-colors hover:bg-[var(--bg-surface-hover)]"
-              style={{ color: listDueDate ? 'var(--text-primary)' : 'var(--text-muted)' }}
+              style={{
+                color: listDueDate
+                  ? "var(--text-primary)"
+                  : "var(--text-muted)",
+              }}
             />
             <div className="flex flex-wrap items-center gap-1">
               <button
                 type="button"
                 onClick={() => setListDueDate(addDaysToKey(todayKey, 1))}
                 className="px-1.5 py-0.5 rounded text-[11px] transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{ color: 'var(--text-secondary)' }}
+                style={{ color: "var(--text-secondary)" }}
               >
                 Tomorrow
               </button>
@@ -1123,16 +1272,16 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                 type="button"
                 onClick={() => setListDueDate(addDaysToKey(todayKey, 7))}
                 className="px-1.5 py-0.5 rounded text-[11px] transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{ color: 'var(--text-secondary)' }}
+                style={{ color: "var(--text-secondary)" }}
               >
                 Next wk
               </button>
               {listDueDate && (
                 <button
                   type="button"
-                  onClick={() => setListDueDate('')}
+                  onClick={() => setListDueDate("")}
                   className="px-1.5 py-0.5 rounded text-[11px]"
-                  style={{ color: 'var(--danger)' }}
+                  style={{ color: "var(--danger)" }}
                 >
                   Clear
                 </button>
@@ -1141,18 +1290,24 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
           </div>
         </PropertyRow>
 
-        <PropertyRow icon={<Hash className="w-3.5 h-3.5" />} label="Tags" alignTop>
+        <PropertyRow
+          icon={<Hash className="w-3.5 h-3.5" />}
+          label="Tags"
+          alignTop
+        >
           <div className="space-y-1 -mx-1 px-1 py-0.5">
             <div className="flex flex-wrap items-center gap-1">
               {tags.map((tag) => (
                 <button
                   key={tag}
                   type="button"
-                  onClick={() => setTags((prev) => prev.filter((t) => t !== tag))}
+                  onClick={() =>
+                    setTags((prev) => prev.filter((t) => t !== tag))
+                  }
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-mono"
                   style={{
-                    backgroundColor: 'var(--accent-soft)',
-                    color: 'var(--accent)',
+                    backgroundColor: "var(--accent-soft)",
+                    color: "var(--accent)",
                   }}
                 >
                   <span>#{tag}</span>
@@ -1175,7 +1330,7 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                   }}
                   placeholder="+ Add tag"
                   className="w-24 bg-transparent rounded-md px-1.5 py-0.5 text-xs font-mono outline-none transition-colors hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] placeholder:opacity-55"
-                  style={{ color: 'var(--text-primary)' }}
+                  style={{ color: "var(--text-primary)" }}
                 />
               </form>
             </div>
@@ -1187,7 +1342,7 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                     type="button"
                     onClick={() => handleAddTag(t)}
                     className="text-[11px] font-mono hover:underline"
-                    style={{ color: 'var(--text-muted)' }}
+                    style={{ color: "var(--text-muted)" }}
                   >
                     +#{t}
                   </button>
@@ -1205,7 +1360,7 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
       className="fixed inset-0 z-50 flex items-stretch lg:items-center justify-center lg:p-6"
       role="dialog"
       aria-modal="true"
-      aria-label={`${isCreateMode ? 'Create' : 'Edit'} ${modeLabel[target.mode]}`}
+      aria-label={`${isCreateMode ? "Create" : "Edit"} ${modeLabel[target.mode]}`}
       onCompositionStart={() => {
         isComposingRef.current = true;
       }}
@@ -1224,150 +1379,164 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
       <div
         className="relative z-10 w-full h-dvh lg:max-w-5xl lg:h-[84dvh] lg:rounded-2xl lg:border flex flex-col overflow-hidden"
         style={{
-          backgroundColor: 'var(--bg-canvas)',
-          borderColor: 'var(--border-strong)',
-          boxShadow: 'var(--shadow-popover)',
+          backgroundColor: "var(--bg-canvas)",
+          borderColor: "var(--border-strong)",
+          boxShadow: "var(--shadow-popover)",
         }}
       >
         {/* Minimal Hairline Top Bar (centered 56px row with independent safe-area top inset) */}
         <header
           className="border-b shrink-0"
           style={{
-            backgroundColor: 'var(--bg-canvas)',
-            borderColor: 'var(--border-subtle)',
-            paddingTop: 'env(safe-area-inset-top, 0px)',
+            backgroundColor: "var(--bg-canvas)",
+            borderColor: "var(--border-subtle)",
+            paddingTop: "env(safe-area-inset-top, 0px)",
           }}
         >
           <div className="h-14 px-4 sm:px-6 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <button
-              type="button"
-              onClick={handleClose}
-              className="lg:hidden h-10 w-10 flex items-center justify-center rounded-xl -ml-1 transition-colors hover:bg-[var(--bg-surface-hover)]"
-              style={{ color: 'var(--text-secondary)' }}
-              aria-label="Back"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-
-            <span
-              className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
-              style={{ color: 'var(--accent)' }}
-            >
-              {isEntryMode ? (
-                <EntryTypeIcon
-                  type={target.mode as Entry['type']}
-                  completed={Boolean(liveEntry?.completed)}
-                  className="w-4 h-4"
-                />
-              ) : target.mode === 'habit' ? (
-                <HabitIcon name={habitIcon} className="w-4 h-4" style={{ color: habitColor }} />
-              ) : (
-                <ListIcon
-                  name={currentListCollection?.icon || 'ListChecks'}
-                  className="w-4 h-4"
-                />
-              )}
-            </span>
-
-            <span
-              className="text-xs font-semibold tracking-wide uppercase"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              {modeLabel[target.mode]}
-            </span>
-
-            <span style={{ color: 'var(--border-strong)' }} aria-hidden="true">
-              ·
-            </span>
-
-            <span className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
-              {isCreateMode ? 'New' : 'Autosaved'}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1">
-            {/* Quick Task Complete Toggle */}
-            {liveEntry && liveEntry.type === 'task' && (
+            <div className="flex items-center gap-2 min-w-0">
               <button
                 type="button"
-                onClick={() => toggleEntryCompleted(liveEntry.id)}
-                className="h-9 lg:h-8 px-2.5 flex items-center gap-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{
-                  color: liveEntry.completed ? 'var(--success)' : 'var(--text-secondary)',
-                }}
-                title={liveEntry.completed ? 'Reopen task' : 'Complete task'}
+                onClick={handleClose}
+                className="lg:hidden h-10 w-10 flex items-center justify-center rounded-xl -ml-1 transition-colors hover:bg-[var(--bg-surface-hover)]"
+                style={{ color: "var(--text-secondary)" }}
+                aria-label="Back"
               >
-                {liveEntry.completed ? (
-                  <CheckCircle2 className="w-4 h-4" />
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+
+              <span
+                className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+                style={{ color: "var(--accent)" }}
+              >
+                {isEntryMode ? (
+                  <EntryTypeIcon
+                    type={target.mode as Entry["type"]}
+                    completed={Boolean(liveEntry?.completed)}
+                    className="w-4 h-4"
+                  />
+                ) : target.mode === "habit" ? (
+                  <HabitIcon
+                    name={habitIcon}
+                    className="w-4 h-4"
+                    style={{ color: habitColor }}
+                  />
                 ) : (
-                  <Circle className="w-4 h-4" />
+                  <ListIcon
+                    name={currentListCollection?.icon || "ListChecks"}
+                    className="w-4 h-4"
+                  />
                 )}
-                <span className="hidden sm:inline">
-                  {liveEntry.completed ? 'Completed' : 'Complete'}
-                </span>
-              </button>
-            )}
+              </span>
 
-            {/* Pin toggle for Notes */}
-            {target.mode === 'note' && (
+              <span
+                className="text-xs font-semibold tracking-wide uppercase"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {modeLabel[target.mode]}
+              </span>
+
+              <span
+                style={{ color: "var(--border-strong)" }}
+                aria-hidden="true"
+              >
+                ·
+              </span>
+
+              <span
+                className="text-xs truncate"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {isCreateMode ? "New" : "Autosaved"}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1">
+              {/* Quick Task Complete Toggle */}
+              {liveEntry && liveEntry.type === "task" && (
+                <button
+                  type="button"
+                  onClick={() => toggleEntryCompleted(liveEntry.id)}
+                  className="h-9 lg:h-8 px-2.5 flex items-center gap-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--bg-surface-hover)]"
+                  style={{
+                    color: liveEntry.completed
+                      ? "var(--success)"
+                      : "var(--text-secondary)",
+                  }}
+                  title={liveEntry.completed ? "Reopen task" : "Complete task"}
+                >
+                  {liveEntry.completed ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <Circle className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">
+                    {liveEntry.completed ? "Completed" : "Complete"}
+                  </span>
+                </button>
+              )}
+
+              {/* Pin toggle for Notes */}
+              {target.mode === "note" && (
+                <button
+                  type="button"
+                  onClick={() => setPinned((p) => !p)}
+                  className="h-9 w-9 lg:h-8 lg:w-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)]"
+                  style={{
+                    backgroundColor: pinned
+                      ? "var(--accent-soft)"
+                      : "transparent",
+                    color: pinned ? "var(--accent)" : "var(--text-muted)",
+                  }}
+                  title={pinned ? "Unpin note" : "Pin note"}
+                  aria-label="Toggle pin"
+                >
+                  <Pin className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Achievement Trophy toggle when already an achievement */}
+              {liveEntry && liveEntry.isAchievement && (
+                <button
+                  type="button"
+                  onClick={() => toggleEntryAchievement(liveEntry.id)}
+                  className="h-9 lg:h-8 px-2 flex items-center gap-1 rounded-lg text-xs font-medium transition-colors"
+                  style={{
+                    backgroundColor: "rgba(217, 119, 6, 0.14)",
+                    color: "var(--warning)",
+                  }}
+                  title="Remove from Achievements"
+                >
+                  <Trophy className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Achievement</span>
+                </button>
+              )}
+
+              {/* Delete */}
+              {!isCreateMode && (
+                <button
+                  type="button"
+                  onClick={handleDeleteCurrent}
+                  className="h-9 w-9 lg:h-8 lg:w-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)]"
+                  style={{ color: "var(--text-muted)" }}
+                  title={`Delete ${modeLabel[target.mode]}`}
+                  aria-label="Delete"
+                >
+                  <Trash2 className="w-4 h-4 hover:text-[var(--danger)]" />
+                </button>
+              )}
+
+              {/* Desktop Close */}
               <button
                 type="button"
-                onClick={() => setPinned((p) => !p)}
-                className="h-9 w-9 lg:h-8 lg:w-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{
-                  backgroundColor: pinned ? 'var(--accent-soft)' : 'transparent',
-                  color: pinned ? 'var(--accent)' : 'var(--text-muted)',
-                }}
-                title={pinned ? 'Unpin note' : 'Pin note'}
-                aria-label="Toggle pin"
+                onClick={handleClose}
+                className="hidden lg:flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)]"
+                style={{ color: "var(--text-muted)" }}
+                aria-label="Close"
               >
-                <Pin className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
-            )}
-
-            {/* Achievement Trophy toggle when already an achievement */}
-            {liveEntry && liveEntry.isAchievement && (
-              <button
-                type="button"
-                onClick={() => toggleEntryAchievement(liveEntry.id)}
-                className="h-9 lg:h-8 px-2 flex items-center gap-1 rounded-lg text-xs font-medium transition-colors"
-                style={{
-                  backgroundColor: 'rgba(217, 119, 6, 0.14)',
-                  color: 'var(--warning)',
-                }}
-                title="Remove from Achievements"
-              >
-                <Trophy className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Achievement</span>
-              </button>
-            )}
-
-            {/* Delete */}
-            {!isCreateMode && (
-              <button
-                type="button"
-                onClick={handleDeleteCurrent}
-                className="h-9 w-9 lg:h-8 lg:w-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{ color: 'var(--text-muted)' }}
-                title={`Delete ${modeLabel[target.mode]}`}
-                aria-label="Delete"
-              >
-                <Trash2 className="w-4 h-4 hover:text-[var(--danger)]" />
-              </button>
-            )}
-
-            {/* Desktop Close */}
-            <button
-              type="button"
-              onClick={handleClose}
-              className="hidden lg:flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)]"
-              style={{ color: 'var(--text-muted)' }}
-              aria-label="Close"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+            </div>
           </div>
         </header>
 
@@ -1383,46 +1552,46 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+                  if (e.key === "Enter") {
                     e.preventDefault();
-                    if (editorInstance) editorInstance.commands.focus('start');
+                    if (editorInstance) editorInstance.commands.focus("start");
                   }
                 }}
                 placeholder={
-                  target.mode === 'habit'
-                    ? 'Habit name (e.g. Morning Walk)...'
-                    : target.mode === 'note'
-                    ? 'Untitled Note'
-                    : 'Untitled'
+                  target.mode === "habit"
+                    ? "Habit name (e.g. Morning Walk)..."
+                    : target.mode === "note"
+                      ? "Untitled Note"
+                      : "Untitled"
                 }
                 autoFocus={isCreateMode}
                 className="w-full bg-transparent font-display text-2xl sm:text-[1.75rem] font-bold tracking-tight leading-snug resize-none outline-none overflow-hidden placeholder:opacity-35"
-                style={{ color: 'var(--text-primary)' }}
+                style={{ color: "var(--text-primary)" }}
               />
 
               {/* Habit Borderless Purpose Line (right beneath title) */}
-              {target.mode === 'habit' && (
+              {target.mode === "habit" && (
                 <input
                   type="text"
                   value={habitPurpose}
                   onChange={(e) => setHabitPurpose(e.target.value)}
                   placeholder="Add your purpose or cue (why this habit matters)..."
                   className="w-full bg-transparent text-sm outline-none placeholder:opacity-45 -mt-2"
-                  style={{ color: 'var(--text-secondary)' }}
+                  style={{ color: "var(--text-secondary)" }}
                 />
               )}
 
               {/* MOBILE ONLY (<lg): Notion-style borderless property rows directly beneath title */}
               <section
                 className="lg:hidden border-y py-2.5"
-                style={{ borderColor: 'var(--border-subtle)' }}
+                style={{ borderColor: "var(--border-subtle)" }}
               >
                 {!mobilePropsCollapsed && renderPropertyRows()}
                 <button
                   type="button"
                   onClick={() => setMobilePropsCollapsed((v) => !v)}
                   className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium py-0.5"
-                  style={{ color: 'var(--text-muted)' }}
+                  style={{ color: "var(--text-muted)" }}
                 >
                   {mobilePropsCollapsed ? (
                     <>
@@ -1447,9 +1616,9 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                     onChange={setContent}
                     variant="borderless"
                     placeholder={
-                      target.mode === 'list_item'
-                        ? 'Write notes, highlights, or type / for blocks...'
-                        : 'Write details, paste Markdown, or type / for blocks...'
+                      target.mode === "list_item"
+                        ? "Write notes, highlights, or type / for blocks..."
+                        : "Write details, paste Markdown, or type / for blocks..."
                     }
                     minHeight={300}
                     onEditorReady={setEditorInstance}
@@ -1458,7 +1627,7 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
               )}
 
               {/* Habit Analytics & Interactive 30-Day Matrix Punchstrip */}
-              {target.mode === 'habit' && (
+              {target.mode === "habit" && (
                 <div className="pt-2 space-y-6">
                   {liveHabit ? (
                     <>
@@ -1466,26 +1635,35 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                         <div
                           className="p-3.5 rounded-xl border"
                           style={{
-                            backgroundColor: 'var(--bg-surface)',
-                            borderColor: 'var(--border-subtle)',
+                            backgroundColor: "var(--bg-surface)",
+                            borderColor: "var(--border-subtle)",
                           }}
                         >
-                          <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                          <div
+                            className="text-[11px]"
+                            style={{ color: "var(--text-muted)" }}
+                          >
                             Current Streak
                           </div>
                           <div className="mt-1.5 flex items-center gap-1.5 font-mono tabular-nums text-xl font-bold">
-                            <Flame className="w-4 h-4" style={{ color: habitColor }} />
+                            <Flame
+                              className="w-4 h-4"
+                              style={{ color: habitColor }}
+                            />
                             <span>{habitStats.streak}d</span>
                           </div>
                         </div>
                         <div
                           className="p-3.5 rounded-xl border"
                           style={{
-                            backgroundColor: 'var(--bg-surface)',
-                            borderColor: 'var(--border-subtle)',
+                            backgroundColor: "var(--bg-surface)",
+                            borderColor: "var(--border-subtle)",
                           }}
                         >
-                          <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                          <div
+                            className="text-[11px]"
+                            style={{ color: "var(--text-muted)" }}
+                          >
                             30d Adherence
                           </div>
                           <div className="mt-1.5 font-mono tabular-nums text-xl font-bold">
@@ -1495,11 +1673,14 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                         <div
                           className="p-3.5 rounded-xl border"
                           style={{
-                            backgroundColor: 'var(--bg-surface)',
-                            borderColor: 'var(--border-subtle)',
+                            backgroundColor: "var(--bg-surface)",
+                            borderColor: "var(--border-subtle)",
                           }}
                         >
-                          <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                          <div
+                            className="text-[11px]"
+                            style={{ color: "var(--text-muted)" }}
+                          >
                             Total Logged
                           </div>
                           <div className="mt-1.5 font-mono tabular-nums text-xl font-bold">
@@ -1511,7 +1692,7 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                       <div className="space-y-2.5">
                         <div
                           className="text-[11px] font-semibold uppercase tracking-wider"
-                          style={{ color: 'var(--text-muted)' }}
+                          style={{ color: "var(--text-muted)" }}
                         >
                           Last 30 Days · Tap any day to toggle
                         </div>
@@ -1523,20 +1704,28 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                               <button
                                 key={key}
                                 type="button"
-                                onClick={() => toggleHabitCompletion(liveHabit.id, key)}
+                                onClick={() =>
+                                  toggleHabitCompletion(liveHabit.id, key)
+                                }
                                 title={`${getDayAbbrev(key)} ${key}`}
                                 className="h-10 rounded-lg border flex flex-col items-center justify-center text-[11px] font-mono tabular-nums transition-colors"
                                 style={{
-                                  backgroundColor: done ? habitColor : 'var(--bg-surface)',
-                                  borderColor: isToday
-                                    ? 'var(--accent)'
-                                    : done
+                                  backgroundColor: done
                                     ? habitColor
-                                    : 'var(--border-subtle)',
-                                  color: done ? '#fff' : 'var(--text-muted)',
+                                    : "var(--bg-surface)",
+                                  borderColor: isToday
+                                    ? "var(--accent)"
+                                    : done
+                                      ? habitColor
+                                      : "var(--border-subtle)",
+                                  color: done ? "#fff" : "var(--text-muted)",
                                 }}
                               >
-                                {done ? <Check className="w-3.5 h-3.5" /> : key.slice(-2)}
+                                {done ? (
+                                  <Check className="w-3.5 h-3.5" />
+                                ) : (
+                                  key.slice(-2)
+                                )}
                               </button>
                             );
                           })}
@@ -1547,16 +1736,19 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                     <div
                       className="rounded-xl border border-dashed p-5 text-xs space-y-1.5"
                       style={{
-                        borderColor: 'var(--border-subtle)',
-                        color: 'var(--text-muted)',
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-muted)",
                       }}
                     >
-                      <p className="font-medium" style={{ color: 'var(--text-secondary)' }}>
+                      <p
+                        className="font-medium"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
                         Set your cadence, color, and icon in Properties.
                       </p>
                       <p>
-                        Once created, your 30-day interactive matrix and streak metrics will appear
-                        right here.
+                        Once created, your 30-day interactive matrix and streak
+                        metrics will appear right here.
                       </p>
                     </div>
                   )}
@@ -1569,8 +1761,8 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                         onClick={handleCreateHabitSubmit}
                         className="h-10 px-5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-40"
                         style={{
-                          backgroundColor: 'var(--accent)',
-                          color: 'var(--accent-fg)',
+                          backgroundColor: "var(--accent)",
+                          color: "var(--accent-fg)",
                         }}
                       >
                         <Plus className="w-4 h-4" />
@@ -1587,13 +1779,13 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
           <aside
             className="hidden lg:flex lg:flex-col w-80 xl:w-[340px] shrink-0 border-l overflow-y-auto px-5 py-6"
             style={{
-              backgroundColor: 'var(--bg-surface-subtle)',
-              borderColor: 'var(--border-subtle)',
+              backgroundColor: "var(--bg-surface-subtle)",
+              borderColor: "var(--border-subtle)",
             }}
           >
             <div
               className="text-[10.5px] font-semibold uppercase tracking-wider mb-3 px-1"
-              style={{ color: 'var(--text-muted)' }}
+              style={{ color: "var(--text-muted)" }}
             >
               Properties
             </div>
@@ -1604,19 +1796,19 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
             {liveEntry && (
               <div
                 className="mt-auto pt-5 border-t space-y-1"
-                style={{ borderColor: 'var(--border-subtle)' }}
+                style={{ borderColor: "var(--border-subtle)" }}
               >
                 <div
                   className="text-[10.5px] font-semibold uppercase tracking-wider mb-2 px-1"
-                  style={{ color: 'var(--text-muted)' }}
+                  style={{ color: "var(--text-muted)" }}
                 >
                   Quick Actions
                 </div>
                 <button
                   type="button"
-                  onClick={() => onOpenTimestamps(liveEntry.id, 'date')}
+                  onClick={() => onOpenTimestamps(liveEntry.id, "date")}
                   className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--bg-surface-hover)] text-left"
-                  style={{ color: 'var(--text-secondary)' }}
+                  style={{ color: "var(--text-secondary)" }}
                 >
                   <Clock className="w-3.5 h-3.5 opacity-75" />
                   <span>Edit all timestamps</span>
@@ -1625,7 +1817,7 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
                   type="button"
                   onClick={handleDeleteCurrent}
                   className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--bg-surface-hover)] text-left"
-                  style={{ color: 'var(--danger)' }}
+                  style={{ color: "var(--danger)" }}
                 >
                   <Trash2 className="w-3.5 h-3.5 opacity-80" />
                   <span>Delete {modeLabel[target.mode].toLowerCase()}</span>
@@ -1636,15 +1828,17 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
         </div>
 
         {/* MOBILE THUMB-ZONE BOTTOM TOOLBAR */}
-        {hasRichEditor && <TiptapThumbToolbar editor={editorInstance} onDone={handleClose} />}
+        {hasRichEditor && (
+          <TiptapThumbToolbar editor={editorInstance} onDone={handleClose} />
+        )}
 
         {/* Mobile Habit Create CTA in thumb-zone */}
-        {target.mode === 'habit' && isCreateMode && (
+        {target.mode === "habit" && isCreateMode && (
           <div
             className="lg:hidden shrink-0 border-t px-4 py-3 pb-safe"
             style={{
-              backgroundColor: 'var(--bg-surface)',
-              borderColor: 'var(--border-subtle)',
+              backgroundColor: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
             }}
           >
             <button
@@ -1652,7 +1846,10 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
               disabled={!title.trim()}
               onClick={handleCreateHabitSubmit}
               className="w-full h-11 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-40"
-              style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-fg)' }}
+              style={{
+                backgroundColor: "var(--accent)",
+                color: "var(--accent-fg)",
+              }}
             >
               <Plus className="w-4 h-4" />
               <span>Create Habit</span>
@@ -1661,5 +1858,13 @@ export const DetailSheet: React.FC<DetailSheetProps> = ({
         )}
       </div>
     </div>
+  );
+};
+
+export const DetailSheet: React.FC<DetailSheetProps> = (props) => {
+  const { target } = props;
+  if (!target) return null;
+  return (
+    <DetailSheetInner key={`${target.mode}:${target.id ?? "new"}`} {...props} />
   );
 };
