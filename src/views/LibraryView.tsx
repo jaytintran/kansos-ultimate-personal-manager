@@ -763,6 +763,20 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             };
 
             newlyAdded.push(record);
+
+            // If we are currently drilled into a View Folder, add the new book to it
+            if (drilledViewFolder) {
+              updateLibraryState((prev) => ({
+                libraryViewFolders: prev.libraryViewFolders.map((vf) =>
+                  vf.id === drilledViewFolder.id
+                    ? {
+                        ...vf,
+                        bookIds: Array.from(new Set([...vf.bookIds, newId])),
+                      }
+                    : vf,
+                ),
+              }));
+            }
           } catch (err) {
             notify(
               `Failed to import "${file.name}"`,
@@ -791,7 +805,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         setIsImporting(false);
       }
     },
-    [books, activeFilter, selectedTags, updateLibraryState, notify],
+    [
+      books,
+      activeFilter,
+      selectedTags,
+      drilledViewFolder,
+      updateLibraryState,
+      notify,
+    ],
   );
 
   // Resolve duplicates from DuplicateImportModal
@@ -1736,14 +1757,28 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               )}
 
               {/* Primary Import CTA */}
+              {/* Primary Import CTA */}
               <button
                 type="button"
                 disabled={isImporting}
                 onClick={() => fileInputRef.current?.click()}
+                title={
+                  drilledViewFolder
+                    ? `Import Here "${drilledViewFolder.name}"`
+                    : activeFilter.kind === "folder"
+                      ? `Import Here "${activeViewLabel}"`
+                      : "Import Books"
+                }
                 className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:opacity-60 transition-colors cursor-pointer whitespace-nowrap"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>{isImporting ? "Importing…" : "Import"}</span>
+                <span>
+                  {isImporting
+                    ? "Importing…"
+                    : drilledViewFolder || activeFilter.kind === "folder"
+                      ? "Import Here"
+                      : "Import"}
+                </span>
               </button>
             </div>
           </header>
