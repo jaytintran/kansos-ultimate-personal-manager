@@ -8,6 +8,7 @@ import React, {
 import { Editor } from "@tiptap/react";
 import {
   ArrowLeft,
+  ArrowUpRight,
   BookOpen,
   Calendar,
   CalendarClock,
@@ -38,6 +39,7 @@ import {
 } from "lucide-react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import {
+  BookNoteLink,
   DetailSheetTarget,
   Entry,
   EventAttendance,
@@ -142,12 +144,14 @@ interface DetailSheetProps {
   target: DetailSheetTarget | null;
   onClose: () => void;
   onOpenTimestamps: (entryId: string, focus?: TimestampFieldFocus) => void;
+  onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
 }
 
 const DetailSheetInner: React.FC<DetailSheetProps> = ({
   target,
   onClose,
   onOpenTimestamps,
+  onJumpToBookLocation,
 }) => {
   const {
     workspace,
@@ -269,6 +273,9 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
   const [notebookId, setNotebookId] = useState<string | null>(
     () => initialEntrySrc?.notebookId ?? null,
   );
+  const [bookLink, setBookLink] = useState<BookNoteLink | null>(
+    () => initialEntrySrc?.bookLink ?? null,
+  );
 
   // Habit draft state
   const [habitPurpose, setHabitPurpose] = useState(
@@ -341,6 +348,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
             : false),
       );
       const nextNotebookId = src?.notebookId ?? null;
+      const nextBookLink = src?.bookLink ?? null;
 
       setTitle(nextTitle);
       setContent(nextContent);
@@ -352,6 +360,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
       setListIds(nextListIds);
       setSyncToTimeline(nextSync);
       setNotebookId(nextNotebookId);
+      setBookLink(nextBookLink);
 
       lastSavedSnapRef.current = JSON.stringify({
         title: nextTitle,
@@ -364,6 +373,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
         listIds: nextListIds,
         syncToTimeline: nextSync,
         notebookId: nextNotebookId,
+        bookLink: nextBookLink,
       });
     } else if (target.mode === "habit") {
       const src = existingHabit || (target.draft as Partial<Habit> | undefined);
@@ -451,6 +461,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
         listIds,
         syncToTimeline,
         notebookId,
+        bookLink,
       };
       const snap = JSON.stringify(snapObj);
       if (snap === lastSavedSnapRef.current) return;
@@ -468,6 +479,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
         listIds,
         syncToTimeline: target.mode === "note" ? syncToTimeline : undefined,
         notebookId: target.mode === "note" ? notebookId : undefined,
+        bookLink: target.mode === "note" ? bookLink : undefined,
       };
 
       if (activeId) {
@@ -568,6 +580,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
     listIds,
     syncToTimeline,
     notebookId,
+    bookLink,
     habitPurpose,
     habitColor,
     habitIcon,
@@ -1014,6 +1027,274 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
                   </span>
                 </button>
               </PropertyRow>
+
+              {(() => {
+                const linkedBook = bookLink?.bookId
+                  ? workspace.books.find((b) => b.id === bookLink.bookId) ||
+                    null
+                  : null;
+                const isRemovedSnapshot = Boolean(bookLink && !linkedBook);
+
+                return (
+                  <PropertyRow
+                    icon={<BookOpen className="w-3.5 h-3.5" />}
+                    label="Book"
+                    alignTop
+                  >
+                    <div className="space-y-2 -mx-1 px-1">
+                      <select
+                        value={
+                          linkedBook
+                            ? linkedBook.id
+                            : isRemovedSnapshot
+                              ? "__removed__"
+                              : ""
+                        }
+                        onChange={(e) => {
+                          const nextId = e.target.value;
+                          if (!nextId) {
+                            setBookLink(null);
+                            return;
+                          }
+                          if (nextId === "__removed__") return;
+                          const chosen = workspace.books.find(
+                            (b) => b.id === nextId,
+                          );
+                          if (!chosen) return;
+                          const unitIndex =
+                            chosen.currentLocation?.unitIndex ??
+                            (chosen.format === "pdf" ? 1 : 0);
+                          const scrollRatio =
+                            chosen.currentLocation?.scrollRatio ?? 0;
+                          const locationLabel =
+                            chosen.currentLocation?.label ||
+                            (chosen.format === "pdf"
+                              ? `Page ${unitIndex}`
+                              : `Section ${unitIndex + 1}`);
+                          setBookLink({
+                            bookId: chosen.id,
+                            bookTitle: chosen.title,
+                            bookAuthor: chosen.author,
+                            bookFormat: chosen.format,
+                            unitIndex,
+                            scrollRatio,
+                            locationLabel,
+                            quote: bookLink?.quote,
+                            bookRemoved: false,
+                          });
+                        }}
+                        className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
+                        style={{
+                          color: bookLink
+                            ? "var(--text-primary)"
+                            : "var(--text-muted)",
+                        }}
+                      >
+                        <option
+                          value=""
+                          style={{
+                            backgroundColor: "var(--bg-elevated)",
+                            color: "var(--text-primary)",
+                          }}
+                        >
+                          None (unlinked)
+                        </option>
+                        {isRemovedSnapshot && bookLink && (
+                          <option
+                            value="__removed__"
+                            disabled
+                            style={{
+                              backgroundColor: "var(--bg-elevated)",
+                              color: "var(--text-muted)",
+                            }}
+                          >
+                            {bookLink.bookTitle} (Removed)
+                          </option>
+                        )}
+                        {workspace.books.map((b) => (
+                          <option
+                            key={b.id}
+                            value={b.id}
+                            style={{
+                              backgroundColor: "var(--bg-elevated)",
+                              color: "var(--text-primary)",
+                            }}
+                          >
+                            {b.title}
+                          </option>
+                        ))}
+                      </select>
+
+                      {bookLink && linkedBook && (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <label
+                              className="text-[11px] shrink-0"
+                              style={{ color: "var(--text-muted)" }}
+                              htmlFor="detail-book-unit"
+                            >
+                              {linkedBook.format === "pdf" ? "Pg" : "Sec"}
+                            </label>
+                            <input
+                              id="detail-book-unit"
+                              type="number"
+                              min={1}
+                              max={linkedBook.totalUnits || undefined}
+                              value={
+                                linkedBook.format === "pdf"
+                                  ? Math.max(1, bookLink.unitIndex)
+                                  : bookLink.unitIndex + 1
+                              }
+                              onChange={(e) => {
+                                const parsed = parseInt(e.target.value, 10);
+                                if (Number.isNaN(parsed)) return;
+                                const isPdf = linkedBook.format === "pdf";
+                                const nextUnit = isPdf
+                                  ? Math.max(
+                                      1,
+                                      linkedBook.totalUnits > 0
+                                        ? Math.min(linkedBook.totalUnits, parsed)
+                                        : parsed,
+                                    )
+                                  : Math.max(
+                                      0,
+                                      linkedBook.totalUnits > 0
+                                        ? Math.min(
+                                            linkedBook.totalUnits - 1,
+                                            parsed - 1,
+                                          )
+                                        : parsed - 1,
+                                    );
+                                const defaultLabel = isPdf
+                                  ? `Page ${nextUnit}`
+                                  : `Section ${nextUnit + 1}`;
+                                const shouldAutoUpdateLabel =
+                                  !bookLink.locationLabel ||
+                                  /^(Page|Section)\s+\d+$/i.test(
+                                    bookLink.locationLabel.trim(),
+                                  );
+                                setBookLink({
+                                  ...bookLink,
+                                  unitIndex: nextUnit,
+                                  scrollRatio: 0,
+                                  locationLabel: shouldAutoUpdateLabel
+                                    ? defaultLabel
+                                    : bookLink.locationLabel,
+                                });
+                              }}
+                              className="w-14 h-7 px-1.5 rounded-md border bg-transparent text-xs font-mono tabular-nums outline-none focus:border-[var(--accent)]"
+                              style={{
+                                borderColor: "var(--border-subtle)",
+                                color: "var(--text-primary)",
+                              }}
+                            />
+                            <input
+                              type="text"
+                              value={bookLink.locationLabel}
+                              onChange={(e) =>
+                                setBookLink({
+                                  ...bookLink,
+                                  locationLabel: e.target.value,
+                                })
+                              }
+                              placeholder="Location label"
+                              className="flex-1 min-w-0 h-7 px-2 rounded-md border bg-transparent text-xs outline-none focus:border-[var(--accent)]"
+                              style={{
+                                borderColor: "var(--border-subtle)",
+                                color: "var(--text-primary)",
+                              }}
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                            {onJumpToBookLocation && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (debounceTimerRef.current) {
+                                    window.clearTimeout(
+                                      debounceTimerRef.current,
+                                    );
+                                  }
+                                  flushSave();
+                                  onJumpToBookLocation(bookLink);
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-medium hover:underline whitespace-nowrap shrink-0 cursor-pointer"
+                                style={{ color: "var(--accent)" }}
+                              >
+                                <span>Jump to Page</span>
+                                <ArrowUpRight className="w-3 h-3" />
+                              </button>
+                            )}
+                            {linkedBook.currentLocation && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const loc = linkedBook.currentLocation!;
+                                  setBookLink({
+                                    ...bookLink,
+                                    unitIndex: loc.unitIndex,
+                                    scrollRatio: loc.scrollRatio ?? 0,
+                                    locationLabel:
+                                      loc.label ||
+                                      (linkedBook.format === "pdf"
+                                        ? `Page ${loc.unitIndex}`
+                                        : `Section ${loc.unitIndex + 1}`),
+                                  });
+                                }}
+                                className="text-[11px] font-medium hover:underline whitespace-nowrap shrink-0 cursor-pointer"
+                                style={{ color: "var(--text-secondary)" }}
+                              >
+                                Use current
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setBookLink(null)}
+                              className="text-[11px] font-medium hover:underline whitespace-nowrap shrink-0 cursor-pointer"
+                              style={{ color: "var(--text-muted)" }}
+                            >
+                              Unlink
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {bookLink && !linkedBook && (
+                        <div className="space-y-1">
+                          <p
+                            className="text-[11px] leading-snug"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            {bookLink.bookTitle} · {bookLink.locationLabel} —
+                            Removed from library
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setBookLink(null)}
+                            className="text-[11px] font-medium hover:underline cursor-pointer"
+                            style={{ color: "var(--text-secondary)" }}
+                          >
+                            Unlink
+                          </button>
+                        </div>
+                      )}
+
+                      {bookLink?.quote && (
+                        <blockquote
+                          className="border-l-2 pl-2 text-[11px] italic line-clamp-3"
+                          style={{
+                            borderColor: "var(--accent)",
+                            color: "var(--text-secondary)",
+                          }}
+                        >
+                          “{bookLink.quote}”
+                        </blockquote>
+                      )}
+                    </div>
+                  </PropertyRow>
+                );
+              })()}
             </>
           )}
 
@@ -1450,7 +1731,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-stretch lg:items-center justify-center lg:p-6"
+      className="fixed inset-0 z-[60] flex items-stretch lg:items-center justify-center lg:p-6"
       role="dialog"
       aria-modal="true"
       aria-label={`${isCreateMode ? "Create" : "Edit"} ${modeLabel[target.mode]}`}

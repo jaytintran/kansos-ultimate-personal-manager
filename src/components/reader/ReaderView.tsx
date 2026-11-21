@@ -57,6 +57,7 @@ import {
   type ScrubberBookmarkMarker,
   type ScrubberMarker,
 } from './ReaderScrubber';
+import type {BookJumpRequest, BookNoteLink, Entry} from '../../types';
 import {ReaderTabStrip} from './ReaderTabStrip';
 import {
   ReflowableViewport,
@@ -71,6 +72,15 @@ interface ReaderViewProps {
   openBooks: BookRecord[];
   prefs: ReaderPreferences;
   zenMode?: boolean;
+  jumpRequest?: BookJumpRequest | null;
+  bookNotes?: Entry[];
+  onCreateBookNote?: (payload: {
+    title: string;
+    content: string;
+    bookLink: BookNoteLink;
+  }) => Entry | null;
+  onDeleteBookNote?: (noteId: string) => void;
+  onOpenNoteDetail?: (noteId: string) => void;
   onToggleZenMode?: () => void;
   onUpdatePrefs: (patch: Partial<ReaderPreferences>) => void;
   onResetPrefs: () => void;
@@ -79,7 +89,12 @@ interface ReaderViewProps {
   onSelectLibrary: () => void;
   onSelectBookTab: (bookId: string) => void;
   onCloseBookTab: (bookId: string) => void;
-  onSendHighlightToNotes?: (bookTitle: string, excerptText: string, locationLabel: string) => void;
+  onSendHighlightToNotes?: (
+    bookTitle: string,
+    excerptText: string,
+    locationLabel: string,
+    linkMeta?: Partial<BookNoteLink>,
+  ) => void;
   onNarrationStart?: () => void;
   onAnnotationsChange?: () => void;
   onNotify: (title: string, tone?: 'info' | 'success' | 'error') => void;
@@ -90,6 +105,11 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   openBooks,
   prefs,
   zenMode = false,
+  jumpRequest = null,
+  bookNotes = [],
+  onCreateBookNote,
+  onDeleteBookNote,
+  onOpenNoteDetail,
   onToggleZenMode,
   onUpdatePrefs,
   onResetPrefs,
@@ -187,6 +207,9 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const saveTimeoutRef = useRef<number | null>(null);
   const latestBookRef = useRef(book);
   latestBookRef.current = book;
+  const jumpRequestRef = useRef(jumpRequest);
+  jumpRequestRef.current = jumpRequest;
+  const lastHandledJumpNonceRef = useRef<number | null>(null);
 
   // Reset per-book reader state cleanly when switching tabs
   useEffect(() => {
@@ -202,12 +225,19 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     setFocusedHighlightId(null);
     setHeaderRevealed(true);
     setBottomRevealed(true);
-    const startUnit = book.currentLocation?.unitIndex ?? (book.format === 'pdf' ? 1 : 0);
+    const pendingJump =
+      jumpRequestRef.current?.bookId === book.id ? jumpRequestRef.current : null;
+    const startUnit =
+      pendingJump?.unitIndex ??
+      book.currentLocation?.unitIndex ??
+      (book.format === 'pdf' ? 1 : 0);
+    const startRatio =
+      pendingJump?.scrollRatio ?? book.currentLocation?.scrollRatio ?? 0;
     setUnitIndex(startUnit);
     setVoicePdfPage(startUnit);
-    setTargetScrollRatio(book.currentLocation?.scrollRatio ?? 0);
-    setLiveScrollRatio(book.currentLocation?.scrollRatio ?? 0);
-    currentScrollRatioRef.current = book.currentLocation?.scrollRatio ?? 0;
+    setTargetScrollRatio(startRatio);
+    setLiveScrollRatio(startRatio);
+    currentScrollRatioRef.current = startRatio;
     setTargetAnchorId(null);
     setReflowableJumpNonce(0);
     setVoiceOpen(false);
@@ -246,6 +276,9 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           throw new Error('The offline file for this book could not be found in local storage.');
         }
 
+        const pendingJump =
+          jumpRequestRef.current?.bookId === book.id ? jumpRequestRef.current : null;
+
         if (book.format === 'pdf') {
           const doc = await loadPdfDocument(fileBlob.data);
           if (!active) {
@@ -257,9 +290,13 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           const outline = await extractPdfToc(doc);
           if (!active) return;
           setToc(outline);
-          const safePage = Math.min(doc.numPages, Math.max(1, book.currentLocation?.unitIndex || 1));
+          const requestedUnit = pendingJump?.unitIndex ?? book.currentLocation?.unitIndex ?? 1;
+          const safePage = Math.min(doc.numPages, Math.max(1, requestedUnit));
           setUnitIndex(safePage);
           setPdfJumpNonce((n) => n + 1);
+          if (pendingJump) {
+            lastHandledJumpNonceRef.current = pendingJump.nonce;
+          }
         } else if (book.format === 'epub') {
           const parsed = await parseEpubForReading(fileBlob.data);
           if (!active) {
@@ -269,21 +306,39 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           cleanupUrls = parsed.cleanupUrls;
           setReflowable(parsed);
           setToc(parsed.toc);
+          const requestedUnit = pendingJump?.unitIndex ?? book.currentLocation?.unitIndex ?? 0;
           const safeCh = Math.min(
             Math.max(0, parsed.chapters.length - 1),
-            Math.max(0, book.currentLocation?.unitIndex || 0)
+            Math.max(0, requestedUnit)
           );
           setUnitIndex(safeCh);
+          if (pendingJump) {
+            const safeRatio = Math.min(0.99, Math.max(0, pendingJump.scrollRatio || 0));
+            setTargetScrollRatio(safeRatio);
+            setLiveScrollRatio(safeRatio);
+            currentScrollRatioRef.current = safeRatio;
+            setReflowableJumpNonce((n) => n + 1);
+            lastHandledJumpNonceRef.current = pendingJump.nonce;
+          }
         } else {
           const parsed = await parseMobiForReading(fileBlob.data, bookTitleRef.current);
           if (!active) return;
           setReflowable(parsed);
           setToc(parsed.toc);
+          const requestedUnit = pendingJump?.unitIndex ?? book.currentLocation?.unitIndex ?? 0;
           const safeCh = Math.min(
             Math.max(0, parsed.chapters.length - 1),
-            Math.max(0, book.currentLocation?.unitIndex || 0)
+            Math.max(0, requestedUnit)
           );
           setUnitIndex(safeCh);
+          if (pendingJump) {
+            const safeRatio = Math.min(0.99, Math.max(0, pendingJump.scrollRatio || 0));
+            setTargetScrollRatio(safeRatio);
+            setLiveScrollRatio(safeRatio);
+            currentScrollRatioRef.current = safeRatio;
+            setReflowableJumpNonce((n) => n + 1);
+            lastHandledJumpNonceRef.current = pendingJump.nonce;
+          }
         }
       } catch (err) {
         if (active) {
@@ -609,6 +664,61 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     },
     [book.format, isPdfReflow, persistProgress]
   );
+
+  const buildLocationBadge = useCallback(
+    (uIdx: number, ratio: number): string => {
+      if (book.format === 'pdf') {
+        return `Page ${uIdx}`;
+      }
+      const chTitle =
+        reflowable?.chapters[uIdx]?.title ||
+        reflowableMetrics?.chapters[uIdx]?.title ||
+        `Section ${uIdx + 1}`;
+      if (reflowableMetrics) {
+        const vPage = getVirtualPageAtLocation(reflowableMetrics, uIdx, ratio);
+        return `${chTitle} · p. ${vPage}`;
+      }
+      return chTitle;
+    },
+    [book.format, reflowable, reflowableMetrics],
+  );
+
+  const currentLocationBadge = useMemo(
+    () => buildLocationBadge(unitIndex, liveScrollRatio),
+    [buildLocationBadge, unitIndex, liveScrollRatio],
+  );
+
+  // Consume deep-link jumps from Note cards / DetailSheet even when the book is already open
+  useEffect(() => {
+    if (loading || error || !jumpRequest) return;
+    if (jumpRequest.bookId !== book.id) return;
+    if (lastHandledJumpNonceRef.current === jumpRequest.nonce) return;
+
+    const ready = book.format === 'pdf' ? Boolean(pdfDoc) : Boolean(reflowable);
+    if (!ready) return;
+
+    lastHandledJumpNonceRef.current = jumpRequest.nonce;
+    const clampedUnit =
+      book.format === 'pdf'
+        ? Math.min(Math.max(1, totalUnits), Math.max(1, jumpRequest.unitIndex || 1))
+        : Math.min(Math.max(0, totalUnits - 1), Math.max(0, jumpRequest.unitIndex || 0));
+    const clampedRatio = Math.min(0.99, Math.max(0, jumpRequest.scrollRatio || 0));
+
+    handleJumpToUnit(clampedUnit, clampedRatio, false);
+    onNotify(`Jumped to ${buildLocationBadge(clampedUnit, clampedRatio)}`, 'info');
+  }, [
+    loading,
+    error,
+    jumpRequest,
+    book.id,
+    book.format,
+    pdfDoc,
+    reflowable,
+    totalUnits,
+    handleJumpToUnit,
+    buildLocationBadge,
+    onNotify,
+  ]);
 
   // Active narration sentences for current unit (EPUB/MOBI/PDF-Reflow chapter or Original PDF page)
   const useReflowableNarration = book.format !== 'pdf' || isPdfReflow;
@@ -1061,17 +1171,6 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     onNotify(payload.note ? 'Highlight and note saved' : 'Highlight saved', 'success');
   };
 
-  const handleCreateStandaloneNote = async (noteText: string, color: HighlightColor) => {
-    await handleCreateHighlight({
-      unitIndex,
-      selectedText: '',
-      prefixContext: '',
-      suffixContext: '',
-      color,
-      note: noteText,
-    });
-  };
-
   const handleUpdateHighlight = async (updated: HighlightRecord) => {
     await libraryDb.saveHighlight(updated);
     setHighlights((prev) => prev.map((h) => (h.id === updated.id ? updated : h)));
@@ -1314,13 +1413,15 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
             >
               <PanelRight className="w-4 h-4" />
               <span className="hidden md:inline">Study Notes</span>
-              {highlights.length > 0 && (
+              {bookNotes.length + highlights.length > 0 && (
                 <>
                   <span className="hidden md:inline font-mono-tabular text-[11px] opacity-80">
-                    {highlights.length}
+                    {bookNotes.length + highlights.length}
                   </span>
                   <span className="md:hidden absolute top-1 right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] font-mono-tabular text-[9px] font-semibold leading-[14px] text-center">
-                    {highlights.length > 99 ? '99+' : highlights.length}
+                    {bookNotes.length + highlights.length > 99
+                      ? '99+'
+                      : bookNotes.length + highlights.length}
                   </span>
                 </>
               )}
@@ -1566,7 +1667,24 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
                 onDeleteHighlight={(id) => void handleDeleteHighlight(id)}
                 onSendToNotes={
                   onSendHighlightToNotes
-                    ? (excerpt, _loc) => onSendHighlightToNotes(book.title, excerpt, `Page ${unitIndex}`)
+                    ? (excerpt, _loc, hlUnit) => {
+                        const targetUnit = (hlUnit ?? Math.max(0, unitIndex - 1)) + 1;
+                        onSendHighlightToNotes(
+                          book.title,
+                          excerpt,
+                          `Page ${targetUnit}`,
+                          {
+                            bookId: book.id,
+                            bookTitle: book.title,
+                            bookAuthor: book.author,
+                            bookFormat: book.format,
+                            unitIndex: targetUnit,
+                            scrollRatio: 0,
+                            locationLabel: `Page ${targetUnit}`,
+                            quote: excerpt.slice(0, 280),
+                          },
+                        );
+                      }
                     : undefined
                 }
                 onFocusHighlight={(hlId) => {
@@ -1642,7 +1760,21 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
             onDeleteHighlight={(id) => void handleDeleteHighlight(id)}
             onSendToNotes={
               onSendHighlightToNotes
-                ? (excerpt, loc) => onSendHighlightToNotes(book.title, excerpt, loc)
+                ? (excerpt, _loc, hlUnit) => {
+                    const targetUnit = hlUnit ?? unitIndex;
+                    const ratio = targetUnit === unitIndex ? liveScrollRatio : 0;
+                    const badge = buildLocationBadge(targetUnit, ratio);
+                    onSendHighlightToNotes(book.title, excerpt, badge, {
+                      bookId: book.id,
+                      bookTitle: book.title,
+                      bookAuthor: book.author,
+                      bookFormat: book.format,
+                      unitIndex: targetUnit,
+                      scrollRatio: ratio,
+                      locationLabel: badge,
+                      quote: excerpt.slice(0, 280),
+                    });
+                  }
                 : undefined
             }
             onFocusHighlight={(hlId) => {
@@ -1659,18 +1791,39 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           isOpen={studyPaneOpen}
           topOverlayActive={topOverlayActive}
           bottomOverlayActive={bottomOverlayActive}
+          book={book}
           format={book.format}
           currentUnitIndex={unitIndex}
+          currentScrollRatio={liveScrollRatio}
           currentUnitLabel={currentUnitLabel}
+          currentLocationBadge={currentLocationBadge}
           highlights={highlights}
+          bookNotes={bookNotes}
           focusedHighlightId={focusedHighlightId}
-          onJumpToUnit={(uIdx) => handleJumpToUnit(uIdx, 0, false)}
-          onCreateStandaloneNote={(text, color) => void handleCreateStandaloneNote(text, color)}
+          onJumpToUnit={(uIdx, ratio = 0) => handleJumpToUnit(uIdx, ratio, false)}
+          onCreateBookNote={(payload) => onCreateBookNote?.(payload) ?? null}
+          onDeleteBookNote={(noteId) => onDeleteBookNote?.(noteId)}
+          onExpandNoteToDetail={(noteId) => onOpenNoteDetail?.(noteId)}
           onUpdateHighlight={(updated) => void handleUpdateHighlight(updated)}
           onDeleteHighlight={(id) => void handleDeleteHighlight(id)}
           onSendToNotes={
             onSendHighlightToNotes
-              ? (excerpt, locationLabel) => onSendHighlightToNotes(book.title, excerpt, locationLabel)
+              ? (excerpt, _loc, hlUnit) => {
+                  const targetUnit =
+                    hlUnit ?? unitIndex;
+                  const ratio = targetUnit === unitIndex ? liveScrollRatio : 0;
+                  const badge = buildLocationBadge(targetUnit, ratio);
+                  onSendHighlightToNotes(book.title, excerpt, badge, {
+                    bookId: book.id,
+                    bookTitle: book.title,
+                    bookAuthor: book.author,
+                    bookFormat: book.format,
+                    unitIndex: targetUnit,
+                    scrollRatio: ratio,
+                    locationLabel: badge,
+                    quote: excerpt.slice(0, 280),
+                  });
+                }
               : undefined
           }
           onClose={() => setStudyPaneOpen(false)}

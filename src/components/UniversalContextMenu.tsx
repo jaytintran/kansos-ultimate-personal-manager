@@ -421,7 +421,7 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Actions menu">
+    <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label="Actions menu">
       <div className="fixed inset-0 bg-black/25 sm:bg-transparent" onClick={onClose} />
 
       {/* Desktop Floating Popover */}

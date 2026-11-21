@@ -72,7 +72,6 @@ import { ReaderTabStrip } from "../components/reader/ReaderTabStrip";
 import { ReaderView } from "../components/reader/ReaderView";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useLibraryPreferences } from "../hooks/usePreferences";
-import { pruneBookVoicePreferences } from "../hooks/useVoicePreferences";
 import {
   exportLibraryBackupZip,
   parseLibraryBackupZip,
@@ -89,6 +88,11 @@ import {
   extractBookImportMetadata,
 } from "../lib/parsers/importBook";
 import type {
+  BookJumpRequest,
+  BookNoteLink,
+  DetailSheetTarget,
+} from "../types";
+import type {
   BookFormat,
   BookRecord,
   CategoryRecord,
@@ -103,6 +107,8 @@ import type {
 
 export interface LibraryViewProps {
   zenMode?: boolean;
+  jumpRequest?: BookJumpRequest | null;
+  onOpenDetail?: (target: DetailSheetTarget) => void;
   onToggleZenMode?: () => void;
   onExitZenMode?: () => void;
   onMuteBackgroundStreamer?: () => void;
@@ -135,6 +141,8 @@ function hashPaletteIndex(seed: string): number {
 
 export const LibraryView: React.FC<LibraryViewProps> = ({
   zenMode = false,
+  jumpRequest = null,
+  onOpenDetail,
   onToggleZenMode,
   onExitZenMode,
   onMuteBackgroundStreamer,
@@ -146,6 +154,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     updateLibraryState,
     syncLibraryAnnotationsFromDb,
     sendBookExcerptToNotes,
+    addNotePage,
+    deleteEntry,
+    deleteBooks,
   } = useWorkspace();
 
   const {
@@ -166,6 +177,20 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   // Active reader tabs (multi-book workspace)
   const [openBookIds, setOpenBookIds] = useState<string[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
+
+  // Deep-link jump from Notes / DetailSheet into a specific book & page/chapter
+  const lastConsumedJumpNonceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!jumpRequest) return;
+    if (lastConsumedJumpNonceRef.current === jumpRequest.nonce) return;
+    const target = books.find((b) => b.id === jumpRequest.bookId);
+    if (!target) return;
+    lastConsumedJumpNonceRef.current = jumpRequest.nonce;
+    setOpenBookIds((prev) =>
+      prev.includes(jumpRequest.bookId) ? prev : [...prev, jumpRequest.bookId],
+    );
+    setActiveBookId(jumpRequest.bookId);
+  }, [jumpRequest, books]);
 
   // Library filtering, search & drill-down
   const [activeFilter, setActiveFilter] = useState<ActiveLibraryFilter>({
@@ -715,41 +740,25 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   );
 
   const handleDeleteBooksConfirmed = useCallback(
-    async (idsToDelete: string[]) => {
+    async (
+      idsToDelete: string[],
+      linkedNotesBehavior: "keep" | "delete" = "keep",
+    ) => {
       const deleteSet = new Set(idsToDelete);
       if (deleteSet.size === 0) return;
 
-      await libraryDb.deleteBooksData(Array.from(deleteSet));
-      pruneBookVoicePreferences(deleteSet);
+      await deleteBooks(Array.from(deleteSet), linkedNotesBehavior);
 
-      updateLibraryState((prev) => ({
-        books: prev.books.filter((b) => !deleteSet.has(b.id)),
-        bookBookmarks: prev.bookBookmarks.filter(
-          (bm) => !deleteSet.has(bm.bookId),
-        ),
-        bookHighlights: prev.bookHighlights.filter(
-          (hl) => !deleteSet.has(hl.bookId),
-        ),
-        libraryViewFolders: prev.libraryViewFolders.map((vf) => ({
-          ...vf,
-          bookIds: vf.bookIds.filter((bid) => !deleteSet.has(bid)),
-        })),
-      }));
-
+      setOpenBookIds((prev) => prev.filter((id) => !deleteSet.has(id)));
+      setActiveBookId((prev) => (prev && deleteSet.has(prev) ? null : prev));
       setSelectedIds((prev) => {
         const next = new Set(prev);
         for (const id of deleteSet) next.delete(id);
         return next;
       });
       setBooksPendingDelete([]);
-      notify(
-        deleteSet.size === 1
-          ? "Book removed"
-          : `${deleteSet.size} books removed`,
-        "info",
-      );
     },
-    [updateLibraryState, notify],
+    [deleteBooks],
   );
 
   // Import Pipeline with SHA-256 + Metadata Deduplication
@@ -1668,6 +1677,25 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     searchQuery.trim().length > 0 ||
     prefs.groupBy !== "none";
 
+  // Notes linked to the currently active Reader book
+  const activeBookNotes = useMemo(() => {
+    if (!activeBook) return [];
+    return workspace.entries.filter(
+      (e) => e.type === "note" && e.bookLink?.bookId === activeBook.id,
+    );
+  }, [workspace.entries, activeBook]);
+
+  const linkedNotesCountForPendingDelete = useMemo(() => {
+    if (booksPendingDelete.length === 0) return 0;
+    const pendingSet = new Set(booksPendingDelete.map((b) => b.id));
+    return workspace.entries.filter(
+      (e) =>
+        e.type === "note" &&
+        e.bookLink?.bookId &&
+        pendingSet.has(e.bookLink.bookId),
+    ).length;
+  }, [workspace.entries, booksPendingDelete]);
+
   // If a book tab is active, render the full Reader Studio viewport
   if (activeBook) {
     return (
@@ -1677,6 +1705,29 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           openBooks={openBooks}
           prefs={prefs.reader}
           zenMode={zenMode}
+          jumpRequest={jumpRequest}
+          bookNotes={activeBookNotes}
+          onCreateBookNote={({ title, content, bookLink }: {
+            title: string;
+            content: string;
+            bookLink: BookNoteLink;
+          }) => {
+            const created = addNotePage({
+              title,
+              content,
+              icon: "📖",
+              noteStatus: "active",
+              bookLink,
+            });
+            notify("Book note saved", "success");
+            return created;
+          }}
+          onDeleteBookNote={(noteId) => {
+            deleteEntry(noteId);
+          }}
+          onOpenNoteDetail={(noteId) => {
+            onOpenDetail?.({ mode: "note", id: noteId });
+          }}
           onToggleZenMode={onToggleZenMode}
           onUpdatePrefs={updateReaderPrefs}
           onResetPrefs={resetReaderPrefs}
@@ -1685,8 +1736,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           onSelectLibrary={() => setActiveBookId(null)}
           onSelectBookTab={(id) => setActiveBookId(id)}
           onCloseBookTab={handleCloseBookTab}
-          onSendHighlightToNotes={(bookTitle, excerpt, locationLabel) => {
-            sendBookExcerptToNotes(bookTitle, excerpt, locationLabel);
+          onSendHighlightToNotes={(bookTitle, excerpt, locationLabel, linkMeta) => {
+            sendBookExcerptToNotes(bookTitle, excerpt, locationLabel, linkMeta);
           }}
           onNarrationStart={onMuteBackgroundStreamer}
           onAnnotationsChange={() => void syncLibraryAnnotationsFromDb()}
@@ -2232,8 +2283,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 }
                 onUpdateHighlight={(hl) => void handleUpdateHighlight(hl)}
                 onDeleteHighlight={(id) => void handleDeleteHighlight(id)}
-                onSendToNotes={(bookTitle, excerpt, loc) =>
-                  sendBookExcerptToNotes(bookTitle, excerpt, loc)
+                onSendToNotes={(bookTitle, excerpt, loc, linkMeta) =>
+                  sendBookExcerptToNotes(bookTitle, excerpt, loc, linkMeta)
                 }
                 onBackToBooks={() =>
                   setActiveFilter({ kind: "smart", id: "all" })
@@ -2696,8 +2747,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       {booksPendingDelete.length > 0 && (
         <ConfirmDeleteModal
           booksToDelete={booksPendingDelete}
-          onConfirm={() =>
-            void handleDeleteBooksConfirmed(booksPendingDelete.map((b) => b.id))
+          linkedNotesCount={linkedNotesCountForPendingDelete}
+          onConfirm={(linkedNotesBehavior) =>
+            void handleDeleteBooksConfirmed(
+              booksPendingDelete.map((b) => b.id),
+              linkedNotesBehavior,
+            )
           }
           onClose={() => setBooksPendingDelete([])}
         />

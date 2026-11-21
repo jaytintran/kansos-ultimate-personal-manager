@@ -14,6 +14,7 @@ import {
 import {
   BookBookmark,
   BookHighlight,
+  BookNoteLink,
   BookRecord,
   CustomFocusTab,
   Entry,
@@ -378,6 +379,7 @@ interface WorkspaceContextValue {
     favorite?: boolean;
     syncToTimeline?: boolean;
     scheduledAt?: string | null;
+    bookLink?: BookNoteLink | null;
   }) => Entry;
   duplicateNotePage: (id: string) => Entry | null;
   archiveNotePage: (id: string, archived: boolean) => void;
@@ -438,6 +440,10 @@ interface WorkspaceContextValue {
   ) => BookRecord;
   updateBook: (id: string, patch: Partial<BookRecord>) => void;
   deleteBook: (id: string) => Promise<void>;
+  deleteBooks: (
+    ids: string[],
+    linkedNotesBehavior?: "keep" | "delete",
+  ) => Promise<void>;
   updateLibraryState: (
     updater: (prev: {
       books: BookRecord[];
@@ -460,6 +466,7 @@ interface WorkspaceContextValue {
     bookTitle: string,
     excerptText: string,
     locationLabel?: string,
+    linkMeta?: Partial<BookNoteLink>,
   ) => Entry;
 
   // Streamer actions
@@ -1505,6 +1512,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       favorite?: boolean;
       syncToTimeline?: boolean;
       scheduledAt?: string | null;
+      bookLink?: BookNoteLink | null;
     }): Entry => {
       const nowIso = new Date().toISOString();
       const note: Entry = {
@@ -1532,6 +1540,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           options?.syncToTimeline ?? Boolean(options?.scheduledAt),
         editorWidth: "normal",
         editorFont: "sans",
+        bookLink: options?.bookLink ?? null,
       };
       mutateWorkspace((prev) => ({
         ...prev,
@@ -2083,27 +2092,78 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace],
   );
 
-  const deleteBook = useCallback(
-    async (id: string): Promise<void> => {
-      await libraryDb.deleteBookData(id);
-      pruneBookVoicePreferences([id]);
-      mutateWorkspace((prev) => ({
-        ...prev,
-        books: prev.books.filter((b) => b.id !== id),
-        bookBookmarks: (prev.bookBookmarks ?? []).filter(
-          (bm) => bm.bookId !== id,
-        ),
-        bookHighlights: (prev.bookHighlights ?? []).filter(
-          (hl) => hl.bookId !== id,
-        ),
-        libraryViewFolders: (prev.libraryViewFolders ?? []).map((vf) => ({
-          ...vf,
-          bookIds: vf.bookIds.filter((bid) => bid !== id),
-        })),
-      }));
-      pushToast("Book removed from Library");
+  const deleteBooks = useCallback(
+    async (
+      ids: string[],
+      linkedNotesBehavior: "keep" | "delete" = "keep",
+    ): Promise<void> => {
+      const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+      if (uniqueIds.length === 0) return;
+      const deleteSet = new Set(uniqueIds);
+      await libraryDb.deleteBooksData(uniqueIds);
+      pruneBookVoicePreferences(uniqueIds);
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => {
+        const directDeletedNoteIds = new Set<string>();
+        if (linkedNotesBehavior === "delete") {
+          for (const e of prev.entries) {
+            if (e.bookLink?.bookId && deleteSet.has(e.bookLink.bookId)) {
+              directDeletedNoteIds.add(e.id);
+            }
+          }
+        }
+        const nextEntries =
+          linkedNotesBehavior === "delete"
+            ? prev.entries.filter(
+                (e) =>
+                  !directDeletedNoteIds.has(e.id) &&
+                  !(e.parentId && directDeletedNoteIds.has(e.parentId)),
+              )
+            : prev.entries.map((e) => {
+                if (e.bookLink?.bookId && deleteSet.has(e.bookLink.bookId)) {
+                  return {
+                    ...e,
+                    bookLink: {
+                      ...e.bookLink,
+                      bookId: null,
+                      bookRemoved: true,
+                    },
+                    updatedAt: nowIso,
+                  };
+                }
+                return e;
+              });
+
+        return {
+          ...prev,
+          books: prev.books.filter((b) => !deleteSet.has(b.id)),
+          bookBookmarks: (prev.bookBookmarks ?? []).filter(
+            (bm) => !deleteSet.has(bm.bookId),
+          ),
+          bookHighlights: (prev.bookHighlights ?? []).filter(
+            (hl) => !deleteSet.has(hl.bookId),
+          ),
+          libraryViewFolders: (prev.libraryViewFolders ?? []).map((vf) => ({
+            ...vf,
+            bookIds: vf.bookIds.filter((bid) => !deleteSet.has(bid)),
+          })),
+          entries: nextEntries,
+        };
+      });
+      pushToast(
+        uniqueIds.length === 1
+          ? "Book removed from Library"
+          : `Removed ${uniqueIds.length} books from Library`,
+      );
     },
     [mutateWorkspace, pushToast],
+  );
+
+  const deleteBook = useCallback(
+    async (id: string): Promise<void> => {
+      await deleteBooks([id], "keep");
+    },
+    [deleteBooks],
   );
 
   const updateLibraryState = useCallback(
@@ -2159,7 +2219,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [mutateWorkspace]);
 
   const sendBookExcerptToNotes = useCallback(
-    (bookTitle: string, excerptText: string, locationLabel?: string): Entry => {
+    (
+      bookTitle: string,
+      excerptText: string,
+      locationLabel?: string,
+      linkMeta?: Partial<BookNoteLink>,
+    ): Entry => {
       const nowIso = new Date().toISOString();
       const slugTag = bookTitle
         .toLowerCase()
@@ -2170,6 +2235,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
+      const resolvedLocation =
+        linkMeta?.locationLabel || locationLabel || "Book Excerpt";
+      const bookLink: BookNoteLink | null = linkMeta?.bookId
+        ? {
+            bookId: linkMeta.bookId,
+            bookTitle: linkMeta.bookTitle || bookTitle,
+            bookAuthor: linkMeta.bookAuthor,
+            bookFormat: linkMeta.bookFormat,
+            unitIndex: linkMeta.unitIndex ?? 0,
+            scrollRatio: linkMeta.scrollRatio ?? 0,
+            locationLabel: resolvedLocation,
+            quote: linkMeta.quote ?? excerptText.slice(0, 280),
+            bookRemoved: false,
+          }
+        : null;
       const noteEntry: Entry = {
         id: uid("ent"),
         type: "note",
@@ -2178,8 +2258,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         noteStatus: "inbox",
         syncToTimeline: false,
         content: `<blockquote><p>${safeExcerpt}</p></blockquote><p>${
-          locationLabel
-            ? `<em>Source: ${bookTitle} (${locationLabel})</em>`
+          resolvedLocation
+            ? `<em>Source: ${bookTitle} (${resolvedLocation})</em>`
             : `<em>Source: ${bookTitle}</em>`
         }</p>`,
         createdAt: nowIso,
@@ -2190,6 +2270,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         completed: false,
         focusBucket: null,
         tags: ["reading", ...(slugTag ? [slugTag] : [])],
+        bookLink,
       };
       mutateWorkspace((prev) => ({
         ...prev,
@@ -3006,6 +3087,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         addBook,
         updateBook,
         deleteBook,
+        deleteBooks,
         updateLibraryState,
         syncLibraryAnnotationsFromDb,
         sendBookExcerptToNotes,

@@ -123,7 +123,7 @@ interface ReflowableViewportProps {
   }) => void;
   onUpdateHighlight?: (updated: HighlightRecord) => void;
   onDeleteHighlight?: (id: string) => void;
-  onSendToNotes?: (excerptText: string, locationLabel: string) => void;
+  onSendToNotes?: (excerptText: string, locationLabel: string, unitIndex?: number) => void;
   onFocusHighlight: (highlightId: string) => void;
   onScrollDirection?: (dir: 'up' | 'down') => void;
   onCenterTap?: () => void;
@@ -2133,7 +2133,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                       .filter(Boolean)
                       .join('\n\n');
                     const loc = `Section ${hl.unitIndex + 1}`;
-                    if (body) onSendToNotes(body, loc);
+                    if (body) onSendToNotes(body, loc, hl.unitIndex);
                   }}
                   className="p-1.5 rounded text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
                 >

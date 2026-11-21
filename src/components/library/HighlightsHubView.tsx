@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import React, {useMemo, useState} from 'react';
 import {formatShortDate, HIGHLIGHT_COLORS} from '../../lib/formatters';
+import type {BookNoteLink} from '../../types';
 import type {BookRecord, HighlightColor, HighlightRecord} from '../../types/library';
 import {BookCover} from './BookCover';
 
@@ -19,7 +20,12 @@ interface HighlightsHubViewProps {
   onOpenPassage: (book: BookRecord, unitIndex: number) => void;
   onUpdateHighlight: (updated: HighlightRecord) => void;
   onDeleteHighlight: (id: string) => void;
-  onSendToNotes?: (bookTitle: string, excerptText: string, locationLabel: string) => void;
+  onSendToNotes?: (
+    bookTitle: string,
+    excerptText: string,
+    locationLabel: string,
+    linkMeta?: Partial<BookNoteLink>,
+  ) => void;
   onBackToBooks: () => void;
 }
 
@@ -308,7 +314,16 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
                           const body = [hl.selectedText, hl.note.trim() ? `Note: ${hl.note.trim()}` : '']
                             .filter(Boolean)
                             .join('\n\n');
-                          onSendToNotes(book.title, body, loc);
+                          onSendToNotes(book.title, body, loc, {
+                            bookId: book.id,
+                            bookTitle: book.title,
+                            bookAuthor: book.author,
+                            bookFormat: book.format,
+                            unitIndex: hl.unitIndex,
+                            scrollRatio: 0,
+                            locationLabel: loc,
+                            quote: hl.selectedText.slice(0, 280),
+                          });
                         }}
                         title="Send excerpt to Kanso Notes"
                         className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors cursor-pointer whitespace-nowrap"

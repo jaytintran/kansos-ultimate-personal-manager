@@ -1,20 +1,30 @@
-import {AlertTriangle, X} from 'lucide-react';
-import React from 'react';
+import {AlertTriangle, FileText, X} from 'lucide-react';
+import React, {useEffect, useState} from 'react';
 import {formatFileSize} from '../../lib/formatters';
 import type {BookRecord} from '../../types/library';
 
+export type LinkedNotesDeleteBehavior = 'keep' | 'delete';
+
 interface ConfirmDeleteModalProps {
   booksToDelete: BookRecord[];
-  onConfirm: () => void;
+  linkedNotesCount?: number;
+  onConfirm: (linkedNotesBehavior: LinkedNotesDeleteBehavior) => void;
   onClose: () => void;
 }
 
 export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
   booksToDelete,
+  linkedNotesCount = 0,
   onConfirm,
   onClose,
 }) => {
+  const [linkedNotesBehavior, setLinkedNotesBehavior] =
+    useState<LinkedNotesDeleteBehavior>('keep');
   const totalBytes = booksToDelete.reduce((sum, b) => sum + (b.fileSize || 0), 0);
+
+  useEffect(() => {
+    setLinkedNotesBehavior('keep');
+  }, [booksToDelete]);
 
   return (
     <div
@@ -68,6 +78,59 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
             </ul>
           )}
 
+          {linkedNotesCount > 0 && (
+            <div className="mt-4 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3.5 space-y-2.5">
+              <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-primary)]">
+                <FileText className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                <span>
+                  {linkedNotesCount} linked{' '}
+                  {linkedNotesCount === 1 ? 'note is' : 'notes are'} attached to{' '}
+                  {booksToDelete.length === 1 ? 'this book' : 'these books'}
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-start gap-2.5 cursor-pointer text-xs">
+                  <input
+                    type="radio"
+                    name="linked-notes-delete-behavior"
+                    value="keep"
+                    checked={linkedNotesBehavior === 'keep'}
+                    onChange={() => setLinkedNotesBehavior('keep')}
+                    className="mt-0.5 accent-[var(--accent)] cursor-pointer shrink-0"
+                  />
+                  <span>
+                    <span className="font-medium text-[var(--text-primary)] block">
+                      Keep {linkedNotesCount} linked {linkedNotesCount === 1 ? 'note' : 'notes'} as snapshots
+                    </span>
+                    <span className="text-[11px] text-[var(--text-muted)]">
+                      Preserve your notes in Kanso Notes with the book title recorded.
+                    </span>
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-2.5 cursor-pointer text-xs">
+                  <input
+                    type="radio"
+                    name="linked-notes-delete-behavior"
+                    value="delete"
+                    checked={linkedNotesBehavior === 'delete'}
+                    onChange={() => setLinkedNotesBehavior('delete')}
+                    className="mt-0.5 accent-[var(--danger)] cursor-pointer shrink-0"
+                  />
+                  <span>
+                    <span className="font-medium text-[var(--danger)] block">
+                      Also delete {linkedNotesCount} linked {linkedNotesCount === 1 ? 'note' : 'notes'}
+                    </span>
+                    <span className="text-[11px] text-[var(--text-muted)]">
+                      Permanently remove all linked notes from your workspace.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
+
           <div className="mt-6 flex items-center justify-end gap-2">
             <button
               type="button"
@@ -78,7 +141,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={onConfirm}
+              onClick={() => onConfirm(linkedNotesCount > 0 ? linkedNotesBehavior : 'keep')}
               className="px-4 py-2 text-xs font-medium rounded-md bg-[var(--danger)] text-white hover:bg-[var(--danger-hover)] cursor-pointer"
             >
               Delete Permanently
@@ -89,3 +152,4 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
     </div>
   );
 };
+
