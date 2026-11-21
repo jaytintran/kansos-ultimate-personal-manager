@@ -12,10 +12,10 @@ import {
   SkipForward,
   SlidersHorizontal,
   X,
-} from 'lucide-react';
-import React, {useState} from 'react';
-import type {NarrationStatus} from '../../hooks/useAudiobookNarrator';
-import type {BookVoiceOverride, SleepTimerMode} from '../../types/library';
+} from "lucide-react";
+import React, { useState } from "react";
+import type { NarrationStatus } from "../../hooks/useAudiobookNarrator";
+import type { BookVoiceOverride, SleepTimerMode } from "../../../library";
 
 interface AudiobookPlayerBarProps {
   status: NarrationStatus;
@@ -44,21 +44,21 @@ interface AudiobookPlayerBarProps {
   onMouseLeave?: () => void;
 }
 
-const SLEEP_OPTIONS: Array<{id: SleepTimerMode; label: string}> = [
-  {id: 'off', label: 'Off'},
-  {id: '15m', label: '15 min'},
-  {id: '30m', label: '30 min'},
-  {id: '45m', label: '45 min'},
-  {id: 'chapter', label: 'End of chapter'},
+const SLEEP_OPTIONS: Array<{ id: SleepTimerMode; label: string }> = [
+  { id: "off", label: "Off" },
+  { id: "15m", label: "15 min" },
+  { id: "30m", label: "30 min" },
+  { id: "45m", label: "45 min" },
+  { id: "chapter", label: "End of chapter" },
 ];
 
 const QUICK_SPEEDS = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5];
 
 export function formatCountdown(seconds: number | null): string {
-  if (seconds === null) return '';
+  if (seconds === null) return "";
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 export const AudiobookPlayerBar: React.FC<AudiobookPlayerBarProps> = ({
@@ -90,13 +90,15 @@ export const AudiobookPlayerBar: React.FC<AudiobookPlayerBarProps> = ({
   const [sleepMenuOpen, setSleepMenuOpen] = useState(false);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
 
-  const isPlayingOrBuffering = status === 'playing' || status === 'buffering';
+  const isPlayingOrBuffering = status === "playing" || status === "buffering";
 
   // Position cleanly above the scrubber when scrubber is unpinned, or docked in flex flow when pinned
   const positioningClass = scrubberPinned
-    ? 'relative z-30 shrink-0'
+    ? "relative z-30 shrink-0"
     : `absolute left-0 right-0 z-30 transition-[bottom] duration-180 ease-out ${
-        scrubberVisible ? 'bottom-[74px] sm:bottom-[68px]' : 'bottom-0 pb-safe lg:pb-0'
+        scrubberVisible
+          ? "bottom-[74px] sm:bottom-[68px]"
+          : "bottom-0 pb-safe lg:pb-0"
       }`;
 
   return (
@@ -106,7 +108,7 @@ export const AudiobookPlayerBar: React.FC<AudiobookPlayerBarProps> = ({
       className={`${positioningClass} border-t border-[var(--border-subtle)] bg-[var(--bg-elevated)]/96 backdrop-blur-md shadow-lg`}
     >
       {/* Error Banner */}
-      {status === 'error' && errorMessage && (
+      {status === "error" && errorMessage && (
         <div className="px-3 sm:px-5 py-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] flex items-center justify-between gap-2 text-xs">
           <span className="text-[var(--danger)] truncate">{errorMessage}</span>
         </div>
@@ -127,7 +129,7 @@ export const AudiobookPlayerBar: React.FC<AudiobookPlayerBarProps> = ({
 
           <div className="min-w-0 flex-1">
             <p className="font-serif-editorial text-xs text-[var(--text-primary)] truncate">
-              {activeSentenceText || 'Ready to narrate current passage'}
+              {activeSentenceText || "Ready to narrate current passage"}
             </p>
             <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
               <span className="truncate">{activeVoiceName}</span>
@@ -176,18 +178,22 @@ export const AudiobookPlayerBar: React.FC<AudiobookPlayerBarProps> = ({
             className="min-w-[40px] min-h-[38px] sm:min-w-[38px] sm:min-h-[34px] inline-flex items-center justify-center gap-0.5 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span className="font-mono-tabular text-[10px] font-medium">15</span>
+            <span className="font-mono-tabular text-[10px] font-medium">
+              15
+            </span>
           </button>
 
           <button
             type="button"
             onClick={onTogglePlay}
-            aria-label={isPlayingOrBuffering ? 'Pause narration' : 'Play narration'}
+            aria-label={
+              isPlayingOrBuffering ? "Pause narration" : "Play narration"
+            }
             className="w-10 h-10 sm:w-9 sm:h-9 mx-0.5 rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] inline-flex items-center justify-center shadow-xs transition-colors cursor-pointer shrink-0"
           >
-            {status === 'buffering' ? (
+            {status === "buffering" ? (
               <Loader2 className="w-4 h-4 animate-spin" />
-            ) : status === 'playing' ? (
+            ) : status === "playing" ? (
               <Pause className="w-4 h-4 fill-current" />
             ) : (
               <Play className="w-4 h-4 fill-current ml-0.5" />
@@ -201,7 +207,9 @@ export const AudiobookPlayerBar: React.FC<AudiobookPlayerBarProps> = ({
             aria-label="Skip forward 15 seconds"
             className="min-w-[40px] min-h-[38px] sm:min-w-[38px] sm:min-h-[34px] inline-flex items-center justify-center gap-0.5 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
           >
-            <span className="font-mono-tabular text-[10px] font-medium">15</span>
+            <span className="font-mono-tabular text-[10px] font-medium">
+              15
+            </span>
             <RotateCw className="w-3.5 h-3.5" />
           </button>
 
@@ -242,17 +250,26 @@ export const AudiobookPlayerBar: React.FC<AudiobookPlayerBarProps> = ({
               aria-label="Playback speed"
               className="min-h-[38px] sm:min-h-[32px] px-2 rounded-md font-mono-tabular text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer whitespace-nowrap"
             >
-              {settings.rate.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')}×
+              {settings.rate
+                .toFixed(2)
+                .replace(/\.00$/, "")
+                .replace(/(\.\d)0$/, "$1")}
+              ×
             </button>
 
             {speedMenuOpen && (
               <>
-                <div className="fixed inset-0 z-30" onClick={() => setSpeedMenuOpen(false)} />
+                <div
+                  className="fixed inset-0 z-30"
+                  onClick={() => setSpeedMenuOpen(false)}
+                />
                 <div className="absolute right-0 bottom-11 z-40 w-56 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-xl p-3 space-y-2.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-medium text-[var(--text-primary)]">Speed</span>
+                    <span className="font-medium text-[var(--text-primary)]">
+                      Speed
+                    </span>
                     <span className="font-mono-tabular font-semibold text-[var(--accent)]">
-                      {settings.rate.toFixed(2).replace(/\.00$/, '.0')}×
+                      {settings.rate.toFixed(2).replace(/\.00$/, ".0")}×
                     </span>
                   </div>
                   <input
@@ -275,8 +292,8 @@ export const AudiobookPlayerBar: React.FC<AudiobookPlayerBarProps> = ({
                         }}
                         className={`py-1 rounded text-[11px] font-mono-tabular cursor-pointer ${
                           Math.abs(settings.rate - spd) < 0.03
-                            ? 'bg-[var(--accent)] text-[var(--accent-contrast)] font-semibold'
-                            : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                            ? "bg-[var(--accent)] text-[var(--accent-contrast)] font-semibold"
+                            : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         }`}
                       >
                         {spd}×
@@ -299,22 +316,27 @@ export const AudiobookPlayerBar: React.FC<AudiobookPlayerBarProps> = ({
               title="Sleep timer"
               aria-label="Sleep timer"
               className={`min-h-[32px] px-2 rounded-md inline-flex items-center gap-1 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                sleepTimerMode !== 'off'
-                  ? 'text-[var(--accent)] bg-[var(--bg-accent-subtle)]'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+                sleepTimerMode !== "off"
+                  ? "text-[var(--accent)] bg-[var(--bg-accent-subtle)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]"
               }`}
             >
               <Moon className="w-3.5 h-3.5" />
-              {sleepTimerMode !== 'off' && (
+              {sleepTimerMode !== "off" && (
                 <span className="font-mono-tabular text-[11px]">
-                  {sleepTimerMode === 'chapter' ? 'Ch.' : formatCountdown(sleepSecondsLeft)}
+                  {sleepTimerMode === "chapter"
+                    ? "Ch."
+                    : formatCountdown(sleepSecondsLeft)}
                 </span>
               )}
             </button>
 
             {sleepMenuOpen && (
               <>
-                <div className="fixed inset-0 z-30" onClick={() => setSleepMenuOpen(false)} />
+                <div
+                  className="fixed inset-0 z-30"
+                  onClick={() => setSleepMenuOpen(false)}
+                />
                 <div className="absolute right-0 bottom-11 z-40 w-44 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-xl p-1.5">
                   <p className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
                     Sleep Timer
@@ -329,8 +351,8 @@ export const AudiobookPlayerBar: React.FC<AudiobookPlayerBarProps> = ({
                       }}
                       className={`w-full px-2.5 py-1.5 rounded text-left text-xs transition-colors cursor-pointer ${
                         sleepTimerMode === opt.id
-                          ? 'bg-[var(--bg-accent-subtle)] text-[var(--accent)] font-medium'
-                          : 'text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+                          ? "bg-[var(--bg-accent-subtle)] text-[var(--accent)] font-medium"
+                          : "text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]"
                       }`}
                     >
                       {opt.label}
@@ -353,8 +375,8 @@ export const AudiobookPlayerBar: React.FC<AudiobookPlayerBarProps> = ({
             aria-label="Voice and tone settings"
             className={`min-w-[38px] min-h-[38px] sm:min-w-[34px] sm:min-h-[32px] inline-flex items-center justify-center rounded-md transition-colors cursor-pointer ${
               voiceSettingsOpen
-                ? 'text-[var(--accent)] bg-[var(--bg-accent-subtle)]'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+                ? "text-[var(--accent)] bg-[var(--bg-accent-subtle)]"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]"
             }`}
           >
             <SlidersHorizontal className="w-4 h-4" />

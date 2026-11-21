@@ -11,17 +11,17 @@ import {
   Sun,
   Tag,
   X,
-} from 'lucide-react';
-import React, {useEffect, useMemo, useRef, useState} from 'react';
-import {flattenFoldersHierarchy, formatFileSize} from '../../lib/formatters';
+} from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { flattenFoldersHierarchy, formatFileSize } from "../../lib/formatters";
 import type {
   BookRecord,
   CategoryRecord,
   FolderRecord,
   HighlightRecord,
   ThemeMode,
-} from '../../types/library';
-import {BookCover} from './BookCover';
+} from "../../../library";
+import { BookCover } from "./BookCover";
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -44,7 +44,7 @@ interface CommandPaletteProps {
 
 interface PaletteItem {
   id: string;
-  section: 'Books' | 'Folders & Categories' | 'Highlights' | 'Actions';
+  section: "Books" | "Folders & Categories" | "Highlights" | "Actions";
   title: string;
   subtitle?: string;
   book?: BookRecord;
@@ -70,19 +70,22 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onToggleTheme,
   onToggleInspector,
 }) => {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
-      setQuery('');
+      setQuery("");
       setActiveIndex(0);
       window.setTimeout(() => inputRef.current?.focus(), 20);
     }
   }, [isOpen]);
 
-  const flatFolders = useMemo(() => flattenFoldersHierarchy(folders), [folders]);
+  const flatFolders = useMemo(
+    () => flattenFoldersHierarchy(folders),
+    [folders],
+  );
   const bookById = useMemo(() => new Map(books.map((b) => [b.id, b])), [books]);
 
   const items = useMemo<PaletteItem[]>(() => {
@@ -93,7 +96,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     const matchedBooks = books
       .filter((b) => {
         if (!q) return true;
-        const hay = `${b.title} ${b.subtitle ?? ''} ${b.author} ${b.series} ${b.tags.join(' ')}`.toLowerCase();
+        const hay =
+          `${b.title} ${b.subtitle ?? ""} ${b.author} ${b.series} ${b.tags.join(" ")}`.toLowerCase();
         return hay.includes(q);
       })
       .sort((a, b) => (b.lastReadAt ?? b.addedAt) - (a.lastReadAt ?? a.addedAt))
@@ -102,7 +106,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     for (const book of matchedBooks) {
       results.push({
         id: `book-${book.id}`,
-        section: 'Books',
+        section: "Books",
         title: book.title,
         subtitle: [
           book.subtitle?.trim(),
@@ -111,7 +115,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           `${book.progress}%`,
         ]
           .filter(Boolean)
-          .join(' · '),
+          .join(" · "),
         book,
         onExecute: () => {
           onOpenBook(book);
@@ -125,9 +129,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       if (!q || item.pathLabel.toLowerCase().includes(q)) {
         results.push({
           id: `folder-${item.folder.id}`,
-          section: 'Folders & Categories',
+          section: "Folders & Categories",
           title: item.pathLabel,
-          subtitle: 'Folder',
+          subtitle: "Folder",
           icon: <Folder className="w-4 h-4 text-[var(--text-secondary)]" />,
           onExecute: () => {
             onSelectFolder(item.folder.id);
@@ -141,9 +145,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       if (q && cat.name.toLowerCase().includes(q)) {
         results.push({
           id: `cat-${cat.id}`,
-          section: 'Folders & Categories',
+          section: "Folders & Categories",
           title: cat.name,
-          subtitle: 'Category',
+          subtitle: "Category",
           icon: <Tag className="w-4 h-4 text-[var(--text-secondary)]" />,
           onExecute: () => {
             onSelectCategory(cat.id);
@@ -168,9 +172,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         if (!book) continue;
         results.push({
           id: `hl-${hl.id}`,
-          section: 'Highlights',
-          title: `"${hl.selectedText.slice(0, 72)}${hl.selectedText.length > 72 ? '…' : ''}"`,
-          subtitle: `${book.title} · ${book.format === 'pdf' ? `Page ${hl.unitIndex}` : `Section ${hl.unitIndex + 1}`}`,
+          section: "Highlights",
+          title: `"${hl.selectedText.slice(0, 72)}${hl.selectedText.length > 72 ? "…" : ""}"`,
+          subtitle: `${book.title} · ${book.format === "pdf" ? `Page ${hl.unitIndex}` : `Section ${hl.unitIndex + 1}`}`,
           icon: <Highlighter className="w-4 h-4 text-[var(--accent)]" />,
           onExecute: () => {
             onOpenBook(book, hl.unitIndex);
@@ -183,10 +187,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     // 4. Quick Actions
     const actions: PaletteItem[] = [
       {
-        id: 'action-import',
-        section: 'Actions',
-        title: 'Import e-books (EPUB, PDF, MOBI)',
-        subtitle: 'Add files to offline archive',
+        id: "action-import",
+        section: "Actions",
+        title: "Import e-books (EPUB, PDF, MOBI)",
+        subtitle: "Add files to offline archive",
         icon: <Plus className="w-4 h-4 text-[var(--accent)]" />,
         onExecute: () => {
           onClose();
@@ -194,9 +198,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         },
       },
       {
-        id: 'action-highlights',
-        section: 'Actions',
-        title: 'Open Highlights & Notes Hub',
+        id: "action-highlights",
+        section: "Actions",
+        title: "Open Highlights & Notes Hub",
         subtitle: `${highlights.length} saved annotations`,
         icon: <Highlighter className="w-4 h-4 text-[var(--text-secondary)]" />,
         onExecute: () => {
@@ -205,10 +209,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         },
       },
       {
-        id: 'action-inspector',
-        section: 'Actions',
-        title: inspectorOpen ? 'Hide Book Inspector' : 'Show Book Inspector',
-        subtitle: 'Toggle right-side detail pane',
+        id: "action-inspector",
+        section: "Actions",
+        title: inspectorOpen ? "Hide Book Inspector" : "Show Book Inspector",
+        subtitle: "Toggle right-side detail pane",
         icon: <PanelRight className="w-4 h-4 text-[var(--text-secondary)]" />,
         onExecute: () => {
           onToggleInspector();
@@ -216,11 +220,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         },
       },
       {
-        id: 'action-storage',
-        section: 'Actions',
-        title: 'Manage storage & book files',
-        subtitle: `${books.length} ${books.length === 1 ? 'book' : 'books'} · ${formatFileSize(
-          books.reduce((sum, b) => sum + (b.fileSize || 0), 0)
+        id: "action-storage",
+        section: "Actions",
+        title: "Manage storage & book files",
+        subtitle: `${books.length} ${books.length === 1 ? "book" : "books"} · ${formatFileSize(
+          books.reduce((sum, b) => sum + (b.fileSize || 0), 0),
         )} · Replace files or find duplicates`,
         icon: <HardDrive className="w-4 h-4 text-[var(--text-secondary)]" />,
         onExecute: () => {
@@ -229,12 +233,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         },
       },
       {
-        id: 'action-theme',
-        section: 'Actions',
-        title: `Switch to ${theme === 'sepia' ? 'Dark' : 'Sepia'} theme`,
-        subtitle: 'Appearance',
+        id: "action-theme",
+        section: "Actions",
+        title: `Switch to ${theme === "sepia" ? "Dark" : "Sepia"} theme`,
+        subtitle: "Appearance",
         icon:
-          theme === 'sepia' ? (
+          theme === "sepia" ? (
             <Moon className="w-4 h-4 text-[var(--text-secondary)]" />
           ) : (
             <Sun className="w-4 h-4 text-[var(--text-secondary)]" />
@@ -247,7 +251,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     ];
 
     for (const action of actions) {
-      if (!q || `${action.title} ${action.subtitle ?? ''}`.toLowerCase().includes(q)) {
+      if (
+        !q ||
+        `${action.title} ${action.subtitle ?? ""}`.toLowerCase().includes(q)
+      ) {
         results.push(action);
       }
     }
@@ -280,31 +287,36 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   if (!isOpen) return null;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
+    if (e.key === "Escape") {
       e.preventDefault();
       onClose();
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setActiveIndex((prev) => (items.length > 0 ? (prev + 1) % items.length : 0));
-    } else if (e.key === 'ArrowUp') {
+    } else if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIndex((prev) =>
-        items.length > 0 ? (prev - 1 + items.length) % items.length : 0
+        items.length > 0 ? (prev + 1) % items.length : 0,
       );
-    } else if (e.key === 'Enter' && items[activeIndex]) {
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((prev) =>
+        items.length > 0 ? (prev - 1 + items.length) % items.length : 0,
+      );
+    } else if (e.key === "Enter" && items[activeIndex]) {
       e.preventDefault();
       items[activeIndex].onExecute();
     }
   };
 
   // Group items by section preserving flat index order
-  const sections: Array<{label: PaletteItem['section']; entries: Array<{item: PaletteItem; flatIdx: number}>}> = [];
+  const sections: Array<{
+    label: PaletteItem["section"];
+    entries: Array<{ item: PaletteItem; flatIdx: number }>;
+  }> = [];
   items.forEach((item, flatIdx) => {
     const existing = sections.find((s) => s.label === item.section);
     if (existing) {
-      existing.entries.push({item, flatIdx});
+      existing.entries.push({ item, flatIdx });
     } else {
-      sections.push({label: item.section, entries: [{item, flatIdx}]});
+      sections.push({ label: item.section, entries: [{ item, flatIdx }] });
     }
   });
 
@@ -335,7 +347,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           {query && (
             <button
               type="button"
-              onClick={() => setQuery('')}
+              onClick={() => setQuery("")}
               aria-label="Clear command query"
               className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
             >
@@ -361,7 +373,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                     {sec.label}
                   </div>
                   <div>
-                    {sec.entries.map(({item, flatIdx}) => {
+                    {sec.entries.map(({ item, flatIdx }) => {
                       const active = flatIdx === activeIndex;
                       return (
                         <button
@@ -371,8 +383,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                           onClick={item.onExecute}
                           className={`w-full px-4 py-2 flex items-center gap-3 text-left transition-colors cursor-pointer ${
                             active
-                              ? 'bg-[var(--bg-accent-subtle)] text-[var(--text-primary)]'
-                              : 'text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+                              ? "bg-[var(--bg-accent-subtle)] text-[var(--text-primary)]"
+                              : "text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]"
                           }`}
                         >
                           {item.book ? (
@@ -389,12 +401,16 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                             </div>
                           ) : (
                             <div className="w-6 h-6 flex items-center justify-center shrink-0">
-                              {item.icon ?? <BookOpen className="w-4 h-4 text-[var(--text-secondary)]" />}
+                              {item.icon ?? (
+                                <BookOpen className="w-4 h-4 text-[var(--text-secondary)]" />
+                              )}
                             </div>
                           )}
 
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium truncate">{item.title}</div>
+                            <div className="text-xs font-medium truncate">
+                              {item.title}
+                            </div>
                             {item.subtitle && (
                               <div className="text-[11px] text-[var(--text-muted)] truncate">
                                 {item.subtitle}
@@ -419,7 +435,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         <div className="px-4 py-2 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] flex items-center justify-between text-[11px] text-[var(--text-muted)] shrink-0">
           <span>Use ↑ ↓ to navigate · Enter to open</span>
           <span className="font-mono-tabular">
-            {books.length} {books.length === 1 ? 'book' : 'books'} indexed
+            {books.length} {books.length === 1 ? "book" : "books"} indexed
           </span>
         </div>
       </div>

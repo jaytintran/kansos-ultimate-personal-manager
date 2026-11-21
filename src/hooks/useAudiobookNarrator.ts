@@ -1,17 +1,26 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import type {NarrationSentence} from '../lib/narrationText';
-import type {BookVoiceOverride, NarratorTone, SleepTimerMode} from '../types/library';
-import {NARRATOR_TONES} from './useVoicePreferences';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { NarrationSentence } from "../lib/narrationText";
+import type {
+  BookVoiceOverride,
+  NarratorTone,
+  SleepTimerMode,
+} from "../../library";
+import { NARRATOR_TONES } from "./useVoicePreferences";
 
-export type NarrationStatus = 'idle' | 'buffering' | 'playing' | 'paused' | 'error';
+export type NarrationStatus =
+  | "idle"
+  | "buffering"
+  | "playing"
+  | "paused"
+  | "error";
 
 interface UseAudiobookNarratorOptions {
   bookId: string;
   unitIndex: number;
   sentences: NarrationSentence[];
-  settings: BookVoiceOverride & {skipNoise: boolean; tapToRead: boolean};
-  onAdvanceUnit: (dir: 'prev' | 'next') => boolean;
-  onNotify?: (title: string, tone?: 'info' | 'success' | 'error') => void;
+  settings: BookVoiceOverride & { skipNoise: boolean; tapToRead: boolean };
+  onAdvanceUnit: (dir: "prev" | "next") => boolean;
+  onNotify?: (title: string, tone?: "info" | "success" | "error") => void;
 }
 
 export function useAudiobookNarrator({
@@ -22,13 +31,16 @@ export function useAudiobookNarrator({
   onAdvanceUnit,
   onNotify,
 }: UseAudiobookNarratorOptions) {
-  const [status, setStatus] = useState<NarrationStatus>('idle');
+  const [status, setStatus] = useState<NarrationStatus>("idle");
   const [activeSentenceIndex, setActiveSentenceIndex] = useState<number>(-1);
   const [activeWordIndex, setActiveWordIndex] = useState<number>(-1);
   const [deviceVoices, setDeviceVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [previewingVoiceUri, setPreviewingVoiceUri] = useState<string | null>(null);
+  const [previewingVoiceUri, setPreviewingVoiceUri] = useState<string | null>(
+    null,
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [sleepTimerMode, setSleepTimerModeState] = useState<SleepTimerMode>('off');
+  const [sleepTimerMode, setSleepTimerModeState] =
+    useState<SleepTimerMode>("off");
   const [sleepSecondsLeft, setSleepSecondsLeft] = useState<number | null>(null);
 
   const sentencesRef = useRef(sentences);
@@ -49,7 +61,8 @@ export function useAudiobookNarrator({
   const fallbackWordTimerRef = useRef<number | null>(null);
   const receivedBoundaryRef = useRef(false);
 
-  const speechSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
+  const speechSupported =
+    typeof window !== "undefined" && "speechSynthesis" in window;
 
   // Load device voices offline
   useEffect(() => {
@@ -67,9 +80,9 @@ export function useAudiobookNarrator({
       }
     };
     loadVoices();
-    synth.addEventListener?.('voiceschanged', loadVoices);
+    synth.addEventListener?.("voiceschanged", loadVoices);
     return () => {
-      synth.removeEventListener?.('voiceschanged', loadVoices);
+      synth.removeEventListener?.("voiceschanged", loadVoices);
     };
   }, [speechSupported]);
 
@@ -89,17 +102,17 @@ export function useAudiobookNarrator({
       }
       return (
         deviceVoices.find((v) => v.default) ||
-        deviceVoices.find((v) => v.lang.toLowerCase().startsWith('en')) ||
+        deviceVoices.find((v) => v.lang.toLowerCase().startsWith("en")) ||
         deviceVoices[0] ||
         null
       );
     },
-    [deviceVoices]
+    [deviceVoices],
   );
 
   const activeVoiceName = useMemo(() => {
     const v = resolveVoice(settings.deviceVoiceUri);
-    return v ? v.name : 'System Default';
+    return v ? v.name : "System Default";
   }, [resolveVoice, settings.deviceVoiceUri]);
 
   const cancelSpeech = useCallback(() => {
@@ -118,7 +131,7 @@ export function useAudiobookNarrator({
     pendingAdvanceRef.current = false;
     cancelSpeech();
     setPreviewingVoiceUri(null);
-    setStatus('idle');
+    setStatus("idle");
     setActiveSentenceIndex(-1);
     setActiveWordIndex(-1);
     setErrorMessage(null);
@@ -127,14 +140,14 @@ export function useAudiobookNarrator({
   const speakSentenceAt = useCallback(
     (idx: number) => {
       if (!speechSupported) {
-        setStatus('error');
-        setErrorMessage('Speech synthesis is unavailable in this browser.');
+        setStatus("error");
+        setErrorMessage("Speech synthesis is unavailable in this browser.");
         return;
       }
 
       const list = sentencesRef.current;
       if (list.length === 0) {
-        setStatus('idle');
+        setStatus("idle");
         setActiveSentenceIndex(-1);
         setActiveWordIndex(-1);
         return;
@@ -142,19 +155,19 @@ export function useAudiobookNarrator({
 
       if (idx < 0 || idx >= list.length) {
         // Reached end of chapter / page
-        if (sleepModeRef.current === 'chapter') {
-          setSleepTimerModeState('off');
+        if (sleepModeRef.current === "chapter") {
+          setSleepTimerModeState("off");
           setSleepSecondsLeft(null);
           stop();
-          onNotify?.('Sleep timer paused at end of section', 'info');
+          onNotify?.("Sleep timer paused at end of section", "info");
           return;
         }
-        const advanced = onAdvanceUnitRef.current('next');
+        const advanced = onAdvanceUnitRef.current("next");
         if (advanced) {
           pendingAdvanceRef.current = true;
         } else {
           stop();
-          onNotify?.('Finished reading book aloud', 'success');
+          onNotify?.("Finished reading book aloud", "success");
         }
         return;
       }
@@ -164,14 +177,19 @@ export function useAudiobookNarrator({
       const myToken = sessionTokenRef.current;
       receivedBoundaryRef.current = false;
 
-      setStatus('playing');
+      setStatus("playing");
       setErrorMessage(null);
       setActiveSentenceIndex(idx);
       setActiveWordIndex(0);
 
       const curSettings = settingsRef.current;
-      const toneDef = NARRATOR_TONES.find((t) => t.id === curSettings.tone) ?? NARRATOR_TONES[0];
-      const effectiveRate = Math.min(2.5, Math.max(0.6, curSettings.rate * toneDef.rateMultiplier));
+      const toneDef =
+        NARRATOR_TONES.find((t) => t.id === curSettings.tone) ??
+        NARRATOR_TONES[0];
+      const effectiveRate = Math.min(
+        2.5,
+        Math.max(0.6, curSettings.rate * toneDef.rateMultiplier),
+      );
 
       const utterance = new SpeechSynthesisUtterance(sentence.spokenText);
       const voice = resolveVoice(curSettings.deviceVoiceUri);
@@ -181,17 +199,19 @@ export function useAudiobookNarrator({
 
       utterance.onboundary = (event) => {
         if (sessionTokenRef.current !== myToken) return;
-        if (typeof event.charIndex === 'number') {
+        if (typeof event.charIndex === "number") {
           receivedBoundaryRef.current = true;
           clearFallbackWordTimer();
           const charPos = event.charIndex;
           const found = sentence.words.findIndex(
-            (w) => charPos >= w.startInSentence && charPos <= w.endInSentence
+            (w) => charPos >= w.startInSentence && charPos <= w.endInSentence,
           );
           if (found !== -1) {
             setActiveWordIndex(found);
           } else {
-            const nearest = sentence.words.findIndex((w) => w.startInSentence >= charPos);
+            const nearest = sentence.words.findIndex(
+              (w) => w.startInSentence >= charPos,
+            );
             if (nearest !== -1) setActiveWordIndex(nearest);
           }
         }
@@ -206,17 +226,23 @@ export function useAudiobookNarrator({
       utterance.onerror = (ev) => {
         if (sessionTokenRef.current !== myToken) return;
         clearFallbackWordTimer();
-        if (ev.error === 'interrupted' || ev.error === 'canceled') return;
-        setStatus('error');
-        setErrorMessage(`Voice playback error (${ev.error || 'unknown'}).`);
+        if (ev.error === "interrupted" || ev.error === "canceled") return;
+        setStatus("error");
+        setErrorMessage(`Voice playback error (${ev.error || "unknown"}).`);
       };
 
       // Smooth fallback word tracker in case OS voice doesn't emit onboundary events
       if (sentence.words.length > 1) {
-        const msPerWord = Math.max(120, Math.round((60000 / (165 * effectiveRate))));
+        const msPerWord = Math.max(
+          120,
+          Math.round(60000 / (165 * effectiveRate)),
+        );
         let estWord = 0;
         fallbackWordTimerRef.current = window.setInterval(() => {
-          if (sessionTokenRef.current !== myToken || receivedBoundaryRef.current) {
+          if (
+            sessionTokenRef.current !== myToken ||
+            receivedBoundaryRef.current
+          ) {
             clearFallbackWordTimer();
             return;
           }
@@ -229,11 +255,18 @@ export function useAudiobookNarrator({
         window.speechSynthesis.speak(utterance);
       } catch {
         clearFallbackWordTimer();
-        setStatus('error');
-        setErrorMessage('Could not start speech synthesis.');
+        setStatus("error");
+        setErrorMessage("Could not start speech synthesis.");
       }
     },
-    [speechSupported, cancelSpeech, resolveVoice, clearFallbackWordTimer, stop, onNotify]
+    [
+      speechSupported,
+      cancelSpeech,
+      resolveVoice,
+      clearFallbackWordTimer,
+      stop,
+      onNotify,
+    ],
   );
 
   // Resume automatically after unit advancement once new sentences arrive
@@ -257,7 +290,7 @@ export function useAudiobookNarrator({
   useEffect(() => {
     if (prevVoiceKeyRef.current === voiceKey) return;
     prevVoiceKeyRef.current = voiceKey;
-    if (statusRef.current === 'playing' && activeSentenceRef.current >= 0) {
+    if (statusRef.current === "playing" && activeSentenceRef.current >= 0) {
       speakSentenceAt(activeSentenceRef.current);
     }
   }, [voiceKey, speakSentenceAt]);
@@ -265,14 +298,14 @@ export function useAudiobookNarrator({
   // Sleep timer countdown
   useEffect(() => {
     if (sleepSecondsLeft === null) return;
-    if (status !== 'playing') return;
+    if (status !== "playing") return;
     const timer = window.setInterval(() => {
       setSleepSecondsLeft((prev) => {
         if (prev === null) return null;
         if (prev <= 1) {
-          setSleepTimerModeState('off');
+          setSleepTimerModeState("off");
           stop();
-          onNotify?.('Sleep timer finished — narration paused', 'info');
+          onNotify?.("Sleep timer finished — narration paused", "info");
           return null;
         }
         return prev - 1;
@@ -283,9 +316,9 @@ export function useAudiobookNarrator({
 
   const setSleepTimerMode = useCallback((mode: SleepTimerMode) => {
     setSleepTimerModeState(mode);
-    if (mode === '15m') setSleepSecondsLeft(15 * 60);
-    else if (mode === '30m') setSleepSecondsLeft(30 * 60);
-    else if (mode === '45m') setSleepSecondsLeft(45 * 60);
+    if (mode === "15m") setSleepSecondsLeft(15 * 60);
+    else if (mode === "30m") setSleepSecondsLeft(30 * 60);
+    else if (mode === "45m") setSleepSecondsLeft(45 * 60);
     else setSleepSecondsLeft(null);
   }, []);
 
@@ -294,71 +327,82 @@ export function useAudiobookNarrator({
       setPreviewingVoiceUri(null);
       speakSentenceAt(Math.max(0, sentenceIndex));
     },
-    [speakSentenceAt]
+    [speakSentenceAt],
   );
 
   const togglePlay = useCallback(
     (fallbackStartIndex = 0) => {
-      if (statusRef.current === 'playing') {
+      if (statusRef.current === "playing") {
         cancelSpeech();
-        setStatus('paused');
+        setStatus("paused");
         return;
       }
-      const resumeIdx = activeSentenceRef.current >= 0 ? activeSentenceRef.current : fallbackStartIndex;
+      const resumeIdx =
+        activeSentenceRef.current >= 0
+          ? activeSentenceRef.current
+          : fallbackStartIndex;
       playFrom(resumeIdx);
     },
-    [cancelSpeech, playFrom]
+    [cancelSpeech, playFrom],
   );
 
   const stepSentence = useCallback(
     (delta: -1 | 1) => {
       const list = sentencesRef.current;
       if (list.length === 0) return;
-      const cur = activeSentenceRef.current >= 0 ? activeSentenceRef.current : 0;
+      const cur =
+        activeSentenceRef.current >= 0 ? activeSentenceRef.current : 0;
       const next = cur + delta;
       if (next < 0) {
-        if (onAdvanceUnitRef.current('prev')) {
-          pendingAdvanceRef.current = statusRef.current === 'playing';
+        if (onAdvanceUnitRef.current("prev")) {
+          pendingAdvanceRef.current = statusRef.current === "playing";
         }
         return;
       }
       if (next >= list.length) {
-        if (onAdvanceUnitRef.current('next')) {
-          pendingAdvanceRef.current = statusRef.current === 'playing';
+        if (onAdvanceUnitRef.current("next")) {
+          pendingAdvanceRef.current = statusRef.current === "playing";
         }
         return;
       }
-      if (statusRef.current === 'playing') {
+      if (statusRef.current === "playing") {
         speakSentenceAt(next);
       } else {
         setActiveSentenceIndex(next);
         setActiveWordIndex(0);
       }
     },
-    [speakSentenceAt]
+    [speakSentenceAt],
   );
 
   const skipSeconds = useCallback(
     (deltaSec: number) => {
       // Approximate ~1 sentence per ~5 seconds
-      const sentenceDelta = deltaSec >= 0 ? Math.max(1, Math.round(deltaSec / 5)) : -Math.max(1, Math.round(Math.abs(deltaSec) / 5));
+      const sentenceDelta =
+        deltaSec >= 0
+          ? Math.max(1, Math.round(deltaSec / 5))
+          : -Math.max(1, Math.round(Math.abs(deltaSec) / 5));
       const list = sentencesRef.current;
       if (list.length === 0) return;
-      const cur = activeSentenceRef.current >= 0 ? activeSentenceRef.current : 0;
-      const target = Math.min(list.length - 1, Math.max(0, cur + sentenceDelta));
-      if (statusRef.current === 'playing') {
+      const cur =
+        activeSentenceRef.current >= 0 ? activeSentenceRef.current : 0;
+      const target = Math.min(
+        list.length - 1,
+        Math.max(0, cur + sentenceDelta),
+      );
+      if (statusRef.current === "playing") {
         speakSentenceAt(target);
       } else {
         setActiveSentenceIndex(target);
         setActiveWordIndex(0);
       }
     },
-    [speakSentenceAt]
+    [speakSentenceAt],
   );
 
   const stopPreview = useCallback(() => {
     setPreviewingVoiceUri(null);
-    if (speechSupported && statusRef.current !== 'playing') {
+    if (speechSupported && statusRef.current !== "playing") {
       try {
         window.speechSynthesis.cancel();
       } catch {
@@ -375,12 +419,13 @@ export function useAudiobookNarrator({
         return;
       }
       cancelSpeech();
-      if (statusRef.current === 'playing') {
-        setStatus('paused');
+      if (statusRef.current === "playing") {
+        setStatus("paused");
       }
-      const toneDef = NARRATOR_TONES.find((t) => t.id === tone) ?? NARRATOR_TONES[0];
+      const toneDef =
+        NARRATOR_TONES.find((t) => t.id === tone) ?? NARRATOR_TONES[0];
       const u = new SpeechSynthesisUtterance(
-        'Reading in calm focus. Every page stays offline and synchronized.'
+        "Reading in calm focus. Every page stays offline and synchronized.",
       );
       const voice = resolveVoice(voiceUri);
       if (voice) u.voice = voice;
@@ -391,7 +436,13 @@ export function useAudiobookNarrator({
       setPreviewingVoiceUri(voiceUri);
       window.speechSynthesis.speak(u);
     },
-    [speechSupported, previewingVoiceUri, stopPreview, cancelSpeech, resolveVoice]
+    [
+      speechSupported,
+      previewingVoiceUri,
+      stopPreview,
+      cancelSpeech,
+      resolveVoice,
+    ],
   );
 
   return {

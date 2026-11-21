@@ -9,8 +9,8 @@ import {
   Star,
   Trash2,
   X,
-} from 'lucide-react';
-import React, {useState} from 'react';
+} from "lucide-react";
+import React, { useState } from "react";
 import {
   flattenFoldersHierarchy,
   formatFileSize,
@@ -18,7 +18,7 @@ import {
   formatShortDate,
   getBookFolderIds,
   HIGHLIGHT_COLORS,
-} from '../../lib/formatters';
+} from "../../lib/formatters";
 import type {
   BookRecord,
   BookmarkRecord,
@@ -27,9 +27,9 @@ import type {
   FolderRecord,
   HighlightRecord,
   ReadingStatus,
-} from '../../types/library';
-import {BookCover} from './BookCover';
-import {CoverCustomizer} from './CoverCustomizer';
+} from "../../../library";
+import { BookCover } from "./BookCover";
+import { CoverCustomizer } from "./CoverCustomizer";
 
 interface BookInspectorProps {
   book: BookRecord | null;
@@ -64,13 +64,19 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
   if (!isOpen) return null;
 
   const flatFolders = flattenFoldersHierarchy(folders);
-  const folderPathById = new Map(flatFolders.map((item) => [item.folder.id, item.pathLabel]));
+  const folderPathById = new Map(
+    flatFolders.map((item) => [item.folder.id, item.pathLabel]),
+  );
   const categoryById = new Map(categories.map((c) => [c.id, c.name]));
 
   const handleStatusChange = (nextStatus: ReadingStatus) => {
     if (!book) return;
     const nextProgress =
-      nextStatus === 'finished' ? 100 : nextStatus === 'unread' ? 0 : Math.max(1, book.progress);
+      nextStatus === "finished"
+        ? 100
+        : nextStatus === "unread"
+          ? 0
+          : Math.max(1, book.progress);
     onUpdateBook({
       ...book,
       status: nextStatus,
@@ -111,8 +117,8 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
           Select a book to inspect
         </p>
         <p className="mt-1.5 text-xs text-[var(--text-muted)] leading-relaxed max-w-[220px]">
-          Click any book in your catalog to view its synopsis, customize its cover, or jump into its
-          saved notes.
+          Click any book in your catalog to view its synopsis, customize its
+          cover, or jump into its saved notes.
         </p>
       </div>
     </div>
@@ -126,14 +132,20 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
         <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
-            onClick={() => onUpdateBook({...book, isFavorite: !book.isFavorite})}
-            title={book.isFavorite ? 'Remove favorite' : 'Mark as favorite'}
-            aria-label={book.isFavorite ? 'Remove favorite' : 'Mark as favorite'}
+            onClick={() =>
+              onUpdateBook({ ...book, isFavorite: !book.isFavorite })
+            }
+            title={book.isFavorite ? "Remove favorite" : "Mark as favorite"}
+            aria-label={
+              book.isFavorite ? "Remove favorite" : "Mark as favorite"
+            }
             className="p-1.5 rounded text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
           >
             <Star
               className={`w-4 h-4 ${
-                book.isFavorite ? 'fill-[var(--accent)] text-[var(--accent)]' : ''
+                book.isFavorite
+                  ? "fill-[var(--accent)] text-[var(--accent)]"
+                  : ""
               }`}
             />
           </button>
@@ -181,7 +193,9 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
               {book.subtitle}
             </p>
           )}
-          <p className="mt-1 text-xs text-[var(--text-secondary)]">{book.author}</p>
+          <p className="mt-1 text-xs text-[var(--text-secondary)]">
+            {book.author}
+          </p>
 
           <div className="mt-1.5 flex items-center justify-center gap-1.5 text-[11px] text-[var(--text-muted)] font-mono-tabular">
             <span className="uppercase">{book.format}</span>
@@ -203,7 +217,11 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
               className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-xs font-medium bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] transition-colors cursor-pointer whitespace-nowrap"
             >
               <BookOpen className="w-3.5 h-3.5" />
-              <span>{book.progress > 0 && book.status !== 'finished' ? 'Continue Reading' : 'Read Book'}</span>
+              <span>
+                {book.progress > 0 && book.status !== "finished"
+                  ? "Continue Reading"
+                  : "Read Book"}
+              </span>
             </button>
 
             <button
@@ -213,12 +231,16 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
               aria-expanded={showCoverEditor}
               className={`inline-flex items-center gap-1 px-2.5 py-2 rounded-md text-xs font-medium border transition-colors cursor-pointer whitespace-nowrap ${
                 showCoverEditor
-                  ? 'border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]'
-                  : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  ? "border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]"
+                  : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               <Palette className="w-3.5 h-3.5" />
-              {showCoverEditor ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              {showCoverEditor ? (
+                <ChevronUp className="w-3 h-3" />
+              ) : (
+                <ChevronDown className="w-3 h-3" />
+              )}
             </button>
           </div>
         </div>
@@ -232,7 +254,7 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
               format={book.format}
               coverDataUrl={book.coverDataUrl}
               coverPaletteIndex={book.coverPaletteIndex}
-              coverStyle={book.coverStyle ?? 'editorial'}
+              coverStyle={book.coverStyle ?? "editorial"}
               onChange={handleCoverPatch}
               compact
             />
@@ -242,7 +264,9 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
         {/* Reading Progress & Quick Status */}
         <div className="pt-4 border-t border-[var(--border-subtle)] space-y-3">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-[var(--text-secondary)]">Reading progress</span>
+            <span className="text-[var(--text-secondary)]">
+              Reading progress
+            </span>
             <span className="font-mono-tabular font-medium text-[var(--text-primary)]">
               {book.progress}%
             </span>
@@ -250,13 +274,15 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
           <div className="h-1.5 w-full rounded-full bg-[var(--border-subtle)] overflow-hidden">
             <div
               className="h-full bg-[var(--accent)] transition-all"
-              style={{width: `${book.progress}%`}}
+              style={{ width: `${book.progress}%` }}
             />
           </div>
           {book.currentLocation?.label && (
             <p className="text-[11px] text-[var(--text-muted)] truncate">
               Last location: {book.currentLocation.label}
-              {book.lastReadAt ? ` · ${formatRelativeDate(book.lastReadAt)}` : ''}
+              {book.lastReadAt
+                ? ` · ${formatRelativeDate(book.lastReadAt)}`
+                : ""}
             </p>
           )}
 
@@ -268,9 +294,9 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
           >
             {(
               [
-                {id: 'unread', label: 'Unread'},
-                {id: 'reading', label: 'Reading'},
-                {id: 'finished', label: 'Finished'},
+                { id: "unread", label: "Unread" },
+                { id: "reading", label: "Reading" },
+                { id: "finished", label: "Finished" },
               ] as const
             ).map((opt) => (
               <button
@@ -279,8 +305,8 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
                 onClick={() => handleStatusChange(opt.id)}
                 className={`py-1.5 text-[11px] font-medium rounded transition-colors cursor-pointer ${
                   book.status === opt.id
-                    ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
               >
                 {opt.label}
@@ -292,7 +318,9 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
         {/* Synopsis */}
         {book.description && (
           <div className="pt-4 border-t border-[var(--border-subtle)] space-y-1.5">
-            <span className="text-[11px] font-medium text-[var(--text-muted)]">Synopsis</span>
+            <span className="text-[11px] font-medium text-[var(--text-muted)]">
+              Synopsis
+            </span>
             <p className="text-xs leading-relaxed text-[var(--text-secondary)] whitespace-pre-line line-clamp-6">
               {book.description}
             </p>
@@ -308,7 +336,9 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
             {book.series && (
               <div className="flex items-baseline justify-between gap-3">
                 <dt className="text-[var(--text-muted)] shrink-0">Series</dt>
-                <dd className="text-[var(--text-primary)] text-right truncate">{book.series}</dd>
+                <dd className="text-[var(--text-primary)] text-right truncate">
+                  {book.series}
+                </dd>
               </div>
             )}
             {(() => {
@@ -318,13 +348,15 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
               return (
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="text-[var(--text-muted)] shrink-0">
-                    {assignedFolders.length > 1 ? 'Folders' : 'Folder'}
+                    {assignedFolders.length > 1 ? "Folders" : "Folder"}
                   </dt>
                   <dd
                     className="text-[var(--text-primary)] text-right"
-                    title={assignedFolders.join(' · ')}
+                    title={assignedFolders.join(" · ")}
                   >
-                    {assignedFolders.length > 0 ? assignedFolders.join(' · ') : 'Unfiled'}
+                    {assignedFolders.length > 0
+                      ? assignedFolders.join(" · ")
+                      : "Unfiled"}
                   </dd>
                 </div>
               );
@@ -332,13 +364,17 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
             <div className="flex items-baseline justify-between gap-3">
               <dt className="text-[var(--text-muted)] shrink-0">Category</dt>
               <dd className="text-[var(--text-primary)] text-right truncate">
-                {book.categoryId ? categoryById.get(book.categoryId) || '—' : 'Uncategorized'}
+                {book.categoryId
+                  ? categoryById.get(book.categoryId) || "—"
+                  : "Uncategorized"}
               </dd>
             </div>
             {book.publisher && (
               <div className="flex items-baseline justify-between gap-3">
                 <dt className="text-[var(--text-muted)] shrink-0">Publisher</dt>
-                <dd className="text-[var(--text-primary)] text-right truncate">{book.publisher}</dd>
+                <dd className="text-[var(--text-primary)] text-right truncate">
+                  {book.publisher}
+                </dd>
               </div>
             )}
             <div className="flex items-baseline justify-between gap-3">
@@ -351,7 +387,7 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
               <div className="flex items-baseline justify-between gap-3 pt-1">
                 <dt className="text-[var(--text-muted)] shrink-0">Tags</dt>
                 <dd className="text-[var(--text-secondary)] text-right">
-                  {book.tags.join(' · ')}
+                  {book.tags.join(" · ")}
                 </dd>
               </div>
             )}
@@ -377,7 +413,8 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
             <div className="space-y-2.5">
               {highlights.slice(0, 6).map((hl) => {
                 const swatch =
-                  HIGHLIGHT_COLORS.find((c) => c.id === hl.color)?.swatch ?? '#D99B2B';
+                  HIGHLIGHT_COLORS.find((c) => c.id === hl.color)?.swatch ??
+                  "#D99B2B";
                 return (
                   <button
                     key={hl.id}
@@ -387,9 +424,14 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
                   >
                     <div className="flex items-center justify-between gap-2 text-[10px] text-[var(--text-muted)]">
                       <span className="inline-flex items-center gap-1.5">
-                        <Highlighter className="w-3 h-3" style={{color: swatch}} />
+                        <Highlighter
+                          className="w-3 h-3"
+                          style={{ color: swatch }}
+                        />
                         <span className="font-mono-tabular">
-                          {book.format === 'pdf' ? `Page ${hl.unitIndex}` : `Section ${hl.unitIndex + 1}`}
+                          {book.format === "pdf"
+                            ? `Page ${hl.unitIndex}`
+                            : `Section ${hl.unitIndex + 1}`}
                         </span>
                       </span>
                       <span>{formatShortDate(hl.createdAt)}</span>
@@ -419,7 +461,9 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
                       {bm.label}
                     </div>
                     <div className="font-mono-tabular text-[10px] text-[var(--text-muted)] mt-0.5">
-                      {book.format === 'pdf' ? `Page ${bm.unitIndex}` : `Section ${bm.unitIndex + 1}`}
+                      {book.format === "pdf"
+                        ? `Page ${bm.unitIndex}`
+                        : `Section ${bm.unitIndex + 1}`}
                     </div>
                   </div>
                 </button>
@@ -517,7 +561,9 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
           <div className="pt-2.5 pb-1 flex justify-center shrink-0">
             <div className="w-10 h-1 rounded-full bg-[var(--border-strong)]" />
           </div>
-          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{panelBody}</div>
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            {panelBody}
+          </div>
         </aside>
       </div>
     </>

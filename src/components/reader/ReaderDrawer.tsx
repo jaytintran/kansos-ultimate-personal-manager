@@ -1,14 +1,23 @@
-import {Bookmark, ChevronDown, ChevronUp, List, Pin, Search, Trash2, X} from 'lucide-react';
-import React, {useEffect, useRef} from 'react';
-import {formatShortDate} from '../../lib/formatters';
+import {
+  Bookmark,
+  ChevronDown,
+  ChevronUp,
+  List,
+  Pin,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
+import React, { useEffect, useRef } from "react";
+import { formatShortDate } from "../../lib/formatters";
 import type {
   BookFormat,
   BookmarkRecord,
   ParsedTocItem,
   SearchMatch,
-} from '../../types/library';
+} from "../../../library";
 
-export type ReaderDrawerTab = 'toc' | 'search' | 'bookmarks';
+export type ReaderDrawerTab = "toc" | "search" | "bookmarks";
 
 interface ReaderDrawerProps {
   isOpen: boolean;
@@ -30,7 +39,11 @@ interface ReaderDrawerProps {
   onSearchQueryChange: (q: string) => void;
   onSelectSearchMatch: (match: SearchMatch) => void;
   onStepSearchMatch: (dir: 1 | -1) => void;
-  onJumpToUnit: (unitIndex: number, scrollRatio?: number, anchorId?: string) => void;
+  onJumpToUnit: (
+    unitIndex: number,
+    scrollRatio?: number,
+    anchorId?: string,
+  ) => void;
   onDeleteBookmark: (id: string) => void;
   onClose: () => void;
 }
@@ -62,7 +75,7 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if ((isOpen || isPinned) && activeTab === 'search') {
+    if ((isOpen || isPinned) && activeTab === "search") {
       const timer = window.setTimeout(() => {
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
@@ -92,24 +105,30 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
               onClick={onTogglePin}
               title={
                 isPinned
-                  ? 'Unpin sidebar (switch to overlay drawer)'
-                  : 'Pin sidebar to keep accessible while reading'
+                  ? "Unpin sidebar (switch to overlay drawer)"
+                  : "Pin sidebar to keep accessible while reading"
               }
-              aria-label={isPinned ? 'Unpin navigation sidebar' : 'Pin navigation sidebar'}
+              aria-label={
+                isPinned ? "Unpin navigation sidebar" : "Pin navigation sidebar"
+              }
               aria-pressed={isPinned}
               className={`hidden lg:inline-flex items-center justify-center p-1.5 rounded transition-colors cursor-pointer ${
                 isPinned
-                  ? 'text-[var(--accent)] bg-[var(--bg-accent-subtle)]'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+                  ? "text-[var(--accent)] bg-[var(--bg-accent-subtle)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]"
               }`}
             >
-              <Pin className={`w-3.5 h-3.5 ${isPinned ? 'fill-current' : ''}`} />
+              <Pin
+                className={`w-3.5 h-3.5 ${isPinned ? "fill-current" : ""}`}
+              />
             </button>
 
             <button
               type="button"
               onClick={onClose}
-              title={docked ? 'Hide navigation sidebar' : 'Close navigation drawer'}
+              title={
+                docked ? "Hide navigation sidebar" : "Close navigation drawer"
+              }
               aria-label="Close navigation sidebar"
               className="p-1.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
             >
@@ -122,20 +141,21 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
           {(
             [
               {
-                id: 'toc',
-                label: 'Contents',
+                id: "toc",
+                label: "Contents",
                 icon: <List className="w-3.5 h-3.5" />,
                 count: toc.length,
               },
               {
-                id: 'search',
-                label: 'Search',
+                id: "search",
+                label: "Search",
                 icon: <Search className="w-3.5 h-3.5" />,
-                count: searchQuery.trim().length >= 2 ? searchMatches.length : null,
+                count:
+                  searchQuery.trim().length >= 2 ? searchMatches.length : null,
               },
               {
-                id: 'bookmarks',
-                label: 'Bookmarks',
+                id: "bookmarks",
+                label: "Bookmarks",
                 icon: <Bookmark className="w-3.5 h-3.5" />,
                 count: bookmarks.length,
               },
@@ -149,14 +169,16 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
                 onClick={() => onTabChange(tab.id)}
                 className={`flex-1 inline-flex items-center justify-center gap-1 py-2 text-[11px] font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
                   active
-                    ? 'border-[var(--accent)] text-[var(--accent)]'
-                    : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    ? "border-[var(--accent)] text-[var(--accent)]"
+                    : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
               >
                 {tab.icon}
                 <span>{tab.label}</span>
                 {tab.count !== null && (
-                  <span className="font-mono-tabular text-[10px] opacity-75">{tab.count}</span>
+                  <span className="font-mono-tabular text-[10px] opacity-75">
+                    {tab.count}
+                  </span>
                 )}
               </button>
             );
@@ -167,7 +189,7 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
       {/* Tab Body */}
       <div className="flex-1 overflow-y-auto px-3.5 py-3">
         {/* TOC Tab */}
-        {activeTab === 'toc' && (
+        {activeTab === "toc" && (
           <div>
             {toc.length === 0 ? (
               <p className="py-10 text-center text-xs text-[var(--text-muted)]">
@@ -178,7 +200,7 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
                 {toc.map((item) => {
                   const active = item.unitIndex === currentUnitIndex;
                   const pageBadge =
-                    format === 'pdf'
+                    format === "pdf"
                       ? `p.${item.unitIndex}`
                       : chapterStartPages?.[item.unitIndex]
                         ? `p.${chapterStartPages[item.unitIndex]}`
@@ -191,11 +213,13 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
                         onJumpToUnit(item.unitIndex, 0, item.anchorId);
                         if (!docked) onClose();
                       }}
-                      style={{paddingLeft: `${10 + Math.min(item.depth, 3) * 12}px`}}
+                      style={{
+                        paddingLeft: `${10 + Math.min(item.depth, 3) * 12}px`,
+                      }}
                       className={`w-full text-left pr-2.5 py-2 rounded-md text-xs leading-snug transition-colors flex items-center justify-between gap-2 cursor-pointer ${
                         active
-                          ? 'bg-[var(--bg-accent-subtle)] text-[var(--accent)] font-medium'
-                          : 'text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+                          ? "bg-[var(--bg-accent-subtle)] text-[var(--accent)] font-medium"
+                          : "text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]"
                       }`}
                     >
                       <span className="truncate">{item.title}</span>
@@ -211,7 +235,7 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
         )}
 
         {/* Full-Text In-Book Search Tab */}
-        {activeTab === 'search' && (
+        {activeTab === "search" && (
           <div className="space-y-3.5">
             <div className="space-y-2">
               <div className="relative">
@@ -222,7 +246,7 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
                   value={searchQuery}
                   onChange={(e) => onSearchQueryChange(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && searchMatches.length > 0) {
+                    if (e.key === "Enter" && searchMatches.length > 0) {
                       e.preventDefault();
                       onStepSearchMatch(e.shiftKey ? -1 : 1);
                     }
@@ -233,7 +257,7 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
                 {searchQuery && (
                   <button
                     type="button"
-                    onClick={() => onSearchQueryChange('')}
+                    onClick={() => onSearchQueryChange("")}
                     aria-label="Clear book search"
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                   >
@@ -246,12 +270,12 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
                 <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)]">
                   <span className="font-mono-tabular">
                     {isIndexingSearch
-                      ? 'Indexing pages...'
+                      ? "Indexing pages..."
                       : searchMatches.length === 0
-                        ? '0 matches'
+                        ? "0 matches"
                         : activeMatchIdx >= 0
                           ? `Match ${activeMatchIdx + 1} of ${searchMatches.length}`
-                          : `${searchMatches.length} ${searchMatches.length === 1 ? 'match' : 'matches'}`}
+                          : `${searchMatches.length} ${searchMatches.length === 1 ? "match" : "matches"}`}
                   </span>
 
                   {searchMatches.length > 0 && (
@@ -280,8 +304,8 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
 
             {searchQuery.trim().length < 2 ? (
               <p className="py-10 text-center text-xs text-[var(--text-muted)] leading-relaxed">
-                Type at least 2 characters to search across every{' '}
-                {format === 'pdf' ? 'page' : 'chapter'} in this book.
+                Type at least 2 characters to search across every{" "}
+                {format === "pdf" ? "page" : "chapter"} in this book.
               </p>
             ) : isIndexingSearch ? (
               <div className="py-10 flex items-center justify-center gap-2 text-xs text-[var(--text-secondary)]">
@@ -306,8 +330,8 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
                       }}
                       className={`w-full text-left py-2.5 px-2 -mx-2 rounded-md transition-colors cursor-pointer space-y-1 ${
                         isActive
-                          ? 'bg-[var(--bg-accent-subtle)]'
-                          : 'hover:bg-[var(--bg-surface-hover)]'
+                          ? "bg-[var(--bg-accent-subtle)]"
+                          : "hover:bg-[var(--bg-surface-hover)]"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--text-muted)]">
@@ -315,7 +339,7 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
                           {match.unitLabel}
                         </span>
                         <span className="font-mono-tabular shrink-0">
-                          {format === 'pdf'
+                          {format === "pdf"
                             ? `p.${match.unitIndex}`
                             : chapterStartPages?.[match.unitIndex]
                               ? `p.${chapterStartPages[match.unitIndex]}`
@@ -324,7 +348,9 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
                       </div>
                       <p className="font-serif-editorial text-xs leading-relaxed text-[var(--text-primary)]">
                         <span>{match.snippetBefore}</span>
-                        <mark className="folio-search-match">{match.matchText}</mark>
+                        <mark className="folio-search-match">
+                          {match.matchText}
+                        </mark>
                         <span>{match.snippetAfter}</span>
                       </p>
                     </button>
@@ -336,7 +362,7 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
         )}
 
         {/* Bookmarks Tab */}
-        {activeTab === 'bookmarks' && (
+        {activeTab === "bookmarks" && (
           <div>
             {bookmarks.length === 0 ? (
               <div className="py-12 text-center space-y-1.5">
@@ -350,7 +376,10 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
             ) : (
               <div className="divide-y divide-[var(--border-subtle)]">
                 {bookmarks.map((bm) => (
-                  <div key={bm.id} className="py-3 first:pt-0 group flex items-start gap-2">
+                  <div
+                    key={bm.id}
+                    className="py-3 first:pt-0 group flex items-start gap-2"
+                  >
                     <button
                       type="button"
                       onClick={() => {
@@ -368,11 +397,11 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
                         </p>
                       )}
                       <div className="mt-1.5 font-mono-tabular text-[11px] text-[var(--text-muted)]">
-                        {format === 'pdf'
+                        {format === "pdf"
                           ? `Page ${bm.unitIndex}`
                           : chapterStartPages?.[bm.unitIndex]
                             ? `Ch. ${bm.unitIndex + 1} · ${Math.round((bm.scrollRatio ?? 0) * 100)}%`
-                            : `Section ${bm.unitIndex + 1} · ${Math.round((bm.scrollRatio ?? 0) * 100)}%`}{' '}
+                            : `Section ${bm.unitIndex + 1} · ${Math.round((bm.scrollRatio ?? 0) * 100)}%`}{" "}
                         · {formatShortDate(bm.createdAt)}
                       </div>
                     </button>
@@ -401,8 +430,8 @@ export const ReaderDrawer: React.FC<ReaderDrawerProps> = ({
         <aside
           aria-label="Pinned book navigation sidebar"
           className={`hidden lg:flex flex-col w-[292px] xl:w-[308px] h-full border-r border-[var(--border-subtle)] bg-[var(--bg-sidebar)] shrink-0 transition-[padding] duration-180 ${
-            topOverlayActive ? 'pt-[84px]' : 'pt-0'
-          } ${bottomOverlayActive ? 'pb-[52px]' : 'pb-0'}`}
+            topOverlayActive ? "pt-[84px]" : "pt-0"
+          } ${bottomOverlayActive ? "pb-[52px]" : "pb-0"}`}
         >
           {renderPanelContent(true)}
         </aside>

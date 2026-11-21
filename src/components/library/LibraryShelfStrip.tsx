@@ -20,7 +20,7 @@ import type {
   CategoryRecord,
   FolderRecord,
   SmartView,
-} from "../../types/library";
+} from "../../../library";
 import type { ActiveLibraryFilter } from "./LibrarySidebar";
 import { LibraryStatusDropdown } from "./LibraryStatusDropdown";
 

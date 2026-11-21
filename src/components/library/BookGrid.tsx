@@ -1,12 +1,20 @@
-import {Check, GripVertical, Info, MoreHorizontal, Pencil, Star, X} from 'lucide-react';
-import React, {useRef, useState} from 'react';
+import {
+  Check,
+  GripVertical,
+  Info,
+  MoreHorizontal,
+  Pencil,
+  Star,
+  X,
+} from "lucide-react";
+import React, { useRef, useState } from "react";
 import type {
   BookRecord,
   CardDetailOptions,
   CategoryRecord,
   CoverSize,
-} from '../../types/library';
-import {BookCover} from './BookCover';
+} from "../../../library";
+import { BookCover } from "./BookCover";
 
 interface BookGridProps {
   books: BookRecord[];
@@ -21,7 +29,7 @@ interface BookGridProps {
   onReorderBooks?: (
     draggedIds: string[],
     targetBookId: string,
-    position: 'before' | 'after'
+    position: "before" | "after",
   ) => void;
   onOpenBook: (book: BookRecord) => void;
   onInspectBook: (book: BookRecord) => void;
@@ -35,11 +43,11 @@ interface BookGridProps {
 
 const GRID_COLUMNS_BY_SIZE: Record<CoverSize, string> = {
   compact:
-    'grid-cols-2 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-x-4 gap-y-6 sm:gap-y-7',
+    "grid-cols-2 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-x-4 gap-y-6 sm:gap-y-7",
   standard:
-    'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-x-4 sm:gap-x-6 gap-y-6 sm:gap-y-9',
+    "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-x-4 sm:gap-x-6 gap-y-6 sm:gap-y-9",
   large:
-    'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-x-5 sm:gap-x-7 gap-y-7 sm:gap-y-10',
+    "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-x-5 sm:gap-x-7 gap-y-7 sm:gap-y-10",
 };
 
 export const BookGrid: React.FC<BookGridProps> = ({
@@ -67,7 +75,7 @@ export const BookGrid: React.FC<BookGridProps> = ({
   const [draggingIds, setDraggingIds] = useState<string[]>([]);
   const [dropTarget, setDropTarget] = useState<{
     bookId: string;
-    position: 'before' | 'after';
+    position: "before" | "after";
   } | null>(null);
 
   const clearDragState = () => {
@@ -77,19 +85,21 @@ export const BookGrid: React.FC<BookGridProps> = ({
   };
 
   const extractDraggedIds = (dt: DataTransfer): string[] => {
-    const multi = dt.getData('application/x-folio-book-ids');
+    const multi = dt.getData("application/x-folio-book-ids");
     if (multi) {
       try {
         const parsed = JSON.parse(multi);
         if (Array.isArray(parsed)) {
-          const ids = parsed.filter((id): id is string => typeof id === 'string');
+          const ids = parsed.filter(
+            (id): id is string => typeof id === "string",
+          );
           if (ids.length > 0) return ids;
         }
       } catch {
         // Ignore parse failure
       }
     }
-    const single = dt.getData('application/x-folio-book-id');
+    const single = dt.getData("application/x-folio-book-id");
     if (single) return [single];
     return activeDragIdsRef.current;
   };
@@ -101,7 +111,9 @@ export const BookGrid: React.FC<BookGridProps> = ({
       return;
     }
     const isDesktopInspector =
-      inspectorOpen && typeof window !== 'undefined' && window.innerWidth >= 1280;
+      inspectorOpen &&
+      typeof window !== "undefined" &&
+      window.innerWidth >= 1280;
     if (isDesktopInspector) {
       onInspectBook(book);
     } else {
@@ -114,32 +126,34 @@ export const BookGrid: React.FC<BookGridProps> = ({
       {books.map((book) => {
         const isSelected = selectedIds.has(book.id);
         const isInspected = inspectorOpen && inspectedBookId === book.id;
-        const categoryName = book.categoryId ? categoryNameById.get(book.categoryId) : null;
+        const categoryName = book.categoryId
+          ? categoryNameById.get(book.categoryId)
+          : null;
 
         const metaParts: React.ReactNode[] = [];
         if (cardDetails.format) {
           metaParts.push(
             <span key="format" className="font-mono-tabular uppercase shrink-0">
               {book.format}
-            </span>
+            </span>,
           );
         }
         if (cardDetails.category && categoryName) {
           metaParts.push(
             <span key="category" className="truncate">
               {categoryName}
-            </span>
+            </span>,
           );
         }
         if (cardDetails.progress) {
           metaParts.push(
             <span key="progress" className="font-mono-tabular shrink-0">
-              {book.status === 'finished'
-                ? 'Done'
+              {book.status === "finished"
+                ? "Done"
                 : book.progress > 0
                   ? `${book.progress}%`
-                  : 'Unread'}
-            </span>
+                  : "Unread"}
+            </span>,
           );
         }
 
@@ -155,9 +169,12 @@ export const BookGrid: React.FC<BookGridProps> = ({
                 selectedIds.has(book.id) && selectedIds.size > 1
                   ? Array.from(selectedIds)
                   : [book.id];
-              e.dataTransfer.setData('application/x-folio-book-id', book.id);
-              e.dataTransfer.setData('application/x-folio-book-ids', JSON.stringify(dragIds));
-              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData("application/x-folio-book-id", book.id);
+              e.dataTransfer.setData(
+                "application/x-folio-book-ids",
+                JSON.stringify(dragIds),
+              );
+              e.dataTransfer.effectAllowed = "move";
               activeDragIdsRef.current = dragIds;
               setDraggingIds(dragIds);
             }}
@@ -166,41 +183,43 @@ export const BookGrid: React.FC<BookGridProps> = ({
               if (!isCustomSort || !onReorderBooks) return;
               const types = e.dataTransfer.types;
               if (
-                !types.includes('application/x-folio-book-id') &&
-                !types.includes('application/x-folio-book-ids')
+                !types.includes("application/x-folio-book-id") &&
+                !types.includes("application/x-folio-book-ids")
               ) {
                 return;
               }
               if (activeDragIdsRef.current.includes(book.id)) return;
               e.preventDefault();
-              e.dataTransfer.dropEffect = 'move';
+              e.dataTransfer.dropEffect = "move";
               const rect = e.currentTarget.getBoundingClientRect();
-              const position: 'before' | 'after' =
-                e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
+              const position: "before" | "after" =
+                e.clientX < rect.left + rect.width / 2 ? "before" : "after";
               setDropTarget((prev) =>
                 prev?.bookId === book.id && prev.position === position
                   ? prev
-                  : {bookId: book.id, position}
+                  : { bookId: book.id, position },
               );
             }}
             onDragLeave={(e) => {
               if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                setDropTarget((prev) => (prev?.bookId === book.id ? null : prev));
+                setDropTarget((prev) =>
+                  prev?.bookId === book.id ? null : prev,
+                );
               }
             }}
             onDrop={(e) => {
               if (!isCustomSort || !onReorderBooks) return;
               const types = e.dataTransfer.types;
               if (
-                !types.includes('application/x-folio-book-id') &&
-                !types.includes('application/x-folio-book-ids')
+                !types.includes("application/x-folio-book-id") &&
+                !types.includes("application/x-folio-book-ids")
               ) {
                 return;
               }
               const dragIds = extractDraggedIds(e.dataTransfer);
               const rect = e.currentTarget.getBoundingClientRect();
-              const position: 'before' | 'after' =
-                e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
+              const position: "before" | "after" =
+                e.clientX < rect.left + rect.width / 2 ? "before" : "after";
               clearDragState();
               if (dragIds.length === 0 || dragIds.includes(book.id)) return;
               e.preventDefault();
@@ -212,17 +231,17 @@ export const BookGrid: React.FC<BookGridProps> = ({
               onContextMenuBook(book, e);
             }}
             className={`group relative flex flex-col min-w-0 transition-all duration-150 ${
-              isCustomSort ? 'cursor-grab active:cursor-grabbing' : ''
-            } ${isBeingDragged ? 'opacity-45 scale-[0.98]' : ''}`}
+              isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
+            } ${isBeingDragged ? "opacity-45 scale-[0.98]" : ""}`}
           >
             {/* Insertion line indicator when reordering */}
             {isDropTarget && (
               <div
                 aria-hidden="true"
                 className={`pointer-events-none absolute top-0 bottom-10 w-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
-                  dropTarget.position === 'before'
-                    ? '-left-2 sm:-left-3'
-                    : '-right-2 sm:-right-3'
+                  dropTarget.position === "before"
+                    ? "-left-2 sm:-left-3"
+                    : "-right-2 sm:-right-3"
                 }`}
               />
             )}
@@ -233,12 +252,12 @@ export const BookGrid: React.FC<BookGridProps> = ({
               onDoubleClick={() => onOpenBook(book)}
               className={`relative cursor-pointer rounded-[5px] transition-transform duration-150 ease-out group-hover:-translate-y-0.5 ${
                 isSelected
-                  ? 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-canvas)]'
+                  ? "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-canvas)]"
                   : isDropTarget
-                    ? 'ring-1 ring-[var(--accent)]/60 ring-offset-2 ring-offset-[var(--bg-canvas)]'
+                    ? "ring-1 ring-[var(--accent)]/60 ring-offset-2 ring-offset-[var(--bg-canvas)]"
                     : isInspected
-                      ? 'ring-2 ring-[var(--text-primary)]/45 ring-offset-2 ring-offset-[var(--bg-canvas)]'
-                      : ''
+                      ? "ring-2 ring-[var(--text-primary)]/45 ring-offset-2 ring-offset-[var(--bg-canvas)]"
+                      : ""
               }`}
             >
               <BookCover
@@ -248,7 +267,7 @@ export const BookGrid: React.FC<BookGridProps> = ({
                 coverDataUrl={book.coverDataUrl}
                 paletteIndex={book.coverPaletteIndex}
                 coverStyle={book.coverStyle}
-                size={coverSize === 'large' ? 'lg' : 'md'}
+                size={coverSize === "large" ? "lg" : "md"}
               />
 
               {/* Subtle bottom reading progress bar */}
@@ -259,7 +278,9 @@ export const BookGrid: React.FC<BookGridProps> = ({
                 >
                   <div
                     className="h-full bg-[var(--accent)] transition-all"
-                    style={{width: `${Math.min(100, Math.max(2, book.progress))}%`}}
+                    style={{
+                      width: `${Math.min(100, Math.max(2, book.progress))}%`,
+                    }}
                   />
                 </div>
               )}
@@ -267,17 +288,19 @@ export const BookGrid: React.FC<BookGridProps> = ({
               {/* Selection Checkbox (top-left) */}
               <button
                 type="button"
-                aria-label={isSelected ? `Deselect ${book.title}` : `Select ${book.title}`}
+                aria-label={
+                  isSelected ? `Deselect ${book.title}` : `Select ${book.title}`
+                }
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleSelect(book.id, e.shiftKey);
                 }}
                 className={`absolute top-2 left-2 w-6 h-6 rounded flex items-center justify-center border transition-opacity cursor-pointer ${
                   isSelected
-                    ? 'opacity-100 bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]'
+                    ? "opacity-100 bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]"
                     : isSelectionMode
-                      ? 'opacity-100 bg-[var(--bg-elevated)]/95 border-[var(--border-strong)] text-transparent hover:border-[var(--accent)]'
-                      : 'opacity-0 group-hover:opacity-100 focus:opacity-100 bg-[var(--bg-elevated)]/95 border-[var(--border-strong)] text-transparent hover:border-[var(--accent)]'
+                      ? "opacity-100 bg-[var(--bg-elevated)]/95 border-[var(--border-strong)] text-transparent hover:border-[var(--accent)]"
+                      : "opacity-0 group-hover:opacity-100 focus:opacity-100 bg-[var(--bg-elevated)]/95 border-[var(--border-strong)] text-transparent hover:border-[var(--accent)]"
                 }`}
               >
                 <Check className="w-3.5 h-3.5 stroke-[2.5]" />
@@ -287,14 +310,20 @@ export const BookGrid: React.FC<BookGridProps> = ({
               <div
                 className={`hidden lg:flex absolute top-2 right-2 items-center gap-1 transition-opacity ${
                   book.isFavorite
-                    ? 'opacity-100'
-                    : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+                    ? "opacity-100"
+                    : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
                 }`}
               >
                 <button
                   type="button"
-                  title={book.isFavorite ? 'Remove favorite' : 'Mark as favorite'}
-                  aria-label={book.isFavorite ? `Unfavorite ${book.title}` : `Favorite ${book.title}`}
+                  title={
+                    book.isFavorite ? "Remove favorite" : "Mark as favorite"
+                  }
+                  aria-label={
+                    book.isFavorite
+                      ? `Unfavorite ${book.title}`
+                      : `Favorite ${book.title}`
+                  }
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggleFavorite(book);
@@ -303,7 +332,9 @@ export const BookGrid: React.FC<BookGridProps> = ({
                 >
                   <Star
                     className={`w-3.5 h-3.5 ${
-                      book.isFavorite ? 'fill-[var(--accent)] text-[var(--accent)]' : ''
+                      book.isFavorite
+                        ? "fill-[var(--accent)] text-[var(--accent)]"
+                        : ""
                     }`}
                   />
                 </button>
@@ -407,7 +438,9 @@ export const BookGrid: React.FC<BookGridProps> = ({
               )}
 
               {cardDetails.author && (
-                <p className="mt-1 text-xs text-[var(--text-secondary)] truncate">{book.author}</p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)] truncate">
+                  {book.author}
+                </p>
               )}
 
               {metaParts.length > 0 && (
@@ -424,10 +457,10 @@ export const BookGrid: React.FC<BookGridProps> = ({
               {cardDetails.tags && book.tags.length > 0 && (
                 <p
                   className="mt-1 text-[11px] text-[var(--text-muted)] truncate"
-                  title={book.tags.join(', ')}
+                  title={book.tags.join(", ")}
                 >
-                  {book.tags.slice(0, 3).join(' · ')}
-                  {book.tags.length > 3 ? ` +${book.tags.length - 3}` : ''}
+                  {book.tags.slice(0, 3).join(" · ")}
+                  {book.tags.length > 3 ? ` +${book.tags.length - 3}` : ""}
                 </p>
               )}
             </div>

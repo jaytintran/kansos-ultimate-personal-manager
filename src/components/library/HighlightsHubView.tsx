@@ -7,11 +7,16 @@ import {
   Search,
   Trash2,
   X,
-} from 'lucide-react';
-import React, {useMemo, useState} from 'react';
-import {formatShortDate, HIGHLIGHT_COLORS} from '../../lib/formatters';
-import type {BookRecord, HighlightColor, HighlightRecord} from '../../types/library';
-import {BookCover} from './BookCover';
+} from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { formatShortDate, HIGHLIGHT_COLORS } from "../../lib/formatters";
+import type { BookNoteLink } from "../../types";
+import type {
+  BookRecord,
+  HighlightColor,
+  HighlightRecord,
+} from "../../../library";
+import { BookCover } from "./BookCover";
 
 interface HighlightsHubViewProps {
   books: BookRecord[];
@@ -19,7 +24,12 @@ interface HighlightsHubViewProps {
   onOpenPassage: (book: BookRecord, unitIndex: number) => void;
   onUpdateHighlight: (updated: HighlightRecord) => void;
   onDeleteHighlight: (id: string) => void;
-  onSendToNotes?: (bookTitle: string, excerptText: string, locationLabel: string) => void;
+  onSendToNotes?: (
+    bookTitle: string,
+    excerptText: string,
+    locationLabel: string,
+    linkMeta?: Partial<BookNoteLink>,
+  ) => void;
   onBackToBooks: () => void;
 }
 
@@ -32,13 +42,13 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
   onSendToNotes,
   onBackToBooks,
 }) => {
-  const [query, setQuery] = useState('');
-  const [bookFilter, setBookFilter] = useState<string>('all');
-  const [colorFilter, setColorFilter] = useState<'all' | HighlightColor>('all');
+  const [query, setQuery] = useState("");
+  const [bookFilter, setBookFilter] = useState<string>("all");
+  const [colorFilter, setColorFilter] = useState<"all" | HighlightColor>("all");
   const [notesOnly, setNotesOnly] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draftNote, setDraftNote] = useState('');
+  const [draftNote, setDraftNote] = useState("");
 
   const bookById = useMemo(() => new Map(books.map((b) => [b.id, b])), [books]);
 
@@ -48,9 +58,13 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
       counts.set(h.bookId, (counts.get(h.bookId) ?? 0) + 1);
     }
     return Array.from(counts.entries())
-      .map(([bookId, count]) => ({book: bookById.get(bookId), count}))
-      .filter((entry): entry is {book: BookRecord; count: number} => Boolean(entry.book))
-      .sort((a, b) => b.count - a.count || a.book.title.localeCompare(b.book.title));
+      .map(([bookId, count]) => ({ book: bookById.get(bookId), count }))
+      .filter((entry): entry is { book: BookRecord; count: number } =>
+        Boolean(entry.book),
+      )
+      .sort(
+        (a, b) => b.count - a.count || a.book.title.localeCompare(b.book.title),
+      );
   }, [highlights, bookById]);
 
   const filtered = useMemo(() => {
@@ -58,11 +72,12 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
     return highlights.filter((hl) => {
       const book = bookById.get(hl.bookId);
       if (!book) return false;
-      if (bookFilter !== 'all' && hl.bookId !== bookFilter) return false;
-      if (colorFilter !== 'all' && hl.color !== colorFilter) return false;
+      if (bookFilter !== "all" && hl.bookId !== bookFilter) return false;
+      if (colorFilter !== "all" && hl.color !== colorFilter) return false;
       if (notesOnly && !hl.note.trim()) return false;
       if (q) {
-        const hay = `${hl.selectedText} ${hl.note} ${book.title} ${book.subtitle ?? ''} ${book.author}`.toLowerCase();
+        const hay =
+          `${hl.selectedText} ${hl.note} ${book.title} ${book.subtitle ?? ""} ${book.author}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -71,33 +86,40 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
 
   const handleExportMarkdown = () => {
     if (filtered.length === 0) return;
-    const grouped = new Map<string, {book: BookRecord; items: HighlightRecord[]}>();
+    const grouped = new Map<
+      string,
+      { book: BookRecord; items: HighlightRecord[] }
+    >();
     for (const hl of filtered) {
       const book = bookById.get(hl.bookId);
       if (!book) continue;
-      const entry = grouped.get(book.id) ?? {book, items: []};
+      const entry = grouped.get(book.id) ?? { book, items: [] };
       entry.items.push(hl);
       grouped.set(book.id, entry);
     }
 
-    const lines: string[] = ['# Kanso Library Highlights & Study Notes', ''];
-    for (const {book, items} of grouped.values()) {
-      lines.push(`## ${book.title} — ${book.author}`, '');
+    const lines: string[] = ["# Kanso Library Highlights & Study Notes", ""];
+    for (const { book, items } of grouped.values()) {
+      lines.push(`## ${book.title} — ${book.author}`, "");
       for (const item of items) {
         const loc =
-          book.format === 'pdf' ? `Page ${item.unitIndex}` : `Section ${item.unitIndex + 1}`;
-        lines.push(`> ${item.selectedText.replace(/\n+/g, ' ')}`);
+          book.format === "pdf"
+            ? `Page ${item.unitIndex}`
+            : `Section ${item.unitIndex + 1}`;
+        lines.push(`> ${item.selectedText.replace(/\n+/g, " ")}`);
         lines.push(`> — *${loc} · ${formatShortDate(item.createdAt)}*`);
         if (item.note.trim()) {
-          lines.push('', `**Note:** ${item.note.trim()}`);
+          lines.push("", `**Note:** ${item.note.trim()}`);
         }
-        lines.push('');
+        lines.push("");
       }
     }
 
-    const blob = new Blob([lines.join('\n')], {type: 'text/markdown;charset=utf-8'});
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/markdown;charset=utf-8",
+    });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = `kanso-highlights-${new Date().toISOString().slice(0, 10)}.md`;
     a.click();
@@ -112,8 +134,9 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
           No highlights or study notes yet
         </h2>
         <p className="mt-2 text-xs text-[var(--text-secondary)] max-w-sm leading-relaxed">
-          Select any passage while reading in Kanso Library to highlight it and add a study note. All of
-          your annotations across every book will gather here.
+          Select any passage while reading in Kanso Library to highlight it and
+          add a study note. All of your annotations across every book will
+          gather here.
         </p>
         <button
           type="button"
@@ -143,7 +166,7 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
             {query && (
               <button
                 type="button"
-                onClick={() => setQuery('')}
+                onClick={() => setQuery("")}
                 aria-label="Clear highlight search"
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
               >
@@ -158,8 +181,10 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
             aria-label="Filter highlights by book"
             className="px-2.5 py-1.5 text-xs rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-primary)] max-w-[210px] cursor-pointer"
           >
-            <option value="all">All books ({booksWithHighlights.length})</option>
-            {booksWithHighlights.map(({book, count}) => (
+            <option value="all">
+              All books ({booksWithHighlights.length})
+            </option>
+            {booksWithHighlights.map(({ book, count }) => (
               <option key={book.id} value={book.id}>
                 {book.title} ({count})
               </option>
@@ -173,11 +198,11 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
           >
             <button
               type="button"
-              onClick={() => setColorFilter('all')}
+              onClick={() => setColorFilter("all")}
               className={`px-2 py-1 text-[11px] rounded transition-colors cursor-pointer ${
-                colorFilter === 'all'
-                  ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] font-medium'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                colorFilter === "all"
+                  ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] font-medium"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               All
@@ -188,14 +213,18 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
                 type="button"
                 title={c.label}
                 aria-label={`Filter ${c.label} highlights`}
-                onClick={() => setColorFilter(colorFilter === c.id ? 'all' : c.id)}
+                onClick={() =>
+                  setColorFilter(colorFilter === c.id ? "all" : c.id)
+                }
                 className={`p-1.5 rounded transition-colors cursor-pointer ${
-                  colorFilter === c.id ? 'bg-[var(--bg-elevated)] ring-1 ring-[var(--accent)]' : ''
+                  colorFilter === c.id
+                    ? "bg-[var(--bg-elevated)] ring-1 ring-[var(--accent)]"
+                    : ""
                 }`}
               >
                 <span
                   className="block w-2.5 h-2.5 rounded-full"
-                  style={{backgroundColor: c.swatch}}
+                  style={{ backgroundColor: c.swatch }}
                 />
               </button>
             ))}
@@ -232,9 +261,9 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
           <button
             type="button"
             onClick={() => {
-              setQuery('');
-              setBookFilter('all');
-              setColorFilter('all');
+              setQuery("");
+              setBookFilter("all");
+              setColorFilter("all");
               setNotesOnly(false);
             }}
             className="text-xs text-[var(--accent)] hover:underline cursor-pointer"
@@ -278,7 +307,7 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
                         <span className="truncate">{book.author}</span>
                         <span aria-hidden="true">·</span>
                         <span className="font-mono-tabular">
-                          {book.format === 'pdf'
+                          {book.format === "pdf"
                             ? `Page ${hl.unitIndex}`
                             : `Section ${hl.unitIndex + 1}`}
                         </span>
@@ -286,9 +315,11 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
                         <span className="inline-flex items-center gap-1">
                           <span
                             className="w-2 h-2 rounded-full"
-                            style={{backgroundColor: colorMeta?.swatch ?? '#D99B2B'}}
+                            style={{
+                              backgroundColor: colorMeta?.swatch ?? "#D99B2B",
+                            }}
                           />
-                          <span>{colorMeta?.label ?? 'Highlight'}</span>
+                          <span>{colorMeta?.label ?? "Highlight"}</span>
                         </span>
                         <span aria-hidden="true">·</span>
                         <span>{formatShortDate(hl.createdAt)}</span>
@@ -302,13 +333,25 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
                         type="button"
                         onClick={() => {
                           const loc =
-                            book.format === 'pdf'
+                            book.format === "pdf"
                               ? `Page ${hl.unitIndex}`
                               : `Section ${hl.unitIndex + 1}`;
-                          const body = [hl.selectedText, hl.note.trim() ? `Note: ${hl.note.trim()}` : '']
+                          const body = [
+                            hl.selectedText,
+                            hl.note.trim() ? `Note: ${hl.note.trim()}` : "",
+                          ]
                             .filter(Boolean)
-                            .join('\n\n');
-                          onSendToNotes(book.title, body, loc);
+                            .join("\n\n");
+                          onSendToNotes(book.title, body, loc, {
+                            bookId: book.id,
+                            bookTitle: book.title,
+                            bookAuthor: book.author,
+                            bookFormat: book.format,
+                            unitIndex: hl.unitIndex,
+                            scrollRatio: 0,
+                            locationLabel: loc,
+                            quote: hl.selectedText.slice(0, 280),
+                          });
                         }}
                         title="Send excerpt to Kanso Notes"
                         className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors cursor-pointer whitespace-nowrap"
@@ -370,7 +413,10 @@ export const HighlightsHubView: React.FC<HighlightsHubViewProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            onUpdateHighlight({...hl, note: draftNote.trim()});
+                            onUpdateHighlight({
+                              ...hl,
+                              note: draftNote.trim(),
+                            });
                             setEditingId(null);
                           }}
                           className="px-3 py-1.5 text-xs font-medium rounded-md bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] cursor-pointer"

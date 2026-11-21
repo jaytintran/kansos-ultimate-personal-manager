@@ -1,22 +1,25 @@
-import type {BookmarkRecord, HighlightRecord} from '../types/library';
-import {generateSampleEpubBytes, generateSamplePdfBytes} from '../utils/ebookStorage';
+import type { BookmarkRecord, HighlightRecord } from "../types/library";
+import {
+  generateSampleEpubBytes,
+  generateSamplePdfBytes,
+} from "../utils/ebookStorage";
 
-const DB_NAME = 'kanso_library_studio_v2';
+const DB_NAME = "kanso_library_studio_v2";
 const DB_VERSION = 2;
-const FILES_STORE = 'book_files';
-const BOOKMARKS_STORE = 'bookmarks';
-const HIGHLIGHTS_STORE = 'highlights';
-const WORKSPACE_STORE = 'workspace_state';
+const FILES_STORE = "book_files";
+const BOOKMARKS_STORE = "bookmarks";
+const HIGHLIGHTS_STORE = "highlights";
+const WORKSPACE_STORE = "workspace_state";
 
 export interface StoredWorkspaceSnapshot {
-  id: 'primary';
+  id: "primary";
   workspace: unknown;
   savedAt: number;
 }
 
 // Legacy Kanso v1 IndexedDB store for seamless zero-data-loss migration
-const LEGACY_DB_NAME = 'kanso_library_files_v1';
-const LEGACY_STORE_NAME = 'ebook_files';
+const LEGACY_DB_NAME = "kanso_library_files_v1";
+const LEGACY_STORE_NAME = "ebook_files";
 
 export interface StoredBookFile {
   bookId: string;
@@ -34,11 +37,11 @@ export interface BookFileAuditEntry {
 
 export async function computeSha256Hex(buffer: ArrayBuffer): Promise<string> {
   try {
-    if (typeof crypto !== 'undefined' && crypto.subtle) {
-      const digest = await crypto.subtle.digest('SHA-256', buffer);
+    if (typeof crypto !== "undefined" && crypto.subtle) {
+      const digest = await crypto.subtle.digest("SHA-256", buffer);
       return Array.from(new Uint8Array(digest))
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
     }
   } catch {
     // Fallback below if subtle crypto unavailable
@@ -61,22 +64,27 @@ function openDb(): Promise<IDBDatabase> {
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(FILES_STORE)) {
-        db.createObjectStore(FILES_STORE, {keyPath: 'bookId'});
+        db.createObjectStore(FILES_STORE, { keyPath: "bookId" });
       }
       if (!db.objectStoreNames.contains(BOOKMARKS_STORE)) {
-        const bmStore = db.createObjectStore(BOOKMARKS_STORE, {keyPath: 'id'});
-        bmStore.createIndex('bookId', 'bookId', {unique: false});
+        const bmStore = db.createObjectStore(BOOKMARKS_STORE, {
+          keyPath: "id",
+        });
+        bmStore.createIndex("bookId", "bookId", { unique: false });
       }
       if (!db.objectStoreNames.contains(HIGHLIGHTS_STORE)) {
-        const hlStore = db.createObjectStore(HIGHLIGHTS_STORE, {keyPath: 'id'});
-        hlStore.createIndex('bookId', 'bookId', {unique: false});
+        const hlStore = db.createObjectStore(HIGHLIGHTS_STORE, {
+          keyPath: "id",
+        });
+        hlStore.createIndex("bookId", "bookId", { unique: false });
       }
       if (!db.objectStoreNames.contains(WORKSPACE_STORE)) {
-        db.createObjectStore(WORKSPACE_STORE, {keyPath: 'id'});
+        db.createObjectStore(WORKSPACE_STORE, { keyPath: "id" });
       }
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error('Failed to open Library Studio DB'));
+    req.onerror = () =>
+      reject(req.error || new Error("Failed to open Library Studio DB"));
   });
 }
 
@@ -96,9 +104,9 @@ function deleteLegacyDatabase(): Promise<void> {
 }
 
 async function runLegacyV1Migration(): Promise<void> {
-  if (typeof indexedDB === 'undefined') return;
+  if (typeof indexedDB === "undefined") return;
   try {
-    if (typeof indexedDB.databases === 'function') {
+    if (typeof indexedDB.databases === "function") {
       const dbs = await indexedDB.databases().catch(() => null);
       if (dbs && !dbs.some((d) => d.name === LEGACY_DB_NAME)) {
         return;
@@ -114,10 +122,10 @@ async function runLegacyV1Migration(): Promise<void> {
       req.onerror = () => reject(req.error);
     });
 
-    const migratedEntries: {bookId: string; data: ArrayBuffer}[] = [];
+    const migratedEntries: { bookId: string; data: ArrayBuffer }[] = [];
     if (legacyDb.objectStoreNames.contains(LEGACY_STORE_NAME)) {
       await new Promise<void>((resolve) => {
-        const tx = legacyDb.transaction(LEGACY_STORE_NAME, 'readonly');
+        const tx = legacyDb.transaction(LEGACY_STORE_NAME, "readonly");
         const req = tx.objectStore(LEGACY_STORE_NAME).openCursor();
         req.onsuccess = () => {
           const cursor = req.result;
@@ -133,7 +141,7 @@ async function runLegacyV1Migration(): Promise<void> {
                 ? val.buffer
                 : null;
           if (buf && cursor.key !== undefined && cursor.key !== null) {
-            migratedEntries.push({bookId: String(cursor.key), data: buf});
+            migratedEntries.push({ bookId: String(cursor.key), data: buf });
           }
           cursor.continue();
         };
@@ -144,21 +152,23 @@ async function runLegacyV1Migration(): Promise<void> {
 
     if (migratedEntries.length > 0) {
       const prepared = await Promise.all(
-        migratedEntries.map(async ({bookId, data}) => ({
+        migratedEntries.map(async ({ bookId, data }) => ({
           bookId,
           data,
           byteLength: data.byteLength,
           sha256: await computeSha256Hex(data),
           updatedAt: Date.now(),
-        }))
+        })),
       );
       const db = await openDb();
       await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(FILES_STORE, 'readwrite');
+        const tx = db.transaction(FILES_STORE, "readwrite");
         const store = tx.objectStore(FILES_STORE);
         const existingReq = store.getAllKeys();
         existingReq.onsuccess = () => {
-          const existingKeys = new Set((existingReq.result || []).map((k) => String(k)));
+          const existingKeys = new Set(
+            (existingReq.result || []).map((k) => String(k)),
+          );
           for (const rec of prepared) {
             if (!existingKeys.has(rec.bookId)) {
               store.put(rec);
@@ -190,7 +200,11 @@ async function migrateLegacyV1Once(): Promise<void> {
 }
 
 export const libraryDb = {
-  async saveBookFile(bookId: string, data: ArrayBuffer, precomputedHash?: string): Promise<StoredBookFile> {
+  async saveBookFile(
+    bookId: string,
+    data: ArrayBuffer,
+    precomputedHash?: string,
+  ): Promise<StoredBookFile> {
     const sha256 = precomputedHash || (await computeSha256Hex(data));
     const record: StoredBookFile = {
       bookId,
@@ -201,7 +215,7 @@ export const libraryDb = {
     };
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(FILES_STORE, 'readwrite');
+      const tx = db.transaction(FILES_STORE, "readwrite");
       tx.objectStore(FILES_STORE).put(record);
       tx.oncomplete = () => {
         db.close();
@@ -209,7 +223,7 @@ export const libraryDb = {
       };
       tx.onerror = () => {
         db.close();
-        reject(tx.error || new Error('Failed to save book file'));
+        reject(tx.error || new Error("Failed to save book file"));
       };
     });
     return record;
@@ -218,26 +232,28 @@ export const libraryDb = {
   async getBookFile(bookId: string): Promise<StoredBookFile | null> {
     await migrateLegacyV1Once();
     const db = await openDb();
-    const existing = await new Promise<StoredBookFile | null>((resolve, reject) => {
-      const tx = db.transaction(FILES_STORE, 'readonly');
-      const req = tx.objectStore(FILES_STORE).get(bookId);
-      req.onsuccess = () => {
-        db.close();
-        resolve((req.result as StoredBookFile | undefined) ?? null);
-      };
-      req.onerror = () => {
-        db.close();
-        reject(req.error);
-      };
-    });
+    const existing = await new Promise<StoredBookFile | null>(
+      (resolve, reject) => {
+        const tx = db.transaction(FILES_STORE, "readonly");
+        const req = tx.objectStore(FILES_STORE).get(bookId);
+        req.onsuccess = () => {
+          db.close();
+          resolve((req.result as StoredBookFile | undefined) ?? null);
+        };
+        req.onerror = () => {
+          db.close();
+          reject(req.error);
+        };
+      },
+    );
     if (existing) return existing;
 
     // Built-in sample books generated on demand directly into the unified v2 IndexedDB
-    if (bookId === 'book-sample-pdf') {
+    if (bookId === "book-sample-pdf") {
       const sampleBuf = generateSamplePdfBytes();
       return this.saveBookFile(bookId, sampleBuf);
     }
-    if (bookId === 'book-sample-epub') {
+    if (bookId === "book-sample-epub") {
       const sampleBuf = await generateSampleEpubBytes();
       return this.saveBookFile(bookId, sampleBuf);
     }
@@ -249,7 +265,7 @@ export const libraryDb = {
     await migrateLegacyV1Once();
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(FILES_STORE, 'readwrite');
+      const tx = db.transaction(FILES_STORE, "readwrite");
       tx.objectStore(FILES_STORE).delete(bookId);
       tx.oncomplete = () => {
         db.close();
@@ -266,7 +282,7 @@ export const libraryDb = {
     await migrateLegacyV1Once();
     const db = await openDb();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(FILES_STORE, 'readonly');
+      const tx = db.transaction(FILES_STORE, "readonly");
       const req = tx.objectStore(FILES_STORE).getAll();
       req.onsuccess = () => {
         db.close();
@@ -284,7 +300,7 @@ export const libraryDb = {
     return files.map((f) => ({
       bookId: f.bookId,
       byteLength: f.byteLength || f.data?.byteLength || 0,
-      sha256: f.sha256 || '',
+      sha256: f.sha256 || "",
     }));
   },
 
@@ -293,7 +309,7 @@ export const libraryDb = {
     await migrateLegacyV1Once();
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(FILES_STORE, 'readwrite');
+      const tx = db.transaction(FILES_STORE, "readwrite");
       const store = tx.objectStore(FILES_STORE);
       for (const id of bookIds) store.delete(id);
       tx.oncomplete = () => {
@@ -311,7 +327,7 @@ export const libraryDb = {
     await migrateLegacyV1Once();
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(FILES_STORE, 'readwrite');
+      const tx = db.transaction(FILES_STORE, "readwrite");
       const store = tx.objectStore(FILES_STORE);
       const keysReq = store.getAllKeys();
       keysReq.onsuccess = () => {
@@ -336,8 +352,8 @@ export const libraryDb = {
   async getBookmarksForBook(bookId: string): Promise<BookmarkRecord[]> {
     const db = await openDb();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(BOOKMARKS_STORE, 'readonly');
-      const idx = tx.objectStore(BOOKMARKS_STORE).index('bookId');
+      const tx = db.transaction(BOOKMARKS_STORE, "readonly");
+      const idx = tx.objectStore(BOOKMARKS_STORE).index("bookId");
       const req = idx.getAll(bookId);
       req.onsuccess = () => {
         db.close();
@@ -354,7 +370,7 @@ export const libraryDb = {
   async getAllBookmarks(): Promise<BookmarkRecord[]> {
     const db = await openDb();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(BOOKMARKS_STORE, 'readonly');
+      const tx = db.transaction(BOOKMARKS_STORE, "readonly");
       const req = tx.objectStore(BOOKMARKS_STORE).getAll();
       req.onsuccess = () => {
         db.close();
@@ -370,7 +386,7 @@ export const libraryDb = {
   async saveBookmark(bookmark: BookmarkRecord): Promise<void> {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(BOOKMARKS_STORE, 'readwrite');
+      const tx = db.transaction(BOOKMARKS_STORE, "readwrite");
       tx.objectStore(BOOKMARKS_STORE).put(bookmark);
       tx.oncomplete = () => {
         db.close();
@@ -386,7 +402,7 @@ export const libraryDb = {
   async deleteBookmark(id: string): Promise<void> {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(BOOKMARKS_STORE, 'readwrite');
+      const tx = db.transaction(BOOKMARKS_STORE, "readwrite");
       tx.objectStore(BOOKMARKS_STORE).delete(id);
       tx.oncomplete = () => {
         db.close();
@@ -402,8 +418,8 @@ export const libraryDb = {
   async getHighlightsForBook(bookId: string): Promise<HighlightRecord[]> {
     const db = await openDb();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(HIGHLIGHTS_STORE, 'readonly');
-      const idx = tx.objectStore(HIGHLIGHTS_STORE).index('bookId');
+      const tx = db.transaction(HIGHLIGHTS_STORE, "readonly");
+      const idx = tx.objectStore(HIGHLIGHTS_STORE).index("bookId");
       const req = idx.getAll(bookId);
       req.onsuccess = () => {
         db.close();
@@ -420,7 +436,7 @@ export const libraryDb = {
   async getAllHighlights(): Promise<HighlightRecord[]> {
     const db = await openDb();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(HIGHLIGHTS_STORE, 'readonly');
+      const tx = db.transaction(HIGHLIGHTS_STORE, "readonly");
       const req = tx.objectStore(HIGHLIGHTS_STORE).getAll();
       req.onsuccess = () => {
         db.close();
@@ -436,7 +452,7 @@ export const libraryDb = {
   async saveHighlight(highlight: HighlightRecord): Promise<void> {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(HIGHLIGHTS_STORE, 'readwrite');
+      const tx = db.transaction(HIGHLIGHTS_STORE, "readwrite");
       tx.objectStore(HIGHLIGHTS_STORE).put(highlight);
       tx.oncomplete = () => {
         db.close();
@@ -452,7 +468,7 @@ export const libraryDb = {
   async deleteHighlight(id: string): Promise<void> {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(HIGHLIGHTS_STORE, 'readwrite');
+      const tx = db.transaction(HIGHLIGHTS_STORE, "readwrite");
       tx.objectStore(HIGHLIGHTS_STORE).delete(id);
       tx.oncomplete = () => {
         db.close();
@@ -471,12 +487,15 @@ export const libraryDb = {
     await migrateLegacyV1Once();
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([FILES_STORE, BOOKMARKS_STORE, HIGHLIGHTS_STORE], 'readwrite');
+      const tx = db.transaction(
+        [FILES_STORE, BOOKMARKS_STORE, HIGHLIGHTS_STORE],
+        "readwrite",
+      );
       const filesStore = tx.objectStore(FILES_STORE);
       const bmStore = tx.objectStore(BOOKMARKS_STORE);
-      const bmIdx = bmStore.index('bookId');
+      const bmIdx = bmStore.index("bookId");
       const hlStore = tx.objectStore(HIGHLIGHTS_STORE);
-      const hlIdx = hlStore.index('bookId');
+      const hlIdx = hlStore.index("bookId");
 
       for (const bookId of uniqueIds) {
         filesStore.delete(bookId);
@@ -515,11 +534,14 @@ export const libraryDb = {
 
   async replaceAllAnnotations(
     bookmarks: BookmarkRecord[],
-    highlights: HighlightRecord[]
+    highlights: HighlightRecord[],
   ): Promise<void> {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([BOOKMARKS_STORE, HIGHLIGHTS_STORE], 'readwrite');
+      const tx = db.transaction(
+        [BOOKMARKS_STORE, HIGHLIGHTS_STORE],
+        "readwrite",
+      );
       const bmStore = tx.objectStore(BOOKMARKS_STORE);
       const hlStore = tx.objectStore(HIGHLIGHTS_STORE);
       bmStore.clear();
@@ -541,7 +563,10 @@ export const libraryDb = {
     await migrateLegacyV1Once();
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([FILES_STORE, BOOKMARKS_STORE, HIGHLIGHTS_STORE], 'readwrite');
+      const tx = db.transaction(
+        [FILES_STORE, BOOKMARKS_STORE, HIGHLIGHTS_STORE],
+        "readwrite",
+      );
       tx.objectStore(FILES_STORE).clear();
       tx.objectStore(BOOKMARKS_STORE).clear();
       tx.objectStore(HIGHLIGHTS_STORE).clear();
@@ -558,12 +583,12 @@ export const libraryDb = {
   },
 
   async saveWorkspaceSnapshot(workspace: unknown): Promise<void> {
-    if (typeof indexedDB === 'undefined') return;
+    if (typeof indexedDB === "undefined") return;
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(WORKSPACE_STORE, 'readwrite');
+      const tx = db.transaction(WORKSPACE_STORE, "readwrite");
       const record: StoredWorkspaceSnapshot = {
-        id: 'primary',
+        id: "primary",
         workspace,
         savedAt: Date.now(),
       };
@@ -574,17 +599,17 @@ export const libraryDb = {
       };
       tx.onerror = () => {
         db.close();
-        reject(tx.error || new Error('Failed to save workspace snapshot'));
+        reject(tx.error || new Error("Failed to save workspace snapshot"));
       };
     });
   },
 
   async loadWorkspaceSnapshot(): Promise<StoredWorkspaceSnapshot | null> {
-    if (typeof indexedDB === 'undefined') return null;
+    if (typeof indexedDB === "undefined") return null;
     const db = await openDb();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(WORKSPACE_STORE, 'readonly');
-      const req = tx.objectStore(WORKSPACE_STORE).get('primary');
+      const tx = db.transaction(WORKSPACE_STORE, "readonly");
+      const req = tx.objectStore(WORKSPACE_STORE).get("primary");
       req.onsuccess = () => {
         db.close();
         resolve((req.result as StoredWorkspaceSnapshot | undefined) ?? null);

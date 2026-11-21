@@ -1,7 +1,11 @@
-import {Check, GripVertical, MoreHorizontal, Star} from 'lucide-react';
-import React, {useRef, useState} from 'react';
-import type {BookRecord, CardDetailOptions, CategoryRecord} from '../../types/library';
-import {BookCover} from './BookCover';
+import { Check, GripVertical, MoreHorizontal, Star } from "lucide-react";
+import React, { useRef, useState } from "react";
+import type {
+  BookRecord,
+  CardDetailOptions,
+  CategoryRecord,
+} from "../../../library";
+import { BookCover } from "./BookCover";
 
 interface MobileBookListProps {
   books: BookRecord[];
@@ -13,7 +17,7 @@ interface MobileBookListProps {
   onReorderBooks?: (
     draggedIds: string[],
     targetBookId: string,
-    position: 'before' | 'after'
+    position: "before" | "after",
   ) => void;
   onOpenBook: (book: BookRecord) => void;
   onQuickAction: (book: BookRecord) => void;
@@ -37,13 +41,13 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{
     bookId: string;
-    position: 'before' | 'after';
+    position: "before" | "after";
   } | null>(null);
 
   const resolveDropTargetAtY = (
     clientY: number,
-    activeId: string
-  ): {bookId: string; position: 'before' | 'after'} | null => {
+    activeId: string,
+  ): { bookId: string; position: "before" | "after" } | null => {
     for (const book of books) {
       if (book.id === activeId) continue;
       const el = rowRefs.current.get(book.id);
@@ -52,7 +56,7 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
       if (clientY >= rect.top && clientY <= rect.bottom) {
         return {
           bookId: book.id,
-          position: clientY < rect.top + rect.height / 2 ? 'before' : 'after',
+          position: clientY < rect.top + rect.height / 2 ? "before" : "after",
         };
       }
     }
@@ -70,13 +74,15 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
         const isSelected = selectedIds.has(book.id);
         const isDragging = draggingId === book.id;
         const isDropTarget = dropTarget?.bookId === book.id;
-        const categoryName = book.categoryId ? categoryNameById.get(book.categoryId) : null;
+        const categoryName = book.categoryId
+          ? categoryNameById.get(book.categoryId)
+          : null;
         const progressLabel =
-          book.status === 'finished'
-            ? 'Finished'
+          book.status === "finished"
+            ? "Finished"
             : book.progress > 0
               ? `${book.progress}%`
-              : 'Unread';
+              : "Unread";
 
         return (
           <div
@@ -97,18 +103,18 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
               isDropTarget
                 ? {
                     boxShadow:
-                      dropTarget.position === 'before'
-                        ? 'inset 0 2px 0 var(--accent)'
-                        : 'inset 0 -2px 0 var(--accent)',
+                      dropTarget.position === "before"
+                        ? "inset 0 2px 0 var(--accent)"
+                        : "inset 0 -2px 0 var(--accent)",
                   }
                 : undefined
             }
             className={`flex items-center gap-3 px-4 py-3 min-h-[76px] transition-colors active:bg-[var(--bg-surface-hover)] cursor-pointer ${
               isDragging
-                ? 'opacity-65 bg-[var(--accent-soft)]'
+                ? "opacity-65 bg-[var(--accent-soft)]"
                 : isSelected
-                  ? 'bg-[var(--bg-accent-subtle)]/60'
-                  : ''
+                  ? "bg-[var(--bg-accent-subtle)]/60"
+                  : ""
             }`}
           >
             {/* Touch/Pointer Drag Handle when Custom Order is active */}
@@ -135,7 +141,11 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
                     const finalTarget =
                       resolveDropTargetAtY(e.clientY, book.id) ?? dropTarget;
                     if (finalTarget && finalTarget.bookId !== book.id) {
-                      onReorderBooks([book.id], finalTarget.bookId, finalTarget.position);
+                      onReorderBooks(
+                        [book.id],
+                        finalTarget.bookId,
+                        finalTarget.position,
+                      );
                     }
                   }
                   resetPointerDrag();
@@ -151,15 +161,17 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
             {isSelectionMode && (
               <button
                 type="button"
-                aria-label={isSelected ? `Deselect ${book.title}` : `Select ${book.title}`}
+                aria-label={
+                  isSelected ? `Deselect ${book.title}` : `Select ${book.title}`
+                }
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleSelect(book.id, false);
                 }}
                 className={`w-6 h-6 rounded flex items-center justify-center border shrink-0 transition-colors cursor-pointer ${
                   isSelected
-                    ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]'
-                    : 'bg-[var(--bg-elevated)] border-[var(--border-strong)] text-transparent'
+                    ? "bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]"
+                    : "bg-[var(--bg-elevated)] border-[var(--border-strong)] text-transparent"
                 }`}
               >
                 <Check className="w-3.5 h-3.5 stroke-[2.5]" />
@@ -196,12 +208,18 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
                 </p>
               )}
 
-              <p className="text-xs text-[var(--text-secondary)] truncate mt-0.5">{book.author}</p>
+              <p className="text-xs text-[var(--text-secondary)] truncate mt-0.5">
+                {book.author}
+              </p>
 
               <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)] truncate">
-                <span className="font-mono-tabular uppercase shrink-0">{book.format}</span>
+                <span className="font-mono-tabular uppercase shrink-0">
+                  {book.format}
+                </span>
                 <span aria-hidden="true">·</span>
-                <span className="font-mono-tabular shrink-0">{progressLabel}</span>
+                <span className="font-mono-tabular shrink-0">
+                  {progressLabel}
+                </span>
                 {categoryName && (
                   <>
                     <span aria-hidden="true">·</span>
@@ -214,7 +232,9 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
                 <div className="mt-1.5 h-1 w-full max-w-[140px] rounded-full bg-[var(--border-subtle)] overflow-hidden">
                   <div
                     className="h-full bg-[var(--accent)]"
-                    style={{width: `${Math.min(100, Math.max(4, book.progress))}%`}}
+                    style={{
+                      width: `${Math.min(100, Math.max(4, book.progress))}%`,
+                    }}
                   />
                 </div>
               )}

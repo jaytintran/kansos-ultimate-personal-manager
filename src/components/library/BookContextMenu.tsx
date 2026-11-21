@@ -17,19 +17,25 @@ import {
   Star,
   Trash2,
   X,
-} from 'lucide-react';
-import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+} from "lucide-react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   flattenFoldersHierarchy,
   getBookFolderIds,
   getFolderColorHex,
-} from '../../lib/formatters';
+} from "../../lib/formatters";
 import type {
   BookRecord,
   FolderRecord,
   ReadingStatus,
   ViewFolderRecord,
-} from '../../types/library';
+} from "../../../library";
 
 export interface BookContextMenuState {
   x: number;
@@ -52,10 +58,24 @@ interface BookContextMenuProps {
   onEditMetadata: (book: BookRecord) => void;
   onBulkEditBooks: (bookIds: string[]) => void;
   onOrganizeBooks: (bookIds: string[]) => void;
-  onToggleViewFolderMembership: (bookIds: string[], folderId: string, add: boolean) => void;
-  onToggleSidebarFolderMembership: (bookIds: string[], folderId: string, add: boolean) => void;
-  onCreateViewFolderAndAssign: (name: string, bookIds: string[]) => Promise<void>;
-  onCreateSidebarFolderAndAssign: (name: string, bookIds: string[]) => Promise<void>;
+  onToggleViewFolderMembership: (
+    bookIds: string[],
+    folderId: string,
+    add: boolean,
+  ) => void;
+  onToggleSidebarFolderMembership: (
+    bookIds: string[],
+    folderId: string,
+    add: boolean,
+  ) => void;
+  onCreateViewFolderAndAssign: (
+    name: string,
+    bookIds: string[],
+  ) => Promise<void>;
+  onCreateSidebarFolderAndAssign: (
+    name: string,
+    bookIds: string[],
+  ) => Promise<void>;
   onRemoveFromCurrentFolder?: (bookIds: string[]) => void;
   onSetReadingStatus: (bookIds: string[], status: ReadingStatus) => void;
   onSetFavorite: (bookIds: string[], favorite: boolean) => void;
@@ -64,20 +84,20 @@ interface BookContextMenuProps {
   onRequestDeleteBooks: (bookIds: string[]) => void;
 }
 
-type SubmenuKind = 'folders' | 'status' | null;
+type SubmenuKind = "folders" | "status" | null;
 
 type MenuItemId =
-  | 'open'
-  | 'inspect'
-  | 'edit'
-  | 'folders'
-  | 'remove-folder'
-  | 'bulk-edit'
-  | 'organize'
-  | 'status'
-  | 'favorite'
-  | 'select'
-  | 'delete';
+  | "open"
+  | "inspect"
+  | "edit"
+  | "folders"
+  | "remove-folder"
+  | "bulk-edit"
+  | "organize"
+  | "status"
+  | "favorite"
+  | "select"
+  | "delete";
 
 export const BookContextMenu: React.FC<BookContextMenuProps> = ({
   menuState,
@@ -106,12 +126,21 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
-  const triggerRefs = useRef<Partial<Record<MenuItemId, HTMLButtonElement | null>>>({});
+  const triggerRefs = useRef<
+    Partial<Record<MenuItemId, HTMLButtonElement | null>>
+  >({});
   const hoverTimerRef = useRef<number | null>(null);
 
-  const [coords, setCoords] = useState<{left: number; top: number}>({left: 0, top: 0});
+  const [coords, setCoords] = useState<{ left: number; top: number }>({
+    left: 0,
+    top: 0,
+  });
   const [activeSubmenu, setActiveSubmenu] = useState<SubmenuKind>(null);
-  const [submenuPos, setSubmenuPos] = useState<{left: number; top: number; maxHeight: number}>({
+  const [submenuPos, setSubmenuPos] = useState<{
+    left: number;
+    top: number;
+    maxHeight: number;
+  }>({
     left: 0,
     top: 0,
     maxHeight: 440,
@@ -120,9 +149,11 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
   const [submenuFocusedIndex, setSubmenuFocusedIndex] = useState<number>(-1);
 
   // Search & inline folder creation inside Folders submenu
-  const [folderSearch, setFolderSearch] = useState('');
-  const [creatingTarget, setCreatingTarget] = useState<'view' | 'sidebar' | null>(null);
-  const [newFolderDraft, setNewFolderDraft] = useState('');
+  const [folderSearch, setFolderSearch] = useState("");
+  const [creatingTarget, setCreatingTarget] = useState<
+    "view" | "sidebar" | null
+  >(null);
+  const [newFolderDraft, setNewFolderDraft] = useState("");
 
   const targetBooks = useMemo(() => {
     if (!menuState) return [];
@@ -132,12 +163,16 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
 
   const primaryBook = useMemo(() => {
     if (!menuState) return null;
-    return books.find((b) => b.id === menuState.primaryBookId) ?? targetBooks[0] ?? null;
+    return (
+      books.find((b) => b.id === menuState.primaryBookId) ??
+      targetBooks[0] ??
+      null
+    );
   }, [menuState, books, targetBooks]);
 
   const flatSidebarFolders = useMemo(
     () => flattenFoldersHierarchy(sidebarFolders),
-    [sidebarFolders]
+    [sidebarFolders],
   );
 
   const normalizedFolderQuery = folderSearch.trim().toLowerCase();
@@ -145,39 +180,42 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
   const filteredViewFolders = useMemo(() => {
     if (!normalizedFolderQuery) return currentViewFolders;
     return currentViewFolders.filter((vf) =>
-      vf.name.toLowerCase().includes(normalizedFolderQuery)
+      vf.name.toLowerCase().includes(normalizedFolderQuery),
     );
   }, [currentViewFolders, normalizedFolderQuery]);
 
   const filteredSidebarFolders = useMemo(() => {
     if (!normalizedFolderQuery) return flatSidebarFolders;
     return flatSidebarFolders.filter(
-      ({folder, pathLabel}) =>
+      ({ folder, pathLabel }) =>
         folder.name.toLowerCase().includes(normalizedFolderQuery) ||
-        pathLabel.toLowerCase().includes(normalizedFolderQuery)
+        pathLabel.toLowerCase().includes(normalizedFolderQuery),
     );
   }, [flatSidebarFolders, normalizedFolderQuery]);
 
   const isMulti = targetBooks.length > 1;
-  const allFavorited = targetBooks.length > 0 && targetBooks.every((b) => b.isFavorite);
+  const allFavorited =
+    targetBooks.length > 0 && targetBooks.every((b) => b.isFavorite);
   const sharedStatus: ReadingStatus | null = useMemo(() => {
     if (targetBooks.length === 0) return null;
     const first = targetBooks[0].status;
     return targetBooks.every((b) => b.status === first) ? first : null;
   }, [targetBooks]);
 
-  const isPrimarySelected = primaryBook ? selectedIds.has(primaryBook.id) : false;
+  const isPrimarySelected = primaryBook
+    ? selectedIds.has(primaryBook.id)
+    : false;
 
   const visibleItemIds = useMemo<MenuItemId[]>(() => {
     const ids: MenuItemId[] = [];
     if (!isMulti) {
-      ids.push('open', 'inspect', 'edit');
+      ids.push("open", "inspect", "edit");
     }
-    ids.push('folders');
+    ids.push("folders");
     if (activeFolderRemovalName && onRemoveFromCurrentFolder) {
-      ids.push('remove-folder');
+      ids.push("remove-folder");
     }
-    ids.push('bulk-edit', 'organize', 'status', 'favorite', 'select', 'delete');
+    ids.push("bulk-edit", "organize", "status", "favorite", "select", "delete");
     return ids;
   }, [isMulti, activeFolderRemovalName, onRemoveFromCurrentFolder]);
 
@@ -186,9 +224,9 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
     setActiveSubmenu(null);
     setFocusedIndex(-1);
     setSubmenuFocusedIndex(-1);
-    setFolderSearch('');
+    setFolderSearch("");
     setCreatingTarget(null);
-    setNewFolderDraft('');
+    setNewFolderDraft("");
   }, [menuState?.x, menuState?.y, menuState?.primaryBookId]);
 
   // Clear pending hover timeout on unmount
@@ -216,7 +254,8 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
   // Position cascading submenu with viewport edge flipping and guaranteed scroll-safe maxHeight
   useLayoutEffect(() => {
     if (!activeSubmenu || !menuRef.current || !submenuRef.current) return;
-    const triggerKey: MenuItemId = activeSubmenu === 'folders' ? 'folders' : 'status';
+    const triggerKey: MenuItemId =
+      activeSubmenu === "folders" ? "folders" : "status";
     const triggerEl = triggerRefs.current[triggerKey];
     const menuRect = menuRef.current.getBoundingClientRect();
     const subRect = submenuRef.current.getBoundingClientRect();
@@ -241,7 +280,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
       top = pad;
     }
 
-    setSubmenuPos({left, top, maxHeight});
+    setSubmenuPos({ left, top, maxHeight });
   }, [
     activeSubmenu,
     coords,
@@ -255,18 +294,21 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
     if (!menuState) return;
     const onPointerDown = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (menuRef.current?.contains(target) || submenuRef.current?.contains(target)) {
+      if (
+        menuRef.current?.contains(target) ||
+        submenuRef.current?.contains(target)
+      ) {
         return;
       }
       onClose();
     };
     const onResize = () => onClose();
 
-    window.addEventListener('mousedown', onPointerDown);
-    window.addEventListener('resize', onResize);
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("resize", onResize);
     return () => {
-      window.removeEventListener('mousedown', onPointerDown);
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("resize", onResize);
     };
   }, [menuState, onClose]);
 
@@ -292,47 +334,47 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
   const activateMainItem = (id: MenuItemId) => {
     if (!primaryBook) return;
     switch (id) {
-      case 'open':
+      case "open":
         onOpenBook(primaryBook);
         onClose();
         break;
-      case 'inspect':
+      case "inspect":
         onInspectBook(primaryBook);
         onClose();
         break;
-      case 'edit':
+      case "edit":
         onEditMetadata(primaryBook);
         onClose();
         break;
-      case 'folders':
+      case "folders":
         cancelSubmenuTimer();
-        setActiveSubmenu('folders');
+        setActiveSubmenu("folders");
         setSubmenuFocusedIndex(0);
         break;
-      case 'remove-folder':
+      case "remove-folder":
         if (onRemoveFromCurrentFolder) {
           onRemoveFromCurrentFolder(targetIds);
         }
         onClose();
         break;
-      case 'bulk-edit':
+      case "bulk-edit":
         onBulkEditBooks(targetIds);
         onClose();
         break;
-      case 'organize':
+      case "organize":
         onOrganizeBooks(targetIds);
         onClose();
         break;
-      case 'status':
+      case "status":
         cancelSubmenuTimer();
-        setActiveSubmenu('status');
+        setActiveSubmenu("status");
         setSubmenuFocusedIndex(0);
         break;
-      case 'favorite':
+      case "favorite":
         onSetFavorite(targetIds, !allFavorited);
         onClose();
         break;
-      case 'select':
+      case "select":
         if (isMulti) {
           onClearSelection();
         } else {
@@ -340,7 +382,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
         }
         onClose();
         break;
-      case 'delete':
+      case "delete":
         onRequestDeleteBooks(targetIds);
         onClose();
         break;
@@ -353,14 +395,14 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
     const onKeyDown = (e: KeyboardEvent) => {
       // Let inline new-folder or search inputs handle their own typing
       const activeTag = (document.activeElement as HTMLElement | null)?.tagName;
-      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') {
-        if (e.key === 'Escape') {
+      if (activeTag === "INPUT" || activeTag === "TEXTAREA") {
+        if (e.key === "Escape") {
           e.preventDefault();
           if (creatingTarget) {
             setCreatingTarget(null);
-            setNewFolderDraft('');
+            setNewFolderDraft("");
           } else if (folderSearch) {
-            setFolderSearch('');
+            setFolderSearch("");
           } else {
             setActiveSubmenu(null);
             setSubmenuFocusedIndex(-1);
@@ -369,7 +411,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
         return;
       }
 
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         e.preventDefault();
         if (activeSubmenu) {
           setActiveSubmenu(null);
@@ -382,97 +424,103 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
 
       // If submenu is active & keyboard focused inside submenu
       if (activeSubmenu && submenuFocusedIndex >= 0) {
-        if (e.key === 'ArrowLeft') {
+        if (e.key === "ArrowLeft") {
           e.preventDefault();
           setActiveSubmenu(null);
           setSubmenuFocusedIndex(-1);
           return;
         }
-        const subButtons = submenuRef.current?.querySelectorAll<HTMLButtonElement>(
-          'button[data-submenu-item="true"]'
-        );
+        const subButtons =
+          submenuRef.current?.querySelectorAll<HTMLButtonElement>(
+            'button[data-submenu-item="true"]',
+          );
         const total = subButtons?.length ?? 0;
         if (total === 0) return;
 
-        if (e.key === 'ArrowDown') {
+        if (e.key === "ArrowDown") {
           e.preventDefault();
           const next = (submenuFocusedIndex + 1) % total;
           setSubmenuFocusedIndex(next);
           subButtons?.[next]?.focus();
-        } else if (e.key === 'ArrowUp') {
+        } else if (e.key === "ArrowUp") {
           e.preventDefault();
           const prev = (submenuFocusedIndex - 1 + total) % total;
           setSubmenuFocusedIndex(prev);
           subButtons?.[prev]?.focus();
-        } else if (e.key === 'Enter' || e.key === ' ') {
+        } else if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           subButtons?.[submenuFocusedIndex]?.click();
         }
         return;
       }
 
-      if (e.key === 'ArrowDown') {
+      if (e.key === "ArrowDown") {
         e.preventDefault();
-        const next = focusedIndex < 0 ? 0 : (focusedIndex + 1) % visibleItemIds.length;
+        const next =
+          focusedIndex < 0 ? 0 : (focusedIndex + 1) % visibleItemIds.length;
         setFocusedIndex(next);
         const nextId = visibleItemIds[next];
         triggerRefs.current[nextId]?.focus();
-      } else if (e.key === 'ArrowUp') {
+      } else if (e.key === "ArrowUp") {
         e.preventDefault();
         const prev =
           focusedIndex <= 0 ? visibleItemIds.length - 1 : focusedIndex - 1;
         setFocusedIndex(prev);
         const prevId = visibleItemIds[prev];
         triggerRefs.current[prevId]?.focus();
-      } else if (e.key === 'ArrowRight' && focusedIndex >= 0) {
+      } else if (e.key === "ArrowRight" && focusedIndex >= 0) {
         const currentId = visibleItemIds[focusedIndex];
-        if (currentId === 'folders' || currentId === 'status') {
+        if (currentId === "folders" || currentId === "status") {
           e.preventDefault();
           setActiveSubmenu(currentId);
           setSubmenuFocusedIndex(0);
           requestAnimationFrame(() => {
             const first = submenuRef.current?.querySelector<HTMLButtonElement>(
-              'button[data-submenu-item="true"]'
+              'button[data-submenu-item="true"]',
             );
             first?.focus();
           });
         }
-      } else if ((e.key === 'Enter' || e.key === ' ') && focusedIndex >= 0) {
+      } else if ((e.key === "Enter" || e.key === " ") && focusedIndex >= 0) {
         e.preventDefault();
         activateMainItem(visibleItemIds[focusedIndex]);
       }
     };
 
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   });
 
   if (!menuState || !primaryBook || targetBooks.length === 0) return null;
 
-  const getViewFolderState = (vf: ViewFolderRecord): 'all' | 'some' | 'none' => {
+  const getViewFolderState = (
+    vf: ViewFolderRecord,
+  ): "all" | "some" | "none" => {
     const count = targetIds.filter((id) => vf.bookIds.includes(id)).length;
-    if (count === 0) return 'none';
-    if (count === targetIds.length) return 'all';
-    return 'some';
+    if (count === 0) return "none";
+    if (count === targetIds.length) return "all";
+    return "some";
   };
 
-  const getSidebarFolderState = (folderId: string): 'all' | 'some' | 'none' => {
-    const count = targetBooks.filter((b) => getBookFolderIds(b).includes(folderId)).length;
-    if (count === 0) return 'none';
-    if (count === targetBooks.length) return 'all';
-    return 'some';
+  const getSidebarFolderState = (folderId: string): "all" | "some" | "none" => {
+    const count = targetBooks.filter((b) =>
+      getBookFolderIds(b).includes(folderId),
+    ).length;
+    if (count === 0) return "none";
+    if (count === targetBooks.length) return "all";
+    return "some";
   };
 
   const handleCreateInlineFolder = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = newFolderDraft.trim();
     if (!trimmed || !creatingTarget) return;
-    if (creatingTarget === 'view') {
+    if (creatingTarget === "view") {
       await onCreateViewFolderAndAssign(trimmed, targetIds);
     } else {
       await onCreateSidebarFolderAndAssign(trimmed, targetIds);
     }
-    setNewFolderDraft('');
+    setNewFolderDraft("");
     setCreatingTarget(null);
   };
 
@@ -480,31 +528,31 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
     const idx = visibleItemIds.indexOf(id);
     const isFocused = focusedIndex === idx;
     const isSubOpen =
-      (id === 'folders' && activeSubmenu === 'folders') ||
-      (id === 'status' && activeSubmenu === 'status');
+      (id === "folders" && activeSubmenu === "folders") ||
+      (id === "status" && activeSubmenu === "status");
     return `w-full px-3 py-1.5 flex items-center justify-between gap-3 text-left text-xs rounded transition-colors cursor-pointer whitespace-nowrap focus:outline-none ${
       danger
         ? isFocused
-          ? 'bg-[var(--danger)]/12 text-[var(--danger)]'
-          : 'text-[var(--danger)] hover:bg-[var(--danger)]/10'
+          ? "bg-[var(--danger)]/12 text-[var(--danger)]"
+          : "text-[var(--danger)] hover:bg-[var(--danger)]/10"
         : isFocused || isSubOpen
-          ? 'bg-[var(--bg-surface-hover)] text-[var(--text-primary)]'
-          : 'text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+          ? "bg-[var(--bg-surface-hover)] text-[var(--text-primary)]"
+          : "text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]"
     }`;
   };
 
-  const renderTriCheck = (state: 'all' | 'some' | 'none') => (
+  const renderTriCheck = (state: "all" | "some" | "none") => (
     <span
       className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 transition-colors ${
-        state === 'all'
-          ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]'
-          : state === 'some'
-            ? 'bg-[var(--bg-accent-subtle)] border-[var(--accent)] text-[var(--accent)]'
-            : 'border-[var(--border-strong)] text-transparent'
+        state === "all"
+          ? "bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]"
+          : state === "some"
+            ? "bg-[var(--bg-accent-subtle)] border-[var(--accent)] text-[var(--accent)]"
+            : "border-[var(--border-strong)] text-transparent"
       }`}
     >
-      {state === 'all' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-      {state === 'some' && <Minus className="w-2.5 h-2.5 stroke-[3]" />}
+      {state === "all" && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+      {state === "some" && <Minus className="w-2.5 h-2.5 stroke-[3]" />}
     </span>
   );
 
@@ -514,10 +562,14 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
       <div
         ref={menuRef}
         role="menu"
-        aria-label={isMulti ? `Actions for ${targetBooks.length} selected books` : `Actions for ${primaryBook.title}`}
+        aria-label={
+          isMulti
+            ? `Actions for ${targetBooks.length} selected books`
+            : `Actions for ${primaryBook.title}`
+        }
         onContextMenu={(e) => e.preventDefault()}
         className="fixed z-50 w-60 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-2xl py-1.5 select-none"
-        style={{left: `${coords.left}px`, top: `${coords.top}px`}}
+        style={{ left: `${coords.left}px`, top: `${coords.top}px` }}
       >
         {/* Header */}
         <div className="px-3 py-1.5 border-b border-[var(--border-subtle)] mb-1">
@@ -553,16 +605,18 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
                 type="button"
                 role="menuitem"
                 onMouseEnter={() => {
-                  setFocusedIndex(visibleItemIds.indexOf('open'));
+                  setFocusedIndex(visibleItemIds.indexOf("open"));
                   scheduleSubmenu(null);
                 }}
-                onClick={() => activateMainItem('open')}
-                className={itemBaseClass('open')}
+                onClick={() => activateMainItem("open")}
+                className={itemBaseClass("open")}
               >
                 <span className="inline-flex items-center gap-2.5 min-w-0">
                   <BookOpen className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
                   <span className="font-medium">
-                    {primaryBook.progress > 0 ? 'Continue Reading' : 'Open Book'}
+                    {primaryBook.progress > 0
+                      ? "Continue Reading"
+                      : "Open Book"}
                   </span>
                 </span>
               </button>
@@ -574,11 +628,11 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
                 type="button"
                 role="menuitem"
                 onMouseEnter={() => {
-                  setFocusedIndex(visibleItemIds.indexOf('inspect'));
+                  setFocusedIndex(visibleItemIds.indexOf("inspect"));
                   scheduleSubmenu(null);
                 }}
-                onClick={() => activateMainItem('inspect')}
-                className={itemBaseClass('inspect')}
+                onClick={() => activateMainItem("inspect")}
+                className={itemBaseClass("inspect")}
               >
                 <span className="inline-flex items-center gap-2.5 min-w-0">
                   <Info className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
@@ -593,11 +647,11 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
                 type="button"
                 role="menuitem"
                 onMouseEnter={() => {
-                  setFocusedIndex(visibleItemIds.indexOf('edit'));
+                  setFocusedIndex(visibleItemIds.indexOf("edit"));
                   scheduleSubmenu(null);
                 }}
-                onClick={() => activateMainItem('edit')}
-                className={itemBaseClass('edit')}
+                onClick={() => activateMainItem("edit")}
+                className={itemBaseClass("edit")}
               >
                 <span className="inline-flex items-center gap-2.5 min-w-0">
                   <Pencil className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
@@ -617,13 +671,13 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
             type="button"
             role="menuitem"
             aria-haspopup="menu"
-            aria-expanded={activeSubmenu === 'folders'}
+            aria-expanded={activeSubmenu === "folders"}
             onMouseEnter={() => {
-              setFocusedIndex(visibleItemIds.indexOf('folders'));
-              scheduleSubmenu('folders', 70);
+              setFocusedIndex(visibleItemIds.indexOf("folders"));
+              scheduleSubmenu("folders", 70);
             }}
-            onClick={() => activateMainItem('folders')}
-            className={itemBaseClass('folders')}
+            onClick={() => activateMainItem("folders")}
+            className={itemBaseClass("folders")}
           >
             <span className="inline-flex items-center gap-2.5 min-w-0">
               <Folder className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
@@ -635,16 +689,16 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
           {activeFolderRemovalName && onRemoveFromCurrentFolder && (
             <button
               ref={(el) => {
-                triggerRefs.current['remove-folder'] = el;
+                triggerRefs.current["remove-folder"] = el;
               }}
               type="button"
               role="menuitem"
               onMouseEnter={() => {
-                setFocusedIndex(visibleItemIds.indexOf('remove-folder'));
+                setFocusedIndex(visibleItemIds.indexOf("remove-folder"));
                 scheduleSubmenu(null);
               }}
-              onClick={() => activateMainItem('remove-folder')}
-              className={itemBaseClass('remove-folder')}
+              onClick={() => activateMainItem("remove-folder")}
+              className={itemBaseClass("remove-folder")}
             >
               <span className="inline-flex items-center gap-2.5 min-w-0">
                 <FolderMinus className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
@@ -657,21 +711,23 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
 
           <button
             ref={(el) => {
-              triggerRefs.current['bulk-edit'] = el;
+              triggerRefs.current["bulk-edit"] = el;
             }}
             type="button"
             role="menuitem"
             onMouseEnter={() => {
-              setFocusedIndex(visibleItemIds.indexOf('bulk-edit'));
+              setFocusedIndex(visibleItemIds.indexOf("bulk-edit"));
               scheduleSubmenu(null);
             }}
-            onClick={() => activateMainItem('bulk-edit')}
-            className={itemBaseClass('bulk-edit')}
+            onClick={() => activateMainItem("bulk-edit")}
+            className={itemBaseClass("bulk-edit")}
           >
             <span className="inline-flex items-center gap-2.5 min-w-0">
               <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
               <span>
-                {isMulti ? `Bulk Edit ${targetBooks.length} Books...` : 'Bulk Edit...'}
+                {isMulti
+                  ? `Bulk Edit ${targetBooks.length} Books...`
+                  : "Bulk Edit..."}
               </span>
             </span>
           </button>
@@ -683,11 +739,11 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
             type="button"
             role="menuitem"
             onMouseEnter={() => {
-              setFocusedIndex(visibleItemIds.indexOf('organize'));
+              setFocusedIndex(visibleItemIds.indexOf("organize"));
               scheduleSubmenu(null);
             }}
-            onClick={() => activateMainItem('organize')}
-            className={itemBaseClass('organize')}
+            onClick={() => activateMainItem("organize")}
+            className={itemBaseClass("organize")}
           >
             <span className="inline-flex items-center gap-2.5 min-w-0">
               <FolderInput className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
@@ -705,13 +761,13 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
             type="button"
             role="menuitem"
             aria-haspopup="menu"
-            aria-expanded={activeSubmenu === 'status'}
+            aria-expanded={activeSubmenu === "status"}
             onMouseEnter={() => {
-              setFocusedIndex(visibleItemIds.indexOf('status'));
-              scheduleSubmenu('status', 70);
+              setFocusedIndex(visibleItemIds.indexOf("status"));
+              scheduleSubmenu("status", 70);
             }}
-            onClick={() => activateMainItem('status')}
-            className={itemBaseClass('status')}
+            onClick={() => activateMainItem("status")}
+            className={itemBaseClass("status")}
           >
             <span className="inline-flex items-center gap-2.5 min-w-0">
               <CheckCircle2 className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
@@ -727,21 +783,23 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
             type="button"
             role="menuitem"
             onMouseEnter={() => {
-              setFocusedIndex(visibleItemIds.indexOf('favorite'));
+              setFocusedIndex(visibleItemIds.indexOf("favorite"));
               scheduleSubmenu(null);
             }}
-            onClick={() => activateMainItem('favorite')}
-            className={itemBaseClass('favorite')}
+            onClick={() => activateMainItem("favorite")}
+            className={itemBaseClass("favorite")}
           >
             <span className="inline-flex items-center gap-2.5 min-w-0">
               <Star
                 className={`w-3.5 h-3.5 shrink-0 ${
                   allFavorited
-                    ? 'fill-[var(--accent)] text-[var(--accent)]'
-                    : 'text-[var(--text-secondary)]'
+                    ? "fill-[var(--accent)] text-[var(--accent)]"
+                    : "text-[var(--text-secondary)]"
                 }`}
               />
-              <span>{allFavorited ? 'Remove from Favorites' : 'Add to Favorites'}</span>
+              <span>
+                {allFavorited ? "Remove from Favorites" : "Add to Favorites"}
+              </span>
             </span>
           </button>
 
@@ -752,20 +810,20 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
             type="button"
             role="menuitem"
             onMouseEnter={() => {
-              setFocusedIndex(visibleItemIds.indexOf('select'));
+              setFocusedIndex(visibleItemIds.indexOf("select"));
               scheduleSubmenu(null);
             }}
-            onClick={() => activateMainItem('select')}
-            className={itemBaseClass('select')}
+            onClick={() => activateMainItem("select")}
+            className={itemBaseClass("select")}
           >
             <span className="inline-flex items-center gap-2.5 min-w-0">
               <CheckSquare className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
               <span>
                 {isMulti
-                  ? 'Clear Selection'
+                  ? "Clear Selection"
                   : isPrimarySelected
-                    ? 'Deselect Book'
-                    : 'Select Book'}
+                    ? "Deselect Book"
+                    : "Select Book"}
               </span>
             </span>
           </button>
@@ -780,16 +838,18 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
             type="button"
             role="menuitem"
             onMouseEnter={() => {
-              setFocusedIndex(visibleItemIds.indexOf('delete'));
+              setFocusedIndex(visibleItemIds.indexOf("delete"));
               scheduleSubmenu(null);
             }}
-            onClick={() => activateMainItem('delete')}
-            className={itemBaseClass('delete', true)}
+            onClick={() => activateMainItem("delete")}
+            className={itemBaseClass("delete", true)}
           >
             <span className="inline-flex items-center gap-2.5 min-w-0">
               <Trash2 className="w-3.5 h-3.5 shrink-0" />
               <span>
-                {isMulti ? `Delete ${targetBooks.length} Books...` : 'Delete Book...'}
+                {isMulti
+                  ? `Delete ${targetBooks.length} Books...`
+                  : "Delete Book..."}
               </span>
             </span>
           </button>
@@ -797,7 +857,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
       </div>
 
       {/* Cascading Submenu: Folders (Scrollable with Sticky Search Filter) */}
-      {activeSubmenu === 'folders' && (
+      {activeSubmenu === "folders" && (
         <div
           ref={submenuRef}
           role="menu"
@@ -827,7 +887,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
               {folderSearch && (
                 <button
                   type="button"
-                  onClick={() => setFolderSearch('')}
+                  onClick={() => setFolderSearch("")}
                   aria-label="Clear folder filter"
                   className="absolute right-2 p-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                 >
@@ -848,8 +908,8 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setCreatingTarget('view');
-                    setNewFolderDraft('');
+                    setCreatingTarget("view");
+                    setNewFolderDraft("");
                   }}
                   className="inline-flex items-center gap-0.5 text-[11px] font-medium text-[var(--accent)] hover:underline cursor-pointer shrink-0"
                 >
@@ -858,7 +918,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
                 </button>
               </div>
 
-              {creatingTarget === 'view' && (
+              {creatingTarget === "view" && (
                 <form
                   onSubmit={(e) => void handleCreateInlineFolder(e)}
                   className="px-2 pb-1.5 flex items-center gap-1"
@@ -897,16 +957,28 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
                         key={vf.id}
                         type="button"
                         role="menuitemcheckbox"
-                        aria-checked={state === 'all' ? true : state === 'some' ? 'mixed' : false}
+                        aria-checked={
+                          state === "all"
+                            ? true
+                            : state === "some"
+                              ? "mixed"
+                              : false
+                        }
                         data-submenu-item="true"
                         onClick={() =>
-                          onToggleViewFolderMembership(targetIds, vf.id, state !== 'all')
+                          onToggleViewFolderMembership(
+                            targetIds,
+                            vf.id,
+                            state !== "all",
+                          )
                         }
                         className="w-full px-2.5 py-1.5 flex items-center justify-between gap-2 text-left text-xs rounded hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] focus:outline-none cursor-pointer"
                       >
                         <span className="flex items-center gap-2 min-w-0">
                           <Folder className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
-                          <span className="truncate text-[var(--text-primary)]">{vf.name}</span>
+                          <span className="truncate text-[var(--text-primary)]">
+                            {vf.name}
+                          </span>
                         </span>
                         {renderTriCheck(state)}
                       </button>
@@ -927,8 +999,8 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setCreatingTarget('sidebar');
-                    setNewFolderDraft('');
+                    setCreatingTarget("sidebar");
+                    setNewFolderDraft("");
                   }}
                   className="inline-flex items-center gap-0.5 text-[11px] font-medium text-[var(--accent)] hover:underline cursor-pointer shrink-0"
                 >
@@ -937,7 +1009,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
                 </button>
               </div>
 
-              {creatingTarget === 'sidebar' && (
+              {creatingTarget === "sidebar" && (
                 <form
                   onSubmit={(e) => void handleCreateInlineFolder(e)}
                   className="px-2 pb-1.5 flex items-center gap-1"
@@ -969,35 +1041,53 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
                 </p>
               ) : (
                 <div className="space-y-0.5">
-                  {filteredSidebarFolders.map(({folder, depth, pathLabel}) => {
-                    const state = getSidebarFolderState(folder.id);
-                    return (
-                      <button
-                        key={folder.id}
-                        type="button"
-                        role="menuitemcheckbox"
-                        aria-checked={state === 'all' ? true : state === 'some' ? 'mixed' : false}
-                        data-submenu-item="true"
-                        title={pathLabel}
-                        onClick={() =>
-                          onToggleSidebarFolderMembership(targetIds, folder.id, state !== 'all')
-                        }
-                        className="w-full py-1.5 pr-2.5 flex items-center justify-between gap-2 text-left text-xs rounded hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] focus:outline-none cursor-pointer"
-                        style={{paddingLeft: `${10 + (normalizedFolderQuery ? 0 : depth) * 12}px`}}
-                      >
-                        <span className="flex items-center gap-2 min-w-0">
-                          <Folder
-                            className="w-3.5 h-3.5 shrink-0"
-                            style={{color: getFolderColorHex(folder.color) ?? 'var(--text-muted)'}}
-                          />
-                          <span className="truncate text-[var(--text-primary)]">
-                            {normalizedFolderQuery ? pathLabel : folder.name}
+                  {filteredSidebarFolders.map(
+                    ({ folder, depth, pathLabel }) => {
+                      const state = getSidebarFolderState(folder.id);
+                      return (
+                        <button
+                          key={folder.id}
+                          type="button"
+                          role="menuitemcheckbox"
+                          aria-checked={
+                            state === "all"
+                              ? true
+                              : state === "some"
+                                ? "mixed"
+                                : false
+                          }
+                          data-submenu-item="true"
+                          title={pathLabel}
+                          onClick={() =>
+                            onToggleSidebarFolderMembership(
+                              targetIds,
+                              folder.id,
+                              state !== "all",
+                            )
+                          }
+                          className="w-full py-1.5 pr-2.5 flex items-center justify-between gap-2 text-left text-xs rounded hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] focus:outline-none cursor-pointer"
+                          style={{
+                            paddingLeft: `${10 + (normalizedFolderQuery ? 0 : depth) * 12}px`,
+                          }}
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            <Folder
+                              className="w-3.5 h-3.5 shrink-0"
+                              style={{
+                                color:
+                                  getFolderColorHex(folder.color) ??
+                                  "var(--text-muted)",
+                              }}
+                            />
+                            <span className="truncate text-[var(--text-primary)]">
+                              {normalizedFolderQuery ? pathLabel : folder.name}
+                            </span>
                           </span>
-                        </span>
-                        {renderTriCheck(state)}
-                      </button>
-                    );
-                  })}
+                          {renderTriCheck(state)}
+                        </button>
+                      );
+                    },
+                  )}
                 </div>
               )}
             </div>
@@ -1006,7 +1096,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
       )}
 
       {/* Cascading Submenu: Reading Status */}
-      {activeSubmenu === 'status' && (
+      {activeSubmenu === "status" && (
         <div
           ref={submenuRef}
           role="menu"
@@ -1014,17 +1104,25 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
           onMouseEnter={cancelSubmenuTimer}
           onContextMenu={(e) => e.preventDefault()}
           className="fixed z-50 w-48 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-2xl py-1.5 px-1 select-none"
-          style={{left: `${submenuPos.left}px`, top: `${submenuPos.top}px`}}
+          style={{ left: `${submenuPos.left}px`, top: `${submenuPos.top}px` }}
         >
           {(
             [
-              {id: 'unread', label: 'Unread', icon: <Circle className="w-3.5 h-3.5" />},
               {
-                id: 'reading',
-                label: 'Currently Reading',
+                id: "unread",
+                label: "Unread",
+                icon: <Circle className="w-3.5 h-3.5" />,
+              },
+              {
+                id: "reading",
+                label: "Currently Reading",
                 icon: <BookOpen className="w-3.5 h-3.5" />,
               },
-              {id: 'finished', label: 'Finished', icon: <CheckCircle2 className="w-3.5 h-3.5" />},
+              {
+                id: "finished",
+                label: "Finished",
+                icon: <CheckCircle2 className="w-3.5 h-3.5" />,
+              },
             ] as const
           ).map((opt) => {
             const active = sharedStatus === opt.id;
@@ -1042,12 +1140,20 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
                 className="w-full px-2.5 py-1.5 flex items-center justify-between gap-2 text-left text-xs rounded text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] focus:outline-none cursor-pointer whitespace-nowrap"
               >
                 <span className="inline-flex items-center gap-2">
-                  <span className={active ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}>
+                  <span
+                    className={
+                      active
+                        ? "text-[var(--accent)]"
+                        : "text-[var(--text-secondary)]"
+                    }
+                  >
                     {opt.icon}
                   </span>
                   <span>{opt.label}</span>
                 </span>
-                {active && <Check className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />}
+                {active && (
+                  <Check className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                )}
               </button>
             );
           })}

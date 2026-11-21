@@ -1,7 +1,7 @@
-import {Check, Search, X} from 'lucide-react';
-import React, {useMemo, useState} from 'react';
-import type {BookRecord, ViewFolderRecord} from '../../types/library';
-import {BookCover} from './BookCover';
+import { Check, Search, X } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import type { BookRecord, ViewFolderRecord } from "../../../library";
+import { BookCover } from "./BookCover";
 
 interface AddBooksToFolderModalProps {
   folder: ViewFolderRecord;
@@ -16,14 +16,16 @@ export const AddBooksToFolderModal: React.FC<AddBooksToFolderModalProps> = ({
   onSave,
   onClose,
 }) => {
-  const [query, setQuery] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(folder.bookIds));
+  const [query, setQuery] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    () => new Set(folder.bookIds),
+  );
 
   const filteredBooks = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return availableBooks;
     return availableBooks.filter((b) =>
-      `${b.title} ${b.author} ${b.series}`.toLowerCase().includes(q)
+      `${b.title} ${b.author} ${b.series}`.toLowerCase().includes(q),
     );
   }, [availableBooks, query]);
 
@@ -83,7 +85,9 @@ export const AddBooksToFolderModal: React.FC<AddBooksToFolderModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={() => setSelectedIds(new Set(availableBooks.map((b) => b.id)))}
+            onClick={() =>
+              setSelectedIds(new Set(availableBooks.map((b) => b.id)))
+            }
             className="text-xs text-[var(--accent)] hover:underline cursor-pointer whitespace-nowrap"
           >
             Select all
@@ -118,8 +122,8 @@ export const AddBooksToFolderModal: React.FC<AddBooksToFolderModalProps> = ({
                   <span
                     className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 transition-colors ${
                       checked
-                        ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]'
-                        : 'border-[var(--border-strong)] bg-[var(--bg-input)] text-transparent'
+                        ? "bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]"
+                        : "border-[var(--border-strong)] bg-[var(--bg-input)] text-transparent"
                     }`}
                   >
                     <Check className="w-3 h-3 stroke-[2.5]" />
@@ -140,7 +144,10 @@ export const AddBooksToFolderModal: React.FC<AddBooksToFolderModalProps> = ({
                       {book.title}
                     </div>
                     <div className="text-[11px] text-[var(--text-secondary)] truncate">
-                      {book.author} · <span className="font-mono-tabular uppercase">{book.format}</span>
+                      {book.author} ·{" "}
+                      <span className="font-mono-tabular uppercase">
+                        {book.format}
+                      </span>
                     </div>
                   </div>
                 </button>
@@ -152,7 +159,8 @@ export const AddBooksToFolderModal: React.FC<AddBooksToFolderModalProps> = ({
         {/* Footer */}
         <div className="px-5 py-3.5 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] flex items-center justify-between gap-3 shrink-0">
           <span className="font-mono-tabular text-xs text-[var(--text-secondary)]">
-            {selectedIds.size} {selectedIds.size === 1 ? 'book' : 'books'} selected
+            {selectedIds.size} {selectedIds.size === 1 ? "book" : "books"}{" "}
+            selected
           </span>
           <div className="flex items-center gap-2">
             <button

@@ -1,16 +1,19 @@
-import {Check, Play, RotateCcw, Search, Square, Volume2} from 'lucide-react';
-import React, {useMemo, useState} from 'react';
-import {NARRATOR_TONES} from '../../hooks/useVoicePreferences';
-import type {BookVoiceOverride, NarratorTone} from '../../types/library';
+import { Check, Play, RotateCcw, Search, Square, Volume2 } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { NARRATOR_TONES } from "../../hooks/useVoicePreferences";
+import type { BookVoiceOverride, NarratorTone } from "../../../library";
 
 interface VoiceSettingsPanelProps {
-  settings: BookVoiceOverride & {skipNoise: boolean; tapToRead: boolean};
+  settings: BookVoiceOverride & { skipNoise: boolean; tapToRead: boolean };
   deviceVoices: SpeechSynthesisVoice[];
   hasBookOverride: boolean;
   previewingVoiceUri: string | null;
   embeddedInSheet?: boolean;
   onUpdateBookVoice: (patch: Partial<BookVoiceOverride>) => void;
-  onUpdateGlobalOption: (patch: {skipNoise?: boolean; tapToRead?: boolean}) => void;
+  onUpdateGlobalOption: (patch: {
+    skipNoise?: boolean;
+    tapToRead?: boolean;
+  }) => void;
   onResetBookOverride: () => void;
   onPreviewVoice: (voiceUri: string, tone: NarratorTone, rate: number) => void;
 }
@@ -28,24 +31,26 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
   onResetBookOverride,
   onPreviewVoice,
 }) => {
-  const [voiceFilter, setVoiceFilter] = useState('');
+  const [voiceFilter, setVoiceFilter] = useState("");
 
   const filteredVoices = useMemo(() => {
     const q = voiceFilter.trim().toLowerCase();
     if (!q) return deviceVoices;
     return deviceVoices.filter(
-      (v) => v.name.toLowerCase().includes(q) || v.lang.toLowerCase().includes(q)
+      (v) =>
+        v.name.toLowerCase().includes(q) || v.lang.toLowerCase().includes(q),
     );
   }, [deviceVoices, voiceFilter]);
 
-  const speechSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
+  const speechSupported =
+    typeof window !== "undefined" && "speechSynthesis" in window;
 
   return (
     <div
       className={
         embeddedInSheet
-          ? 'p-4 space-y-5 text-xs'
-          : 'w-[340px] max-h-[78vh] overflow-y-auto rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-2xl p-4 space-y-5 text-xs'
+          ? "p-4 space-y-5 text-xs"
+          : "w-[340px] max-h-[78vh] overflow-y-auto rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-2xl p-4 space-y-5 text-xs"
       }
     >
       {/* Header */}
@@ -56,8 +61,8 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
           </h3>
           <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
             {hasBookOverride
-              ? 'Voice & speed remembered for this book'
-              : 'Runs locally on your device — works offline'}
+              ? "Voice & speed remembered for this book"
+              : "Runs locally on your device — works offline"}
           </p>
         </div>
         {hasBookOverride && (
@@ -88,11 +93,11 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
             <button
               key={t.id}
               type="button"
-              onClick={() => onUpdateBookVoice({tone: t.id})}
+              onClick={() => onUpdateBookVoice({ tone: t.id })}
               className={`min-h-[34px] px-2 rounded-md font-medium transition-colors cursor-pointer whitespace-nowrap ${
                 settings.tone === t.id
-                  ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               {t.label}
@@ -138,8 +143,8 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
               <Volume2 className="w-3.5 h-3.5 shrink-0" />
               <span>
                 {deviceVoices.length === 0
-                  ? 'Using your system default offline voice'
-                  : 'No matching voices found'}
+                  ? "Using your system default offline voice"
+                  : "No matching voices found"}
               </span>
             </div>
           ) : (
@@ -151,18 +156,22 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
               return (
                 <div
                   key={voice.voiceURI}
-                  onClick={() => onUpdateBookVoice({deviceVoiceUri: voice.voiceURI})}
+                  onClick={() =>
+                    onUpdateBookVoice({ deviceVoiceUri: voice.voiceURI })
+                  }
                   className={`flex items-center justify-between gap-2 px-3 py-2 cursor-pointer transition-colors ${
                     selected
-                      ? 'bg-[var(--bg-accent-subtle)]'
-                      : 'hover:bg-[var(--bg-surface-hover)]'
+                      ? "bg-[var(--bg-accent-subtle)]"
+                      : "hover:bg-[var(--bg-surface-hover)]"
                   }`}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span
                         className={`font-medium truncate ${
-                          selected ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'
+                          selected
+                            ? "text-[var(--accent)]"
+                            : "text-[var(--text-primary)]"
                         }`}
                       >
                         {voice.name}
@@ -173,23 +182,33 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
                     </div>
                     <p className="text-[11px] text-[var(--text-muted)] font-mono-tabular">
                       {voice.lang}
-                      {voice.localService ? ' · Offline' : ''}
+                      {voice.localService ? " · Offline" : ""}
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onPreviewVoice(voice.voiceURI, settings.tone, settings.rate);
+                      onPreviewVoice(
+                        voice.voiceURI,
+                        settings.tone,
+                        settings.rate,
+                      );
                     }}
-                    title={isPreviewing ? `Stop ${voice.name} preview` : `Preview ${voice.name}`}
+                    title={
+                      isPreviewing
+                        ? `Stop ${voice.name} preview`
+                        : `Preview ${voice.name}`
+                    }
                     aria-label={
-                      isPreviewing ? `Stop ${voice.name} preview` : `Preview ${voice.name}`
+                      isPreviewing
+                        ? `Stop ${voice.name} preview`
+                        : `Preview ${voice.name}`
                     }
                     className={`min-w-[34px] min-h-[34px] px-2.5 rounded-md border inline-flex items-center justify-center gap-1 text-[11px] font-medium transition-colors cursor-pointer shrink-0 ${
                       isPreviewing
-                        ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-contrast)]'
-                        : 'border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+                        ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-contrast)]"
+                        : "border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]"
                     }`}
                   >
                     {isPreviewing ? (
@@ -218,7 +237,7 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
             Playback Speed
           </span>
           <span className="font-mono-tabular text-xs font-semibold text-[var(--accent)]">
-            {settings.rate.toFixed(2).replace(/\.00$/, '.0')}×
+            {settings.rate.toFixed(2).replace(/\.00$/, ".0")}×
           </span>
         </div>
         <input
@@ -227,7 +246,7 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
           max={2.5}
           step={0.05}
           value={settings.rate}
-          onChange={(e) => onUpdateBookVoice({rate: Number(e.target.value)})}
+          onChange={(e) => onUpdateBookVoice({ rate: Number(e.target.value) })}
           aria-label="Playback speed"
           className="w-full accent-[var(--accent)] cursor-pointer"
         />
@@ -236,11 +255,11 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
             <button
               key={spd}
               type="button"
-              onClick={() => onUpdateBookVoice({rate: spd})}
+              onClick={() => onUpdateBookVoice({ rate: spd })}
               className={`px-1.5 py-1 rounded text-[11px] font-mono-tabular transition-colors cursor-pointer ${
                 Math.abs(settings.rate - spd) < 0.03
-                  ? 'bg-[var(--bg-accent-subtle)] text-[var(--accent)] font-semibold'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                  ? "bg-[var(--bg-accent-subtle)] text-[var(--accent)] font-semibold"
+                  : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
               }`}
             >
               {spd}×
@@ -255,7 +274,9 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
           type="button"
           role="switch"
           aria-checked={settings.skipNoise}
-          onClick={() => onUpdateGlobalOption({skipNoise: !settings.skipNoise})}
+          onClick={() =>
+            onUpdateGlobalOption({ skipNoise: !settings.skipNoise })
+          }
           className="w-full min-h-[42px] px-3 flex items-center justify-between gap-3 text-left cursor-pointer"
         >
           <span className="text-xs text-[var(--text-primary)]">
@@ -264,8 +285,8 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
           <span
             className={`w-9 h-5 rounded-full p-0.5 transition-colors flex items-center shrink-0 ${
               settings.skipNoise
-                ? 'bg-[var(--accent)] justify-end'
-                : 'bg-[var(--border-strong)] justify-start'
+                ? "bg-[var(--accent)] justify-end"
+                : "bg-[var(--border-strong)] justify-start"
             }`}
           >
             <span className="w-4 h-4 rounded-full bg-[var(--bg-elevated)] shadow-xs" />
@@ -276,7 +297,9 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
           type="button"
           role="switch"
           aria-checked={settings.tapToRead}
-          onClick={() => onUpdateGlobalOption({tapToRead: !settings.tapToRead})}
+          onClick={() =>
+            onUpdateGlobalOption({ tapToRead: !settings.tapToRead })
+          }
           className="w-full min-h-[42px] px-3 flex items-center justify-between gap-3 text-left cursor-pointer"
         >
           <span className="text-xs text-[var(--text-primary)]">
@@ -285,8 +308,8 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
           <span
             className={`w-9 h-5 rounded-full p-0.5 transition-colors flex items-center shrink-0 ${
               settings.tapToRead
-                ? 'bg-[var(--accent)] justify-end'
-                : 'bg-[var(--border-strong)] justify-start'
+                ? "bg-[var(--accent)] justify-end"
+                : "bg-[var(--border-strong)] justify-start"
             }`}
           >
             <span className="w-4 h-4 rounded-full bg-[var(--bg-elevated)] shadow-xs" />

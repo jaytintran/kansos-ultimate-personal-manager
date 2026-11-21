@@ -9,7 +9,7 @@ import {
   StickyNote,
   Trash2,
   X,
-} from 'lucide-react';
+} from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -18,8 +18,8 @@ import React, {
   useMemo,
   useRef,
   useState,
-} from 'react';
-import {HIGHLIGHT_COLORS} from '../../lib/formatters';
+} from "react";
+import { HIGHLIGHT_COLORS } from "../../lib/formatters";
 import {
   applyTtsDomHighlight,
   clearTtsDomHighlights,
@@ -27,20 +27,20 @@ import {
   findFirstVisibleReflowableSentence,
   findSentenceAtDomPoint,
   type NarrationSentence,
-} from '../../lib/narrationText';
+} from "../../lib/narrationText";
 import {
   resolveReaderFont,
   resolveReaderTextInk,
   type BookReadingMetrics,
-} from '../../lib/readerUtils';
+} from "../../lib/readerUtils";
 import type {
   HighlightColor,
   HighlightRecord,
   ParsedChapter,
   ReaderPreferences,
-} from '../../types/library';
-import {FootnotePopover, type FootnotePreviewState} from './FootnotePopover';
-import {ImageLightbox, type LightboxImageState} from './ImageLightbox';
+} from "../../../library";
+import { FootnotePopover, type FootnotePreviewState } from "./FootnotePopover";
+import { ImageLightbox, type LightboxImageState } from "./ImageLightbox";
 
 interface SelectionMenuState {
   unitIndex: number;
@@ -110,7 +110,7 @@ interface ReflowableViewportProps {
     nextIndex: number,
     initialRatio?: number,
     isUserScroll?: boolean,
-    anchorId?: string
+    anchorId?: string,
   ) => void;
   onScrollProgress: (scrollRatio: number) => void;
   onCreateHighlight: (payload: {
@@ -123,65 +123,71 @@ interface ReflowableViewportProps {
   }) => void;
   onUpdateHighlight?: (updated: HighlightRecord) => void;
   onDeleteHighlight?: (id: string) => void;
-  onSendToNotes?: (excerptText: string, locationLabel: string) => void;
+  onSendToNotes?: (
+    excerptText: string,
+    locationLabel: string,
+    unitIndex?: number,
+  ) => void;
   onFocusHighlight: (highlightId: string) => void;
-  onScrollDirection?: (dir: 'up' | 'down') => void;
+  onScrollDirection?: (dir: "up" | "down") => void;
   onCenterTap?: () => void;
 }
 
 function escapeSelectorAttr(val: string): string {
-  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
     return CSS.escape(val);
   }
-  return val.replace(/["\\]/g, '\\$&');
+  return val.replace(/["\\]/g, "\\$&");
 }
 
 function findAnchorElement(
   container: HTMLElement,
   chapterIdx: number,
-  anchorId: string
+  anchorId: string,
 ): HTMLElement | null {
   const escapedId = escapeSelectorAttr(`folio-ch-${chapterIdx}-${anchorId}`);
   const byScopedId = container.querySelector<HTMLElement>(`#${escapedId}`);
   if (byScopedId) return byScopedId;
   const escapedAnchor = escapeSelectorAttr(anchorId);
   return (
-    container.querySelector<HTMLElement>(`[data-folio-target-id="${escapedAnchor}"]`) ||
-    container.querySelector<HTMLElement>(`[id="${escapedAnchor}"]`)
+    container.querySelector<HTMLElement>(
+      `[data-folio-target-id="${escapedAnchor}"]`,
+    ) || container.querySelector<HTMLElement>(`[id="${escapedAnchor}"]`)
   );
 }
 
 function triggerAnchorFlash(el: HTMLElement) {
-  el.classList.remove('folio-anchor-flash');
+  el.classList.remove("folio-anchor-flash");
   void el.offsetWidth;
-  el.classList.add('folio-anchor-flash');
+  el.classList.add("folio-anchor-flash");
   window.setTimeout(() => {
-    el.classList.remove('folio-anchor-flash');
+    el.classList.remove("folio-anchor-flash");
   }, 1700);
 }
 
 function extractFootnoteHtml(
   chapters: ParsedChapter[],
   targetChapterIndex: number,
-  anchorId: string
+  anchorId: string,
 ): string | null {
   const targetChapter = chapters[targetChapterIndex];
   if (!targetChapter) return null;
 
   const parser = new DOMParser();
-  const doc = parser.parseFromString(targetChapter.html, 'text/html');
+  const doc = parser.parseFromString(targetChapter.html, "text/html");
   const anchorEl = findAnchorElement(doc.body, targetChapterIndex, anchorId);
   if (!anchorEl) return null;
 
   // If the anchor itself is just an inline <a/> or tiny span inside a note container, climb up to the note block
   const blockContainer =
-    anchorEl.matches('aside, li, dd, p, blockquote') && (anchorEl.textContent?.trim().length ?? 0) > 4
+    anchorEl.matches("aside, li, dd, p, blockquote") &&
+    (anchorEl.textContent?.trim().length ?? 0) > 4
       ? anchorEl
-      : anchorEl.closest('aside, li, dd, p, div') || anchorEl;
+      : anchorEl.closest("aside, li, dd, p, div") || anchorEl;
 
   // Avoid accidentally pulling in the entire chapter body wrapper if anchor was inside a huge <div>
   const chosen =
-    blockContainer.tagName === 'DIV' &&
+    blockContainer.tagName === "DIV" &&
     (blockContainer.textContent?.length ?? 0) > 1800 &&
     anchorEl !== blockContainer
       ? anchorEl.parentElement || anchorEl
@@ -189,14 +195,14 @@ function extractFootnoteHtml(
 
   const clone = chosen.cloneNode(true) as HTMLElement;
   // Strip noisy back-return arrow links inside footnote preview
-  clone.querySelectorAll('a').forEach((a) => {
-    const txt = (a.textContent || '').trim();
-    if (/^[↩↵↑^]+$/.test(txt) || a.getAttribute('role') === 'doc-backlink') {
+  clone.querySelectorAll("a").forEach((a) => {
+    const txt = (a.textContent || "").trim();
+    if (/^[↩↵↑^]+$/.test(txt) || a.getAttribute("role") === "doc-backlink") {
       a.remove();
     }
   });
 
-  const text = (clone.textContent || '').replace(/\s+/g, ' ').trim();
+  const text = (clone.textContent || "").replace(/\s+/g, " ").trim();
   if (!text) return null;
   return clone.innerHTML || `<p>${text}</p>`;
 }
@@ -204,23 +210,28 @@ function extractFootnoteHtml(
 function hydrateChapterProseDom(
   el: HTMLElement,
   chapter: ParsedChapter,
-  publisherStyles: boolean
+  publisherStyles: boolean,
 ) {
   el.innerHTML = chapter.html;
   if (publisherStyles) {
     el.dataset.pubCh = String(chapter.index);
-    el.querySelectorAll<HTMLElement>('[data-folio-pub-style]').forEach((node) => {
-      const pubStyle = node.getAttribute('data-folio-pub-style');
-      if (pubStyle) {
-        node.setAttribute('style', pubStyle);
-      }
-    });
+    el.querySelectorAll<HTMLElement>("[data-folio-pub-style]").forEach(
+      (node) => {
+        const pubStyle = node.getAttribute("data-folio-pub-style");
+        if (pubStyle) {
+          node.setAttribute("style", pubStyle);
+        }
+      },
+    );
   } else {
     delete el.dataset.pubCh;
   }
 }
 
-function applyHighlightsToDom(container: HTMLElement, highlights: HighlightRecord[]) {
+function applyHighlightsToDom(
+  container: HTMLElement,
+  highlights: HighlightRecord[],
+) {
   if (highlights.length === 0) return;
 
   for (const hl of highlights) {
@@ -234,20 +245,20 @@ function applyHighlightsToDom(container: HTMLElement, highlights: HighlightRecor
       if (
         node.nodeValue &&
         node.parentElement &&
-        !node.parentElement.closest('mark.folio-hl')
+        !node.parentElement.closest("mark.folio-hl")
       ) {
         textNodes.push(node as Text);
       }
       node = walker.nextNode();
     }
 
-    let fullText = '';
-    const offsets: Array<{node: Text; start: number; end: number}> = [];
+    let fullText = "";
+    const offsets: Array<{ node: Text; start: number; end: number }> = [];
     for (const tn of textNodes) {
       const start = fullText.length;
-      const val = tn.nodeValue || '';
+      const val = tn.nodeValue || "";
       fullText += val;
-      offsets.push({node: tn, start, end: start + val.length});
+      offsets.push({ node: tn, start, end: start + val.length });
     }
 
     let matchIndex = -1;
@@ -265,9 +276,11 @@ function applyHighlightsToDom(container: HTMLElement, highlights: HighlightRecor
           fullText
             .slice(
               candidateStart + hl.selectedText.length,
-              candidateStart + hl.selectedText.length + hl.suffixContext.length
+              candidateStart + hl.selectedText.length + hl.suffixContext.length,
             )
-            .startsWith(hl.suffixContext.slice(0, Math.min(12, hl.suffixContext.length)))
+            .startsWith(
+              hl.suffixContext.slice(0, Math.min(12, hl.suffixContext.length)),
+            )
         ) {
           matchIndex = candidateStart;
           break;
@@ -289,15 +302,20 @@ function applyHighlightsToDom(container: HTMLElement, highlights: HighlightRecor
     if (matchIndex === -1) continue;
 
     const matchEnd = matchIndex + hl.selectedText.length;
-    const involved = offsets.filter((o) => o.end > matchIndex && o.start < matchEnd);
+    const involved = offsets.filter(
+      (o) => o.end > matchIndex && o.start < matchEnd,
+    );
 
     for (const seg of involved) {
       const localStart = Math.max(0, matchIndex - seg.start);
-      const localEnd = Math.min(seg.node.nodeValue?.length ?? 0, matchEnd - seg.start);
+      const localEnd = Math.min(
+        seg.node.nodeValue?.length ?? 0,
+        matchEnd - seg.start,
+      );
       if (localEnd <= localStart) continue;
 
       const textNode = seg.node;
-      const value = textNode.nodeValue || '';
+      const value = textNode.nodeValue || "";
       const before = value.slice(0, localStart);
       const middle = value.slice(localStart, localEnd);
       const after = value.slice(localEnd);
@@ -305,7 +323,7 @@ function applyHighlightsToDom(container: HTMLElement, highlights: HighlightRecor
       const frag = document.createDocumentFragment();
       if (before) frag.appendChild(document.createTextNode(before));
 
-      const mark = document.createElement('mark');
+      const mark = document.createElement("mark");
       mark.className = `folio-hl folio-hl-${hl.color}`;
       mark.dataset.highlightId = hl.id;
       if (hl.note) mark.title = hl.note;
@@ -321,7 +339,7 @@ function applyHighlightsToDom(container: HTMLElement, highlights: HighlightRecor
 function applySearchMatchHighlight(
   container: HTMLElement,
   query: string,
-  occurrenceInUnit: number
+  occurrenceInUnit: number,
 ): HTMLElement | null {
   const trimmed = query.trim();
   if (trimmed.length < 2) return null;
@@ -334,13 +352,13 @@ function applySearchMatchHighlight(
     node = walker.nextNode();
   }
 
-  let fullText = '';
-  const offsets: Array<{node: Text; start: number; end: number}> = [];
+  let fullText = "";
+  const offsets: Array<{ node: Text; start: number; end: number }> = [];
   for (const tn of textNodes) {
     const start = fullText.length;
-    const val = tn.nodeValue || '';
+    const val = tn.nodeValue || "";
     fullText += val;
-    offsets.push({node: tn, start, end: start + val.length});
+    offsets.push({ node: tn, start, end: start + val.length });
   }
 
   const lowerFull = fullText.toLowerCase();
@@ -358,16 +376,21 @@ function applySearchMatchHighlight(
   if (foundIdx === -1) return null;
 
   const matchEnd = foundIdx + trimmed.length;
-  const involved = offsets.filter((o) => o.end > foundIdx && o.start < matchEnd);
+  const involved = offsets.filter(
+    (o) => o.end > foundIdx && o.start < matchEnd,
+  );
   let firstMark: HTMLElement | null = null;
 
   for (const seg of involved) {
     const localStart = Math.max(0, foundIdx - seg.start);
-    const localEnd = Math.min(seg.node.nodeValue?.length ?? 0, matchEnd - seg.start);
+    const localEnd = Math.min(
+      seg.node.nodeValue?.length ?? 0,
+      matchEnd - seg.start,
+    );
     if (localEnd <= localStart) continue;
 
     const textNode = seg.node;
-    const value = textNode.nodeValue || '';
+    const value = textNode.nodeValue || "";
     const before = value.slice(0, localStart);
     const middle = value.slice(localStart, localEnd);
     const after = value.slice(localEnd);
@@ -375,8 +398,8 @@ function applySearchMatchHighlight(
     const frag = document.createDocumentFragment();
     if (before) frag.appendChild(document.createTextNode(before));
 
-    const mark = document.createElement('mark');
-    mark.className = 'folio-search-match';
+    const mark = document.createElement("mark");
+    mark.className = "folio-search-match";
     mark.textContent = middle;
     if (!firstMark) firstMark = mark;
     frag.appendChild(mark);
@@ -397,7 +420,11 @@ interface ContinuousChapterCardProps {
   isActiveChapter: boolean;
   estimatedHeight: number;
   highlights: HighlightRecord[];
-  searchMatch: {query: string; occurrenceInUnit: number; nonce: number} | null;
+  searchMatch: {
+    query: string;
+    occurrenceInUnit: number;
+    nonce: number;
+  } | null;
   pendingAnchorId: string | null;
   fontClass: string;
   publisherStyles: boolean;
@@ -444,15 +471,16 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
         (cardRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
         onSlotRef(chapter.index, el);
       },
-      [chapter.index, onSlotRef]
+      [chapter.index, onSlotRef],
     );
 
     const setProseElement = useCallback(
       (el: HTMLDivElement | null) => {
-        (proseElRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+        (proseElRef as React.MutableRefObject<HTMLDivElement | null>).current =
+          el;
         onProseRef(chapter.index, el);
       },
-      [chapter.index, onProseRef]
+      [chapter.index, onProseRef],
     );
 
     // Hydrate chapter HTML, publisher styling, highlights, and search matches when near viewport
@@ -469,22 +497,29 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
         searchEl = applySearchMatchHighlight(
           el,
           searchMatch.query,
-          searchMatch.occurrenceInUnit
+          searchMatch.occurrenceInUnit,
         );
       }
 
       if (pendingAnchorId) {
-        const anchorTarget = findAnchorElement(el, chapter.index, pendingAnchorId);
+        const anchorTarget = findAnchorElement(
+          el,
+          chapter.index,
+          pendingAnchorId,
+        );
         if (anchorTarget) {
           window.requestAnimationFrame(() => {
-            anchorTarget.scrollIntoView({behavior: 'smooth', block: 'center'});
+            anchorTarget.scrollIntoView({
+              behavior: "smooth",
+              block: "center",
+            });
             triggerAnchorFlash(anchorTarget);
             onPendingAnchorConsumed(chapter.index);
           });
         }
       } else if (searchEl) {
         window.requestAnimationFrame(() => {
-          searchEl?.scrollIntoView({behavior: 'smooth', block: 'center'});
+          searchEl?.scrollIntoView({ behavior: "smooth", block: "center" });
         });
       }
     }, [
@@ -525,7 +560,7 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
       if (!isHydrated || virtualPageCount <= 1) return [];
       const maxTicks = 24;
       const step = Math.max(1, Math.ceil(virtualPageCount / maxTicks));
-      const ticks: Array<{pageNum: number; topPct: number}> = [];
+      const ticks: Array<{ pageNum: number; topPct: number }> = [];
       for (let p = 1; p < virtualPageCount; p += step) {
         ticks.push({
           pageNum: startVirtualPage + p,
@@ -540,12 +575,14 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
         paddingLeft: `clamp(16px, 4vw, ${pageMargins}px)`,
         paddingRight: `clamp(16px, 4vw, ${pageMargins}px)`,
       }),
-      [pageMargins]
+      [pageMargins],
     );
 
     const cardSurfaceStyle: React.CSSProperties = {
-      ...(!isHydrated ? {minHeight: `${estimatedHeight}px`} : {}),
-      ...(brightness !== 100 ? {filter: `brightness(${brightness / 100})`} : {}),
+      ...(!isHydrated ? { minHeight: `${estimatedHeight}px` } : {}),
+      ...(brightness !== 100
+        ? { filter: `brightness(${brightness / 100})` }
+        : {}),
     };
 
     return (
@@ -553,9 +590,13 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
         ref={setCardRef}
         data-chapter-index={chapter.index}
         aria-label={chapter.title}
-        style={Object.keys(cardSurfaceStyle).length > 0 ? cardSurfaceStyle : undefined}
+        style={
+          Object.keys(cardSurfaceStyle).length > 0
+            ? cardSurfaceStyle
+            : undefined
+        }
         className={`folio-page-card rounded-lg relative transition-colors ${
-          isActiveChapter ? 'ring-1 ring-[var(--border-strong)]/60' : ''
+          isActiveChapter ? "ring-1 ring-[var(--border-strong)]/60" : ""
         }`}
       >
         {/* Archival Section Opener Strip */}
@@ -565,7 +606,7 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
         >
           <div className="min-w-0 flex items-baseline gap-2.5">
             <span className="font-mono-tabular text-[11px] text-[var(--text-muted)] shrink-0">
-              {String(chapter.index + 1).padStart(2, '0')}
+              {String(chapter.index + 1).padStart(2, "0")}
             </span>
             <h2 className="font-serif-editorial text-xs sm:text-sm font-medium text-[var(--text-secondary)] truncate">
               {chapter.title}
@@ -587,7 +628,7 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
                 {virtualPageTicks.map((t) => (
                   <div
                     key={t.pageNum}
-                    style={{top: `${t.topPct}%`}}
+                    style={{ top: `${t.topPct}%` }}
                     className="absolute right-0 -translate-y-1/2 flex items-center gap-1 opacity-55"
                   >
                     <span className="w-2 h-px bg-[var(--border-strong)]" />
@@ -608,14 +649,17 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
               ref={setProseElement}
               onMouseUp={() => onMouseUpProse(chapter.index)}
               onTouchEnd={() => onMouseUpProse(chapter.index)}
-              className={`folio-prose ${publisherStyles ? 'folio-prose--publisher' : ''} ${fontClass} ${
-                voiceTapActive ? 'folio-voice-tap-active' : ''
+              className={`folio-prose ${publisherStyles ? "folio-prose--publisher" : ""} ${fontClass} ${
+                voiceTapActive ? "folio-voice-tap-active" : ""
               }`}
               style={proseCustomStyles}
             />
           </div>
         ) : (
-          <div style={marginPadStyle} className="py-20 flex flex-col items-center justify-center text-center gap-2 text-[var(--text-muted)]">
+          <div
+            style={marginPadStyle}
+            className="py-20 flex flex-col items-center justify-center text-center gap-2 text-[var(--text-muted)]"
+          >
             <span className="font-serif-editorial text-base text-[var(--text-secondary)]">
               {chapter.title}
             </span>
@@ -626,10 +670,10 @@ const ContinuousChapterCard: React.FC<ContinuousChapterCardProps> = React.memo(
         )}
       </article>
     );
-  }
+  },
 );
 
-ContinuousChapterCard.displayName = 'ContinuousChapterCard';
+ContinuousChapterCard.displayName = "ContinuousChapterCard";
 
 export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
   navRef,
@@ -693,14 +737,20 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
   const activeChapterRef = useRef<number>(chapterIndex);
   activeChapterRef.current = chapterIndex;
   const prevJumpNonceRef = useRef<number>(jumpNonce);
-  const prevLayoutRef = useRef<ReaderPreferences['readingLayout']>(prefs.readingLayout);
+  const prevLayoutRef = useRef<ReaderPreferences["readingLayout"]>(
+    prefs.readingLayout,
+  );
   const lastHandledChapterRef = useRef<number>(-1);
   const lastHandledJumpNonceRef = useRef<number>(-1);
 
-  const isPaginated = prefs.readingLayout === 'page' || prefs.readingLayout === 'spread';
-  const isSpread = prefs.readingLayout === 'spread';
+  const isPaginated =
+    prefs.readingLayout === "page" || prefs.readingLayout === "spread";
+  const isSpread = prefs.readingLayout === "spread";
 
-  const [spreadDims, setSpreadDims] = useState<{width: number; height: number}>({
+  const [spreadDims, setSpreadDims] = useState<{
+    width: number;
+    height: number;
+  }>({
     width: 900,
     height: 620,
   });
@@ -708,23 +758,32 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
   const [totalSpreads, setTotalSpreads] = useState<number>(1);
   const [animateSpreadTurn, setAnimateSpreadTurn] = useState<boolean>(false);
 
-  const [visibleSet, setVisibleSet] = useState<Set<number>>(() => new Set([chapterIndex]));
+  const [visibleSet, setVisibleSet] = useState<Set<number>>(
+    () => new Set([chapterIndex]),
+  );
   const [pendingAnchor, setPendingAnchor] = useState<{
     chapterIndex: number;
     anchorId: string;
   } | null>(null);
   const [jumpHistory, setJumpHistory] = useState<JumpHistoryEntry[]>([]);
 
-  const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
+  const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(
+    null,
+  );
   const [noteOpen, setNoteOpen] = useState(false);
-  const [noteColor, setNoteColor] = useState<HighlightColor>('amber');
-  const [noteText, setNoteText] = useState('');
+  const [noteColor, setNoteColor] = useState<HighlightColor>("amber");
+  const [noteText, setNoteText] = useState("");
   const [activeHighlightPopover, setActiveHighlightPopover] =
     useState<ActiveHighlightPopoverState | null>(null);
-  const [copiedHighlightId, setCopiedHighlightId] = useState<string | null>(null);
+  const [copiedHighlightId, setCopiedHighlightId] = useState<string | null>(
+    null,
+  );
 
-  const [footnotePreview, setFootnotePreview] = useState<FootnotePreviewState | null>(null);
-  const [lightboxImage, setLightboxImage] = useState<LightboxImageState | null>(null);
+  const [footnotePreview, setFootnotePreview] =
+    useState<FootnotePreviewState | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<LightboxImageState | null>(
+    null,
+  );
 
   const chapter = chapters[chapterIndex] ?? chapters[0];
   const hasPrevChapter = chapterIndex > 0;
@@ -750,22 +809,30 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     return map;
   }, [allHighlights]);
 
-  const registerSlotRef = useCallback((idx: number, el: HTMLDivElement | null) => {
-    if (el) slotRefs.current.set(idx, el);
-    else slotRefs.current.delete(idx);
-  }, []);
+  const registerSlotRef = useCallback(
+    (idx: number, el: HTMLDivElement | null) => {
+      if (el) slotRefs.current.set(idx, el);
+      else slotRefs.current.delete(idx);
+    },
+    [],
+  );
 
-  const registerProseRef = useCallback((idx: number, el: HTMLDivElement | null) => {
-    if (el) proseRefs.current.set(idx, el);
-    else proseRefs.current.delete(idx);
-  }, []);
+  const registerProseRef = useCallback(
+    (idx: number, el: HTMLDivElement | null) => {
+      if (el) proseRefs.current.set(idx, el);
+      else proseRefs.current.delete(idx);
+    },
+    [],
+  );
 
   const handleHeightMeasured = useCallback((idx: number, height: number) => {
     measuredHeightsRef.current.set(idx, height);
   }, []);
 
   const handlePendingAnchorConsumed = useCallback((idx: number) => {
-    setPendingAnchor((prev) => (prev && prev.chapterIndex === idx ? null : prev));
+    setPendingAnchor((prev) =>
+      prev && prev.chapterIndex === idx ? null : prev,
+    );
   }, []);
 
   // Measure paginated frame viewport dimensions
@@ -815,7 +882,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
           return changed ? next : prev;
         });
       },
-      {root, rootMargin: '1100px 0px'}
+      { root, rootMargin: "1100px 0px" },
     );
 
     slotRefs.current.forEach((el) => observer.observe(el));
@@ -842,7 +909,10 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       // Trim very distant chapters (> 18 away) when chapter count is large to keep DOM light
       if (chapters.length > 24 && next.size > 20) {
         for (const idx of Array.from(next)) {
-          if (Math.abs(idx - chapterIndex) > 10 && idx !== pendingAnchor?.chapterIndex) {
+          if (
+            Math.abs(idx - chapterIndex) > 10 &&
+            idx !== pendingAnchor?.chapterIndex
+          ) {
             next.delete(idx);
             changed = true;
           }
@@ -859,7 +929,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     if (!scroller) return;
 
     if (targetAnchorId) {
-      setPendingAnchor({chapterIndex, anchorId: targetAnchorId});
+      setPendingAnchor({ chapterIndex, anchorId: targetAnchorId });
     }
 
     programmaticJumpRef.current = true;
@@ -875,16 +945,22 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     prevLayoutRef.current = prefs.readingLayout;
     prevJumpNonceRef.current = jumpNonce;
     const effectiveRatio =
-      layoutChanged && !isExplicitJump ? currentRatioRef.current : initialScrollRatio;
+      layoutChanged && !isExplicitJump
+        ? currentRatioRef.current
+        : initialScrollRatio;
 
     const raf = window.requestAnimationFrame(() => {
       const cardEl = slotRefs.current.get(chapterIndex);
       if (!cardEl) return;
 
       if (targetAnchorId) {
-        const anchorEl = findAnchorElement(cardEl, chapterIndex, targetAnchorId);
+        const anchorEl = findAnchorElement(
+          cardEl,
+          chapterIndex,
+          targetAnchorId,
+        );
         if (anchorEl) {
-          anchorEl.scrollIntoView({behavior: 'auto', block: 'center'});
+          anchorEl.scrollIntoView({ behavior: "auto", block: "center" });
           triggerAnchorFlash(anchorEl);
           setPendingAnchor(null);
           return;
@@ -892,9 +968,11 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       }
 
       if (searchHighlight && searchHighlight.unitIndex === chapterIndex) {
-        const searchMark = cardEl.querySelector<HTMLElement>('mark.folio-search-match');
+        const searchMark = cardEl.querySelector<HTMLElement>(
+          "mark.folio-search-match",
+        );
         if (searchMark) {
-          searchMark.scrollIntoView({behavior: 'smooth', block: 'center'});
+          searchMark.scrollIntoView({ behavior: "smooth", block: "center" });
           return;
         }
       }
@@ -909,10 +987,13 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       const cardTop = cardEl.offsetTop;
       const cardHeight = cardEl.offsetHeight;
       const topOffsetPad = headerPinned ? 24 : 52;
-      const scrollableSpan = Math.max(0, cardHeight - scroller.clientHeight * 0.45);
+      const scrollableSpan = Math.max(
+        0,
+        cardHeight - scroller.clientHeight * 0.45,
+      );
       const targetTop = Math.max(
         0,
-        cardTop - topOffsetPad + Math.round(scrollableSpan * effectiveRatio)
+        cardTop - topOffsetPad + Math.round(scrollableSpan * effectiveRatio),
       );
       scroller.scrollTop = targetTop;
       lastScrollTopRef.current = scroller.scrollTop;
@@ -933,7 +1014,11 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     const timer = window.requestAnimationFrame(() => {
       const el = proseRefs.current.get(chapterIndex);
       if (!el) return;
-      const extracted = extractReflowableNarrationMap(el, chapterIndex, voiceSkipNoise);
+      const extracted = extractReflowableNarrationMap(
+        el,
+        chapterIndex,
+        voiceSkipNoise,
+      );
       sentencesRef.current = extracted;
       onSentencesReadyRef.current?.(extracted);
       lastAutoScrolledSentenceRef.current = -1;
@@ -978,17 +1063,23 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       searchEl = applySearchMatchHighlight(
         el,
         searchHighlight.query,
-        searchHighlight.occurrenceInUnit
+        searchHighlight.occurrenceInUnit,
       );
     }
 
     const scrollW = el.scrollWidth;
-    const count = Math.max(1, Math.ceil((scrollW + columnGap - 4) / Math.max(1, spreadStepPx)));
+    const count = Math.max(
+      1,
+      Math.ceil((scrollW + columnGap - 4) / Math.max(1, spreadStepPx)),
+    );
     setTotalSpreads(count);
 
     let nextIdx = 0;
     const anchorToResolve =
-      targetAnchorId || (pendingAnchor?.chapterIndex === chapterIndex ? pendingAnchor.anchorId : null);
+      targetAnchorId ||
+      (pendingAnchor?.chapterIndex === chapterIndex
+        ? pendingAnchor.anchorId
+        : null);
 
     const isNewChapterOrJump =
       lastHandledChapterRef.current !== chapterIndex ||
@@ -1014,7 +1105,10 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       if (anchorEl) {
         nextIdx = Math.min(
           count - 1,
-          Math.max(0, Math.floor(anchorEl.offsetLeft / Math.max(1, spreadStepPx)))
+          Math.max(
+            0,
+            Math.floor(anchorEl.offsetLeft / Math.max(1, spreadStepPx)),
+          ),
         );
         triggerAnchorFlash(anchorEl);
       }
@@ -1024,12 +1118,18 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     } else if (searchEl) {
       nextIdx = Math.min(
         count - 1,
-        Math.max(0, Math.floor(searchEl.offsetLeft / Math.max(1, spreadStepPx)))
+        Math.max(
+          0,
+          Math.floor(searchEl.offsetLeft / Math.max(1, spreadStepPx)),
+        ),
       );
     } else if (effectiveRatio >= 0.99) {
       nextIdx = count - 1;
     } else {
-      nextIdx = Math.min(count - 1, Math.max(0, Math.round(effectiveRatio * (count - 1))));
+      nextIdx = Math.min(
+        count - 1,
+        Math.max(0, Math.round(effectiveRatio * (count - 1))),
+      );
     }
 
     // Snap immediately on chapter/resize/search/TOC jumps instead of sliding across intermediate spreads
@@ -1043,7 +1143,11 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     setFootnotePreview(null);
     lastAutoScrolledSentenceRef.current = -1;
 
-    const extracted = extractReflowableNarrationMap(el, chapterIndex, voiceSkipNoise);
+    const extracted = extractReflowableNarrationMap(
+      el,
+      chapterIndex,
+      voiceSkipNoise,
+    );
     sentencesRef.current = extracted;
     onSentencesReadyRef.current?.(extracted);
   }, [
@@ -1109,11 +1213,11 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       return;
     }
 
-    const {sentenceEl, wordEl} = applyTtsDomHighlight(
+    const { sentenceEl, wordEl } = applyTtsDomHighlight(
       el,
       sentence,
       activeWordIndex,
-      voiceSkipNoise
+      voiceSkipNoise,
     );
 
     const forceRecenter = recenterNonce !== lastRecenterNonceRef.current;
@@ -1121,22 +1225,28 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       lastRecenterNonceRef.current = recenterNonce;
     }
 
-    const sentenceChanged = lastAutoScrolledSentenceRef.current !== activeSentenceIndex;
+    const sentenceChanged =
+      lastAutoScrolledSentenceRef.current !== activeSentenceIndex;
     const targetEl = wordEl || sentenceEl;
 
-    if (targetEl && (voiceFollowEnabled || forceRecenter) && (sentenceChanged || forceRecenter)) {
+    if (
+      targetEl &&
+      (voiceFollowEnabled || forceRecenter) &&
+      (sentenceChanged || forceRecenter)
+    ) {
       lastAutoScrolledSentenceRef.current = activeSentenceIndex;
 
       if (isPaginated) {
         const offsetLeft = targetEl.offsetLeft;
         const targetSpread = Math.min(
           Math.max(0, totalSpreads - 1),
-          Math.max(0, Math.floor(offsetLeft / Math.max(1, spreadStepPx)))
+          Math.max(0, Math.floor(offsetLeft / Math.max(1, spreadStepPx))),
         );
         if (targetSpread !== spreadIndex) {
           setAnimateSpreadTurn(Math.abs(targetSpread - spreadIndex) === 1);
           setSpreadIndex(targetSpread);
-          const ratio = totalSpreads > 1 ? targetSpread / (totalSpreads - 1) : 0;
+          const ratio =
+            totalSpreads > 1 ? targetSpread / (totalSpreads - 1) : 0;
           currentRatioRef.current = ratio;
           onScrollProgress(ratio);
         }
@@ -1152,8 +1262,9 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
 
           if (outsideComfortBand) {
             programmaticVoiceScrollRef.current = true;
-            if (voiceScrollTimerRef.current) window.clearTimeout(voiceScrollTimerRef.current);
-            targetEl.scrollIntoView({behavior: 'smooth', block: 'center'});
+            if (voiceScrollTimerRef.current)
+              window.clearTimeout(voiceScrollTimerRef.current);
+            targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
             voiceScrollTimerRef.current = window.setTimeout(() => {
               programmaticVoiceScrollRef.current = false;
             }, 520);
@@ -1187,7 +1298,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
         const ratio = totalSpreads > 1 ? next / (totalSpreads - 1) : 0;
         currentRatioRef.current = ratio;
         onScrollProgress(ratio);
-        onScrollDirection?.('down');
+        onScrollDirection?.("down");
       } else if (hasPrevChapter) {
         setAnimateSpreadTurn(false);
         onChapterChange(chapterIndex - 1, 1);
@@ -1216,7 +1327,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
         const ratio = totalSpreads > 1 ? next / (totalSpreads - 1) : 1;
         currentRatioRef.current = ratio;
         onScrollProgress(ratio);
-        onScrollDirection?.('down');
+        onScrollDirection?.("down");
       } else if (hasNextChapter) {
         setAnimateSpreadTurn(false);
         onChapterChange(chapterIndex + 1, 0);
@@ -1238,20 +1349,27 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
   const getFirstVisibleSentenceIndex = useCallback(() => {
     const el = getActiveProseContainer();
     if (!el || sentencesRef.current.length === 0) return 0;
-    const viewportEl = isPaginated ? spreadFrameRef.current : scrollContainerRef.current;
-    return findFirstVisibleReflowableSentence(el, viewportEl, sentencesRef.current, voiceSkipNoise);
+    const viewportEl = isPaginated
+      ? spreadFrameRef.current
+      : scrollContainerRef.current;
+    return findFirstVisibleReflowableSentence(
+      el,
+      viewportEl,
+      sentencesRef.current,
+      voiceSkipNoise,
+    );
   }, [isPaginated, getActiveProseContainer, voiceSkipNoise]);
 
   useImperativeHandle(
     navRef,
-    () => ({stepPrev, stepNext, getFirstVisibleSentenceIndex}),
-    [stepPrev, stepNext, getFirstVisibleSentenceIndex]
+    () => ({ stepPrev, stepNext, getFirstVisibleSentenceIndex }),
+    [stepPrev, stepNext, getFirstVisibleSentenceIndex],
   );
 
   // Keyboard navigation: ArrowLeft/Right, PageUp/PageDown, Home/End, Space, and Escape
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         if (activeHighlightPopover || selectionMenu) {
           e.preventDefault();
           setActiveHighlightPopover(null);
@@ -1263,52 +1381,57 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       if (lightboxImage || footnotePreview) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) {
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        target?.isContentEditable
+      ) {
         return;
       }
 
-      if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      if (e.key === "ArrowLeft" || e.key === "PageUp") {
         e.preventDefault();
-        if (isPaginated || e.key === 'ArrowLeft') {
+        if (isPaginated || e.key === "ArrowLeft") {
           stepPrev();
         } else {
           const scroller = scrollContainerRef.current;
           if (scroller) {
             scroller.scrollBy({
               top: -Math.max(260, Math.round(scroller.clientHeight * 0.85)),
-              behavior: 'smooth',
+              behavior: "smooth",
             });
           }
         }
-      } else if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+      } else if (e.key === "ArrowRight" || e.key === "PageDown") {
         e.preventDefault();
-        if (isPaginated || e.key === 'ArrowRight') {
+        if (isPaginated || e.key === "ArrowRight") {
           stepNext();
         } else {
           const scroller = scrollContainerRef.current;
           if (scroller) {
             scroller.scrollBy({
               top: Math.max(260, Math.round(scroller.clientHeight * 0.85)),
-              behavior: 'smooth',
+              behavior: "smooth",
             });
           }
         }
-      } else if (e.key === 'Home' && isPaginated) {
+      } else if (e.key === "Home" && isPaginated) {
         e.preventDefault();
         setAnimateSpreadTurn(false);
         setSpreadIndex(0);
         currentRatioRef.current = 0;
         onScrollProgress(0);
-      } else if (e.key === 'End' && isPaginated) {
+      } else if (e.key === "End" && isPaginated) {
         e.preventDefault();
         const last = Math.max(0, totalSpreads - 1);
         setAnimateSpreadTurn(false);
         setSpreadIndex(last);
         currentRatioRef.current = totalSpreads > 1 ? 1 : 0;
         onScrollProgress(currentRatioRef.current);
-      } else if (e.code === 'Space' && !voiceActive) {
+      } else if (e.code === "Space" && !voiceActive) {
         // Yield Spacebar to Voice Narration Play/Pause when Voice mode is open
-        if (tag === 'BUTTON' || tag === 'A') return;
+        if (tag === "BUTTON" || tag === "A") return;
         e.preventDefault();
         if (isPaginated) {
           if (e.shiftKey) stepPrev();
@@ -1316,14 +1439,20 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
         } else {
           const scroller = scrollContainerRef.current;
           if (scroller) {
-            const stepPx = Math.max(260, Math.round(scroller.clientHeight * 0.85));
-            scroller.scrollBy({top: e.shiftKey ? -stepPx : stepPx, behavior: 'smooth'});
+            const stepPx = Math.max(
+              260,
+              Math.round(scroller.clientHeight * 0.85),
+            );
+            scroller.scrollBy({
+              top: e.shiftKey ? -stepPx : stepPx,
+              behavior: "smooth",
+            });
           }
         }
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     stepPrev,
     stepNext,
@@ -1344,8 +1473,16 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
 
   const handlePaginatedWheel = useCallback(
     (e: React.WheelEvent<HTMLDivElement>) => {
-      if (!isPaginated || e.ctrlKey || lightboxImage || footnotePreview || selectionMenu) return;
-      const rawDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+      if (
+        !isPaginated ||
+        e.ctrlKey ||
+        lightboxImage ||
+        footnotePreview ||
+        selectionMenu
+      )
+        return;
+      const rawDelta =
+        Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
       const delta = e.deltaMode === 1 ? rawDelta * 32 : rawDelta;
       if (Math.abs(delta) < 3) return;
 
@@ -1353,20 +1490,28 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       if (now - lastWheelFlipAtRef.current < 260) return;
 
       wheelAccumRef.current += delta;
-      if (wheelResetTimerRef.current) window.clearTimeout(wheelResetTimerRef.current);
+      if (wheelResetTimerRef.current)
+        window.clearTimeout(wheelResetTimerRef.current);
       wheelResetTimerRef.current = window.setTimeout(() => {
         wheelAccumRef.current = 0;
       }, 180);
 
       if (Math.abs(wheelAccumRef.current) >= 44) {
-        const dir = wheelAccumRef.current > 0 ? 'next' : 'prev';
+        const dir = wheelAccumRef.current > 0 ? "next" : "prev";
         wheelAccumRef.current = 0;
         lastWheelFlipAtRef.current = now;
-        if (dir === 'next') stepNext();
+        if (dir === "next") stepNext();
         else stepPrev();
       }
     },
-    [isPaginated, lightboxImage, footnotePreview, selectionMenu, stepNext, stepPrev]
+    [
+      isPaginated,
+      lightboxImage,
+      footnotePreview,
+      selectionMenu,
+      stepNext,
+      stepPrev,
+    ],
   );
 
   // Clear programmatic jump lock immediately if user physically scrolls or touches
@@ -1399,10 +1544,10 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     }
 
     if (delta > 14 && top > 48) {
-      onScrollDirection?.('down');
+      onScrollDirection?.("down");
       lastScrollTopRef.current = top;
     } else if (delta < -14 || top <= 24) {
-      onScrollDirection?.('up');
+      onScrollDirection?.("up");
       lastScrollTopRef.current = top;
     }
 
@@ -1417,7 +1562,8 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       const sTop = el.scrollTop;
       const cHeight = el.clientHeight;
       const maxScroll = Math.max(0, el.scrollHeight - cHeight);
-      const normDoc = maxScroll > 0 ? Math.min(1, Math.max(0, sTop / maxScroll)) : 0;
+      const normDoc =
+        maxScroll > 0 ? Math.min(1, Math.max(0, sTop / maxScroll)) : 0;
       const probeY = sTop + cHeight * (0.14 + 0.72 * normDoc);
 
       let matchedIdx = activeChapterRef.current;
@@ -1440,7 +1586,8 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
             matchedIdx = idx;
             matchedRatio = Math.min(1, Math.max(0, (probeY - slotTop) / slotH));
           } else {
-            const dist = probeY < slotTop ? slotTop - probeY : probeY - slotBottom;
+            const dist =
+              probeY < slotTop ? slotTop - probeY : probeY - slotBottom;
             if (dist < bestDist) {
               bestDist = dist;
               matchedIdx = idx;
@@ -1470,10 +1617,14 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
 
   useEffect(() => {
     return () => {
-      if (scrollRafRef.current !== null) window.cancelAnimationFrame(scrollRafRef.current);
-      if (programmaticJumpTimerRef.current) window.clearTimeout(programmaticJumpTimerRef.current);
-      if (voiceScrollTimerRef.current) window.clearTimeout(voiceScrollTimerRef.current);
-      if (wheelResetTimerRef.current) window.clearTimeout(wheelResetTimerRef.current);
+      if (scrollRafRef.current !== null)
+        window.cancelAnimationFrame(scrollRafRef.current);
+      if (programmaticJumpTimerRef.current)
+        window.clearTimeout(programmaticJumpTimerRef.current);
+      if (voiceScrollTimerRef.current)
+        window.clearTimeout(voiceScrollTimerRef.current);
+      if (wheelResetTimerRef.current)
+        window.clearTimeout(wheelResetTimerRef.current);
     };
   }, []);
 
@@ -1504,7 +1655,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       }
 
       const rect = range.getBoundingClientRect();
-      const fullText = prose.textContent || '';
+      const fullText = prose.textContent || "";
       let startOffset = -1;
       try {
         const preRange = document.createRange();
@@ -1517,14 +1668,16 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       }
 
       const prefix =
-        startOffset > 0 ? fullText.slice(Math.max(0, startOffset - 28), startOffset) : '';
+        startOffset > 0
+          ? fullText.slice(Math.max(0, startOffset - 28), startOffset)
+          : "";
       const suffix =
         startOffset >= 0
           ? fullText.slice(
               startOffset + selectedText.length,
-              startOffset + selectedText.length + 28
+              startOffset + selectedText.length + 28,
             )
-          : '';
+          : "";
 
       const placeBelow = rect.top < 120;
       setActiveHighlightPopover(null);
@@ -1533,60 +1686,82 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
         text: selectedText,
         prefix,
         suffix,
-        x: Math.min(window.innerWidth - 160, Math.max(160, rect.left + rect.width / 2)),
-        y: placeBelow ? Math.min(window.innerHeight - 90, rect.bottom + 12) : Math.max(72, rect.top - 12),
+        x: Math.min(
+          window.innerWidth - 160,
+          Math.max(160, rect.left + rect.width / 2),
+        ),
+        y: placeBelow
+          ? Math.min(window.innerHeight - 90, rect.bottom + 12)
+          : Math.max(72, rect.top - 12),
         placeBelow,
       });
       setNoteOpen(false);
-      setNoteText('');
+      setNoteText("");
     },
-    [isPaginated, noteOpen]
+    [isPaginated, noteOpen],
   );
 
-  const touchStartRef = useRef<{x: number; y: number; time: number} | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(
+    null,
+  );
   const justSwipedRef = useRef(false);
 
   const turnPageMobile = useCallback(
-    (dir: 'prev' | 'next') => {
+    (dir: "prev" | "next") => {
       if (isPaginated) {
-        if (dir === 'next') stepNext();
+        if (dir === "next") stepNext();
         else stepPrev();
         return;
       }
       const scroller = scrollContainerRef.current;
       if (scroller) {
         const pageStep = Math.max(240, scroller.clientHeight * 0.84);
-        if (dir === 'next') {
-          const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 24;
+        if (dir === "next") {
+          const atBottom =
+            scroller.scrollTop + scroller.clientHeight >=
+            scroller.scrollHeight - 24;
           if (!atBottom) {
-            scroller.scrollBy({top: pageStep, behavior: 'smooth'});
+            scroller.scrollBy({ top: pageStep, behavior: "smooth" });
             return;
           }
           if (hasNextChapter) onChapterChange(chapterIndex + 1, 0);
         } else {
           if (scroller.scrollTop > 32) {
-            scroller.scrollBy({top: -pageStep, behavior: 'smooth'});
+            scroller.scrollBy({ top: -pageStep, behavior: "smooth" });
             return;
           }
           if (hasPrevChapter) onChapterChange(chapterIndex - 1, 0);
         }
       } else {
-        if (dir === 'next') stepNext();
+        if (dir === "next") stepNext();
         else stepPrev();
       }
     },
-    [isPaginated, stepNext, stepPrev, hasNextChapter, hasPrevChapter, chapterIndex, onChapterChange]
+    [
+      isPaginated,
+      stepNext,
+      stepPrev,
+      hasNextChapter,
+      hasPrevChapter,
+      chapterIndex,
+      onChapterChange,
+    ],
   );
 
   const handleTouchStart = (e: React.TouchEvent) => {
     clearProgrammaticJump();
     if (window.innerWidth >= 1024 || e.touches.length !== 1) return;
     const t = e.touches[0];
-    touchStartRef.current = {x: t.clientX, y: t.clientY, time: Date.now()};
+    touchStartRef.current = { x: t.clientX, y: t.clientY, time: Date.now() };
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (window.innerWidth >= 1024 || !touchStartRef.current || e.changedTouches.length !== 1) return;
+    if (
+      window.innerWidth >= 1024 ||
+      !touchStartRef.current ||
+      e.changedTouches.length !== 1
+    )
+      return;
     const start = touchStartRef.current;
     touchStartRef.current = null;
     const sel = window.getSelection();
@@ -1597,12 +1772,16 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     const dy = t.clientY - start.y;
     const elapsed = Date.now() - start.time;
 
-    if (elapsed < 600 && Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    if (
+      elapsed < 600 &&
+      Math.abs(dx) > 55 &&
+      Math.abs(dx) > Math.abs(dy) * 1.5
+    ) {
       justSwipedRef.current = true;
       window.setTimeout(() => {
         justSwipedRef.current = false;
       }, 280);
-      turnPageMobile(dx < 0 ? 'next' : 'prev');
+      turnPageMobile(dx < 0 ? "next" : "prev");
     }
   };
 
@@ -1618,11 +1797,11 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       ]);
       setFootnotePreview(null);
       if (anchorId) {
-        setPendingAnchor({chapterIndex: targetCh, anchorId});
+        setPendingAnchor({ chapterIndex: targetCh, anchorId });
       }
       onChapterChange(targetCh, 0, false, anchorId);
     },
-    [chapterIndex, chapters, onChapterChange]
+    [chapterIndex, chapters, onChapterChange],
   );
 
   const handleReturnJump = useCallback(() => {
@@ -1639,17 +1818,22 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     const el = e.target as HTMLElement | null;
     if (!el) return;
 
-    const hlMark = el.closest('mark.folio-hl') as HTMLElement | null;
+    const hlMark = el.closest("mark.folio-hl") as HTMLElement | null;
     if (hlMark?.dataset.highlightId) {
       e.stopPropagation();
-      const matchedHl = allHighlights.find((h) => h.id === hlMark.dataset.highlightId);
+      const matchedHl = allHighlights.find(
+        (h) => h.id === hlMark.dataset.highlightId,
+      );
       if (matchedHl) {
         const rect = hlMark.getBoundingClientRect();
         const placeBelow = rect.top < 230;
         setSelectionMenu(null);
         setActiveHighlightPopover({
           highlight: matchedHl,
-          x: Math.min(window.innerWidth - 172, Math.max(172, rect.left + rect.width / 2)),
+          x: Math.min(
+            window.innerWidth - 172,
+            Math.max(172, rect.left + rect.width / 2),
+          ),
           y: placeBelow
             ? Math.min(window.innerHeight - 24, rect.bottom + 10)
             : Math.max(24, rect.top - 10),
@@ -1669,24 +1853,32 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     }
 
     // Intercept internal EPUB links & footnote references cleanly
-    const link = el.closest('a') as HTMLAnchorElement | null;
+    const link = el.closest("a") as HTMLAnchorElement | null;
     if (link) {
-      const targetChAttr = link.getAttribute('data-folio-chapter');
+      const targetChAttr = link.getAttribute("data-folio-chapter");
       if (targetChAttr !== null) {
         e.preventDefault();
         e.stopPropagation();
         const targetCh = parseInt(targetChAttr, 10);
-        const anchorId = link.getAttribute('data-folio-anchor') || undefined;
-        const isNoteref = link.getAttribute('data-folio-noteref') === 'true';
+        const anchorId = link.getAttribute("data-folio-anchor") || undefined;
+        const isNoteref = link.getAttribute("data-folio-noteref") === "true";
 
-        if (!Number.isNaN(targetCh) && targetCh >= 0 && targetCh < chapters.length) {
+        if (
+          !Number.isNaN(targetCh) &&
+          targetCh >= 0 &&
+          targetCh < chapters.length
+        ) {
           if (isNoteref && anchorId) {
             const noteHtml = extractFootnoteHtml(chapters, targetCh, anchorId);
             if (noteHtml) {
               const rect = link.getBoundingClientRect();
-              const linkText = (link.textContent || '').replace(/\s+/g, ' ').trim();
+              const linkText = (link.textContent || "")
+                .replace(/\s+/g, " ")
+                .trim();
               setFootnotePreview({
-                title: linkText ? `Note ${linkText}` : `Note · ${chapters[targetCh].title}`,
+                title: linkText
+                  ? `Note ${linkText}`
+                  : `Note · ${chapters[targetCh].title}`,
                 html: noteHtml,
                 targetChapterIndex: targetCh,
                 anchorId,
@@ -1706,20 +1898,23 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     }
 
     // Click non-linked EPUB images to zoom in lightbox
-    const clickedImg = el.closest('img') as HTMLImageElement | null;
-    if (clickedImg && clickedImg.src && !clickedImg.closest('a')) {
+    const clickedImg = el.closest("img") as HTMLImageElement | null;
+    if (clickedImg && clickedImg.src && !clickedImg.closest("a")) {
       e.stopPropagation();
       const figCaption =
-        clickedImg.closest('figure')?.querySelector('figcaption')?.textContent?.trim() || undefined;
+        clickedImg
+          .closest("figure")
+          ?.querySelector("figcaption")
+          ?.textContent?.trim() || undefined;
       setLightboxImage({
         src: clickedImg.src,
-        alt: clickedImg.alt || '',
+        alt: clickedImg.alt || "",
         caption: figCaption,
       });
       return;
     }
 
-    if (el.closest('button, input, textarea, select')) return;
+    if (el.closest("button, input, textarea, select")) return;
 
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) return;
@@ -1729,39 +1924,46 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       const rect = e.currentTarget.getBoundingClientRect();
       const relX = (e.clientX - rect.left) / Math.max(1, rect.width);
       if (relX < 0.2) {
-        turnPageMobile('prev');
+        turnPageMobile("prev");
         return;
       }
       if (relX > 0.8) {
-        turnPageMobile('next');
+        turnPageMobile("next");
         return;
       }
     }
 
     // Tap any sentence to read from there when Voice mode & tap-to-read are active
     if (voiceActive && voiceTapToRead) {
-      const cardEl = el.closest('[data-chapter-index]') as HTMLElement | null;
+      const cardEl = el.closest("[data-chapter-index]") as HTMLElement | null;
       const targetChIdx = cardEl
         ? parseInt(cardEl.dataset.chapterIndex || String(chapterIndex), 10)
         : chapterIndex;
       const proseEl = isPaginated
         ? paginatedProseRef.current
-        : proseRefs.current.get(targetChIdx) ?? getActiveProseContainer();
+        : (proseRefs.current.get(targetChIdx) ?? getActiveProseContainer());
 
       if (proseEl && proseEl.contains(el)) {
         const localSentences =
           targetChIdx === chapterIndex
             ? sentencesRef.current
-            : extractReflowableNarrationMap(proseEl, targetChIdx, voiceSkipNoise);
+            : extractReflowableNarrationMap(
+                proseEl,
+                targetChIdx,
+                voiceSkipNoise,
+              );
         const tappedIdx = findSentenceAtDomPoint(
           proseEl,
           localSentences,
           e.clientX,
           e.clientY,
-          voiceSkipNoise
+          voiceSkipNoise,
         );
         if (tappedIdx !== null) {
-          onSentenceTap?.(tappedIdx, targetChIdx !== chapterIndex ? targetChIdx : undefined);
+          onSentenceTap?.(
+            tappedIdx,
+            targetChIdx !== chapterIndex ? targetChIdx : undefined,
+          );
           return;
         }
       }
@@ -1770,7 +1972,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     onCenterTap?.();
   };
 
-  const commitHighlight = (color: HighlightColor, note = '') => {
+  const commitHighlight = (color: HighlightColor, note = "") => {
     if (!selectionMenu) return;
     onCreateHighlight({
       unitIndex: selectionMenu.unitIndex,
@@ -1783,7 +1985,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
     window.getSelection()?.removeAllRanges();
     setSelectionMenu(null);
     setNoteOpen(false);
-    setNoteText('');
+    setNoteText("");
   };
 
   const resolvedFont = resolveReaderFont(prefs.fontFamily);
@@ -1797,14 +1999,14 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       ({
         fontSize: `${prefs.fontSize}px`,
         lineHeight: prefs.lineHeight,
-        '--folio-font-family': resolvedFont.cssFamily,
-        '--folio-font-weight': prefs.fontWeight ?? 400,
-        '--folio-word-spacing': `${prefs.wordSpacing ?? 0}em`,
-        '--folio-letter-spacing': `${prefs.letterSpacing ?? 0}em`,
-        '--folio-para-gap': `${prefs.paragraphSpacing}em`,
-        '--folio-text-align': prefs.textAlign,
-        '--folio-text-indent': `${prefs.textIndent}em`,
-        '--folio-text-ink': inkColor,
+        "--folio-font-family": resolvedFont.cssFamily,
+        "--folio-font-weight": prefs.fontWeight ?? 400,
+        "--folio-word-spacing": `${prefs.wordSpacing ?? 0}em`,
+        "--folio-letter-spacing": `${prefs.letterSpacing ?? 0}em`,
+        "--folio-para-gap": `${prefs.paragraphSpacing}em`,
+        "--folio-text-align": prefs.textAlign,
+        "--folio-text-indent": `${prefs.textIndent}em`,
+        "--folio-text-ink": inkColor,
       }) as React.CSSProperties,
     [
       resolvedFont.cssFamily,
@@ -1817,16 +2019,28 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       prefs.textAlign,
       prefs.textIndent,
       inkColor,
-    ]
+    ],
   );
 
-  const canGoPrev = isPaginated ? spreadIndex > 0 || hasPrevChapter : hasPrevChapter;
-  const canGoNext = isPaginated ? spreadIndex < totalSpreads - 1 || hasNextChapter : hasNextChapter;
+  const canGoPrev = isPaginated
+    ? spreadIndex > 0 || hasPrevChapter
+    : hasPrevChapter;
+  const canGoNext = isPaginated
+    ? spreadIndex < totalSpreads - 1 || hasNextChapter
+    : hasNextChapter;
 
-  const paginatedTopPad = headerPinned ? 'pt-12' : topOverlayActive ? 'pt-24 sm:pt-25' : 'pt-12';
-  const paginatedBottomPad = bottomBarPinned ? 'pb-4' : bottomOverlayActive ? 'pb-16' : 'pb-5';
-  const scrollTopPad = headerPinned ? 'pt-13' : 'pt-28';
-  const scrollBottomPad = bottomBarPinned ? 'pb-14' : 'pb-28';
+  const paginatedTopPad = headerPinned
+    ? "pt-12"
+    : topOverlayActive
+      ? "pt-24 sm:pt-25"
+      : "pt-12";
+  const paginatedBottomPad = bottomBarPinned
+    ? "pb-4"
+    : bottomOverlayActive
+      ? "pb-16"
+      : "pb-5";
+  const scrollTopPad = headerPinned ? "pt-13" : "pt-28";
+  const scrollBottomPad = bottomBarPinned ? "pb-14" : "pb-28";
 
   const paginatedMaxWidth = isSpread
     ? `${Math.min(1280, prefs.pageWidth + 460)}px`
@@ -1837,7 +2051,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       {/* Subtle Floating Current-Chapter Header Indicator (disappears gently when full header overlays) */}
       <div
         className={`pointer-events-none absolute left-1/2 -translate-x-1/2 z-20 transition-all duration-180 ${
-          topOverlayActive ? 'top-2 opacity-0' : 'top-2.5 opacity-100'
+          topOverlayActive ? "top-2 opacity-0" : "top-2.5 opacity-100"
         }`}
       >
         <div className="pointer-events-auto inline-flex items-center gap-2 sm:gap-2.5 px-3 py-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)]/94 backdrop-blur-xs shadow-xs text-[11px] max-w-[calc(100vw-2rem)]">
@@ -1850,7 +2064,10 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
           <span className="font-mono-tabular text-[var(--text-primary)] whitespace-nowrap shrink-0">
             Page {currentVirtualPage} of {totalVirtualPages}
           </span>
-          <span aria-hidden="true" className="hidden sm:inline text-[var(--border-strong)]">
+          <span
+            aria-hidden="true"
+            className="hidden sm:inline text-[var(--border-strong)]"
+          >
             ·
           </span>
           <span className="hidden sm:inline font-mono-tabular text-[var(--text-muted)] shrink-0">
@@ -1889,14 +2106,16 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
         >
           <div
             className="mx-auto w-full flex-1 min-h-0 flex flex-col relative"
-            style={{maxWidth: paginatedMaxWidth}}
+            style={{ maxWidth: paginatedMaxWidth }}
           >
             {/* Framed Editorial Paper Sheet */}
             <div
               style={{
                 paddingLeft: `clamp(16px, 4vw, ${pageMarginsValue}px)`,
                 paddingRight: `clamp(16px, 4vw, ${pageMarginsValue}px)`,
-                ...(brightnessValue !== 100 ? {filter: `brightness(${brightnessValue / 100})`} : {}),
+                ...(brightnessValue !== 100
+                  ? { filter: `brightness(${brightnessValue / 100})` }
+                  : {}),
               }}
               className="folio-page-card rounded-lg flex-1 min-h-0 flex flex-col py-4 sm:py-7 relative"
             >
@@ -1904,12 +2123,16 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
               <div className="mb-3 sm:mb-4 pb-2 border-b border-[var(--border-subtle)]/75 flex items-center justify-between text-[11px] text-[var(--text-muted)] shrink-0">
                 <span className="truncate">{chapter?.title}</span>
                 <span className="font-mono-tabular shrink-0 ml-4">
-                  {isTwoColumn ? 'Spread' : 'Page'} {spreadIndex + 1} / {totalSpreads}
+                  {isTwoColumn ? "Spread" : "Page"} {spreadIndex + 1} /{" "}
+                  {totalSpreads}
                 </span>
               </div>
 
               {/* Multi-Column Paginated Frame */}
-              <div ref={spreadFrameRef} className="relative flex-1 min-h-0 overflow-hidden">
+              <div
+                ref={spreadFrameRef}
+                className="relative flex-1 min-h-0 overflow-hidden"
+              >
                 {/* Subtle vertical center codex gutter divider when 2 columns are active */}
                 {isTwoColumn && (
                   <div
@@ -1928,9 +2151,11 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                   ref={paginatedProseRef}
                   onMouseUp={() => handleMouseUpOnChapter(chapterIndex)}
                   onTouchEnd={() => handleMouseUpOnChapter(chapterIndex)}
-                  className={`folio-prose ${prefs.publisherStyles ? 'folio-prose--publisher' : ''} folio-spread-content ${fontClass} ${
-                    voiceActive && voiceTapToRead ? 'folio-voice-tap-active' : ''
-                  } ${animateSpreadTurn ? 'transition-transform duration-200 ease-out' : ''}`}
+                  className={`folio-prose ${prefs.publisherStyles ? "folio-prose--publisher" : ""} folio-spread-content ${fontClass} ${
+                    voiceActive && voiceTapToRead
+                      ? "folio-voice-tap-active"
+                      : ""
+                  } ${animateSpreadTurn ? "transition-transform duration-200 ease-out" : ""}`}
                   style={{
                     ...proseCustomStyles,
                     width: `${spreadFrameWidth}px`,
@@ -1951,7 +2176,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                 e.stopPropagation();
                 stepPrev();
               }}
-              aria-label={isTwoColumn ? 'Previous spread' : 'Previous page'}
+              aria-label={isTwoColumn ? "Previous spread" : "Previous page"}
               className="hidden sm:flex items-center justify-center absolute -left-9 lg:-left-11 top-1/2 -translate-y-1/2 w-8 h-16 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]/90 disabled:opacity-20 disabled:pointer-events-none transition-colors cursor-pointer z-20"
             >
               <ChevronLeft className="w-5 h-5" />
@@ -1963,7 +2188,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                 e.stopPropagation();
                 stepNext();
               }}
-              aria-label={isTwoColumn ? 'Next spread' : 'Next page'}
+              aria-label={isTwoColumn ? "Next spread" : "Next page"}
               className="hidden sm:flex items-center justify-center absolute -right-9 lg:-right-11 top-1/2 -translate-y-1/2 w-8 h-16 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]/90 disabled:opacity-20 disabled:pointer-events-none transition-colors cursor-pointer z-20"
             >
               <ChevronRight className="w-5 h-5" />
@@ -1984,14 +2209,15 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
         >
           <div
             className={`mx-auto px-2.5 sm:px-8 space-y-5 sm:space-y-6 ${scrollTopPad} ${scrollBottomPad}`}
-            style={{maxWidth: `${prefs.pageWidth + 112}px`}}
+            style={{ maxWidth: `${prefs.pageWidth + 112}px` }}
           >
             {chapters.map((ch) => {
               const chMetric = metrics?.chapters[ch.index];
               const startVPage = chMetric?.startVirtualPage ?? ch.index + 1;
               const vPageCount = chMetric?.virtualPageCount ?? 1;
               const estHeight =
-                measuredHeightsRef.current.get(ch.index) ?? Math.max(380, vPageCount * 760);
+                measuredHeightsRef.current.get(ch.index) ??
+                Math.max(380, vPageCount * 760);
 
               return (
                 <ContinuousChapterCard
@@ -2014,7 +2240,9 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                       : null
                   }
                   pendingAnchorId={
-                    pendingAnchor?.chapterIndex === ch.index ? pendingAnchor.anchorId : null
+                    pendingAnchor?.chapterIndex === ch.index
+                      ? pendingAnchor.anchorId
+                      : null
                   }
                   fontClass={fontClass}
                   publisherStyles={prefs.publisherStyles}
@@ -2035,7 +2263,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
             <div className="py-10 text-center text-xs text-[var(--text-muted)] font-serif-editorial">
               <span>End of Document · </span>
               <span className="font-mono-tabular">
-                {totalVirtualPages} {totalVirtualPages === 1 ? 'page' : 'pages'}
+                {totalVirtualPages} {totalVirtualPages === 1 ? "page" : "pages"}
               </span>
             </div>
           </div>
@@ -2045,12 +2273,17 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       {/* Footnote Preview Popover */}
       <FootnotePopover
         footnote={footnotePreview}
-        onJumpToSource={(targetCh, anchor) => navigateWithHistory(targetCh, anchor)}
+        onJumpToSource={(targetCh, anchor) =>
+          navigateWithHistory(targetCh, anchor)
+        }
         onClose={() => setFootnotePreview(null)}
       />
 
       {/* Illustration Zoom Lightbox */}
-      <ImageLightbox image={lightboxImage} onClose={() => setLightboxImage(null)} />
+      <ImageLightbox
+        image={lightboxImage}
+        onClose={() => setLightboxImage(null)}
+      />
 
       {/* Inline Existing Highlight Popover (Recolor, Note, Copy, Study Pane, Delete) */}
       {activeHighlightPopover && (
@@ -2061,7 +2294,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
           }}
           onClick={(e) => e.stopPropagation()}
           className={`fixed z-50 w-76 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 ${
-            activeHighlightPopover.placeBelow ? '' : '-translate-y-full'
+            activeHighlightPopover.placeBelow ? "" : "-translate-y-full"
           } rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-2xl p-3 space-y-2.5`}
         >
           {/* Top Row: Color Swatches + Quick Actions */}
@@ -2082,15 +2315,15 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                       };
                       onUpdateHighlight?.(updated);
                       setActiveHighlightPopover((prev) =>
-                        prev ? {...prev, highlight: updated} : null
+                        prev ? { ...prev, highlight: updated } : null,
                       );
                     }}
                     className={`w-4 h-4 rounded-full border border-black/15 transition-transform cursor-pointer ${
                       active
-                        ? 'ring-2 ring-[var(--text-primary)] ring-offset-1 ring-offset-[var(--bg-elevated)] scale-110'
-                        : 'opacity-70 hover:opacity-100'
+                        ? "ring-2 ring-[var(--text-primary)] ring-offset-1 ring-offset-[var(--bg-elevated)] scale-110"
+                        : "opacity-70 hover:opacity-100"
                     }`}
-                    style={{backgroundColor: c.swatch}}
+                    style={{ backgroundColor: c.swatch }}
                   />
                 );
               })}
@@ -2103,12 +2336,16 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                 aria-label="Copy highlight text"
                 onClick={() => {
                   const hl = activeHighlightPopover.highlight;
-                  void navigator.clipboard?.writeText(hl.selectedText).then(() => {
-                    setCopiedHighlightId(hl.id);
-                    window.setTimeout(() => {
-                      setCopiedHighlightId((curr) => (curr === hl.id ? null : curr));
-                    }, 1600);
-                  });
+                  void navigator.clipboard
+                    ?.writeText(hl.selectedText)
+                    .then(() => {
+                      setCopiedHighlightId(hl.id);
+                      window.setTimeout(() => {
+                        setCopiedHighlightId((curr) =>
+                          curr === hl.id ? null : curr,
+                        );
+                      }, 1600);
+                    });
                 }}
                 className="p-1.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
               >
@@ -2128,12 +2365,12 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                     const hl = activeHighlightPopover.highlight;
                     const body = [
                       hl.selectedText,
-                      hl.note.trim() ? `Note: ${hl.note.trim()}` : '',
+                      hl.note.trim() ? `Note: ${hl.note.trim()}` : "",
                     ]
                       .filter(Boolean)
-                      .join('\n\n');
+                      .join("\n\n");
                     const loc = `Section ${hl.unitIndex + 1}`;
-                    if (body) onSendToNotes(body, loc);
+                    if (body) onSendToNotes(body, loc, hl.unitIndex);
                   }}
                   className="p-1.5 rounded text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
                 >
@@ -2194,7 +2431,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                 value={activeHighlightPopover.noteDraft}
                 onChange={(e) =>
                   setActiveHighlightPopover((prev) =>
-                    prev ? {...prev, noteDraft: e.target.value} : null
+                    prev ? { ...prev, noteDraft: e.target.value } : null,
                   )
                 }
                 placeholder="Write a reflection or note..."
@@ -2211,7 +2448,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                             editingNote: false,
                             noteDraft: prev.highlight.note,
                           }
-                        : null
+                        : null,
                     )
                   }
                   className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
@@ -2234,7 +2471,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                             editingNote: false,
                             noteDraft: updated.note,
                           }
-                        : null
+                        : null,
                     );
                   }}
                   className="px-2.5 py-1 text-xs font-medium rounded bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] cursor-pointer"
@@ -2258,7 +2495,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                           editingNote: true,
                           noteDraft: prev.highlight.note,
                         }
-                      : null
+                      : null,
                   )
                 }
                 className="text-[11px] text-[var(--accent)] hover:underline cursor-pointer"
@@ -2271,7 +2508,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
               type="button"
               onClick={() =>
                 setActiveHighlightPopover((prev) =>
-                  prev ? {...prev, editingNote: true, noteDraft: ''} : null
+                  prev ? { ...prev, editingNote: true, noteDraft: "" } : null,
                 )
               }
               className="inline-flex items-center gap-1 text-[11px] text-[var(--text-secondary)] hover:text-[var(--accent)] cursor-pointer"
@@ -2287,7 +2524,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
       {selectionMenu && (
         <div
           style={
-            typeof window !== 'undefined' && window.innerWidth >= 1024
+            typeof window !== "undefined" && window.innerWidth >= 1024
               ? {
                   left: `${selectionMenu.x}px`,
                   top: `${selectionMenu.y}px`,
@@ -2296,9 +2533,9 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
           }
           onClick={(e) => e.stopPropagation()}
           className={`fixed z-50 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-xl p-2 ${
-            typeof window !== 'undefined' && window.innerWidth >= 1024
-              ? `-translate-x-1/2 ${selectionMenu.placeBelow ? '' : '-translate-y-full'}`
-              : 'bottom-16 left-1/2 -translate-x-1/2 max-w-[calc(100vw-1.5rem)]'
+            typeof window !== "undefined" && window.innerWidth >= 1024
+              ? `-translate-x-1/2 ${selectionMenu.placeBelow ? "" : "-translate-y-full"}`
+              : "bottom-16 left-1/2 -translate-x-1/2 max-w-[calc(100vw-1.5rem)]"
           }`}
         >
           {!noteOpen ? (
@@ -2312,7 +2549,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                     aria-label={`Highlight in ${c.label}`}
                     onClick={() => commitHighlight(c.id)}
                     className="w-5 h-5 rounded-full border border-black/15 hover:scale-110 transition-transform cursor-pointer"
-                    style={{backgroundColor: c.swatch}}
+                    style={{ backgroundColor: c.swatch }}
                   />
                 ))}
               </div>
@@ -2346,10 +2583,10 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
                       aria-label={`Select ${c.label} highlight`}
                       className={`w-4 h-4 rounded-full cursor-pointer ${
                         noteColor === c.id
-                          ? 'ring-2 ring-[var(--text-primary)] ring-offset-1 ring-offset-[var(--bg-elevated)]'
-                          : 'opacity-70'
+                          ? "ring-2 ring-[var(--text-primary)] ring-offset-1 ring-offset-[var(--bg-elevated)]"
+                          : "opacity-70"
                       }`}
-                      style={{backgroundColor: c.swatch}}
+                      style={{ backgroundColor: c.swatch }}
                     />
                   ))}
                 </div>

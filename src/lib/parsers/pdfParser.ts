@@ -1,15 +1,15 @@
-import * as pdfjsLib from 'pdfjs-dist';
+import * as pdfjsLib from "pdfjs-dist";
 import type {
   ImportMetadataResult,
   ParsedChapter,
   ParsedReflowableBook,
   ParsedTocItem,
-} from '../../types/library';
-import {computeSha256Hex} from '../db';
+} from "../../../library";
+import { computeSha256Hex } from "../db";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url,
 ).toString();
 
 export type PdfDocumentHandle = pdfjsLib.PDFDocumentProxy;
@@ -17,32 +17,38 @@ export type PdfDocumentHandle = pdfjsLib.PDFDocumentProxy;
 function cleanBaseName(fileName: string): string {
   return (
     fileName
-      .replace(/\.pdf$/i, '')
-      .replace(/[_-]+/g, ' ')
-      .trim() || 'Untitled PDF'
+      .replace(/\.pdf$/i, "")
+      .replace(/[_-]+/g, " ")
+      .trim() || "Untitled PDF"
   );
 }
 
-export async function loadPdfDocument(data: ArrayBuffer): Promise<PdfDocumentHandle> {
+export async function loadPdfDocument(
+  data: ArrayBuffer,
+): Promise<PdfDocumentHandle> {
   // Always copy slice so PDF.js worker transfer never detaches caller's ArrayBuffer
   const copy = new Uint8Array(data.slice(0));
   const loadingTask = pdfjsLib.getDocument({
     data: copy,
-    cMapUrl: '/pdfjs/cmaps/',
+    cMapUrl: "/pdfjs/cmaps/",
     cMapPacked: true,
-    standardFontDataUrl: '/pdfjs/standard_fonts/',
-    iccUrl: '/pdfjs/iccs/',
-    wasmUrl: '/pdfjs/wasm/',
+    standardFontDataUrl: "/pdfjs/standard_fonts/",
+    iccUrl: "/pdfjs/iccs/",
+    wasmUrl: "/pdfjs/wasm/",
     useSystemFonts: true,
   });
   return loadingTask.promise;
 }
 
-export async function destroyPdfDocument(doc: PdfDocumentHandle | null): Promise<void> {
+export async function destroyPdfDocument(
+  doc: PdfDocumentHandle | null,
+): Promise<void> {
   if (!doc) return;
   try {
-    const maybeDestroyable = doc as unknown as {destroy?: () => Promise<void>};
-    if (typeof maybeDestroyable.destroy === 'function') {
+    const maybeDestroyable = doc as unknown as {
+      destroy?: () => Promise<void>;
+    };
+    if (typeof maybeDestroyable.destroy === "function") {
       await maybeDestroyable.destroy();
     }
   } catch {
@@ -56,7 +62,9 @@ interface PdfOutlineNode {
   items?: PdfOutlineNode[];
 }
 
-export async function extractPdfToc(doc: PdfDocumentHandle): Promise<ParsedTocItem[]> {
+export async function extractPdfToc(
+  doc: PdfDocumentHandle,
+): Promise<ParsedTocItem[]> {
   const toc: ParsedTocItem[] = [];
   try {
     const outline = (await doc.getOutline()) as PdfOutlineNode[] | null;
@@ -68,17 +76,21 @@ export async function extractPdfToc(doc: PdfDocumentHandle): Promise<ParsedTocIt
         let pageNum = 1;
         try {
           let destArray: unknown[] | null = null;
-          if (typeof node.dest === 'string') {
-            destArray = (await doc.getDestination(node.dest)) as unknown[] | null;
+          if (typeof node.dest === "string") {
+            destArray = (await doc.getDestination(node.dest)) as
+              | unknown[]
+              | null;
           } else if (Array.isArray(node.dest)) {
             destArray = node.dest;
           }
           if (destArray && destArray[0]) {
             const ref = destArray[0];
-            if (typeof ref === 'number') {
+            if (typeof ref === "number") {
               pageNum = ref + 1;
             } else {
-              const idx = await doc.getPageIndex(ref as Parameters<typeof doc.getPageIndex>[0]);
+              const idx = await doc.getPageIndex(
+                ref as Parameters<typeof doc.getPageIndex>[0],
+              );
               pageNum = idx + 1;
             }
           }
@@ -128,14 +140,16 @@ export interface PdfReflowExtractResult {
 
 function escapeHtml(text: string): string {
   return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
-function clusterItemsIntoLines(rawItems: RawPdfTextItem[]): ReconstructedLine[] {
+function clusterItemsIntoLines(
+  rawItems: RawPdfTextItem[],
+): ReconstructedLine[] {
   interface Fragment {
     x: number;
     y: number;
@@ -146,11 +160,18 @@ function clusterItemsIntoLines(rawItems: RawPdfTextItem[]): ReconstructedLine[] 
 
   const fragments: Fragment[] = [];
   for (const item of rawItems) {
-    if (typeof item.str !== 'string' || !Array.isArray(item.transform) || item.transform.length < 6) {
+    if (
+      typeof item.str !== "string" ||
+      !Array.isArray(item.transform) ||
+      item.transform.length < 6
+    ) {
       continue;
     }
     if (item.str.length === 0) continue;
-    const fontHeight = Math.hypot(item.transform[2], item.transform[3]) || Math.abs(item.height || 0) || 11;
+    const fontHeight =
+      Math.hypot(item.transform[2], item.transform[3]) ||
+      Math.abs(item.height || 0) ||
+      11;
     fragments.push({
       x: item.transform[4],
       y: item.transform[5],
@@ -174,7 +195,11 @@ function clusterItemsIntoLines(rawItems: RawPdfTextItem[]): ReconstructedLine[] 
   for (const frag of fragments) {
     if (frag.str.trim().length === 0 && frag.width === 0) continue;
     let targetBucket: Fragment[] | null = null;
-    for (let i = lineBuckets.length - 1; i >= Math.max(0, lineBuckets.length - 6); i--) {
+    for (
+      let i = lineBuckets.length - 1;
+      i >= Math.max(0, lineBuckets.length - 6);
+      i--
+    ) {
       const bucket = lineBuckets[i];
       const ref = bucket[0];
       const tolerance = Math.max(ref.fontHeight, frag.fontHeight) * 0.45;
@@ -193,7 +218,7 @@ function clusterItemsIntoLines(rawItems: RawPdfTextItem[]): ReconstructedLine[] 
   const lines: ReconstructedLine[] = [];
   for (const bucket of lineBuckets) {
     bucket.sort((a, b) => a.x - b.x);
-    let text = '';
+    let text = "";
     let prevEndX = bucket[0].x;
     let minX = bucket[0].x;
     let maxX = bucket[0].x + bucket[0].width;
@@ -214,20 +239,21 @@ function clusterItemsIntoLines(rawItems: RawPdfTextItem[]): ReconstructedLine[] 
         const prevEndsSpace = /\s$/.test(text);
         const currStartsSpace = /^\s/.test(frag.str);
         if (!prevEndsSpace && !currStartsSpace && gap > avgH * 0.16) {
-          text += ' ';
+          text += " ";
         }
       }
       text += frag.str;
       prevEndX = Math.max(prevEndX, frag.x + frag.width);
     }
 
-    const cleaned = text.replace(/\s+/g, ' ').trim();
+    const cleaned = text.replace(/\s+/g, " ").trim();
     if (!cleaned) continue;
     lines.push({
       y: bucket[0].y,
       minX,
       maxX,
-      fontHeight: totalChars > 0 ? weightedHeight / totalChars : bucket[0].fontHeight,
+      fontHeight:
+        totalChars > 0 ? weightedHeight / totalChars : bucket[0].fontHeight,
       text: cleaned,
     });
   }
@@ -257,7 +283,11 @@ function estimateBodyFontHeight(pagesLines: ReconstructedLine[][]): number {
 
 function appendDeHyphenated(current: string, nextLine: string): string {
   if (!current) return nextLine;
-  if (/[A-Za-z\u00C0-\u024F]-$/.test(current) && !/\s-$|--$/.test(current) && /^[a-z\u00E0-\u024F]/.test(nextLine)) {
+  if (
+    /[A-Za-z\u00C0-\u024F]-$/.test(current) &&
+    !/\s-$|--$/.test(current) &&
+    /^[a-z\u00E0-\u024F]/.test(nextLine)
+  ) {
     return current.slice(0, -1) + nextLine;
   }
   return `${current} ${nextLine}`;
@@ -266,7 +296,7 @@ function appendDeHyphenated(current: string, nextLine: string): string {
 export async function extractPdfReflowableBook(
   doc: PdfDocumentHandle,
   title: string,
-  author: string
+  author: string,
 ): Promise<PdfReflowExtractResult> {
   const pagesLines: ReconstructedLine[][] = [];
   for (let p = 1; p <= doc.numPages; p++) {
@@ -299,12 +329,15 @@ export async function extractPdfReflowableBook(
     }
 
     const sortedMinX = [...lines].map((l) => l.minX).sort((a, b) => a - b);
-    const pageLeftMargin = sortedMinX[Math.floor(sortedMinX.length * 0.15)] ?? sortedMinX[0];
+    const pageLeftMargin =
+      sortedMinX[Math.floor(sortedMinX.length * 0.15)] ?? sortedMinX[0];
     const sortedMaxX = [...lines].map((l) => l.maxX).sort((a, b) => a - b);
-    const pageRightEdge = sortedMaxX[Math.floor(sortedMaxX.length * 0.85)] ?? sortedMaxX[sortedMaxX.length - 1];
+    const pageRightEdge =
+      sortedMaxX[Math.floor(sortedMaxX.length * 0.85)] ??
+      sortedMaxX[sortedMaxX.length - 1];
 
     const blocks: string[] = [];
-    let paraBuffer = '';
+    let paraBuffer = "";
 
     const flushPara = () => {
       const trimmed = paraBuffer.trim();
@@ -312,7 +345,7 @@ export async function extractPdfReflowableBook(
         blocks.push(`<p>${escapeHtml(trimmed)}</p>`);
         extractedWordCount += trimmed.split(/\s+/).filter(Boolean).length;
       }
-      paraBuffer = '';
+      paraBuffer = "";
     };
 
     for (let i = 0; i < lines.length; i++) {
@@ -343,7 +376,8 @@ export async function extractPdfReflowableBook(
       const lineStepRef = Math.max(prevLine.fontHeight, line.fontHeight);
       const largeVerticalGap = verticalGap > lineStepRef * 1.52;
       const hasIndent =
-        line.minX - pageLeftMargin > line.fontHeight * 1.15 && prevLine.text.length > 20;
+        line.minX - pageLeftMargin > line.fontHeight * 1.15 &&
+        prevLine.text.length > 20;
       const prevShortSentenceEnd =
         /[.!?]["'”’)\]]*$/.test(prevLine.text) &&
         pageRightEdge - prevLine.maxX > line.fontHeight * 4.5 &&
@@ -363,7 +397,7 @@ export async function extractPdfReflowableBook(
       id: `pdf-page-${pageNum}`,
       href: `#pdf-page-${pageNum}`,
       title: `Page ${pageNum}`,
-      html: blocks.join('\n'),
+      html: blocks.join("\n"),
     });
   }
 
@@ -381,23 +415,26 @@ export async function extractPdfReflowableBook(
 
 export async function extractPdfImportMetadata(
   data: ArrayBuffer,
-  fileName: string
+  fileName: string,
 ): Promise<ImportMetadataResult> {
   const fileHash = await computeSha256Hex(data);
   const doc = await loadPdfDocument(data);
   let title = cleanBaseName(fileName);
-  let author = 'Unknown Author';
-  let description = '';
-  let year = '';
+  let author = "Unknown Author";
+  let description = "";
+  let year = "";
 
   try {
     const meta = await doc.getMetadata();
     const info = meta.info as Record<string, unknown> | undefined;
     if (info) {
-      if (typeof info.Title === 'string' && info.Title.trim()) title = info.Title.trim();
-      if (typeof info.Author === 'string' && info.Author.trim()) author = info.Author.trim();
-      if (typeof info.Subject === 'string' && info.Subject.trim()) description = info.Subject.trim();
-      if (typeof info.CreationDate === 'string') {
+      if (typeof info.Title === "string" && info.Title.trim())
+        title = info.Title.trim();
+      if (typeof info.Author === "string" && info.Author.trim())
+        author = info.Author.trim();
+      if (typeof info.Subject === "string" && info.Subject.trim())
+        description = info.Subject.trim();
+      if (typeof info.CreationDate === "string") {
         const yMatch = info.CreationDate.match(/(19|20)\d{2}/);
         if (yMatch) year = yMatch[0];
       }
@@ -409,18 +446,19 @@ export async function extractPdfImportMetadata(
   let coverDataUrl: string | null = null;
   try {
     const page = await doc.getPage(1);
-    const vp = page.getViewport({scale: 1});
+    const vp = page.getViewport({ scale: 1 });
     const scale = Math.min(1.25, 360 / Math.max(1, vp.width));
-    const scaled = page.getViewport({scale});
-    const canvas = document.createElement('canvas');
+    const scaled = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(scaled.width));
     canvas.height = Math.max(1, Math.round(scaled.height));
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (ctx) {
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({canvas, canvasContext: ctx, viewport: scaled}).promise;
-      coverDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      await page.render({ canvas, canvasContext: ctx, viewport: scaled })
+        .promise;
+      coverDataUrl = canvas.toDataURL("image/jpeg", 0.82);
     }
   } catch {
     coverDataUrl = null;
@@ -430,16 +468,16 @@ export async function extractPdfImportMetadata(
   await destroyPdfDocument(doc);
 
   return {
-    format: 'pdf',
+    format: "pdf",
     fileName,
     fileSize: data.byteLength,
     fileHash,
     title,
-    subtitle: '',
+    subtitle: "",
     author,
     description,
-    publisher: '',
-    language: 'en',
+    publisher: "",
+    language: "en",
     year,
     totalUnits,
     coverDataUrl,

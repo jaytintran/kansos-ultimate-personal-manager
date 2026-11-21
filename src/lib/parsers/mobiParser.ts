@@ -3,15 +3,15 @@ import type {
   ParsedChapter,
   ParsedReflowableBook,
   ParsedTocItem,
-} from '../../types/library';
-import {computeSha256Hex} from '../db';
+} from "../../../library";
+import { computeSha256Hex } from "../db";
 
 function cleanBaseName(fileName: string): string {
   return (
     fileName
-      .replace(/\.(mobi|prc|azw)$/i, '')
-      .replace(/[_-]+/g, ' ')
-      .trim() || 'Untitled MOBI'
+      .replace(/\.(mobi|prc|azw)$/i, "")
+      .replace(/[_-]+/g, " ")
+      .trim() || "Untitled MOBI"
   );
 }
 
@@ -50,7 +50,7 @@ function decompressPalmDoc(input: Uint8Array): Uint8Array {
 }
 
 function readAscii(view: DataView, offset: number, len: number): string {
-  let out = '';
+  let out = "";
   for (let i = 0; i < len && offset + i < view.byteLength; i++) {
     const ch = view.getUint8(offset + i);
     if (ch === 0) break;
@@ -67,18 +67,21 @@ interface MobiExtracted {
   html: string;
 }
 
-function decodeMobiBinary(buffer: ArrayBuffer, fallbackTitle: string): MobiExtracted {
+function decodeMobiBinary(
+  buffer: ArrayBuffer,
+  fallbackTitle: string,
+): MobiExtracted {
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
 
   if (buffer.byteLength < 96) {
-    throw new Error('File is too small to be a valid MOBI/PRC ebook.');
+    throw new Error("File is too small to be a valid MOBI/PRC ebook.");
   }
 
-  const pdbTitle = readAscii(view, 0, 32).replace(/[_]+/g, ' ').trim();
+  const pdbTitle = readAscii(view, 0, 32).replace(/[_]+/g, " ").trim();
   const numRecords = view.getUint16(76, false);
   if (numRecords < 2 || 78 + numRecords * 8 > buffer.byteLength) {
-    throw new Error('Unsupported or corrupted MOBI record table.');
+    throw new Error("Unsupported or corrupted MOBI record table.");
   }
 
   const recordOffsets: number[] = [];
@@ -94,23 +97,28 @@ function decodeMobiBinary(buffer: ArrayBuffer, fallbackTitle: string): MobiExtra
   const encryption = view.getUint16(rec0Start + 12, false);
 
   if (encryption !== 0) {
-    throw new Error('This MOBI file is DRM-encrypted and cannot be opened offline.');
+    throw new Error(
+      "This MOBI file is DRM-encrypted and cannot be opened offline.",
+    );
   }
   if (compression !== 1 && compression !== 2) {
     throw new Error(
-      'This MOBI uses Huff/CDIC compression. Convert to EPUB for full reading support.'
+      "This MOBI uses Huff/CDIC compression. Convert to EPUB for full reading support.",
     );
   }
 
   let title = pdbTitle || fallbackTitle;
-  let author = 'Unknown Author';
-  let publisher = '';
-  let description = '';
+  let author = "Unknown Author";
+  let publisher = "";
+  let description = "";
   let encoding = 65001; // UTF-8 default
   let trailingFlags = 0;
 
   // Parse MOBI header if present at rec0Start + 16
-  if (rec0Start + 32 < rec0End && readAscii(view, rec0Start + 16, 4) === 'MOBI') {
+  if (
+    rec0Start + 32 < rec0End &&
+    readAscii(view, rec0Start + 16, 4) === "MOBI"
+  ) {
     const mobiHeaderLen = view.getUint32(rec0Start + 20, false);
     encoding = view.getUint32(rec0Start + 28, false);
     const fullNameOffset = view.getUint32(rec0Start + 84, false);
@@ -120,9 +128,16 @@ function decodeMobiBinary(buffer: ArrayBuffer, fallbackTitle: string): MobiExtra
       fullNameLen > 0 &&
       rec0Start + fullNameOffset + fullNameLen <= rec0End
     ) {
-      const decoder = new TextDecoder(encoding === 1252 ? 'windows-1252' : 'utf-8');
+      const decoder = new TextDecoder(
+        encoding === 1252 ? "windows-1252" : "utf-8",
+      );
       const fullName = decoder
-        .decode(bytes.slice(rec0Start + fullNameOffset, rec0Start + fullNameOffset + fullNameLen))
+        .decode(
+          bytes.slice(
+            rec0Start + fullNameOffset,
+            rec0Start + fullNameOffset + fullNameLen,
+          ),
+        )
         .trim();
       if (fullName) title = fullName;
     }
@@ -132,20 +147,33 @@ function decodeMobiBinary(buffer: ArrayBuffer, fallbackTitle: string): MobiExtra
     }
 
     // Parse EXTH metadata block if flag bit 0x40 is set
-    const exthFlags = rec0Start + 132 <= rec0End ? view.getUint32(rec0Start + 128, false) : 0;
+    const exthFlags =
+      rec0Start + 132 <= rec0End ? view.getUint32(rec0Start + 128, false) : 0;
     const exthStart = rec0Start + 16 + mobiHeaderLen;
-    if ((exthFlags & 0x40) !== 0 && exthStart + 12 <= rec0End && readAscii(view, exthStart, 4) === 'EXTH') {
+    if (
+      (exthFlags & 0x40) !== 0 &&
+      exthStart + 12 <= rec0End &&
+      readAscii(view, exthStart, 4) === "EXTH"
+    ) {
       const exthCount = view.getUint32(exthStart + 8, false);
       let cursor = exthStart + 12;
-      const decoder = new TextDecoder(encoding === 1252 ? 'windows-1252' : 'utf-8');
+      const decoder = new TextDecoder(
+        encoding === 1252 ? "windows-1252" : "utf-8",
+      );
       for (let i = 0; i < exthCount && cursor + 8 <= rec0End; i++) {
         const recType = view.getUint32(cursor, false);
         const recLen = view.getUint32(cursor + 4, false);
         if (recLen < 8 || cursor + recLen > rec0End) break;
-        const val = decoder.decode(bytes.slice(cursor + 8, cursor + recLen)).trim();
+        const val = decoder
+          .decode(bytes.slice(cursor + 8, cursor + recLen))
+          .trim();
         if (recType === 100 && val) author = val;
         if (recType === 101 && val) publisher = val;
-        if (recType === 103 && val) description = val.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (recType === 103 && val)
+          description = val
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
         if (recType === 503 && val) title = val;
         cursor += recLen;
       }
@@ -182,7 +210,7 @@ function decodeMobiBinary(buffer: ArrayBuffer, fallbackTitle: string): MobiExtra
         }
         flags >>= 1;
       }
-      if ((trailingFlags & 1) && end > start) {
+      if (trailingFlags & 1 && end > start) {
         const overlap = (bytes[end - 1] & 0x03) + 1;
         if (end - overlap >= start) end -= overlap;
       }
@@ -201,25 +229,28 @@ function decodeMobiBinary(buffer: ArrayBuffer, fallbackTitle: string): MobiExtra
     offset += ch.byteLength;
   }
 
-  const decoder = new TextDecoder(encoding === 1252 ? 'windows-1252' : 'utf-8');
+  const decoder = new TextDecoder(encoding === 1252 ? "windows-1252" : "utf-8");
   const html = decoder.decode(combined);
 
-  return {title, author, publisher, description, html};
+  return { title, author, publisher, description, html };
 }
 
-function splitMobiHtmlIntoChapters(rawHtml: string, bookTitle: string): {
+function splitMobiHtmlIntoChapters(
+  rawHtml: string,
+  bookTitle: string,
+): {
   chapters: ParsedChapter[];
   toc: ParsedTocItem[];
 } {
   const cleaned = rawHtml
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '');
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "");
 
   // Split on Kindle pagebreak markers or major heading tags
   const parts = cleaned
     .split(/<mbp:pagebreak\s*\/?>/i)
     .map((p) => p.trim())
-    .filter((p) => p.replace(/<[^>]+>/g, '').trim().length > 0);
+    .filter((p) => p.replace(/<[^>]+>/g, "").trim().length > 0);
 
   const sections = parts.length > 0 ? parts : [cleaned];
   const parser = new DOMParser();
@@ -227,10 +258,12 @@ function splitMobiHtmlIntoChapters(rawHtml: string, bookTitle: string): {
   const toc: ParsedTocItem[] = [];
 
   sections.forEach((sec, idx) => {
-    const doc = parser.parseFromString(sec, 'text/html');
-    doc.querySelectorAll('script, style, iframe, object').forEach((el) => el.remove());
-    const heading = doc.querySelector('h1, h2, h3, b, strong');
-    const candidate = heading?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    const doc = parser.parseFromString(sec, "text/html");
+    doc
+      .querySelectorAll("script, style, iframe, object")
+      .forEach((el) => el.remove());
+    const heading = doc.querySelector("h1, h2, h3, b, strong");
+    const candidate = heading?.textContent?.replace(/\s+/g, " ").trim() || "";
     const title =
       candidate && candidate.length <= 90
         ? candidate
@@ -254,15 +287,18 @@ function splitMobiHtmlIntoChapters(rawHtml: string, bookTitle: string): {
     });
   });
 
-  return {chapters, toc};
+  return { chapters, toc };
 }
 
 export async function parseMobiForReading(
   data: ArrayBuffer,
-  fallbackTitle = 'Untitled MOBI'
+  fallbackTitle = "Untitled MOBI",
 ): Promise<ParsedReflowableBook> {
   const extracted = decodeMobiBinary(data, fallbackTitle);
-  const {chapters, toc} = splitMobiHtmlIntoChapters(extracted.html, extracted.title);
+  const { chapters, toc } = splitMobiHtmlIntoChapters(
+    extracted.html,
+    extracted.title,
+  );
   return {
     title: extracted.title,
     author: extracted.author,
@@ -274,23 +310,26 @@ export async function parseMobiForReading(
 
 export async function extractMobiImportMetadata(
   data: ArrayBuffer,
-  fileName: string
+  fileName: string,
 ): Promise<ImportMetadataResult> {
   const fileHash = await computeSha256Hex(data);
   const extracted = decodeMobiBinary(data, cleanBaseName(fileName));
-  const {chapters} = splitMobiHtmlIntoChapters(extracted.html, extracted.title);
+  const { chapters } = splitMobiHtmlIntoChapters(
+    extracted.html,
+    extracted.title,
+  );
   return {
-    format: 'mobi',
+    format: "mobi",
     fileName,
     fileSize: data.byteLength,
     fileHash,
     title: extracted.title,
-    subtitle: '',
+    subtitle: "",
     author: extracted.author,
     description: extracted.description,
     publisher: extracted.publisher,
-    language: 'en',
-    year: '',
+    language: "en",
+    year: "",
     totalUnits: Math.max(1, chapters.length),
     coverDataUrl: null,
   };

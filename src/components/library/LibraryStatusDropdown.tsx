@@ -13,7 +13,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import type { SmartView } from "../../types/library";
+import type { SmartView } from "../../../library";
 import type { ActiveLibraryFilter } from "./LibrarySidebar";
 
 interface LibraryStatusDropdownProps {

@@ -1,34 +1,28 @@
-import {
-  Download,
-  HardDrive,
-  Plus,
-  Trash2,
-  Upload,
-} from 'lucide-react';
-import React, {useRef, useState} from 'react';
-import {formatFileSize} from '../../lib/formatters';
+import { Download, HardDrive, Plus, Trash2, Upload } from "lucide-react";
+import React, { useRef, useState } from "react";
+import { formatFileSize } from "../../lib/formatters";
 import type {
   BookFormat,
   CardDetailOptions,
   CategoryRecord,
   CoverSize,
   GroupByField,
-} from '../../types/library';
-import type {ActiveLibraryFilter} from './LibrarySidebar';
+} from "../../../library";
+import type { ActiveLibraryFilter } from "./LibrarySidebar";
 
 interface LibraryOptionsPopoverProps {
-  formatFilter: 'all' | BookFormat;
+  formatFilter: "all" | BookFormat;
   groupBy: GroupByField;
   coverSize: CoverSize;
   cardDetails: CardDetailOptions;
-  allTags: Array<{name: string; count: number}>;
+  allTags: Array<{ name: string; count: number }>;
   selectedTags: string[];
   categories: CategoryRecord[];
   activeFilter: ActiveLibraryFilter;
   totalBytes: number;
   isExportingBackup: boolean;
   isParsingBackup: boolean;
-  onFormatFilterChange: (fmt: 'all' | BookFormat) => void;
+  onFormatFilterChange: (fmt: "all" | BookFormat) => void;
   onGroupByChange: (group: GroupByField) => void;
   onCoverSizeChange: (size: CoverSize) => void;
   onCardDetailsChange: (patch: Partial<CardDetailOptions>) => void;
@@ -43,7 +37,7 @@ interface LibraryOptionsPopoverProps {
   onClose: () => void;
 }
 
-const COVER_SIZE_STEPS: CoverSize[] = ['compact', 'standard', 'large'];
+const COVER_SIZE_STEPS: CoverSize[] = ["compact", "standard", "large"];
 
 export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
   formatFilter,
@@ -71,7 +65,7 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
   onOpenStorageManager,
   onClose,
 }) => {
-  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryName, setNewCategoryName] = useState("");
   const backupInputRef = useRef<HTMLInputElement>(null);
 
   const handleAddCategory = (e: React.FormEvent) => {
@@ -79,7 +73,7 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
     const trimmed = newCategoryName.trim();
     if (!trimmed) return;
     onCreateCategory(trimmed);
-    setNewCategoryName('');
+    setNewCategoryName("");
   };
 
   return (
@@ -100,7 +94,7 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
             onSelectImportBackupFile(file);
             onClose();
           }
-          e.target.value = '';
+          e.target.value = "";
         }}
       />
 
@@ -110,15 +104,15 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
           Format
         </span>
         <div className="grid grid-cols-4 gap-1 p-0.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-          {(['all', 'epub', 'pdf', 'mobi'] as const).map((fmt) => (
+          {(["all", "epub", "pdf", "mobi"] as const).map((fmt) => (
             <button
               key={fmt}
               type="button"
               onClick={() => onFormatFilterChange(fmt)}
               className={`h-7 rounded-md text-[11px] font-medium uppercase transition-colors cursor-pointer ${
                 formatFilter === fmt
-                  ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-semibold'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  ? "bg-[var(--accent-soft)] text-[var(--accent)] font-semibold"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               {fmt}
@@ -168,8 +162,8 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
               onClick={() => onCoverSizeChange(step)}
               className={`h-7 text-[11px] rounded-lg border transition-colors capitalize cursor-pointer ${
                 coverSize === step
-                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] font-semibold'
-                  : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] font-semibold"
+                  : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               {step}
@@ -184,12 +178,12 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
           <div className="grid grid-cols-2 gap-x-2 gap-y-1">
             {(
               [
-                {key: 'subtitle', label: 'Subtitle'},
-                {key: 'author', label: 'Author'},
-                {key: 'format', label: 'Format'},
-                {key: 'category', label: 'Category'},
-                {key: 'progress', label: 'Progress'},
-                {key: 'tags', label: 'Tags'},
+                { key: "subtitle", label: "Subtitle" },
+                { key: "author", label: "Author" },
+                { key: "format", label: "Format" },
+                { key: "category", label: "Category" },
+                { key: "progress", label: "Progress" },
+                { key: "tags", label: "Tags" },
               ] as const
             ).map((item) => (
               <label
@@ -199,7 +193,9 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
                 <input
                   type="checkbox"
                   checked={cardDetails[item.key]}
-                  onChange={(e) => onCardDetailsChange({[item.key]: e.target.checked})}
+                  onChange={(e) =>
+                    onCardDetailsChange({ [item.key]: e.target.checked })
+                  }
                   className="w-3.5 h-3.5 accent-[var(--accent)] rounded cursor-pointer"
                 />
                 <span>{item.label}</span>
@@ -236,12 +232,14 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
                   onClick={() => onToggleTag(tag.name)}
                   className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] transition-colors cursor-pointer ${
                     active
-                      ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] font-medium'
-                      : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] font-medium"
+                      : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                   }`}
                 >
                   <span>#{tag.name}</span>
-                  <span className="font-mono tabular-nums text-[10px] opacity-70">{tag.count}</span>
+                  <span className="font-mono tabular-nums text-[10px] opacity-70">
+                    {tag.count}
+                  </span>
                 </button>
               );
             })}
@@ -257,7 +255,8 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
         {categories.length > 0 && (
           <div className="space-y-1 max-h-28 overflow-y-auto">
             {categories.map((cat) => {
-              const active = activeFilter.kind === 'category' && activeFilter.id === cat.id;
+              const active =
+                activeFilter.kind === "category" && activeFilter.id === cat.id;
               return (
                 <div
                   key={cat.id}
@@ -270,7 +269,9 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
                       onClose();
                     }}
                     className={`flex-1 text-left truncate cursor-pointer ${
-                      active ? 'text-[var(--accent)] font-medium' : 'text-[var(--text-secondary)]'
+                      active
+                        ? "text-[var(--accent)] font-medium"
+                        : "text-[var(--text-secondary)]"
                     }`}
                   >
                     {cat.name}
@@ -288,7 +289,10 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
             })}
           </div>
         )}
-        <form onSubmit={handleAddCategory} className="flex items-center gap-1.5">
+        <form
+          onSubmit={handleAddCategory}
+          className="flex items-center gap-1.5"
+        >
           <input
             type="text"
             value={newCategoryName}
@@ -341,7 +345,9 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
             className="h-8 px-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] disabled:opacity-50 inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-            <span className="font-medium">{isExportingBackup ? 'Exporting…' : 'Export ZIP'}</span>
+            <span className="font-medium">
+              {isExportingBackup ? "Exporting…" : "Export ZIP"}
+            </span>
           </button>
 
           <button
@@ -351,7 +357,9 @@ export const LibraryOptionsPopover: React.FC<LibraryOptionsPopoverProps> = ({
             className="h-8 px-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] disabled:opacity-50 inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
           >
             <Upload className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-            <span className="font-medium">{isParsingBackup ? 'Reading…' : 'Import ZIP'}</span>
+            <span className="font-medium">
+              {isParsingBackup ? "Reading…" : "Import ZIP"}
+            </span>
           </button>
         </div>
       </div>

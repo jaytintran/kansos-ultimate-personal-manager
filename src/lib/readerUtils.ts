@@ -5,87 +5,97 @@ import type {
   ReaderPreferences,
   SearchMatch,
   ThemeMode,
-} from '../types/library';
+} from "../../library";
 
 export const WORDS_PER_MINUTE = 240;
 export const WORDS_PER_VIRTUAL_PAGE = 280;
 export const PDF_MINUTES_PER_PAGE = 1.6;
 
 export interface ReaderFontOption {
-  id: Exclude<ReaderFontFamily, 'serif' | 'sans'>;
+  id: Exclude<ReaderFontFamily, "serif" | "sans">;
   label: string;
-  group: 'serif' | 'sans' | 'mono';
+  group: "serif" | "sans" | "mono";
   className: string;
   cssFamily: string;
 }
 
 export const READER_FONT_OPTIONS: ReaderFontOption[] = [
   {
-    id: 'source-serif',
-    label: 'Source Serif',
-    group: 'serif',
-    className: 'font-serif-editorial',
+    id: "source-serif",
+    label: "Source Serif",
+    group: "serif",
+    className: "font-serif-editorial",
     cssFamily: "'Source Serif 4', Georgia, Cambria, 'Times New Roman', serif",
   },
   {
-    id: 'literata',
-    label: 'Literata',
-    group: 'serif',
-    className: 'font-serif-literata',
+    id: "literata",
+    label: "Literata",
+    group: "serif",
+    className: "font-serif-literata",
     cssFamily: "'Literata', Georgia, Cambria, 'Times New Roman', serif",
   },
   {
-    id: 'georgia',
-    label: 'Georgia',
-    group: 'serif',
-    className: 'font-serif-georgia',
+    id: "georgia",
+    label: "Georgia",
+    group: "serif",
+    className: "font-serif-georgia",
     cssFamily: "Georgia, 'Times New Roman', Times, serif",
   },
   {
-    id: 'palatino',
-    label: 'Palatino',
-    group: 'serif',
-    className: 'font-serif-palatino',
+    id: "palatino",
+    label: "Palatino",
+    group: "serif",
+    className: "font-serif-palatino",
     cssFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif",
   },
   {
-    id: 'dm-sans',
-    label: 'DM Sans',
-    group: 'sans',
-    className: 'font-sans-ui',
+    id: "dm-sans",
+    label: "DM Sans",
+    group: "sans",
+    className: "font-sans-ui",
     cssFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
   },
   {
-    id: 'inter',
-    label: 'Inter',
-    group: 'sans',
-    className: 'font-sans-inter',
+    id: "inter",
+    label: "Inter",
+    group: "sans",
+    className: "font-sans-inter",
     cssFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
   },
   {
-    id: 'system-sans',
-    label: 'System UI',
-    group: 'sans',
-    className: 'font-sans-system',
-    cssFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    id: "system-sans",
+    label: "System UI",
+    group: "sans",
+    className: "font-sans-system",
+    cssFamily:
+      "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
   },
   {
-    id: 'mono',
-    label: 'Mono',
-    group: 'mono',
-    className: 'font-mono-tabular',
+    id: "mono",
+    label: "Mono",
+    group: "mono",
+    className: "font-mono-tabular",
     cssFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, monospace",
   },
 ];
 
-export function resolveReaderFont(fontFamily: ReaderFontFamily): ReaderFontOption {
+export function resolveReaderFont(
+  fontFamily: ReaderFontFamily,
+): ReaderFontOption {
   const normalized =
-    fontFamily === 'serif' ? 'source-serif' : fontFamily === 'sans' ? 'dm-sans' : fontFamily;
-  return READER_FONT_OPTIONS.find((f) => f.id === normalized) ?? READER_FONT_OPTIONS[0];
+    fontFamily === "serif"
+      ? "source-serif"
+      : fontFamily === "sans"
+        ? "dm-sans"
+        : fontFamily;
+  return (
+    READER_FONT_OPTIONS.find((f) => f.id === normalized) ??
+    READER_FONT_OPTIONS[0]
+  );
 }
 
 export interface TypographyPreset {
-  id: 'paperback' | 'editorial' | 'compact' | 'large';
+  id: "paperback" | "editorial" | "compact" | "large";
   label: string;
   description: string;
   patch: Partial<ReaderPreferences>;
@@ -93,17 +103,17 @@ export interface TypographyPreset {
 
 export const TYPOGRAPHY_PRESETS: TypographyPreset[] = [
   {
-    id: 'paperback',
-    label: 'Paperback',
-    description: 'Classic indented prose',
+    id: "paperback",
+    label: "Paperback",
+    description: "Classic indented prose",
     patch: {
-      fontFamily: 'literata',
+      fontFamily: "literata",
       fontSize: 18,
       fontWeight: 400,
       lineHeight: 1.65,
       paragraphSpacing: 0.3,
       textIndent: 1.4,
-      textAlign: 'justify',
+      textAlign: "justify",
       wordSpacing: 0,
       letterSpacing: 0,
       pageMargins: 48,
@@ -111,17 +121,17 @@ export const TYPOGRAPHY_PRESETS: TypographyPreset[] = [
     },
   },
   {
-    id: 'editorial',
-    label: 'Editorial',
-    description: 'Airy Kanso default',
+    id: "editorial",
+    label: "Editorial",
+    description: "Airy Kanso default",
     patch: {
-      fontFamily: 'source-serif',
+      fontFamily: "source-serif",
       fontSize: 18,
       fontWeight: 400,
       lineHeight: 1.72,
       paragraphSpacing: 0.9,
       textIndent: 0,
-      textAlign: 'left',
+      textAlign: "left",
       wordSpacing: 0,
       letterSpacing: 0,
       pageMargins: 48,
@@ -129,17 +139,17 @@ export const TYPOGRAPHY_PRESETS: TypographyPreset[] = [
     },
   },
   {
-    id: 'compact',
-    label: 'Compact',
-    description: 'Crisp sans, high density',
+    id: "compact",
+    label: "Compact",
+    description: "Crisp sans, high density",
     patch: {
-      fontFamily: 'dm-sans',
+      fontFamily: "dm-sans",
       fontSize: 16,
       fontWeight: 400,
       lineHeight: 1.55,
       paragraphSpacing: 0.6,
       textIndent: 0,
-      textAlign: 'left',
+      textAlign: "left",
       wordSpacing: 0,
       letterSpacing: 0,
       pageMargins: 36,
@@ -147,17 +157,17 @@ export const TYPOGRAPHY_PRESETS: TypographyPreset[] = [
     },
   },
   {
-    id: 'large',
-    label: 'Large Focus',
-    description: 'Relaxed large print',
+    id: "large",
+    label: "Large Focus",
+    description: "Relaxed large print",
     patch: {
-      fontFamily: 'literata',
+      fontFamily: "literata",
       fontSize: 22,
       fontWeight: 400,
       lineHeight: 1.85,
       paragraphSpacing: 1.0,
       textIndent: 0,
-      textAlign: 'left',
+      textAlign: "left",
       wordSpacing: 0.02,
       letterSpacing: 0,
       pageMargins: 40,
@@ -166,7 +176,9 @@ export const TYPOGRAPHY_PRESETS: TypographyPreset[] = [
   },
 ];
 
-export function findActiveTypographyPreset(prefs: ReaderPreferences): TypographyPreset['id'] | null {
+export function findActiveTypographyPreset(
+  prefs: ReaderPreferences,
+): TypographyPreset["id"] | null {
   const fontId = resolveReaderFont(prefs.fontFamily).id;
   for (const preset of TYPOGRAPHY_PRESETS) {
     const p = preset.patch;
@@ -187,26 +199,35 @@ export function findActiveTypographyPreset(prefs: ReaderPreferences): Typography
 
 export function resolveReaderTextInk(
   contrastPreset: ReaderContrastPreset | undefined,
-  theme: ThemeMode
+  theme: ThemeMode,
 ): string {
-  if (contrastPreset === 'soft') {
-    return 'color-mix(in srgb, var(--text-primary) 78%, var(--bg-surface))';
+  if (contrastPreset === "soft") {
+    return "color-mix(in srgb, var(--text-primary) 78%, var(--bg-surface))";
   }
-  if (contrastPreset === 'crisp') {
-    if (theme === 'dark') return '#fbf8f2';
-    if (theme === 'sepia') return '#17110b';
-    return 'color-mix(in srgb, var(--text-primary) 94%, #000000)';
+  if (contrastPreset === "crisp") {
+    if (theme === "dark") return "#fbf8f2";
+    if (theme === "sepia") return "#17110b";
+    return "color-mix(in srgb, var(--text-primary) 94%, #000000)";
   }
-  return 'var(--text-primary)';
+  return "var(--text-primary)";
 }
 
-export function resolvePdfCanvasFilter(prefs: ReaderPreferences): string | undefined {
+export function resolvePdfCanvasFilter(
+  prefs: ReaderPreferences,
+): string | undefined {
   const contrastMult =
-    prefs.contrastPreset === 'soft' ? 0.88 : prefs.contrastPreset === 'crisp' ? 1.12 : 1;
-  const brightMult = Math.max(0.7, Math.min(1.2, (prefs.brightness ?? 100) / 100));
+    prefs.contrastPreset === "soft"
+      ? 0.88
+      : prefs.contrastPreset === "crisp"
+        ? 1.12
+        : 1;
+  const brightMult = Math.max(
+    0.7,
+    Math.min(1.2, (prefs.brightness ?? 100) / 100),
+  );
 
   if (prefs.pdfThemeTone) {
-    if (prefs.theme === 'dark') {
+    if (prefs.theme === "dark") {
       return `invert(0.9) hue-rotate(180deg) contrast(${(0.94 * contrastMult).toFixed(2)}) brightness(${(0.94 * brightMult).toFixed(2)})`;
     }
     return `sepia(0.24) contrast(${(0.96 * contrastMult).toFixed(2)}) brightness(${(0.97 * brightMult).toFixed(2)})`;
@@ -236,15 +257,20 @@ export interface BookReadingMetrics {
 }
 
 function stripHtmlToPlainText(html: string): string {
-  if (!html) return '';
-  if (typeof DOMParser !== 'undefined') {
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    return (doc.body?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  if (!html) return "";
+  if (typeof DOMParser !== "undefined") {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return (doc.body?.textContent ?? "").replace(/\s+/g, " ").trim();
   }
-  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-export function computeReflowableMetrics(chapters: ParsedChapter[]): BookReadingMetrics {
+export function computeReflowableMetrics(
+  chapters: ParsedChapter[],
+): BookReadingMetrics {
   const raw = chapters.map((ch) => {
     const plainText = stripHtmlToPlainText(ch.html);
     const words = plainText ? plainText.split(/\s+/).filter(Boolean).length : 0;
@@ -259,13 +285,16 @@ export function computeReflowableMetrics(chapters: ParsedChapter[]): BookReading
 
   const totalWords = Math.max(
     1,
-    raw.reduce((sum, ch) => sum + ch.wordCount, 0)
+    raw.reduce((sum, ch) => sum + ch.wordCount, 0),
   );
 
   let wordOffset = 0;
   let pageCursor = 1;
   const metrics: ChapterReadingMetric[] = raw.map((ch) => {
-    const virtualPageCount = Math.max(1, Math.round(ch.wordCount / WORDS_PER_VIRTUAL_PAGE));
+    const virtualPageCount = Math.max(
+      1,
+      Math.round(ch.wordCount / WORDS_PER_VIRTUAL_PAGE),
+    );
     const entry: ChapterReadingMetric = {
       index: ch.index,
       title: ch.title,
@@ -291,20 +320,23 @@ export function computeReflowableMetrics(chapters: ParsedChapter[]): BookReading
 export function getVirtualPageAtLocation(
   metrics: BookReadingMetrics,
   chapterIndex: number,
-  scrollRatio: number
+  scrollRatio: number,
 ): number {
   const ch = metrics.chapters[chapterIndex] ?? metrics.chapters[0];
   if (!ch) return 1;
   const clamped = Math.min(1, Math.max(0, scrollRatio));
   const offset = Math.min(
     ch.virtualPageCount - 1,
-    Math.floor(clamped * ch.virtualPageCount)
+    Math.floor(clamped * ch.virtualPageCount),
   );
-  return Math.min(metrics.totalVirtualPages, ch.startVirtualPage + Math.max(0, offset));
+  return Math.min(
+    metrics.totalVirtualPages,
+    ch.startVirtualPage + Math.max(0, offset),
+  );
 }
 
 export function formatReadingTime(minutes: number): string {
-  if (!Number.isFinite(minutes) || minutes <= 0.5) return '<1 min';
+  if (!Number.isFinite(minutes) || minutes <= 0.5) return "<1 min";
   const rounded = Math.round(minutes);
   if (rounded < 60) return `${rounded} min`;
   const hrs = Math.floor(rounded / 60);
@@ -313,9 +345,9 @@ export function formatReadingTime(minutes: number): string {
 }
 
 export function searchTextUnits(
-  units: Array<{unitIndex: number; unitLabel: string; text: string}>,
+  units: Array<{ unitIndex: number; unitLabel: string; text: string }>,
   query: string,
-  maxMatches = 250
+  maxMatches = 250,
 ): SearchMatch[] {
   const trimmed = query.trim();
   if (trimmed.length < 2) return [];
@@ -336,9 +368,12 @@ export function searchTextUnits(
         unitIndex: unit.unitIndex,
         unitLabel: unit.unitLabel,
         occurrenceInUnit,
-        snippetBefore: (beforeStart > 0 ? '…' : '') + unit.text.slice(beforeStart, idx),
+        snippetBefore:
+          (beforeStart > 0 ? "…" : "") + unit.text.slice(beforeStart, idx),
         matchText: unit.text.slice(idx, idx + trimmed.length),
-        snippetAfter: unit.text.slice(idx + trimmed.length, afterEnd) + (afterEnd < unit.text.length ? '…' : ''),
+        snippetAfter:
+          unit.text.slice(idx + trimmed.length, afterEnd) +
+          (afterEnd < unit.text.length ? "…" : ""),
       });
       occurrenceInUnit += 1;
       pos = idx + lowerQuery.length;

@@ -1,14 +1,21 @@
-import {ArrowLeft, Folder, FolderMinus} from 'lucide-react';
-import React, {useMemo, useState} from 'react';
-import {flattenFoldersHierarchy, getFolderColorHex} from '../../lib/formatters';
-import type {FolderRecord, ViewFolderRecord} from '../../types/library';
+import { ArrowLeft, Folder, FolderMinus } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import {
+  flattenFoldersHierarchy,
+  getFolderColorHex,
+} from "../../lib/formatters";
+import type { FolderRecord, ViewFolderRecord } from "../../../library";
 
 interface FloatingFolderDropDockProps {
   visible: boolean;
   activeViewLabel: string;
   currentViewFolders: ViewFolderRecord[];
   sidebarFolders: FolderRecord[];
-  activeFolderRemovalTarget: {kind: 'view' | 'sidebar'; id: string; name: string} | null;
+  activeFolderRemovalTarget: {
+    kind: "view" | "sidebar";
+    id: string;
+    name: string;
+  } | null;
   onDropToViewFolder: (bookIds: string[], folderId: string) => void;
   onDropToSidebarFolder: (bookIds: string[], folderId: string) => void;
   onDropToRemoveFromCurrentFolder: (bookIds: string[]) => void;
@@ -17,26 +24,26 @@ interface FloatingFolderDropDockProps {
 function hasBookDragPayload(dt: DataTransfer | null): boolean {
   if (!dt) return false;
   return (
-    dt.types.includes('application/x-folio-book-ids') ||
-    dt.types.includes('application/x-folio-book-id')
+    dt.types.includes("application/x-folio-book-ids") ||
+    dt.types.includes("application/x-folio-book-id")
   );
 }
 
 function extractDraggedBookIds(dt: DataTransfer | null): string[] {
   if (!dt) return [];
-  const multi = dt.getData('application/x-folio-book-ids');
+  const multi = dt.getData("application/x-folio-book-ids");
   if (multi) {
     try {
       const parsed = JSON.parse(multi);
       if (Array.isArray(parsed)) {
-        const ids = parsed.filter((id): id is string => typeof id === 'string');
+        const ids = parsed.filter((id): id is string => typeof id === "string");
         if (ids.length > 0) return ids;
       }
     } catch {
       // ignore
     }
   }
-  const single = dt.getData('application/x-folio-book-id');
+  const single = dt.getData("application/x-folio-book-id");
   return single ? [single] : [];
 }
 
@@ -53,7 +60,7 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const flatSidebarFolders = useMemo(
     () => flattenFoldersHierarchy(sidebarFolders),
-    [sidebarFolders]
+    [sidebarFolders],
   );
 
   const hasTargets =
@@ -66,7 +73,7 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
   const handleDragOver = (key: string) => (e: React.DragEvent) => {
     if (!hasBookDragPayload(e.dataTransfer)) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = "move";
     setHoveredKey(key);
   };
 
@@ -85,8 +92,8 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
             {/* Contextual Remove Target when inside a folder */}
             {activeFolderRemovalTarget && (
               <div
-                onDragOver={handleDragOver('__remove__')}
-                onDragLeave={handleDragLeave('__remove__')}
+                onDragOver={handleDragOver("__remove__")}
+                onDragLeave={handleDragLeave("__remove__")}
                 onDrop={(e) => {
                   const ids = extractDraggedBookIds(e.dataTransfer);
                   if (ids.length > 0) {
@@ -96,17 +103,19 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
                   setHoveredKey(null);
                 }}
                 className={`shrink-0 min-h-[42px] inline-flex items-center gap-2 px-4 py-2 rounded-md border text-[13px] font-medium transition-all duration-150 whitespace-nowrap ${
-                  hoveredKey === '__remove__'
-                    ? 'border-[var(--accent)] ring-2 ring-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)] scale-[1.02]'
-                    : 'border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-primary)]'
+                  hoveredKey === "__remove__"
+                    ? "border-[var(--accent)] ring-2 ring-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)] scale-[1.02]"
+                    : "border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-primary)]"
                 }`}
               >
-                {hoveredKey === '__remove__' ? (
+                {hoveredKey === "__remove__" ? (
                   <FolderMinus className="w-4 h-4 shrink-0" />
                 ) : (
                   <ArrowLeft className="w-4 h-4 shrink-0" />
                 )}
-                <span>Remove from &ldquo;{activeFolderRemovalTarget.name}&rdquo;</span>
+                <span>
+                  Remove from &ldquo;{activeFolderRemovalTarget.name}&rdquo;
+                </span>
               </div>
             )}
 
@@ -134,8 +143,8 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
                       }}
                       className={`shrink-0 min-h-[42px] inline-flex items-center gap-2 px-3.5 py-2 rounded-md border text-[13px] font-medium transition-all duration-150 whitespace-nowrap ${
                         isOver
-                          ? 'border-[var(--accent)] ring-2 ring-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)] scale-[1.02]'
-                          : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-strong)]'
+                          ? "border-[var(--accent)] ring-2 ring-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)] scale-[1.02]"
+                          : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-strong)]"
                       }`}
                     >
                       <Folder className="w-4 h-4 text-[var(--accent)] shrink-0" />
@@ -159,7 +168,7 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
                 <span className="text-[11px] font-medium text-[var(--text-muted)] px-1 whitespace-nowrap">
                   Library:
                 </span>
-                {flatSidebarFolders.map(({folder, pathLabel}) => {
+                {flatSidebarFolders.map(({ folder, pathLabel }) => {
                   const key = `sidebar:${folder.id}`;
                   const isOver = hoveredKey === key;
                   const hex = getFolderColorHex(folder.color);
@@ -179,15 +188,17 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
                       }}
                       className={`shrink-0 min-h-[42px] inline-flex items-center gap-2 px-3.5 py-2 rounded-md border text-[13px] font-medium transition-all duration-150 whitespace-nowrap ${
                         isOver
-                          ? 'border-[var(--accent)] ring-2 ring-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)] scale-[1.02]'
-                          : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-strong)]'
+                          ? "border-[var(--accent)] ring-2 ring-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)] scale-[1.02]"
+                          : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-strong)]"
                       }`}
                     >
                       <Folder
                         className="w-4 h-4 shrink-0"
-                        style={{color: hex ?? 'var(--text-muted)'}}
+                        style={{ color: hex ?? "var(--text-muted)" }}
                       />
-                      <span className="max-w-[180px] truncate">{folder.name}</span>
+                      <span className="max-w-[180px] truncate">
+                        {folder.name}
+                      </span>
                     </div>
                   );
                 })}

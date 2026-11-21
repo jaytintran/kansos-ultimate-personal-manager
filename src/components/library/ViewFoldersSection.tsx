@@ -11,17 +11,17 @@ import {
   Plus,
   Trash2,
   X,
-} from 'lucide-react';
-import React, {useEffect, useRef, useState} from 'react';
-import {COVER_PALETTES} from '../../lib/formatters';
+} from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { COVER_PALETTES } from "../../lib/formatters";
 import type {
   BookRecord,
   CoverSize,
   ViewFolderCardLayout,
   ViewFolderDisplayMode,
   ViewFolderRecord,
-} from '../../types/library';
-import {BookCover} from './BookCover';
+} from "../../../library";
+import { BookCover } from "./BookCover";
 
 interface ViewFoldersSectionProps {
   viewLabel: string;
@@ -50,31 +50,38 @@ interface ViewFoldersSectionProps {
 
 const CARD_GRID_BY_SIZE: Record<CoverSize, string> = {
   compact:
-    'grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-x-4 gap-y-7',
+    "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-x-4 gap-y-7",
   standard:
-    'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-x-6 gap-y-9',
+    "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-x-6 gap-y-9",
   large:
-    'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-x-7 gap-y-10',
+    "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-x-7 gap-y-10",
 };
 
 const CAROUSEL_BOOK_WIDTH_BY_SIZE: Record<CoverSize, string> = {
-  compact: 'w-[104px] sm:w-[112px]',
-  standard: 'w-[126px] sm:w-[138px]',
-  large: 'w-[154px] sm:w-[168px]',
+  compact: "w-[104px] sm:w-[112px]",
+  standard: "w-[126px] sm:w-[138px]",
+  large: "w-[154px] sm:w-[168px]",
 };
 
-const CARD_LAYOUT_OPTIONS: Array<{id: ViewFolderCardLayout; label: string; title: string}> = [
-  {id: 'stacked', label: 'Stacked', title: 'Fanned stacked cover preview'},
-  {id: 'auto', label: 'Auto', title: 'Auto grid density based on book count'},
-  {id: '2x2', label: '2×2', title: '2×2 cover grid inside folder card'},
-  {id: '3x3', label: '3×3', title: '3×3 cover grid inside folder card'},
-  {id: '4x4', label: '4×4', title: '4×4 cover grid inside folder card'},
+const CARD_LAYOUT_OPTIONS: Array<{
+  id: ViewFolderCardLayout;
+  label: string;
+  title: string;
+}> = [
+  { id: "stacked", label: "Stacked", title: "Fanned stacked cover preview" },
+  { id: "auto", label: "Auto", title: "Auto grid density based on book count" },
+  { id: "2x2", label: "2×2", title: "2×2 cover grid inside folder card" },
+  { id: "3x3", label: "3×3", title: "3×3 cover grid inside folder card" },
+  { id: "4x4", label: "4×4", title: "4×4 cover grid inside folder card" },
 ];
 
-function resolveGridColumns(layout: ViewFolderCardLayout, count: number): 1 | 2 | 3 | 4 {
-  if (layout === '2x2') return 2;
-  if (layout === '3x3') return 3;
-  if (layout === '4x4') return 4;
+function resolveGridColumns(
+  layout: ViewFolderCardLayout,
+  count: number,
+): 1 | 2 | 3 | 4 {
+  if (layout === "2x2") return 2;
+  if (layout === "3x3") return 3;
+  if (layout === "4x4") return 4;
   // Auto adapts cleanly to folder size
   if (count <= 1) return 1;
   if (count <= 4) return 2;
@@ -82,9 +89,13 @@ function resolveGridColumns(layout: ViewFolderCardLayout, count: number): 1 | 2 
   return 4;
 }
 
-const FolderMiniCover: React.FC<{book: BookRecord; cols: 1 | 2 | 3 | 4}> = ({book, cols}) => {
+const FolderMiniCover: React.FC<{ book: BookRecord; cols: 1 | 2 | 3 | 4 }> = ({
+  book,
+  cols,
+}) => {
   const [imgFailed, setImgFailed] = useState(false);
-  const palette = COVER_PALETTES[Math.abs(book.coverPaletteIndex) % COVER_PALETTES.length];
+  const palette =
+    COVER_PALETTES[Math.abs(book.coverPaletteIndex) % COVER_PALETTES.length];
   const showImage = Boolean(book.coverDataUrl && !imgFailed);
 
   if (showImage && book.coverDataUrl) {
@@ -109,42 +120,42 @@ const FolderMiniCover: React.FC<{book: BookRecord; cols: 1 | 2 | 3 | 4}> = ({boo
   return (
     <div
       className="relative aspect-[3/4] w-full overflow-hidden rounded-[3px] border border-[var(--border-subtle)] flex flex-col select-none shadow-2xs"
-      style={{backgroundColor: palette.bg, color: palette.ink}}
+      style={{ backgroundColor: palette.bg, color: palette.ink }}
       title={book.title}
     >
       <div
         aria-hidden="true"
         className="absolute inset-y-0 left-0 w-[10%]"
-        style={{backgroundColor: palette.spine}}
+        style={{ backgroundColor: palette.spine }}
       />
       <div
         className={`relative z-10 flex flex-col justify-between h-full pl-[18%] pr-[10%] ${
-          cols === 1 ? 'py-3' : cols === 2 ? 'py-1.5' : 'py-1'
+          cols === 1 ? "py-3" : cols === 2 ? "py-1.5" : "py-1"
         }`}
       >
         {cols <= 2 ? (
           <>
             <p
               className={`font-sans font-medium leading-tight overflow-hidden ${
-                cols === 1 ? 'text-xs line-clamp-4' : 'text-[8px] line-clamp-3'
+                cols === 1 ? "text-xs line-clamp-4" : "text-[8px] line-clamp-3"
               }`}
             >
               {book.title}
             </p>
             <div
               className="mt-auto h-[1.5px] w-2/3 opacity-75"
-              style={{backgroundColor: palette.accent}}
+              style={{ backgroundColor: palette.accent }}
             />
           </>
         ) : (
           <>
             <div
               className="h-[2px] w-3/4 rounded-xs opacity-85 mt-0.5"
-              style={{backgroundColor: palette.accent}}
+              style={{ backgroundColor: palette.accent }}
             />
             <div
               className="mt-auto h-[1.5px] w-1/2 rounded-xs opacity-45"
-              style={{backgroundColor: palette.ink}}
+              style={{ backgroundColor: palette.ink }}
             />
           </>
         )}
@@ -155,25 +166,25 @@ const FolderMiniCover: React.FC<{book: BookRecord; cols: 1 | 2 | 3 | 4}> = ({boo
 
 function hasBookDragPayload(dt: DataTransfer): boolean {
   return (
-    dt.types.includes('application/x-folio-book-ids') ||
-    dt.types.includes('application/x-folio-book-id')
+    dt.types.includes("application/x-folio-book-ids") ||
+    dt.types.includes("application/x-folio-book-id")
   );
 }
 
 function getDraggedBookIds(dt: DataTransfer): string[] {
-  const multi = dt.getData('application/x-folio-book-ids');
+  const multi = dt.getData("application/x-folio-book-ids");
   if (multi) {
     try {
       const parsed = JSON.parse(multi);
       if (Array.isArray(parsed)) {
-        const ids = parsed.filter((id): id is string => typeof id === 'string');
+        const ids = parsed.filter((id): id is string => typeof id === "string");
         if (ids.length > 0) return ids;
       }
     } catch {
       // ignore
     }
   }
-  const single = dt.getData('application/x-folio-book-id');
+  const single = dt.getData("application/x-folio-book-id");
   return single ? [single] : [];
 }
 
@@ -230,7 +241,7 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
     const el = scrollerRef.current;
     if (!el) return;
     const delta = Math.max(260, Math.round(el.clientWidth * 0.72));
-    el.scrollBy({left: direction * delta, behavior: 'smooth'});
+    el.scrollBy({ left: direction * delta, behavior: "smooth" });
   };
 
   return (
@@ -240,8 +251,8 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
       onDrop={onDrop}
       className={`w-full rounded-lg border transition-colors ${
         isDragOver
-          ? 'border-[var(--accent)] bg-[var(--bg-accent-subtle)]'
-          : 'border-[var(--border-subtle)] bg-[var(--bg-surface)]'
+          ? "border-[var(--accent)] bg-[var(--bg-accent-subtle)]"
+          : "border-[var(--border-subtle)] bg-[var(--bg-surface)]"
       }`}
     >
       {/* Carousel Shelf Header */}
@@ -249,14 +260,17 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <Folder className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
           {isEditing ? (
-            <form onSubmit={onCommitRename} className="flex items-center gap-1.5 flex-1 max-w-xs">
+            <form
+              onSubmit={onCommitRename}
+              className="flex items-center gap-1.5 flex-1 max-w-xs"
+            >
               <input
                 type="text"
                 autoFocus
                 value={editingName}
                 onChange={(e) => onEditingNameChange(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') onCancelRename();
+                  if (e.key === "Escape") onCancelRename();
                 }}
                 className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-[var(--accent)] bg-[var(--bg-input)] text-[var(--text-primary)]"
               />
@@ -284,7 +298,8 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
                 {folder.name}
               </span>
               <span className="font-mono-tabular text-[11px] text-[var(--text-muted)] shrink-0">
-                {booksInFolder.length} {booksInFolder.length === 1 ? 'book' : 'books'}
+                {booksInFolder.length}{" "}
+                {booksInFolder.length === 1 ? "book" : "books"}
               </span>
             </button>
           )}
@@ -347,7 +362,9 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
       {/* Full-Width Horizontal Book Strip */}
       {booksInFolder.length === 0 ? (
         <div className="px-4 py-6 flex items-center justify-between gap-4 text-xs text-[var(--text-muted)]">
-          <span>Drag books onto this shelf or click Add Books to group them here.</span>
+          <span>
+            Drag books onto this shelf or click Add Books to group them here.
+          </span>
           <button
             type="button"
             onClick={onAddBooks}
@@ -369,19 +386,27 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
                 key={book.id}
                 draggable
                 onDragStart={(e) => {
-                  e.dataTransfer.setData('application/x-folio-book-id', book.id);
-                  e.dataTransfer.setData('application/x-folio-book-ids', JSON.stringify([book.id]));
-                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData(
+                    "application/x-folio-book-id",
+                    book.id,
+                  );
+                  e.dataTransfer.setData(
+                    "application/x-folio-book-ids",
+                    JSON.stringify([book.id]),
+                  );
+                  e.dataTransfer.effectAllowed = "move";
                 }}
                 className={`group shrink-0 flex flex-col ${CAROUSEL_BOOK_WIDTH_BY_SIZE[coverSize]}`}
               >
                 <div
-                  onClick={() => (inspectorOpen ? onInspectBook(book) : onOpenBook(book))}
+                  onClick={() =>
+                    inspectorOpen ? onInspectBook(book) : onOpenBook(book)
+                  }
                   onDoubleClick={() => onOpenBook(book)}
                   className={`relative cursor-pointer rounded-[5px] transition-transform duration-150 group-hover:-translate-y-0.5 ${
                     isInspected
-                      ? 'ring-2 ring-[var(--text-primary)]/45 ring-offset-2 ring-offset-[var(--bg-surface)]'
-                      : ''
+                      ? "ring-2 ring-[var(--text-primary)]/45 ring-offset-2 ring-offset-[var(--bg-surface)]"
+                      : ""
                   }`}
                 >
                   <BookCover
@@ -391,14 +416,16 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
                     coverDataUrl={book.coverDataUrl}
                     paletteIndex={book.coverPaletteIndex}
                     coverStyle={book.coverStyle}
-                    size={coverSize === 'large' ? 'lg' : 'md'}
+                    size={coverSize === "large" ? "lg" : "md"}
                   />
 
                   {book.progress > 0 && (
                     <div className="absolute inset-x-0 bottom-0 h-1 bg-black/30 overflow-hidden rounded-b-[4px]">
                       <div
                         className="h-full bg-[var(--accent)]"
-                        style={{width: `${Math.min(100, Math.max(2, book.progress))}%`}}
+                        style={{
+                          width: `${Math.min(100, Math.max(2, book.progress))}%`,
+                        }}
                       />
                     </div>
                   )}
@@ -419,7 +446,9 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => (inspectorOpen ? onInspectBook(book) : onOpenBook(book))}
+                  onClick={() =>
+                    inspectorOpen ? onInspectBook(book) : onOpenBook(book)
+                  }
                   onDoubleClick={() => onOpenBook(book)}
                   className="mt-2 text-left font-sans text-xs font-medium leading-snug text-[var(--text-primary)] hover:text-[var(--accent)] line-clamp-2 cursor-pointer"
                   title={book.title}
@@ -489,7 +518,9 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
   onDragLeave,
   onDrop,
 }) => {
-  const [dwellPhase, setDwellPhase] = useState<'locked' | 'arming' | 'unlocked'>('locked');
+  const [dwellPhase, setDwellPhase] = useState<
+    "locked" | "arming" | "unlocked"
+  >("locked");
   const [pulseKey, setPulseKey] = useState(0);
 
   const isHoveringRef = useRef(false);
@@ -499,7 +530,8 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
 
   const previewBooks = booksInFolder.slice(0, 3);
   const cols = resolveGridColumns(cardLayout, booksInFolder.length);
-  const hasOverflow = cardLayout !== 'stacked' && booksInFolder.length > cols * cols;
+  const hasOverflow =
+    cardLayout !== "stacked" && booksInFolder.length > cols * cols;
 
   const clearTimers = () => {
     if (dwellTimerRef.current !== null) {
@@ -515,22 +547,22 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
   const startArming = () => {
     clearTimers();
     if (!hasOverflow) {
-      setDwellPhase('locked');
+      setDwellPhase("locked");
       return;
     }
     // Never arm inner hover-scroll on touch/coarse pointer devices
     if (
-      typeof window !== 'undefined' &&
-      !window.matchMedia('(hover: hover) and (pointer: fine)').matches
+      typeof window !== "undefined" &&
+      !window.matchMedia("(hover: hover) and (pointer: fine)").matches
     ) {
       return;
     }
     setPulseKey((k) => k + 1);
-    setDwellPhase('arming');
+    setDwellPhase("arming");
     dwellTimerRef.current = window.setTimeout(() => {
       dwellTimerRef.current = null;
       if (isHoveringRef.current) {
-        setDwellPhase('unlocked');
+        setDwellPhase("unlocked");
       }
     }, FOLDER_SCROLL_DWELL_MS);
   };
@@ -539,19 +571,19 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
   useEffect(() => {
     if (!hasOverflow) {
       clearTimers();
-      setDwellPhase('locked');
+      setDwellPhase("locked");
     }
     return () => clearTimers();
   }, [hasOverflow, cardLayout]);
 
   // If the user scrolls the main canvas while hovering a locked/arming card, reset the 0.5s dwell timer
   useEffect(() => {
-    if (!hasOverflow || dwellPhase === 'unlocked') return;
+    if (!hasOverflow || dwellPhase === "unlocked") return;
 
     const handleCanvasScrollInterrupt = () => {
       if (!isHoveringRef.current) return;
       clearTimers();
-      setDwellPhase('locked');
+      setDwellPhase("locked");
       // Once scrolling settles, if the pointer is still resting inside the card, start a fresh 0.5s dwell
       settleTimerRef.current = window.setTimeout(() => {
         settleTimerRef.current = null;
@@ -561,23 +593,30 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
       }, 170);
     };
 
-    window.addEventListener('wheel', handleCanvasScrollInterrupt, {passive: true});
-    window.addEventListener('scroll', handleCanvasScrollInterrupt, {passive: true, capture: true});
+    window.addEventListener("wheel", handleCanvasScrollInterrupt, {
+      passive: true,
+    });
+    window.addEventListener("scroll", handleCanvasScrollInterrupt, {
+      passive: true,
+      capture: true,
+    });
     return () => {
-      window.removeEventListener('wheel', handleCanvasScrollInterrupt);
-      window.removeEventListener('scroll', handleCanvasScrollInterrupt, {capture: true});
+      window.removeEventListener("wheel", handleCanvasScrollInterrupt);
+      window.removeEventListener("scroll", handleCanvasScrollInterrupt, {
+        capture: true,
+      });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasOverflow, dwellPhase]);
 
   const gridColsClass =
     cols === 1
-      ? 'grid-cols-1 gap-2 p-4 pt-5'
+      ? "grid-cols-1 gap-2 p-4 pt-5"
       : cols === 2
-        ? 'grid-cols-2 gap-2 p-2.5 pt-3.5'
+        ? "grid-cols-2 gap-2 p-2.5 pt-3.5"
         : cols === 3
-          ? 'grid-cols-3 gap-1.5 p-2 pt-3'
-          : 'grid-cols-4 gap-1 p-1.5 pt-2.5';
+          ? "grid-cols-3 gap-1.5 p-2 pt-3"
+          : "grid-cols-4 gap-1 p-1.5 pt-2.5";
 
   return (
     <article
@@ -589,16 +628,16 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
       {/* 3:4 Archival Folder Card with Stacked or Hover-Dwell Scrollable Mini Cover Grid */}
       <div
         onPointerEnter={(e) => {
-          if (e.pointerType !== 'mouse') return;
+          if (e.pointerType !== "mouse") return;
           isHoveringRef.current = true;
-          if (hasOverflow && dwellPhase === 'locked') {
+          if (hasOverflow && dwellPhase === "locked") {
             startArming();
           }
         }}
         onPointerLeave={() => {
           isHoveringRef.current = false;
           clearTimers();
-          setDwellPhase('locked');
+          setDwellPhase("locked");
         }}
         onClick={() => {
           if (isEditing) return;
@@ -607,10 +646,10 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
         }}
         className={`relative aspect-[3/4] rounded-[5px] border transition-all duration-150 cursor-pointer flex items-center justify-center overflow-hidden group-hover:-translate-y-0.5 ${
           isDragOver
-            ? 'border-[var(--accent)] ring-2 ring-[var(--accent)] bg-[var(--bg-accent-subtle)]'
-            : dwellPhase === 'unlocked'
-              ? 'border-[var(--accent)]/60 bg-[var(--bg-surface)]'
-              : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] group-hover:border-[var(--border-strong)]'
+            ? "border-[var(--accent)] ring-2 ring-[var(--accent)] bg-[var(--bg-accent-subtle)]"
+            : dwellPhase === "unlocked"
+              ? "border-[var(--accent)]/60 bg-[var(--bg-surface)]"
+              : "border-[var(--border-subtle)] bg-[var(--bg-surface)] group-hover:border-[var(--border-strong)]"
         }`}
       >
         {/* Subtle archival folder tab accent across top */}
@@ -622,25 +661,64 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
         {booksInFolder.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 px-4 text-center">
             <Folder className="w-7 h-7 text-[var(--text-muted)] opacity-60" />
-            <span className="text-[11px] text-[var(--text-muted)]">Drop books here</span>
+            <span className="text-[11px] text-[var(--text-muted)]">
+              Drop books here
+            </span>
           </div>
-        ) : cardLayout === 'stacked' ? (
+        ) : cardLayout === "stacked" ? (
           <div className="relative w-[78%] h-[72%] mt-2 flex items-center justify-center">
             {previewBooks.map((book, idx) => {
               const total = previewBooks.length;
               const offsetMap: Record<
                 number,
-                Array<{rotate: string; translate: string; z: string; scale: string}>
+                Array<{
+                  rotate: string;
+                  translate: string;
+                  z: string;
+                  scale: string;
+                }>
               > = {
-                1: [{rotate: '0deg', translate: '0px, 0px', z: 'z-20', scale: '0.94'}],
+                1: [
+                  {
+                    rotate: "0deg",
+                    translate: "0px, 0px",
+                    z: "z-20",
+                    scale: "0.94",
+                  },
+                ],
                 2: [
-                  {rotate: '-7deg', translate: '-14%, 4%', z: 'z-10', scale: '0.86'},
-                  {rotate: '5deg', translate: '12%, -2%', z: 'z-20', scale: '0.9'},
+                  {
+                    rotate: "-7deg",
+                    translate: "-14%, 4%",
+                    z: "z-10",
+                    scale: "0.86",
+                  },
+                  {
+                    rotate: "5deg",
+                    translate: "12%, -2%",
+                    z: "z-20",
+                    scale: "0.9",
+                  },
                 ],
                 3: [
-                  {rotate: '-10deg', translate: '-22%, 7%', z: 'z-10', scale: '0.82'},
-                  {rotate: '9deg', translate: '22%, 5%', z: 'z-20', scale: '0.82'},
-                  {rotate: '0deg', translate: '0px, -3%', z: 'z-30', scale: '0.88'},
+                  {
+                    rotate: "-10deg",
+                    translate: "-22%, 7%",
+                    z: "z-10",
+                    scale: "0.82",
+                  },
+                  {
+                    rotate: "9deg",
+                    translate: "22%, 5%",
+                    z: "z-20",
+                    scale: "0.82",
+                  },
+                  {
+                    rotate: "0deg",
+                    translate: "0px, -3%",
+                    z: "z-30",
+                    scale: "0.88",
+                  },
                 ],
               };
               const layout = offsetMap[total]?.[idx] ?? offsetMap[1][0];
@@ -670,14 +748,14 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
             {/* Inner Mini-Cover Grid: locked (overflow-y-hidden) until 0.5s dwell unlocks, preserving scrollTop */}
             <div
               onScroll={() => {
-                if (dwellPhase === 'unlocked') {
+                if (dwellPhase === "unlocked") {
                   lastGridScrollAtRef.current = Date.now();
                 }
               }}
               className={`w-full h-full no-scrollbar ${
-                dwellPhase === 'unlocked'
-                  ? 'overflow-y-auto overscroll-contain'
-                  : 'overflow-y-hidden'
+                dwellPhase === "unlocked"
+                  ? "overflow-y-auto overscroll-contain"
+                  : "overflow-y-hidden"
               }`}
             >
               <div className={`grid content-start ${gridColsClass}`}>
@@ -695,7 +773,7 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
             )}
 
             {/* Center-Expanding Faded Radial Circular Wave during 0.5s Hover Dwell */}
-            {dwellPhase === 'arming' && (
+            {dwellPhase === "arming" && (
               <div
                 key={pulseKey}
                 aria-hidden="true"
@@ -759,7 +837,7 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
               onChange={(e) => onEditingNameChange(e.target.value)}
               onBlur={onBlurRename}
               onKeyDown={(e) => {
-                if (e.key === 'Escape') onCancelRename();
+                if (e.key === "Escape") onCancelRename();
               }}
               className="w-full px-1.5 py-0.5 text-xs rounded border border-[var(--accent)] bg-[var(--bg-input)] text-[var(--text-primary)]"
             />
@@ -775,7 +853,7 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
         )}
 
         <p className="mt-0.5 font-mono-tabular text-[11px] text-[var(--text-muted)]">
-          {booksInFolder.length} {booksInFolder.length === 1 ? 'book' : 'books'}
+          {booksInFolder.length} {booksInFolder.length === 1 ? "book" : "books"}
         </p>
       </div>
     </article>
@@ -807,9 +885,9 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
   onInspectBook,
 }) => {
   const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState('');
+  const [newName, setNewName] = useState("");
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState('');
+  const [editingName, setEditingName] = useState("");
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
 
   const bookById = new Map(viewBooks.map((b) => [b.id, b]));
@@ -819,7 +897,7 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
     const trimmed = newName.trim();
     if (!trimmed) return;
     onCreateFolder(trimmed);
-    setNewName('');
+    setNewName("");
     setCreating(false);
   };
 
@@ -830,7 +908,7 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
       onRenameFolder(folderId, trimmed);
     }
     setEditingFolderId(null);
-    setEditingName('');
+    setEditingName("");
   };
 
   return (
@@ -856,13 +934,13 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
               onClick={onToggleHideFiled}
               title={
                 hideFiledBooks
-                  ? 'Show filed books in the ungrouped list below'
-                  : 'Hide filed books from the ungrouped list below'
+                  ? "Show filed books in the ungrouped list below"
+                  : "Hide filed books from the ungrouped list below"
               }
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border transition-colors cursor-pointer whitespace-nowrap ${
                 hideFiledBooks
-                  ? 'border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]'
-                  : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  ? "border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]"
+                  : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               {hideFiledBooks ? (
@@ -888,11 +966,11 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
             >
               <button
                 type="button"
-                onClick={() => onDisplayModeChange('card')}
+                onClick={() => onDisplayModeChange("card")}
                 className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
-                  displayMode === 'card'
-                    ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  displayMode === "card"
+                    ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
               >
                 <LayoutGrid className="w-3 h-3" />
@@ -900,11 +978,11 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => onDisplayModeChange('carousel')}
+                onClick={() => onDisplayModeChange("carousel")}
                 className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
-                  displayMode === 'carousel'
-                    ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  displayMode === "carousel"
+                    ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
               >
                 <GalleryHorizontalEnd className="w-3 h-3" />
@@ -914,7 +992,7 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
           )}
 
           {/* Folder Card Layout Selector (per-view, visible in Card mode) */}
-          {viewFolders.length > 0 && displayMode === 'card' && (
+          {viewFolders.length > 0 && displayMode === "card" && (
             <div
               role="group"
               aria-label="Folder card cover layout"
@@ -928,8 +1006,8 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
                   onClick={() => onCardLayoutChange(opt.id)}
                   className={`px-2 py-1 text-[11px] font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
                     cardLayout === opt.id
-                      ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
-                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                   }`}
                 >
                   {opt.label}
@@ -965,9 +1043,9 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') {
+              if (e.key === "Escape") {
                 setCreating(false);
-                setNewName('');
+                setNewName("");
               }
             }}
             placeholder={`Create folder in ${viewLabel}...`}
@@ -983,7 +1061,7 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
             type="button"
             onClick={() => {
               setCreating(false);
-              setNewName('');
+              setNewName("");
             }}
             className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
             aria-label="Cancel folder creation"
@@ -995,7 +1073,7 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
 
       {/* Folder Cards Grid OR Full-Width Carousels */}
       {viewFolders.length > 0 &&
-        (displayMode === 'card' ? (
+        (displayMode === "card" ? (
           <div className={`grid ${CARD_GRID_BY_SIZE[coverSize]}`}>
             {viewFolders.map((folder) => {
               const booksInFolder = folder.bookIds
@@ -1035,7 +1113,8 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
                     }
                   }}
                   onDragLeave={() => {
-                    if (dragOverFolderId === folder.id) setDragOverFolderId(null);
+                    if (dragOverFolderId === folder.id)
+                      setDragOverFolderId(null);
                   }}
                   onDrop={(e) => {
                     const ids = getDraggedBookIds(e.dataTransfer);
@@ -1085,7 +1164,8 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
                     }
                   }}
                   onDragLeave={() => {
-                    if (dragOverFolderId === folder.id) setDragOverFolderId(null);
+                    if (dragOverFolderId === folder.id)
+                      setDragOverFolderId(null);
                   }}
                   onDrop={(e) => {
                     const ids = getDraggedBookIds(e.dataTransfer);
@@ -1097,7 +1177,9 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
                   }}
                   onOpenBook={onOpenBook}
                   onInspectBook={onInspectBook}
-                  onRemoveBook={(bookId) => onRemoveBookFromViewFolder(bookId, folder.id)}
+                  onRemoveBook={(bookId) =>
+                    onRemoveBookFromViewFolder(bookId, folder.id)
+                  }
                 />
               );
             })}

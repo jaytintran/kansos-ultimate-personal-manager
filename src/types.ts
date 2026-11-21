@@ -42,6 +42,25 @@ export interface NoteNotebook {
   createdAt: string;
 }
 
+export interface BookNoteLink {
+  bookId: string | null;
+  bookTitle: string;
+  bookAuthor?: string;
+  bookFormat?: LibraryBookFormat;
+  unitIndex: number; // 0-based chapter/spine index for EPUB/MOBI, 1-based page number for PDF
+  scrollRatio: number; // 0..1 within chapter/page
+  locationLabel: string; // e.g., "Page 42" or "Chapter 3 · p. 18"
+  quote?: string;
+  bookRemoved?: boolean;
+}
+
+export interface BookJumpRequest {
+  bookId: string;
+  unitIndex: number;
+  scrollRatio: number;
+  nonce: number;
+}
+
 export interface Entry {
   id: string;
   type: EntryType;
@@ -77,6 +96,7 @@ export interface Entry {
   syncToTimeline?: boolean;
   editorWidth?: NoteEditorWidth;
   editorFont?: NoteEditorFont;
+  bookLink?: BookNoteLink | null;
   updatedAt?: string;
 }
 
@@ -197,7 +217,7 @@ import type {
   HighlightRecord as LibraryHighlightRecord,
   ReadingStatus as LibraryReadingStatus,
   ViewFolderRecord as LibraryViewFolderRecord,
-} from "./types/library";
+} from "../library";
 
 export type BookFormat = LibraryBookFormat;
 export type BookReadingStatus = LibraryReadingStatus;

@@ -1,5 +1,5 @@
-import {useCallback, useEffect, useMemo, useState} from 'react';
-import type {BookVoiceOverride, NarratorTone} from '../types/library';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { BookVoiceOverride, NarratorTone } from "../../library";
 
 export interface NarratorToneOption {
   id: NarratorTone;
@@ -11,29 +11,29 @@ export interface NarratorToneOption {
 
 export const NARRATOR_TONES: NarratorToneOption[] = [
   {
-    id: 'warm',
-    label: 'Warm',
-    description: 'Relaxed storytelling cadence',
+    id: "warm",
+    label: "Warm",
+    description: "Relaxed storytelling cadence",
     pitch: 0.96,
     rateMultiplier: 0.97,
   },
   {
-    id: 'crisp',
-    label: 'Crisp',
-    description: 'Clear articulation for study',
+    id: "crisp",
+    label: "Crisp",
+    description: "Clear articulation for study",
     pitch: 1.04,
     rateMultiplier: 1.02,
   },
   {
-    id: 'calm',
-    label: 'Calm',
-    description: 'Gentle low-fatigue evening pace',
+    id: "calm",
+    label: "Calm",
+    description: "Gentle low-fatigue evening pace",
     pitch: 0.9,
     rateMultiplier: 0.92,
   },
 ];
 
-const VOICE_PREFS_KEY = 'kanso_library_voice_prefs_v1';
+const VOICE_PREFS_KEY = "kanso_library_voice_prefs_v1";
 
 interface StoredVoicePrefs {
   defaultVoice: BookVoiceOverride;
@@ -44,8 +44,8 @@ interface StoredVoicePrefs {
 
 const DEFAULT_VOICE_PREFS: StoredVoicePrefs = {
   defaultVoice: {
-    deviceVoiceUri: '',
-    tone: 'warm',
+    deviceVoiceUri: "",
+    tone: "warm",
     rate: 1.0,
   },
   skipNoise: true,
@@ -72,14 +72,16 @@ function loadVoicePrefs(): StoredVoicePrefs {
   }
 }
 
-export function pruneBookVoicePreferences(bookIdsToDelete: Iterable<string>): void {
+export function pruneBookVoicePreferences(
+  bookIdsToDelete: Iterable<string>,
+): void {
   const targets = new Set(bookIdsToDelete);
-  if (targets.size === 0 || typeof localStorage === 'undefined') return;
+  if (targets.size === 0 || typeof localStorage === "undefined") return;
   try {
     const raw = localStorage.getItem(VOICE_PREFS_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw) as Partial<StoredVoicePrefs>;
-    if (!parsed.perBook || typeof parsed.perBook !== 'object') return;
+    if (!parsed.perBook || typeof parsed.perBook !== "object") return;
     let changed = false;
     const nextPerBook: Record<string, BookVoiceOverride> = {};
     for (const [id, override] of Object.entries(parsed.perBook)) {
@@ -92,7 +94,7 @@ export function pruneBookVoicePreferences(bookIdsToDelete: Iterable<string>): vo
     if (changed) {
       localStorage.setItem(
         VOICE_PREFS_KEY,
-        JSON.stringify({...parsed, perBook: nextPerBook})
+        JSON.stringify({ ...parsed, perBook: nextPerBook }),
       );
     }
   } catch {
@@ -100,13 +102,15 @@ export function pruneBookVoicePreferences(bookIdsToDelete: Iterable<string>): vo
   }
 }
 
-export function pruneMissingBookVoicePreferences(validBookIds: Set<string>): void {
-  if (typeof localStorage === 'undefined') return;
+export function pruneMissingBookVoicePreferences(
+  validBookIds: Set<string>,
+): void {
+  if (typeof localStorage === "undefined") return;
   try {
     const raw = localStorage.getItem(VOICE_PREFS_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw) as Partial<StoredVoicePrefs>;
-    if (!parsed.perBook || typeof parsed.perBook !== 'object') return;
+    if (!parsed.perBook || typeof parsed.perBook !== "object") return;
     let changed = false;
     const nextPerBook: Record<string, BookVoiceOverride> = {};
     for (const [id, override] of Object.entries(parsed.perBook)) {
@@ -119,7 +123,7 @@ export function pruneMissingBookVoicePreferences(validBookIds: Set<string>): voi
     if (changed) {
       localStorage.setItem(
         VOICE_PREFS_KEY,
-        JSON.stringify({...parsed, perBook: nextPerBook})
+        JSON.stringify({ ...parsed, perBook: nextPerBook }),
       );
     }
   } catch {
@@ -153,10 +157,10 @@ export function useVoicePreferences(bookId: string) {
     (patch: Partial<BookVoiceOverride>) => {
       setStored((prev) => {
         const current = prev.perBook[bookId] ?? prev.defaultVoice;
-        const nextBookVoice = {...current, ...patch};
+        const nextBookVoice = { ...current, ...patch };
         return {
           ...prev,
-          defaultVoice: {...prev.defaultVoice, ...patch},
+          defaultVoice: { ...prev.defaultVoice, ...patch },
           perBook: {
             ...prev.perBook,
             [bookId]: nextBookVoice,
@@ -164,22 +168,22 @@ export function useVoicePreferences(bookId: string) {
         };
       });
     },
-    [bookId]
+    [bookId],
   );
 
   const updateGlobalVoiceOption = useCallback(
-    (patch: {skipNoise?: boolean; tapToRead?: boolean}) => {
+    (patch: { skipNoise?: boolean; tapToRead?: boolean }) => {
       setStored((prev) => ({
         ...prev,
         ...patch,
       }));
     },
-    []
+    [],
   );
 
   const clearBookOverride = useCallback(() => {
     setStored((prev) => {
-      const nextPerBook = {...prev.perBook};
+      const nextPerBook = { ...prev.perBook };
       delete nextPerBook[bookId];
       return {
         ...prev,

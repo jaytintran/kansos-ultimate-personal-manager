@@ -1,84 +1,85 @@
-import JSZip from 'jszip';
+import JSZip from "jszip";
 import type {
   ImportMetadataResult,
   ParsedChapter,
   ParsedReflowableBook,
   ParsedTocItem,
-} from '../../types/library';
-import {computeSha256Hex} from '../db';
-import {compressCoverDataUrl} from '../formatters';
+} from "../../../library";
+import { computeSha256Hex } from "../db";
+import { compressCoverDataUrl } from "../formatters";
 
 function cleanBaseName(fileName: string): string {
   return (
     fileName
-      .replace(/\.epub$/i, '')
-      .replace(/[_-]+/g, ' ')
-      .trim() || 'Untitled Book'
+      .replace(/\.epub$/i, "")
+      .replace(/[_-]+/g, " ")
+      .trim() || "Untitled Book"
   );
 }
 
 function resolveRelativePath(baseDir: string, relativePath: string): string {
-  const cleanRel = relativePath.split('#')[0].split('?')[0];
-  if (!baseDir) return cleanRel.replace(/^\/+/, '');
-  const stack = baseDir.split('/').filter(Boolean);
-  for (const part of cleanRel.split('/')) {
-    if (!part || part === '.') continue;
-    if (part === '..') stack.pop();
+  const cleanRel = relativePath.split("#")[0].split("?")[0];
+  if (!baseDir) return cleanRel.replace(/^\/+/, "");
+  const stack = baseDir.split("/").filter(Boolean);
+  for (const part of cleanRel.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") stack.pop();
     else stack.push(part);
   }
-  return stack.join('/');
+  return stack.join("/");
 }
 
 function guessMime(path: string): string {
   const lower = path.toLowerCase();
-  if (lower.endsWith('.png')) return 'image/png';
-  if (lower.endsWith('.gif')) return 'image/gif';
-  if (lower.endsWith('.webp')) return 'image/webp';
-  if (lower.endsWith('.svg')) return 'image/svg+xml';
-  return 'image/jpeg';
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  return "image/jpeg";
 }
 
 const DISALLOWED_CSS_PROPS = new Set([
-  'color',
-  'background',
-  'background-color',
-  'background-image',
-  'font-family',
-  'position',
-  'top',
-  'right',
-  'bottom',
-  'left',
-  'z-index',
-  'overflow',
-  'overflow-x',
-  'overflow-y',
-  'height',
-  'min-height',
-  'max-height',
+  "color",
+  "background",
+  "background-color",
+  "background-image",
+  "font-family",
+  "position",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "z-index",
+  "overflow",
+  "overflow-x",
+  "overflow-y",
+  "height",
+  "min-height",
+  "max-height",
 ]);
 
 function filterCssDeclarations(declBlock: string): string {
   const kept: string[] = [];
-  for (const rawDecl of declBlock.split(';')) {
-    const colonIdx = rawDecl.indexOf(':');
+  for (const rawDecl of declBlock.split(";")) {
+    const colonIdx = rawDecl.indexOf(":");
     if (colonIdx === -1) continue;
     const prop = rawDecl.slice(0, colonIdx).trim().toLowerCase();
     const val = rawDecl.slice(colonIdx + 1).trim();
     if (!prop || !val) continue;
     if (DISALLOWED_CSS_PROPS.has(prop)) continue;
-    if (/expression\s*\(|javascript:|url\s*\(\s*['"]?https?:/i.test(val)) continue;
-    if (prop === 'font-size' && /(px|pt)$/i.test(val)) continue;
+    if (/expression\s*\(|javascript:|url\s*\(\s*['"]?https?:/i.test(val))
+      continue;
+    if (prop === "font-size" && /(px|pt)$/i.test(val)) continue;
     kept.push(`${prop}: ${val}`);
   }
-  return kept.join('; ');
+  return kept.join("; ");
 }
 
 function scopeCssRuleBlock(cssText: string, scopeSelector: string): string {
   const cleaned = cssText
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/@(charset|import|namespace)[^;]*;/gi, '')
-    .replace(/@(font-face|page)\s*\{[^{}]*\}/gi, '');
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/@(charset|import|namespace)[^;]*;/gi, "")
+    .replace(/@(font-face|page)\s*\{[^{}]*\}/gi, "");
 
   const out: string[] = [];
   let i = 0;
@@ -88,49 +89,52 @@ function scopeCssRuleBlock(cssText: string, scopeSelector: string): string {
     while (i < len && /\s/.test(cleaned[i])) i++;
     if (i >= len) break;
 
-    const braceOpen = cleaned.indexOf('{', i);
+    const braceOpen = cleaned.indexOf("{", i);
     if (braceOpen === -1) break;
     const selectorRaw = cleaned.slice(i, braceOpen).trim();
 
     let depth = 1;
     let j = braceOpen + 1;
     while (j < len && depth > 0) {
-      if (cleaned[j] === '{') depth++;
-      else if (cleaned[j] === '}') depth--;
+      if (cleaned[j] === "{") depth++;
+      else if (cleaned[j] === "}") depth--;
       j++;
     }
     const inner = cleaned.slice(braceOpen + 1, j - 1);
     i = j;
 
     if (!selectorRaw) continue;
-    if (selectorRaw.startsWith('@media') || selectorRaw.startsWith('@supports')) {
+    if (
+      selectorRaw.startsWith("@media") ||
+      selectorRaw.startsWith("@supports")
+    ) {
       const nested = scopeCssRuleBlock(inner, scopeSelector);
       if (nested.trim()) {
         out.push(`${selectorRaw} {\n${nested}\n}`);
       }
       continue;
     }
-    if (selectorRaw.startsWith('@')) continue;
+    if (selectorRaw.startsWith("@")) continue;
 
     const filteredDecls = filterCssDeclarations(inner);
     if (!filteredDecls) continue;
 
     const scopedSelectors = selectorRaw
-      .split(',')
+      .split(",")
       .map((s) => s.trim())
-      .filter((s) => s && !s.includes('::'))
+      .filter((s) => s && !s.includes("::"))
       .map((s) => {
         if (/^(html|body)$/i.test(s)) return scopeSelector;
-        const stripped = s.replace(/^(html|body)\s+/i, '');
+        const stripped = s.replace(/^(html|body)\s+/i, "");
         return `${scopeSelector} ${stripped}`;
       });
 
     if (scopedSelectors.length > 0) {
-      out.push(`${scopedSelectors.join(', ')} { ${filteredDecls}; }`);
+      out.push(`${scopedSelectors.join(", ")} { ${filteredDecls}; }`);
     }
   }
 
-  return out.join('\n');
+  return out.join("\n");
 }
 
 function findZipFile(zip: JSZip, targetPath: string): JSZip.JSZipObject | null {
@@ -161,75 +165,89 @@ interface ParsedEpubInternal {
 async function parseEpubCore(
   data: ArrayBuffer,
   fallbackFileName: string,
-  includeFullChapters: boolean
+  includeFullChapters: boolean,
 ): Promise<ParsedEpubInternal> {
   const zip = await JSZip.loadAsync(data);
   const parser = new DOMParser();
 
-  let opfPath = '';
-  const containerXml = await findZipFile(zip, 'META-INF/container.xml')?.async('string');
+  let opfPath = "";
+  const containerXml = await findZipFile(zip, "META-INF/container.xml")?.async(
+    "string",
+  );
   if (containerXml) {
-    const cDoc = parser.parseFromString(containerXml, 'application/xml');
-    opfPath = cDoc.querySelector('rootfile')?.getAttribute('full-path') || '';
+    const cDoc = parser.parseFromString(containerXml, "application/xml");
+    opfPath = cDoc.querySelector("rootfile")?.getAttribute("full-path") || "";
   }
   if (!opfPath) {
-    opfPath = Object.keys(zip.files).find((k) => k.toLowerCase().endsWith('.opf')) || '';
+    opfPath =
+      Object.keys(zip.files).find((k) => k.toLowerCase().endsWith(".opf")) ||
+      "";
   }
   if (!opfPath) {
-    throw new Error('Could not locate OPF package manifest in this EPUB archive.');
+    throw new Error(
+      "Could not locate OPF package manifest in this EPUB archive.",
+    );
   }
 
-  const opfDir = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/')) : '';
-  const opfXml = await findZipFile(zip, opfPath)?.async('string');
+  const opfDir = opfPath.includes("/")
+    ? opfPath.slice(0, opfPath.lastIndexOf("/"))
+    : "";
+  const opfXml = await findZipFile(zip, opfPath)?.async("string");
   if (!opfXml) {
-    throw new Error('EPUB manifest file is missing.');
+    throw new Error("EPUB manifest file is missing.");
   }
 
-  const opfDoc = parser.parseFromString(opfXml, 'application/xml');
-  const allOpfNodes = Array.from(opfDoc.getElementsByTagName('*'));
+  const opfDoc = parser.parseFromString(opfXml, "application/xml");
+  const allOpfNodes = Array.from(opfDoc.getElementsByTagName("*"));
 
   const getMetaText = (localName: string): string => {
     const found = allOpfNodes.find(
-      (n) => n.localName === localName && n.textContent && n.textContent.trim().length > 0
+      (n) =>
+        n.localName === localName &&
+        n.textContent &&
+        n.textContent.trim().length > 0,
     );
-    return found?.textContent?.trim() || '';
+    return found?.textContent?.trim() || "";
   };
 
-  const title = getMetaText('title') || cleanBaseName(fallbackFileName);
-  const author = getMetaText('creator') || 'Unknown Author';
-  const description = getMetaText('description');
-  const publisher = getMetaText('publisher');
-  const language = getMetaText('language') || 'en';
-  const rawDate = getMetaText('date');
+  const title = getMetaText("title") || cleanBaseName(fallbackFileName);
+  const author = getMetaText("creator") || "Unknown Author";
+  const description = getMetaText("description");
+  const publisher = getMetaText("publisher");
+  const language = getMetaText("language") || "en";
+  const rawDate = getMetaText("date");
   const yearMatch = rawDate.match(/(18|19|20)\d{2}/);
-  const year = yearMatch ? yearMatch[0] : '';
+  const year = yearMatch ? yearMatch[0] : "";
 
-  const manifestById = new Map<string, {href: string; mediaType: string; properties: string}>();
+  const manifestById = new Map<
+    string,
+    { href: string; mediaType: string; properties: string }
+  >();
   for (const el of allOpfNodes) {
-    if (el.localName !== 'item') continue;
-    const id = el.getAttribute('id') || '';
-    const href = el.getAttribute('href') || '';
+    if (el.localName !== "item") continue;
+    const id = el.getAttribute("id") || "";
+    const href = el.getAttribute("href") || "";
     if (!id || !href) continue;
     manifestById.set(id, {
       href: decodeURIComponent(href),
-      mediaType: el.getAttribute('media-type') || '',
-      properties: el.getAttribute('properties') || '',
+      mediaType: el.getAttribute("media-type") || "",
+      properties: el.getAttribute("properties") || "",
     });
   }
 
   // Extract cover image as Data URL for offline persistence in BookRecord
   let coverHref: string | null = null;
   for (const m of manifestById.values()) {
-    if (m.properties.includes('cover-image')) {
+    if (m.properties.includes("cover-image")) {
       coverHref = m.href;
       break;
     }
   }
   if (!coverHref) {
     const coverMeta = allOpfNodes.find(
-      (el) => el.localName === 'meta' && el.getAttribute('name') === 'cover'
+      (el) => el.localName === "meta" && el.getAttribute("name") === "cover",
     );
-    const coverId = coverMeta?.getAttribute('content');
+    const coverId = coverMeta?.getAttribute("content");
     if (coverId && manifestById.has(coverId)) {
       coverHref = manifestById.get(coverId)!.href;
     }
@@ -237,8 +255,9 @@ async function parseEpubCore(
   if (!coverHref) {
     for (const [id, m] of manifestById.entries()) {
       if (
-        m.mediaType.startsWith('image/') &&
-        (id.toLowerCase().includes('cover') || m.href.toLowerCase().includes('cover'))
+        m.mediaType.startsWith("image/") &&
+        (id.toLowerCase().includes("cover") ||
+          m.href.toLowerCase().includes("cover"))
       ) {
         coverHref = m.href;
         break;
@@ -251,21 +270,21 @@ async function parseEpubCore(
     const fullCoverPath = resolveRelativePath(opfDir, coverHref);
     const coverFile = findZipFile(zip, fullCoverPath);
     if (coverFile) {
-      const b64 = await coverFile.async('base64');
+      const b64 = await coverFile.async("base64");
       const rawDataUrl = `data:${guessMime(fullCoverPath)};base64,${b64}`;
       coverDataUrl = await compressCoverDataUrl(rawDataUrl);
     }
   }
 
   const spineRefs = allOpfNodes
-    .filter((el) => el.localName === 'itemref')
-    .map((el) => el.getAttribute('idref') || '')
+    .filter((el) => el.localName === "itemref")
+    .map((el) => el.getAttribute("idref") || "")
     .filter(Boolean);
 
   if (!includeFullChapters) {
     return {
       title,
-      subtitle: '',
+      subtitle: "",
       author,
       description,
       publisher,
@@ -275,9 +294,9 @@ async function parseEpubCore(
       chapters: spineRefs.map((id, index) => ({
         index,
         id,
-        href: manifestById.get(id)?.href || '',
+        href: manifestById.get(id)?.href || "",
         title: `Section ${index + 1}`,
-        html: '',
+        html: "",
       })),
       toc: [],
       cleanupUrls: [],
@@ -285,7 +304,8 @@ async function parseEpubCore(
   }
 
   // First pass: map spine hrefs to chapter indices so internal links & footnotes rewrite accurately
-  const spineEntries: Array<{id: string; fullPath: string; relHref: string}> = [];
+  const spineEntries: Array<{ id: string; fullPath: string; relHref: string }> =
+    [];
   const hrefToChapterIdx = new Map<string, number>();
 
   for (const idref of spineRefs) {
@@ -295,7 +315,7 @@ async function parseEpubCore(
     const file = findZipFile(zip, fullPath);
     if (!file) continue;
     const chIdx = spineEntries.length;
-    spineEntries.push({id: idref, fullPath, relHref: item.href});
+    spineEntries.push({ id: idref, fullPath, relHref: item.href });
     hrefToChapterIdx.set(fullPath, chIdx);
     hrefToChapterIdx.set(fullPath.toLowerCase(), chIdx);
     hrefToChapterIdx.set(item.href, chIdx);
@@ -308,10 +328,11 @@ async function parseEpubCore(
   const chapters: ParsedChapter[] = [];
 
   const expandXhtmlSelfClosingTags = (xhtml: string): string => {
-    const cleaned = xhtml.replace(/<\?xml[\s\S]*?\?>/gi, '');
+    const cleaned = xhtml.replace(/<\?xml[\s\S]*?\?>/gi, "");
     return cleaned.replace(
       /<(a|abbr|b|blockquote|cite|code|dd|del|div|dt|em|figcaption|figure|h[1-6]|i|ins|kbd|label|li|mark|ol|p|pre|q|s|samp|section|small|span|strong|sub|sup|table|tbody|td|th|thead|tr|u|ul|var)(\s+(?:[^>"']|"[^"]*"|'[^']*')*)?\s*\/>/gi,
-      (_full, tagName: string, attrs = '') => `<${tagName}${attrs}></${tagName}>`
+      (_full, tagName: string, attrs = "") =>
+        `<${tagName}${attrs}></${tagName}>`,
     );
   };
 
@@ -319,71 +340,78 @@ async function parseEpubCore(
     const entry = spineEntries[chIdx];
     const file = findZipFile(zip, entry.fullPath);
     if (!file) continue;
-    const rawHtml = await file.async('string');
-    const htmlDoc = parser.parseFromString(expandXhtmlSelfClosingTags(rawHtml), 'text/html');
-    const chapterDir = entry.fullPath.includes('/')
-      ? entry.fullPath.slice(0, entry.fullPath.lastIndexOf('/'))
-      : '';
+    const rawHtml = await file.async("string");
+    const htmlDoc = parser.parseFromString(
+      expandXhtmlSelfClosingTags(rawHtml),
+      "text/html",
+    );
+    const chapterDir = entry.fullPath.includes("/")
+      ? entry.fullPath.slice(0, entry.fullPath.lastIndexOf("/"))
+      : "";
     const scopeSelector = `.folio-prose.folio-prose--publisher[data-pub-ch="${chIdx}"]`;
 
     // Extract linked & inline publisher stylesheets into scoped safe CSS for Publisher Styles mode
     const cssParts: string[] = [];
     const linkedStyles = Array.from(
-      htmlDoc.querySelectorAll('link[rel~="stylesheet"][href], link[href$=".css"]')
+      htmlDoc.querySelectorAll(
+        'link[rel~="stylesheet"][href], link[href$=".css"]',
+      ),
     );
     for (const linkEl of linkedStyles) {
-      const href = linkEl.getAttribute('href');
+      const href = linkEl.getAttribute("href");
       if (!href || /^(https?:|data:)/i.test(href)) continue;
       const cssPath = resolveRelativePath(chapterDir, decodeURIComponent(href));
       const cacheKey = `${chIdx}:${cssPath}`;
       let scoped = cssFileCache.get(cacheKey);
       if (scoped === undefined) {
         const cssFile = findZipFile(zip, cssPath);
-        const cssStr = cssFile ? await cssFile.async('string') : '';
-        scoped = cssStr ? scopeCssRuleBlock(cssStr, scopeSelector) : '';
+        const cssStr = cssFile ? await cssFile.async("string") : "";
+        scoped = cssStr ? scopeCssRuleBlock(cssStr, scopeSelector) : "";
         cssFileCache.set(cacheKey, scoped);
       }
       if (scoped) cssParts.push(scoped);
     }
-    htmlDoc.querySelectorAll('style').forEach((styleEl) => {
-      const cssStr = styleEl.textContent || '';
+    htmlDoc.querySelectorAll("style").forEach((styleEl) => {
+      const cssStr = styleEl.textContent || "";
       if (cssStr.trim()) {
         const scoped = scopeCssRuleBlock(cssStr, scopeSelector);
         if (scoped) cssParts.push(scoped);
       }
     });
-    const publisherCss = cssParts.join('\n').trim() || undefined;
+    const publisherCss = cssParts.join("\n").trim() || undefined;
 
     // Remove unsafe or conflicting tags
-    htmlDoc.querySelectorAll('script, style, link, iframe, object, embed').forEach((el) => el.remove());
+    htmlDoc
+      .querySelectorAll("script, style, link, iframe, object, embed")
+      .forEach((el) => el.remove());
 
     // Store safe inline formatting (align, indent, margins, italics, borders) in data-folio-pub-style
     // so Clean Kanso mode renders uniformly while Publisher mode restores authentic book layout instantly.
-    htmlDoc.querySelectorAll<HTMLElement>('[style]').forEach((el) => {
-      const rawStyle = el.getAttribute('style') || '';
+    htmlDoc.querySelectorAll<HTMLElement>("[style]").forEach((el) => {
+      const rawStyle = el.getAttribute("style") || "";
       const safeInline = filterCssDeclarations(rawStyle);
       if (safeInline) {
-        el.setAttribute('data-folio-pub-style', safeInline);
+        el.setAttribute("data-folio-pub-style", safeInline);
       }
-      el.removeAttribute('style');
+      el.removeAttribute("style");
     });
 
     // Scope element IDs so multiple chapters in Continuous Scroll never collide
-    htmlDoc.querySelectorAll('[id]').forEach((el) => {
-      const origId = el.getAttribute('id');
+    htmlDoc.querySelectorAll("[id]").forEach((el) => {
+      const origId = el.getAttribute("id");
       if (!origId) return;
-      el.setAttribute('data-folio-target-id', origId);
-      el.setAttribute('id', `folio-ch-${chIdx}-${origId}`);
+      el.setAttribute("data-folio-target-id", origId);
+      el.setAttribute("id", `folio-ch-${chIdx}-${origId}`);
     });
 
     // Convert non-href <a> anchor targets (<a id="p12"/> or <a name="sec"/>) into harmless <span>s
     // so they never inherit link colors/underlines or wrap text as hyperlinks.
-    htmlDoc.querySelectorAll('a').forEach((a) => {
-      const href = (a.getAttribute('href') || '').trim();
+    htmlDoc.querySelectorAll("a").forEach((a) => {
+      const href = (a.getAttribute("href") || "").trim();
       if (href) return;
-      const span = htmlDoc.createElement('span');
+      const span = htmlDoc.createElement("span");
       for (const attr of Array.from(a.attributes)) {
-        if (attr.name !== 'name') {
+        if (attr.name !== "name") {
           span.setAttribute(attr.name, attr.value);
         }
       }
@@ -394,22 +422,25 @@ async function parseEpubCore(
     });
 
     // Rewrite internal links & footnotes to data-folio-chapter / data-folio-anchor
-    htmlDoc.querySelectorAll('a[href]').forEach((a) => {
-      const href = a.getAttribute('href') || '';
+    htmlDoc.querySelectorAll("a[href]").forEach((a) => {
+      const href = a.getAttribute("href") || "";
       if (!href || /^(https?:|mailto:|tel:|javascript:)/i.test(href)) {
         if (/^https?:/i.test(href)) {
-          a.setAttribute('target', '_blank');
-          a.setAttribute('rel', 'noopener noreferrer');
+          a.setAttribute("target", "_blank");
+          a.setAttribute("rel", "noopener noreferrer");
         }
         return;
       }
 
-      const [filePart, hashPart] = href.split('#');
+      const [filePart, hashPart] = href.split("#");
       let targetIdx: number | undefined;
       if (!filePart) {
         targetIdx = chIdx;
       } else {
-        const resolved = resolveRelativePath(chapterDir, decodeURIComponent(filePart));
+        const resolved = resolveRelativePath(
+          chapterDir,
+          decodeURIComponent(filePart),
+        );
         targetIdx =
           hrefToChapterIdx.get(resolved) ??
           hrefToChapterIdx.get(resolved.toLowerCase()) ??
@@ -418,34 +449,40 @@ async function parseEpubCore(
       }
 
       if (targetIdx !== undefined) {
-        a.setAttribute('data-folio-chapter', String(targetIdx));
+        a.setAttribute("data-folio-chapter", String(targetIdx));
         if (hashPart) {
-          a.setAttribute('data-folio-anchor', decodeURIComponent(hashPart));
+          a.setAttribute("data-folio-anchor", decodeURIComponent(hashPart));
         }
         // Detect footnote links (epub:type="noteref", doc-noteref, or superscript number)
-        const epubType = a.getAttribute('epub:type') || a.getAttribute('role') || '';
-        const text = (a.textContent || '').trim();
+        const epubType =
+          a.getAttribute("epub:type") || a.getAttribute("role") || "";
+        const text = (a.textContent || "").trim();
         if (
-          epubType.includes('noteref') ||
-          a.closest('sup') ||
+          epubType.includes("noteref") ||
+          a.closest("sup") ||
           /^\[?\d{1,3}\]?$/.test(text) ||
           /^\*+$/.test(text)
         ) {
-          a.setAttribute('data-folio-footnote-ref', 'true');
+          a.setAttribute("data-folio-footnote-ref", "true");
         }
       }
     });
 
     // Inline local images as Blob URLs for fast rendering + lightbox zoom
-    const imgs = Array.from(htmlDoc.querySelectorAll('img, image'));
+    const imgs = Array.from(htmlDoc.querySelectorAll("img, image"));
     for (const img of imgs) {
-      const attrName = img.hasAttribute('src')
-        ? 'src'
-        : img.hasAttribute('xlink:href')
-          ? 'xlink:href'
-          : 'href';
+      const attrName = img.hasAttribute("src")
+        ? "src"
+        : img.hasAttribute("xlink:href")
+          ? "xlink:href"
+          : "href";
       const src = img.getAttribute(attrName);
-      if (!src || src.startsWith('http') || src.startsWith('data:') || src.startsWith('blob:')) {
+      if (
+        !src ||
+        src.startsWith("http") ||
+        src.startsWith("data:") ||
+        src.startsWith("blob:")
+      ) {
         continue;
       }
       const imgPath = resolveRelativePath(chapterDir, decodeURIComponent(src));
@@ -453,8 +490,8 @@ async function parseEpubCore(
       if (!blobUrl) {
         const imgFile = findZipFile(zip, imgPath);
         if (imgFile) {
-          const bytes = await imgFile.async('arraybuffer');
-          const blob = new Blob([bytes], {type: guessMime(imgPath)});
+          const bytes = await imgFile.async("arraybuffer");
+          const blob = new Blob([bytes], { type: guessMime(imgPath) });
           blobUrl = URL.createObjectURL(blob);
           blobUrlCache.set(imgPath, blobUrl);
           cleanupUrls.push(blobUrl);
@@ -465,9 +502,10 @@ async function parseEpubCore(
       }
     }
 
-    const headingEl = htmlDoc.querySelector('h1, h2, h3, title');
+    const headingEl = htmlDoc.querySelector("h1, h2, h3, title");
     const chapterTitle =
-      headingEl?.textContent?.replace(/\s+/g, ' ').trim() || `Section ${chIdx + 1}`;
+      headingEl?.textContent?.replace(/\s+/g, " ").trim() ||
+      `Section ${chIdx + 1}`;
     const bodyHtml = htmlDoc.body?.innerHTML?.trim() || rawHtml;
 
     chapters.push({
@@ -486,8 +524,11 @@ async function parseEpubCore(
   let ncxHref: string | null = null;
 
   for (const m of manifestById.values()) {
-    if (m.properties.includes('nav')) navHref = m.href;
-    if (m.mediaType === 'application/x-dtbncx+xml' || m.href.toLowerCase().endsWith('.ncx')) {
+    if (m.properties.includes("nav")) navHref = m.href;
+    if (
+      m.mediaType === "application/x-dtbncx+xml" ||
+      m.href.toLowerCase().endsWith(".ncx")
+    ) {
       ncxHref = m.href;
     }
   }
@@ -495,21 +536,32 @@ async function parseEpubCore(
   let tocCounter = 0;
   if (navHref) {
     const navPath = resolveRelativePath(opfDir, navHref);
-    const navDir = navPath.includes('/') ? navPath.slice(0, navPath.lastIndexOf('/')) : '';
-    const navStr = await findZipFile(zip, navPath)?.async('string');
+    const navDir = navPath.includes("/")
+      ? navPath.slice(0, navPath.lastIndexOf("/"))
+      : "";
+    const navStr = await findZipFile(zip, navPath)?.async("string");
     if (navStr) {
-      const navDoc = parser.parseFromString(navStr, 'text/html');
+      const navDoc = parser.parseFromString(navStr, "text/html");
       const tocNav =
-        navDoc.querySelector('nav[epub\\:type="toc"], nav[role="doc-toc"], nav') || navDoc.body;
+        navDoc.querySelector(
+          'nav[epub\\:type="toc"], nav[role="doc-toc"], nav',
+        ) || navDoc.body;
       const walkOl = (parent: Element, depth: number) => {
-        const lis = Array.from(parent.children).filter((c) => c.tagName.toLowerCase() === 'li');
+        const lis = Array.from(parent.children).filter(
+          (c) => c.tagName.toLowerCase() === "li",
+        );
         for (const li of lis) {
-          const a = li.querySelector(':scope > a[href], :scope > span > a[href]');
+          const a = li.querySelector(
+            ":scope > a[href], :scope > span > a[href]",
+          );
           if (a) {
-            const label = a.textContent?.replace(/\s+/g, ' ').trim();
-            const href = a.getAttribute('href') || '';
-            const [filePart, hashPart] = href.split('#');
-            const resolved = resolveRelativePath(navDir, decodeURIComponent(filePart));
+            const label = a.textContent?.replace(/\s+/g, " ").trim();
+            const href = a.getAttribute("href") || "";
+            const [filePart, hashPart] = href.split("#");
+            const resolved = resolveRelativePath(
+              navDir,
+              decodeURIComponent(filePart),
+            );
             const idx =
               hrefToChapterIdx.get(resolved) ??
               hrefToChapterIdx.get(resolved.toLowerCase()) ??
@@ -524,34 +576,42 @@ async function parseEpubCore(
               });
             }
           }
-          const nestedOl = li.querySelector(':scope > ol, :scope > ul');
+          const nestedOl = li.querySelector(":scope > ol, :scope > ul");
           if (nestedOl && depth < 3) walkOl(nestedOl, depth + 1);
         }
       };
-      const rootOl = tocNav.querySelector('ol, ul');
+      const rootOl = tocNav.querySelector("ol, ul");
       if (rootOl) walkOl(rootOl, 0);
     }
   } else if (ncxHref) {
     const ncxPath = resolveRelativePath(opfDir, ncxHref);
-    const ncxDir = ncxPath.includes('/') ? ncxPath.slice(0, ncxPath.lastIndexOf('/')) : '';
-    const ncxStr = await findZipFile(zip, ncxPath)?.async('string');
+    const ncxDir = ncxPath.includes("/")
+      ? ncxPath.slice(0, ncxPath.lastIndexOf("/"))
+      : "";
+    const ncxStr = await findZipFile(zip, ncxPath)?.async("string");
     if (ncxStr) {
-      const ncxDoc = parser.parseFromString(ncxStr, 'application/xml');
+      const ncxDoc = parser.parseFromString(ncxStr, "application/xml");
       const walkNavPoints = (parent: Element, depth: number) => {
-        const navPoints = Array.from(parent.children).filter((el) => el.localName === 'navPoint');
+        const navPoints = Array.from(parent.children).filter(
+          (el) => el.localName === "navPoint",
+        );
         for (const np of navPoints) {
-          const textNode = Array.from(np.getElementsByTagName('*')).find(
-            (el) => el.localName === 'text'
+          const textNode = Array.from(np.getElementsByTagName("*")).find(
+            (el) => el.localName === "text",
           );
-          const contentNode = Array.from(np.getElementsByTagName('*')).find(
-            (el) => el.localName === 'content'
+          const contentNode = Array.from(np.getElementsByTagName("*")).find(
+            (el) => el.localName === "content",
           );
-          const label = textNode?.textContent?.replace(/\s+/g, ' ').trim();
-          const src = contentNode?.getAttribute('src') || '';
-          const [filePart, hashPart] = src.split('#');
-          const resolved = resolveRelativePath(ncxDir, decodeURIComponent(filePart));
+          const label = textNode?.textContent?.replace(/\s+/g, " ").trim();
+          const src = contentNode?.getAttribute("src") || "";
+          const [filePart, hashPart] = src.split("#");
+          const resolved = resolveRelativePath(
+            ncxDir,
+            decodeURIComponent(filePart),
+          );
           const idx =
-            hrefToChapterIdx.get(resolved) ?? hrefToChapterIdx.get(resolved.toLowerCase());
+            hrefToChapterIdx.get(resolved) ??
+            hrefToChapterIdx.get(resolved.toLowerCase());
           if (label && idx !== undefined) {
             toc.push({
               id: `epub-ncx-${tocCounter++}`,
@@ -564,8 +624,8 @@ async function parseEpubCore(
           if (depth < 3) walkNavPoints(np, depth + 1);
         }
       };
-      const navMap = Array.from(ncxDoc.getElementsByTagName('*')).find(
-        (el) => el.localName === 'navMap'
+      const navMap = Array.from(ncxDoc.getElementsByTagName("*")).find(
+        (el) => el.localName === "navMap",
       );
       if (navMap) walkNavPoints(navMap, 0);
     }
@@ -584,14 +644,18 @@ async function parseEpubCore(
 
   // Update chapter titles from TOC when TOC gives cleaner chapter names
   for (const item of toc) {
-    if (item.depth === 0 && chapters[item.unitIndex] && chapters[item.unitIndex].title.startsWith('Section ')) {
+    if (
+      item.depth === 0 &&
+      chapters[item.unitIndex] &&
+      chapters[item.unitIndex].title.startsWith("Section ")
+    ) {
       chapters[item.unitIndex].title = item.title;
     }
   }
 
   return {
     title,
-    subtitle: '',
+    subtitle: "",
     author,
     description,
     publisher,
@@ -604,8 +668,10 @@ async function parseEpubCore(
   };
 }
 
-export async function parseEpubForReading(data: ArrayBuffer): Promise<ParsedReflowableBook> {
-  const parsed = await parseEpubCore(data, 'Book.epub', true);
+export async function parseEpubForReading(
+  data: ArrayBuffer,
+): Promise<ParsedReflowableBook> {
+  const parsed = await parseEpubCore(data, "Book.epub", true);
   return {
     title: parsed.title,
     author: parsed.author,
@@ -617,14 +683,14 @@ export async function parseEpubForReading(data: ArrayBuffer): Promise<ParsedRefl
 
 export async function extractEpubImportMetadata(
   data: ArrayBuffer,
-  fileName: string
+  fileName: string,
 ): Promise<ImportMetadataResult> {
   const [fileHash, parsed] = await Promise.all([
     computeSha256Hex(data),
     parseEpubCore(data, fileName, false),
   ]);
   return {
-    format: 'epub',
+    format: "epub",
     fileName,
     fileSize: data.byteLength,
     fileHash,

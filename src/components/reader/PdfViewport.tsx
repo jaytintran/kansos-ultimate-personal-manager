@@ -1,15 +1,21 @@
-import {RefreshCw, StickyNote, X} from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist';
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {HIGHLIGHT_COLORS} from '../../lib/formatters';
+import { RefreshCw, StickyNote, X } from "lucide-react";
+import * as pdfjsLib from "pdfjs-dist";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { HIGHLIGHT_COLORS } from "../../lib/formatters";
 import {
   extractPdfPageSentences,
   type NarrationSentence,
   type PdfSpanMeta,
-} from '../../lib/narrationText';
-import type {PdfDocumentHandle} from '../../lib/parsers/pdfParser';
-import {resolvePdfCanvasFilter} from '../../lib/readerUtils';
-import type {HighlightColor, ReaderPreferences} from '../../types/library';
+} from "../../lib/narrationText";
+import type { PdfDocumentHandle } from "../../lib/parsers/pdfParser";
+import { resolvePdfCanvasFilter } from "../../lib/readerUtils";
+import type { HighlightColor, ReaderPreferences } from "../../../library";
 
 interface PdfSelectionMenu {
   text: string;
@@ -38,7 +44,7 @@ interface PdfPageCanvasProps {
   containerWidth: number;
   prefs: ReaderPreferences;
   isNearViewport: boolean;
-  defaultSize: {width: number; height: number};
+  defaultSize: { width: number; height: number };
   searchHighlightQuery: string | null;
   voiceActive: boolean;
   voiceTapToRead: boolean;
@@ -49,10 +55,16 @@ interface PdfPageCanvasProps {
   voiceFollowEnabled: boolean;
   recenterNonce: number;
   onBeginVoiceAutoScroll: () => void;
-  onPageSentencesReady: (pageNumber: number, sentences: NarrationSentence[]) => void;
+  onPageSentencesReady: (
+    pageNumber: number,
+    sentences: NarrationSentence[],
+  ) => void;
   onSentenceTap: (pageNumber: number, sentenceIndex: number) => void;
   onTextSelected: (menu: PdfSelectionMenu) => void;
-  onSizeMeasured?: (pageNumber: number, size: {width: number; height: number}) => void;
+  onSizeMeasured?: (
+    pageNumber: number,
+    size: { width: number; height: number },
+  ) => void;
 }
 
 const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
@@ -84,7 +96,10 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
   const [dims, setDims] = useState(defaultSize);
   const [rendering, setRendering] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
-  const [retryState, setRetryState] = useState<{nonce: number; forceSafeDpr: boolean}>({
+  const [retryState, setRetryState] = useState<{
+    nonce: number;
+    forceSafeDpr: boolean;
+  }>({
     nonce: 0,
     forceSafeDpr: false,
   });
@@ -123,14 +138,20 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
         const page = await pdf.getPage(pageNumber);
         if (cancelled) return;
 
-        const baseViewport = page.getViewport({scale: 1});
+        const baseViewport = page.getViewport({ scale: 1 });
         const safeContainerWidth = Math.max(260, containerWidth);
         const effectiveScale =
-          prefs.pdfFitMode === 'width'
-            ? Math.max(0.15, Math.min(2.5, safeContainerWidth / Math.max(1, baseViewport.width)))
+          prefs.pdfFitMode === "width"
+            ? Math.max(
+                0.15,
+                Math.min(
+                  2.5,
+                  safeContainerWidth / Math.max(1, baseViewport.width),
+                ),
+              )
             : prefs.pdfZoom;
 
-        const viewport = page.getViewport({scale: effectiveScale});
+        const viewport = page.getViewport({ scale: effectiveScale });
         const nextDims = {
           width: Math.max(1, Math.floor(viewport.width)),
           height: Math.max(1, Math.floor(viewport.height)),
@@ -138,17 +159,24 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
         setDims(nextDims);
         onSizeMeasured?.(pageNumber, nextDims);
 
-        const rawDpr = retryState.forceSafeDpr ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+        const rawDpr = retryState.forceSafeDpr
+          ? 1
+          : Math.min(window.devicePixelRatio || 1, 2);
         const areaAtRawDpr = viewport.width * rawDpr * viewport.height * rawDpr;
         const maxCanvasPixels = 12_000_000;
-        const areaScale = areaAtRawDpr > maxCanvasPixels ? Math.sqrt(maxCanvasPixels / areaAtRawDpr) : 1;
-        const dpr = retryState.forceSafeDpr ? 1 : Math.max(0.75, rawDpr * areaScale);
+        const areaScale =
+          areaAtRawDpr > maxCanvasPixels
+            ? Math.sqrt(maxCanvasPixels / areaAtRawDpr)
+            : 1;
+        const dpr = retryState.forceSafeDpr
+          ? 1
+          : Math.max(0.75, rawDpr * areaScale);
 
         const canvas = canvasRef.current;
         if (!canvas) return;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext("2d");
         if (!ctx) {
-          throw new Error('Canvas 2D context unavailable');
+          throw new Error("Canvas 2D context unavailable");
         }
 
         canvas.width = Math.max(1, Math.floor(viewport.width * dpr));
@@ -157,10 +185,10 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
         canvas.style.height = `${nextDims.height}px`;
 
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, viewport.width, viewport.height);
 
-        localTask = page.render({canvasContext: ctx, viewport, canvas});
+        localTask = page.render({ canvasContext: ctx, viewport, canvas });
         activeRenderTaskRef.current = localTask;
         await localTask.promise;
         if (activeRenderTaskRef.current === localTask) {
@@ -171,11 +199,11 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
         // Build selectable transparent text layer with optional search match highlights
         const textLayer = textLayerRef.current;
         if (textLayer) {
-          textLayer.innerHTML = '';
+          textLayer.innerHTML = "";
           const textContent = await page.getTextContent();
           if (cancelled) return;
 
-          const lowerSearch = searchHighlightQuery?.trim().toLowerCase() || '';
+          const lowerSearch = searchHighlightQuery?.trim().toLowerCase() || "";
           const frag = document.createDocumentFragment();
           const createdSpans: Array<{
             span: HTMLSpanElement;
@@ -190,23 +218,29 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
           for (const rawItem of textContent.items) {
             const item = rawItem as TextItemLike;
             if (!item.str || !item.transform) continue;
-            const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+            const tx = pdfjsLib.Util.transform(
+              viewport.transform,
+              item.transform,
+            );
             const fontHeight = Math.hypot(tx[2], tx[3]) || 12;
             const angle = Math.atan2(tx[1], tx[0]);
             const left = tx[4];
             const top = tx[5] - fontHeight * 0.85;
-            const span = document.createElement('span');
+            const span = document.createElement("span");
             span.textContent = item.str;
             span.dataset.spanIndex = String(spanIdx);
             span.style.left = `${left}px`;
             span.style.top = `${top}px`;
             span.style.fontSize = `${fontHeight}px`;
-            span.style.fontFamily = 'sans-serif';
+            span.style.fontFamily = "sans-serif";
             if (Math.abs(angle) > 0.01) {
               span.style.transform = `rotate(${angle}rad)`;
             }
-            if (lowerSearch.length >= 2 && item.str.toLowerCase().includes(lowerSearch)) {
-              span.className = 'folio-pdf-search-hit';
+            if (
+              lowerSearch.length >= 2 &&
+              item.str.toLowerCase().includes(lowerSearch)
+            ) {
+              span.className = "folio-pdf-search-hit";
             }
             frag.appendChild(span);
             createdSpans.push({
@@ -221,27 +255,41 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
           }
           textLayer.appendChild(frag);
 
-          const measuredMetas: PdfSpanMeta[] = createdSpans.map((entry, idx) => ({
-            spanIndex: idx,
-            text: entry.text,
-            left: entry.left,
-            top: entry.top,
-            width: Math.max(entry.span.offsetWidth, entry.pdfWidth, entry.fontHeight * 0.4),
-            height: Math.max(entry.span.offsetHeight, entry.fontHeight * 1.12),
-          }));
+          const measuredMetas: PdfSpanMeta[] = createdSpans.map(
+            (entry, idx) => ({
+              spanIndex: idx,
+              text: entry.text,
+              left: entry.left,
+              top: entry.top,
+              width: Math.max(
+                entry.span.offsetWidth,
+                entry.pdfWidth,
+                entry.fontHeight * 0.4,
+              ),
+              height: Math.max(
+                entry.span.offsetHeight,
+                entry.fontHeight * 1.12,
+              ),
+            }),
+          );
           setSpanMetas(measuredMetas);
         }
       } catch (err) {
         if (activeRenderTaskRef.current === localTask) {
           activeRenderTaskRef.current = null;
         }
-        const errName = (err as {name?: string})?.name;
-        if (cancelled || errName === 'RenderingCancelledException') return;
+        const errName = (err as { name?: string })?.name;
+        if (cancelled || errName === "RenderingCancelledException") return;
 
         if (!retryState.forceSafeDpr) {
-          setRetryState((prev) => ({nonce: prev.nonce + 1, forceSafeDpr: true}));
+          setRetryState((prev) => ({
+            nonce: prev.nonce + 1,
+            forceSafeDpr: true,
+          }));
         } else {
-          setRenderError(err instanceof Error ? err.message : 'Failed to render PDF page');
+          setRenderError(
+            err instanceof Error ? err.message : "Failed to render PDF page",
+          );
         }
       } finally {
         if (!cancelled) setRendering(false);
@@ -271,19 +319,34 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
   // Extract synchronized narration sentences whenever text layer or noise filter updates
   useEffect(() => {
     if (spanMetas.length === 0) return;
-    const extracted = extractPdfPageSentences(spanMetas, pageNumber, dims.height, voiceSkipNoise);
+    const extracted = extractPdfPageSentences(
+      spanMetas,
+      pageNumber,
+      dims.height,
+      voiceSkipNoise,
+    );
     setPageSentences(extracted);
     onPageSentencesReadyRef.current(pageNumber, extracted);
   }, [spanMetas, pageNumber, dims.height, voiceSkipNoise]);
 
   // Compute exact sentence and active word highlight boxes on this PDF page
-  const {sentenceBoxes, wordBoxes} = useMemo(() => {
+  const { sentenceBoxes, wordBoxes } = useMemo(() => {
     if (!voiceActive || !isActiveVoicePage || activeSentenceIndex < 0) {
-      return {sentenceBoxes: [] as HighlightBox[], wordBoxes: [] as HighlightBox[]};
+      return {
+        sentenceBoxes: [] as HighlightBox[],
+        wordBoxes: [] as HighlightBox[],
+      };
     }
     const sentence = pageSentences[activeSentenceIndex];
-    if (!sentence || !sentence.pdfSegments || sentence.pdfSegments.length === 0) {
-      return {sentenceBoxes: [] as HighlightBox[], wordBoxes: [] as HighlightBox[]};
+    if (
+      !sentence ||
+      !sentence.pdfSegments ||
+      sentence.pdfSegments.length === 0
+    ) {
+      return {
+        sentenceBoxes: [] as HighlightBox[],
+        wordBoxes: [] as HighlightBox[],
+      };
     }
 
     const sBoxes: HighlightBox[] = [];
@@ -292,7 +355,10 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
       if (!meta) continue;
       const totalChars = Math.max(1, meta.text.length);
       const fracStart = Math.max(0, Math.min(1, seg.startInSpan / totalChars));
-      const fracEnd = Math.max(fracStart, Math.min(1, seg.endInSpan / totalChars));
+      const fracEnd = Math.max(
+        fracStart,
+        Math.min(1, seg.endInSpan / totalChars),
+      );
       sBoxes.push({
         left: meta.left + meta.width * fracStart,
         top: meta.top,
@@ -305,18 +371,29 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
     if (activeWordIndex >= 0 && activeWordIndex < sentence.words.length) {
       const word = sentence.words[activeWordIndex];
       for (const seg of sentence.pdfSegments) {
-        if (seg.endInSentence <= word.startInSentence || seg.startInSentence >= word.endInSentence) {
+        if (
+          seg.endInSentence <= word.startInSentence ||
+          seg.startInSentence >= word.endInSentence
+        ) {
           continue;
         }
         const meta = spanMetas[seg.spanIndex];
         if (!meta) continue;
-        const overlapStart = Math.max(seg.startInSentence, word.startInSentence);
+        const overlapStart = Math.max(
+          seg.startInSentence,
+          word.startInSentence,
+        );
         const overlapEnd = Math.min(seg.endInSentence, word.endInSentence);
-        const spanCharStart = seg.startInSpan + (overlapStart - seg.startInSentence);
-        const spanCharEnd = seg.startInSpan + (overlapEnd - seg.startInSentence);
+        const spanCharStart =
+          seg.startInSpan + (overlapStart - seg.startInSentence);
+        const spanCharEnd =
+          seg.startInSpan + (overlapEnd - seg.startInSentence);
         const totalChars = Math.max(1, meta.text.length);
         const fracStart = Math.max(0, Math.min(1, spanCharStart / totalChars));
-        const fracEnd = Math.max(fracStart, Math.min(1, spanCharEnd / totalChars));
+        const fracEnd = Math.max(
+          fracStart,
+          Math.min(1, spanCharEnd / totalChars),
+        );
         wBoxes.push({
           left: meta.left + meta.width * fracStart,
           top: meta.top,
@@ -326,8 +403,15 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
       }
     }
 
-    return {sentenceBoxes: sBoxes, wordBoxes: wBoxes};
-  }, [voiceActive, isActiveVoicePage, activeSentenceIndex, activeWordIndex, pageSentences, spanMetas]);
+    return { sentenceBoxes: sBoxes, wordBoxes: wBoxes };
+  }, [
+    voiceActive,
+    isActiveVoicePage,
+    activeSentenceIndex,
+    activeWordIndex,
+    pageSentences,
+    spanMetas,
+  ]);
 
   // Smoothly auto-scroll to active PDF sentence/word box when voice progresses
   useEffect(() => {
@@ -339,10 +423,17 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
     if (force) lastRecenterRef.current = recenterNonce;
     const changed = lastScrolledSentRef.current !== activeSentenceIndex;
 
-    if ((voiceFollowEnabled || force) && (changed || force) && activeVoiceBoxRef.current) {
+    if (
+      (voiceFollowEnabled || force) &&
+      (changed || force) &&
+      activeVoiceBoxRef.current
+    ) {
       lastScrolledSentRef.current = activeSentenceIndex;
       onBeginVoiceAutoScroll();
-      activeVoiceBoxRef.current.scrollIntoView({behavior: 'smooth', block: 'center'});
+      activeVoiceBoxRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
     }
   }, [
     voiceActive,
@@ -359,14 +450,18 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
     const textLayer = textLayerRef.current;
     const range = sel.getRangeAt(0);
-    if (!textLayer || !textLayer.contains(range.commonAncestorContainer)) return;
-    const text = sel.toString().replace(/\s+/g, ' ').trim();
+    if (!textLayer || !textLayer.contains(range.commonAncestorContainer))
+      return;
+    const text = sel.toString().replace(/\s+/g, " ").trim();
     if (text.length < 2) return;
     const rect = range.getBoundingClientRect();
     onTextSelected({
       text,
       pageNumber,
-      x: Math.min(window.innerWidth - 160, Math.max(160, rect.left + rect.width / 2)),
+      x: Math.min(
+        window.innerWidth - 160,
+        Math.max(160, rect.left + rect.width / 2),
+      ),
       y: Math.max(72, rect.top - 12),
     });
   };
@@ -375,13 +470,15 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
     if (!voiceActive || !voiceTapToRead) return;
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) return;
-    const span = (e.target as HTMLElement | null)?.closest('span[data-span-index]') as HTMLElement | null;
+    const span = (e.target as HTMLElement | null)?.closest(
+      "span[data-span-index]",
+    ) as HTMLElement | null;
     if (!span) return;
     const spanIdx = Number(span.dataset.spanIndex);
     if (!Number.isFinite(spanIdx)) return;
 
     const match = pageSentences.find((s) =>
-      s.pdfSegments?.some((seg) => seg.spanIndex === spanIdx)
+      s.pdfSegments?.some((seg) => seg.spanIndex === spanIdx),
     );
     if (match) {
       e.stopPropagation();
@@ -394,14 +491,14 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
   return (
     <div
       className="relative rounded-[4px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-sm overflow-hidden shrink-0"
-      style={{width: `${dims.width}px`, height: `${dims.height}px`}}
+      style={{ width: `${dims.width}px`, height: `${dims.height}px` }}
     >
       {isNearViewport ? (
         <>
           <canvas
             ref={canvasRef}
             className="block"
-            style={canvasFilter ? {filter: canvasFilter} : undefined}
+            style={canvasFilter ? { filter: canvasFilter } : undefined}
           />
           {/* Synchronized Voice Narration Highlights Layer */}
           {sentenceBoxes.length > 0 && (
@@ -455,7 +552,10 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setRetryState((prev) => ({nonce: prev.nonce + 1, forceSafeDpr: true}));
+                  setRetryState((prev) => ({
+                    nonce: prev.nonce + 1,
+                    forceSafeDpr: true,
+                  }));
                 }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer"
               >
@@ -481,7 +581,7 @@ interface PdfViewportProps {
   prefs: ReaderPreferences;
   headerPinned: boolean;
   bottomBarPinned: boolean;
-  searchHighlight: {pageNumber: number; query: string} | null;
+  searchHighlight: { pageNumber: number; query: string } | null;
   voiceActive?: boolean;
   voicePlaying?: boolean;
   voiceTapToRead?: boolean;
@@ -491,7 +591,10 @@ interface PdfViewportProps {
   activeWordIndex?: number;
   voiceFollowEnabled?: boolean;
   recenterNonce?: number;
-  onPageSentencesReady?: (pageNumber: number, sentences: NarrationSentence[]) => void;
+  onPageSentencesReady?: (
+    pageNumber: number,
+    sentences: NarrationSentence[],
+  ) => void;
   onSentenceTap?: (pageNumber: number, sentenceIndex: number) => void;
   onUserDetachedScroll?: () => void;
   onPageChange: (nextPage: number, isUserScroll?: boolean) => void;
@@ -503,7 +606,7 @@ interface PdfViewportProps {
     color: HighlightColor;
     note: string;
   }) => void;
-  onScrollDirection?: (dir: 'up' | 'down') => void;
+  onScrollDirection?: (dir: "up" | "down") => void;
   onCenterTap?: () => void;
 }
 
@@ -540,21 +643,26 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
 
   const [containerWidth, setContainerWidth] = useState<number>(820);
   const [baseAspect, setBaseAspect] = useState<number>(1.33); // height / width
-  const [visibleSet, setVisibleSet] = useState<Set<number>>(() => new Set([pageNumber]));
-  const [selectionMenu, setSelectionMenu] = useState<PdfSelectionMenu | null>(null);
+  const [visibleSet, setVisibleSet] = useState<Set<number>>(
+    () => new Set([pageNumber]),
+  );
+  const [selectionMenu, setSelectionMenu] = useState<PdfSelectionMenu | null>(
+    null,
+  );
   const [noteOpen, setNoteOpen] = useState(false);
-  const [noteColor, setNoteColor] = useState<HighlightColor>('amber');
-  const [noteText, setNoteText] = useState('');
+  const [noteColor, setNoteColor] = useState<HighlightColor>("amber");
+  const [noteText, setNoteText] = useState("");
 
   const handleBeginVoiceAutoScroll = useCallback(() => {
     programmaticScrollRef.current = true;
-    if (voiceScrollTimerRef.current) window.clearTimeout(voiceScrollTimerRef.current);
+    if (voiceScrollTimerRef.current)
+      window.clearTimeout(voiceScrollTimerRef.current);
     voiceScrollTimerRef.current = window.setTimeout(() => {
       programmaticScrollRef.current = false;
     }, 520);
   }, []);
 
-  const isContinuous = prefs.pdfLayout === 'continuous';
+  const isContinuous = prefs.pdfLayout === "continuous";
 
   // Query page 1 dimensions once to establish accurate placeholder heights
   useEffect(() => {
@@ -563,7 +671,7 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
       .getPage(1)
       .then((p) => {
         if (!active) return;
-        const vp = p.getViewport({scale: 1});
+        const vp = p.getViewport({ scale: 1 });
         if (vp.width > 0 && vp.height > 0) {
           setBaseAspect(vp.height / vp.width);
         }
@@ -604,7 +712,9 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
           const next = new Set(prev);
           let changed = false;
           for (const entry of entries) {
-            const pNum = Number((entry.target as HTMLElement).dataset.pageNumber);
+            const pNum = Number(
+              (entry.target as HTMLElement).dataset.pageNumber,
+            );
             if (!pNum) continue;
             if (entry.isIntersecting) {
               if (!next.has(pNum)) {
@@ -621,7 +731,7 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
           return changed ? next : prev;
         });
       },
-      {root, rootMargin: '900px 0px', threshold: 0.01}
+      { root, rootMargin: "900px 0px", threshold: 0.01 },
     );
 
     slotRefs.current.forEach((node) => observer.observe(node));
@@ -637,8 +747,16 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
     const slot = slotRefs.current.get(pageNumber);
     if (!slot) return;
     programmaticScrollRef.current = true;
-    slot.scrollIntoView({behavior: 'auto', block: 'start'});
-    setVisibleSet((prev) => new Set([...prev, pageNumber, Math.max(1, pageNumber - 1), Math.min(pdf.numPages, pageNumber + 1)]));
+    slot.scrollIntoView({ behavior: "auto", block: "start" });
+    setVisibleSet(
+      (prev) =>
+        new Set([
+          ...prev,
+          pageNumber,
+          Math.max(1, pageNumber - 1),
+          Math.min(pdf.numPages, pageNumber + 1),
+        ]),
+    );
     const timer = window.setTimeout(() => {
       programmaticScrollRef.current = false;
     }, 250);
@@ -649,15 +767,15 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (e.key === 'ArrowLeft' && pageNumber > 1) {
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key === "ArrowLeft" && pageNumber > 1) {
         onPageChange(pageNumber - 1, false);
-      } else if (e.key === 'ArrowRight' && pageNumber < pdf.numPages) {
+      } else if (e.key === "ArrowRight" && pageNumber < pdf.numPages) {
         onPageChange(pageNumber + 1, false);
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [pageNumber, pdf.numPages, onPageChange]);
 
   const handleScroll = useCallback(() => {
@@ -676,10 +794,10 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
       onUserDetachedScroll?.();
     }
     if (delta > 16 && top > 60) {
-      onScrollDirection?.('down');
+      onScrollDirection?.("down");
       lastScrollTopRef.current = top;
     } else if (delta < -16 || top <= 24) {
-      onScrollDirection?.('up');
+      onScrollDirection?.("up");
       lastScrollTopRef.current = top;
     }
 
@@ -713,17 +831,24 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
     onUserDetachedScroll,
   ]);
 
-  const touchStartRef = useRef<{x: number; y: number; time: number} | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(
+    null,
+  );
   const justSwipedRef = useRef(false);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (window.innerWidth >= 1024 || e.touches.length !== 1) return;
     const t = e.touches[0];
-    touchStartRef.current = {x: t.clientX, y: t.clientY, time: Date.now()};
+    touchStartRef.current = { x: t.clientX, y: t.clientY, time: Date.now() };
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (window.innerWidth >= 1024 || !touchStartRef.current || e.changedTouches.length !== 1) return;
+    if (
+      window.innerWidth >= 1024 ||
+      !touchStartRef.current ||
+      e.changedTouches.length !== 1
+    )
+      return;
     const start = touchStartRef.current;
     touchStartRef.current = null;
     const sel = window.getSelection();
@@ -734,7 +859,11 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
     const dy = t.clientY - start.y;
     const elapsed = Date.now() - start.time;
 
-    if (elapsed < 600 && Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    if (
+      elapsed < 600 &&
+      Math.abs(dx) > 55 &&
+      Math.abs(dx) > Math.abs(dy) * 1.5
+    ) {
       justSwipedRef.current = true;
       window.setTimeout(() => {
         justSwipedRef.current = false;
@@ -750,7 +879,7 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
   const handleCanvasClick = (e: React.MouseEvent) => {
     if (justSwipedRef.current) return;
     const el = e.target as HTMLElement | null;
-    if (!el || el.closest('button, input, textarea')) return;
+    if (!el || el.closest("button, input, textarea")) return;
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) return;
     setSelectionMenu(null);
@@ -771,24 +900,24 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
     onCenterTap?.();
   };
 
-  const commitHighlight = (color: HighlightColor, note = '') => {
+  const commitHighlight = (color: HighlightColor, note = "") => {
     if (!selectionMenu) return;
     onCreateHighlight({
       unitIndex: selectionMenu.pageNumber,
       selectedText: selectionMenu.text,
-      prefixContext: '',
-      suffixContext: '',
+      prefixContext: "",
+      suffixContext: "",
       color,
       note,
     });
     window.getSelection()?.removeAllRanges();
     setSelectionMenu(null);
     setNoteOpen(false);
-    setNoteText('');
+    setNoteText("");
   };
 
   const estimatedWidth =
-    prefs.pdfFitMode === 'width'
+    prefs.pdfFitMode === "width"
       ? Math.floor(containerWidth)
       : Math.floor(612 * prefs.pdfZoom);
   const defaultSize = {
@@ -797,7 +926,7 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
   };
 
   const pageNumbers = isContinuous
-    ? Array.from({length: pdf.numPages}, (_, i) => i + 1)
+    ? Array.from({ length: pdf.numPages }, (_, i) => i + 1)
     : [Math.min(pdf.numPages, Math.max(1, pageNumber))];
 
   return (
@@ -810,8 +939,8 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         className={`flex-1 overflow-auto px-3 sm:px-5 flex flex-col items-center gap-6 ${
-          headerPinned ? 'pt-8' : 'pt-28'
-        } ${bottomBarPinned ? 'pb-12' : 'pb-24'}`}
+          headerPinned ? "pt-8" : "pt-28"
+        } ${bottomBarPinned ? "pb-12" : "pb-24"}`}
       >
         {pageNumbers.map((pNum) => {
           const isNear =
@@ -832,7 +961,7 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
                 if (node) slotRefs.current.set(pNum, node);
                 else slotRefs.current.delete(pNum);
               }}
-              className={`${headerPinned ? 'scroll-mt-8' : 'scroll-mt-28'} flex flex-col items-center gap-2 shrink-0`}
+              className={`${headerPinned ? "scroll-mt-8" : "scroll-mt-28"} flex flex-col items-center gap-2 shrink-0`}
             >
               <PdfPageCanvas
                 pdf={pdf}
@@ -851,12 +980,14 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
                 voiceFollowEnabled={voiceFollowEnabled}
                 recenterNonce={recenterNonce}
                 onBeginVoiceAutoScroll={handleBeginVoiceAutoScroll}
-                onPageSentencesReady={(pn, sents) => onPageSentencesReady?.(pn, sents)}
+                onPageSentencesReady={(pn, sents) =>
+                  onPageSentencesReady?.(pn, sents)
+                }
                 onSentenceTap={(pn, sIdx) => onSentenceTap?.(pn, sIdx)}
                 onTextSelected={(menu) => {
                   setSelectionMenu(menu);
                   setNoteOpen(false);
-                  setNoteText('');
+                  setNoteText("");
                 }}
               />
               {isContinuous && (
@@ -872,7 +1003,7 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
       {/* Floating Highlight & Note Toolbar for PDF */}
       {selectionMenu && (
         <div
-          style={{left: `${selectionMenu.x}px`, top: `${selectionMenu.y}px`}}
+          style={{ left: `${selectionMenu.x}px`, top: `${selectionMenu.y}px` }}
           onClick={(e) => e.stopPropagation()}
           className="fixed z-50 -translate-x-1/2 -translate-y-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-xl p-2"
         >
@@ -887,7 +1018,7 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
                     aria-label={`Highlight in ${c.label}`}
                     onClick={() => commitHighlight(c.id)}
                     className="w-5 h-5 rounded-full border border-black/15 hover:scale-110 transition-transform cursor-pointer"
-                    style={{backgroundColor: c.swatch}}
+                    style={{ backgroundColor: c.swatch }}
                   />
                 ))}
               </div>
@@ -920,10 +1051,10 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
                       onClick={() => setNoteColor(c.id)}
                       className={`w-4 h-4 rounded-full cursor-pointer ${
                         noteColor === c.id
-                          ? 'ring-2 ring-[var(--text-primary)] ring-offset-1 ring-offset-[var(--bg-elevated)]'
-                          : 'opacity-70'
+                          ? "ring-2 ring-[var(--text-primary)] ring-offset-1 ring-offset-[var(--bg-elevated)]"
+                          : "opacity-70"
                       }`}
-                      style={{backgroundColor: c.swatch}}
+                      style={{ backgroundColor: c.swatch }}
                     />
                   ))}
                 </div>

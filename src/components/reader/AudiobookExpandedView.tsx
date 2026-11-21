@@ -9,13 +9,17 @@ import {
   SkipBack,
   SkipForward,
   SlidersHorizontal,
-} from 'lucide-react';
-import React, {useEffect, useMemo, useRef} from 'react';
-import type {NarrationStatus} from '../../hooks/useAudiobookNarrator';
-import type {NarrationSentence} from '../../lib/narrationText';
-import type {BookRecord, BookVoiceOverride, SleepTimerMode} from '../../types/library';
-import {BookCover} from '../library/BookCover';
-import {formatCountdown} from './AudiobookPlayerBar';
+} from "lucide-react";
+import React, { useEffect, useMemo, useRef } from "react";
+import type { NarrationStatus } from "../../hooks/useAudiobookNarrator";
+import type { NarrationSentence } from "../../lib/narrationText";
+import type {
+  BookRecord,
+  BookVoiceOverride,
+  SleepTimerMode,
+} from "../../../library";
+import { BookCover } from "../library/BookCover";
+import { formatCountdown } from "./AudiobookPlayerBar";
 
 interface AudiobookExpandedViewProps {
   book: BookRecord;
@@ -39,12 +43,12 @@ interface AudiobookExpandedViewProps {
   onCollapse: () => void;
 }
 
-const SLEEP_TABS: Array<{id: SleepTimerMode; label: string}> = [
-  {id: 'off', label: 'Off'},
-  {id: '15m', label: '15m'},
-  {id: '30m', label: '30m'},
-  {id: '45m', label: '45m'},
-  {id: 'chapter', label: 'Chapter'},
+const SLEEP_TABS: Array<{ id: SleepTimerMode; label: string }> = [
+  { id: "off", label: "Off" },
+  { id: "15m", label: "15m" },
+  { id: "30m", label: "30m" },
+  { id: "45m", label: "45m" },
+  { id: "chapter", label: "Chapter" },
 ];
 
 export const AudiobookExpandedView: React.FC<AudiobookExpandedViewProps> = ({
@@ -73,21 +77,21 @@ export const AudiobookExpandedView: React.FC<AudiobookExpandedViewProps> = ({
   // Smoothly keep the active spoken sentence centered inside the live teleprompter
   useEffect(() => {
     activeLineRef.current?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
+      behavior: "smooth",
+      block: "center",
     });
   }, [activeSentenceIndex]);
 
   // Escape key collapses back to the book page
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         e.preventDefault();
         onCollapse();
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [onCollapse]);
 
   const remainingUnitMin = useMemo(() => {
@@ -96,7 +100,9 @@ export const AudiobookExpandedView: React.FC<AudiobookExpandedViewProps> = ({
       .slice(activeSentenceIndex)
       .reduce((acc, s) => acc + s.estimatedSec, 0);
     const adjustedMin = remSec / Math.max(0.7, settings.rate) / 60;
-    return adjustedMin < 1 ? '< 1 min left' : `${Math.ceil(adjustedMin)} min left`;
+    return adjustedMin < 1
+      ? "< 1 min left"
+      : `${Math.ceil(adjustedMin)} min left`;
   }, [sentences, activeSentenceIndex, settings.rate]);
 
   const voiceSubtitle = `${activeVoiceName} · ${settings.tone[0].toUpperCase()}${settings.tone.slice(1)} · Offline Voice`;
@@ -126,12 +132,14 @@ export const AudiobookExpandedView: React.FC<AudiobookExpandedViewProps> = ({
           </button>
 
           <div className="min-w-0 flex-1 text-center">
-            <p className="text-xs font-medium text-[var(--text-primary)] truncate">{unitLabel}</p>
+            <p className="text-xs font-medium text-[var(--text-primary)] truncate">
+              {unitLabel}
+            </p>
             <p className="font-mono-tabular text-[11px] text-[var(--text-muted)]">
               {sentences.length > 0
                 ? `Sentence ${activeSentenceIndex + 1} of ${sentences.length}`
-                : 'Ready'}
-              {remainingUnitMin ? ` · ${remainingUnitMin}` : ''}
+                : "Ready"}
+              {remainingUnitMin ? ` · ${remainingUnitMin}` : ""}
             </p>
           </div>
 
@@ -147,7 +155,7 @@ export const AudiobookExpandedView: React.FC<AudiobookExpandedViewProps> = ({
       </header>
 
       {/* Error Banner if needed */}
-      {status === 'error' && errorMessage && (
+      {status === "error" && errorMessage && (
         <div className="px-4 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] flex items-center justify-center gap-3 text-xs">
           <span className="text-[var(--danger)]">{errorMessage}</span>
         </div>
@@ -176,14 +184,18 @@ export const AudiobookExpandedView: React.FC<AudiobookExpandedViewProps> = ({
             <p className="text-xs lg:text-sm text-[var(--text-secondary)] truncate mt-1">
               {book.author}
             </p>
-            <p className="text-[11px] text-[var(--text-muted)] mt-2 truncate">{voiceSubtitle}</p>
+            <p className="text-[11px] text-[var(--text-muted)] mt-2 truncate">
+              {voiceSubtitle}
+            </p>
           </div>
         </div>
 
         {/* Right: Synchronized Live Transcript (click any sentence to jump) */}
         <div className="lg:col-span-8 min-h-0 flex flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-hidden">
           <div className="px-4 py-2.5 border-b border-[var(--border-subtle)] flex items-center justify-between text-[11px] text-[var(--text-muted)] shrink-0">
-            <span className="uppercase tracking-wider font-semibold">Live Synced Text</span>
+            <span className="uppercase tracking-wider font-semibold">
+              Live Synced Text
+            </span>
             <span>Tap any line to jump</span>
           </div>
 
@@ -207,10 +219,10 @@ export const AudiobookExpandedView: React.FC<AudiobookExpandedViewProps> = ({
                     onClick={() => onJumpToSentence(sent.index)}
                     className={`block w-full text-left font-serif-editorial leading-relaxed transition-all duration-150 rounded-md px-3 py-2 cursor-pointer ${
                       isActive
-                        ? 'text-lg sm:text-xl text-[var(--text-primary)] bg-[var(--tts-sentence-bg)]'
+                        ? "text-lg sm:text-xl text-[var(--text-primary)] bg-[var(--tts-sentence-bg)]"
                         : isPast
-                          ? 'text-sm sm:text-base text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-                          : 'text-sm sm:text-base text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                          ? "text-sm sm:text-base text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                          : "text-sm sm:text-base text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                     }`}
                   >
                     {isActive
@@ -220,12 +232,14 @@ export const AudiobookExpandedView: React.FC<AudiobookExpandedViewProps> = ({
                             <React.Fragment key={w.index}>
                               <span
                                 className={
-                                  isCurrentWord ? 'folio-tts-word font-medium' : undefined
+                                  isCurrentWord
+                                    ? "folio-tts-word font-medium"
+                                    : undefined
                                 }
                               >
                                 {w.text}
                               </span>
-                              {wIdx < sent.words.length - 1 ? ' ' : ''}
+                              {wIdx < sent.words.length - 1 ? " " : ""}
                             </React.Fragment>
                           );
                         })
@@ -247,7 +261,10 @@ export const AudiobookExpandedView: React.FC<AudiobookExpandedViewProps> = ({
               type="range"
               min={0}
               max={Math.max(0, sentences.length - 1)}
-              value={Math.min(activeSentenceIndex, Math.max(0, sentences.length - 1))}
+              value={Math.min(
+                activeSentenceIndex,
+                Math.max(0, sentences.length - 1),
+              )}
               onChange={(e) => onJumpToSentence(Number(e.target.value))}
               aria-label="Jump within current section"
               className="w-full accent-[var(--accent)] cursor-pointer"
@@ -284,12 +301,12 @@ export const AudiobookExpandedView: React.FC<AudiobookExpandedViewProps> = ({
             <button
               type="button"
               onClick={onTogglePlay}
-              aria-label={status === 'playing' ? 'Pause' : 'Play'}
+              aria-label={status === "playing" ? "Pause" : "Play"}
               className="w-14 h-14 rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] inline-flex items-center justify-center shadow-md transition-transform active:scale-95 cursor-pointer"
             >
-              {status === 'buffering' ? (
+              {status === "buffering" ? (
                 <Loader2 className="w-6 h-6 animate-spin" />
-              ) : status === 'playing' ? (
+              ) : status === "playing" ? (
                 <Pause className="w-6 h-6 fill-current" />
               ) : (
                 <Play className="w-6 h-6 fill-current ml-0.5" />
@@ -333,7 +350,7 @@ export const AudiobookExpandedView: React.FC<AudiobookExpandedViewProps> = ({
                 className="flex-1 accent-[var(--accent)] cursor-pointer"
               />
               <span className="font-mono-tabular text-xs font-semibold text-[var(--accent)] w-10 text-right shrink-0">
-                {settings.rate.toFixed(2).replace(/\.00$/, '.0')}×
+                {settings.rate.toFixed(2).replace(/\.00$/, ".0")}×
               </span>
             </div>
 
@@ -348,11 +365,11 @@ export const AudiobookExpandedView: React.FC<AudiobookExpandedViewProps> = ({
                     onClick={() => onSelectSleepTimer(tab.id)}
                     className={`min-h-[32px] px-2.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
                       active
-                        ? 'bg-[var(--bg-accent-subtle)] text-[var(--accent)]'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+                        ? "bg-[var(--bg-accent-subtle)] text-[var(--accent)]"
+                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]"
                     }`}
                   >
-                    {active && sleepSecondsLeft !== null && tab.id !== 'chapter'
+                    {active && sleepSecondsLeft !== null && tab.id !== "chapter"
                       ? formatCountdown(sleepSecondsLeft)
                       : tab.label}
                   </button>

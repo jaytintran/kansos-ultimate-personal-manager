@@ -7,11 +7,11 @@ import {
   Pencil,
   Star,
   Trash2,
-} from 'lucide-react';
-import React, {useState} from 'react';
-import type {BookRecord} from '../../types/library';
-import {BottomSheet} from '../ui/BottomSheet';
-import {BookCover} from './BookCover';
+} from "lucide-react";
+import React, { useState } from "react";
+import type { BookRecord } from "../../../library";
+import { BottomSheet } from "../ui/BottomSheet";
+import { BookCover } from "./BookCover";
 
 interface MobileBookActionSheetProps {
   book: BookRecord | null;
@@ -50,11 +50,11 @@ export const MobileBookActionSheet: React.FC<MobileBookActionSheetProps> = ({
   if (!book) return null;
 
   const progressText =
-    book.status === 'finished'
-      ? 'Finished'
+    book.status === "finished"
+      ? "Finished"
       : book.progress > 0
         ? `${book.progress}% read`
-        : 'Unread';
+        : "Unread";
 
   return (
     <BottomSheet
@@ -85,7 +85,9 @@ export const MobileBookActionSheet: React.FC<MobileBookActionSheetProps> = ({
               {book.subtitle}
             </p>
           )}
-          <p className="text-xs text-[var(--text-secondary)] truncate mt-0.5">{book.author}</p>
+          <p className="text-xs text-[var(--text-secondary)] truncate mt-0.5">
+            {book.author}
+          </p>
           <p className="text-[11px] text-[var(--text-muted)] font-mono-tabular uppercase mt-0.5">
             {book.format} · {progressText}
           </p>
@@ -103,7 +105,7 @@ export const MobileBookActionSheet: React.FC<MobileBookActionSheetProps> = ({
           className="w-full min-h-[48px] px-3 rounded-lg flex items-center gap-3 text-sm font-medium text-[var(--accent)] active:bg-[var(--bg-surface-hover)] cursor-pointer"
         >
           <BookOpen className="w-4 h-4 shrink-0" />
-          <span>{book.progress > 0 ? 'Continue Reading' : 'Read Book'}</span>
+          <span>{book.progress > 0 ? "Continue Reading" : "Read Book"}</span>
         </button>
 
         <button
@@ -141,11 +143,13 @@ export const MobileBookActionSheet: React.FC<MobileBookActionSheetProps> = ({
           <Star
             className={`w-4 h-4 shrink-0 ${
               book.isFavorite
-                ? 'fill-[var(--accent)] text-[var(--accent)]'
-                : 'text-[var(--text-secondary)]'
+                ? "fill-[var(--accent)] text-[var(--accent)]"
+                : "text-[var(--text-secondary)]"
             }`}
           />
-          <span>{book.isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}</span>
+          <span>
+            {book.isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+          </span>
         </button>
 
         <button
@@ -182,7 +186,9 @@ export const MobileBookActionSheet: React.FC<MobileBookActionSheetProps> = ({
             className="w-full min-h-[48px] px-3 rounded-lg flex items-center gap-3 text-sm font-medium text-[var(--text-primary)] active:bg-[var(--bg-surface-hover)] cursor-pointer"
           >
             <FolderMinus className="w-4 h-4 text-[var(--text-secondary)] shrink-0" />
-            <span className="truncate">Remove from &ldquo;{activeDrilledFolderName}&rdquo;</span>
+            <span className="truncate">
+              Remove from &ldquo;{activeDrilledFolderName}&rdquo;
+            </span>
           </button>
         )}
 

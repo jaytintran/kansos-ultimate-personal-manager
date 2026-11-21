@@ -1,14 +1,27 @@
-import {ArrowDown, ArrowUp, BookOpen, Check, GripVertical, Info, Pencil, Star} from 'lucide-react';
-import React, {useMemo, useRef, useState} from 'react';
-import {flattenFoldersHierarchy, formatShortDate, getBookFolderIds} from '../../lib/formatters';
+import {
+  ArrowDown,
+  ArrowUp,
+  BookOpen,
+  Check,
+  GripVertical,
+  Info,
+  Pencil,
+  Star,
+} from "lucide-react";
+import React, { useMemo, useRef, useState } from "react";
+import {
+  flattenFoldersHierarchy,
+  formatShortDate,
+  getBookFolderIds,
+} from "../../lib/formatters";
 import type {
   BookRecord,
   CategoryRecord,
   FolderRecord,
   SortDirection,
   SortField,
-} from '../../types/library';
-import {BookCover} from './BookCover';
+} from "../../../library";
+import { BookCover } from "./BookCover";
 
 interface BookTableProps {
   books: BookRecord[];
@@ -24,7 +37,7 @@ interface BookTableProps {
   onReorderBooks?: (
     draggedIds: string[],
     targetBookId: string,
-    position: 'before' | 'after'
+    position: "before" | "after",
   ) => void;
   onSortChange: (field: SortField) => void;
   onToggleSelect: (bookId: string, shiftKey: boolean) => void;
@@ -57,17 +70,26 @@ export const BookTable: React.FC<BookTableProps> = ({
   onToggleFavorite,
   onContextMenuBook,
 }) => {
-  const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+  const categoryById = useMemo(
+    () => new Map(categories.map((c) => [c.id, c.name])),
+    [categories],
+  );
   const folderById = useMemo(
-    () => new Map(flattenFoldersHierarchy(folders).map((item) => [item.folder.id, item.pathLabel])),
-    [folders]
+    () =>
+      new Map(
+        flattenFoldersHierarchy(folders).map((item) => [
+          item.folder.id,
+          item.pathLabel,
+        ]),
+      ),
+    [folders],
   );
 
   const activeDragIdsRef = useRef<string[]>([]);
   const [draggingIds, setDraggingIds] = useState<string[]>([]);
   const [dropTarget, setDropTarget] = useState<{
     bookId: string;
-    position: 'before' | 'after';
+    position: "before" | "after";
   } | null>(null);
 
   const clearDragState = () => {
@@ -77,26 +99,28 @@ export const BookTable: React.FC<BookTableProps> = ({
   };
 
   const extractDraggedIds = (dt: DataTransfer): string[] => {
-    const multi = dt.getData('application/x-folio-book-ids');
+    const multi = dt.getData("application/x-folio-book-ids");
     if (multi) {
       try {
         const parsed = JSON.parse(multi);
         if (Array.isArray(parsed)) {
-          const ids = parsed.filter((id): id is string => typeof id === 'string');
+          const ids = parsed.filter(
+            (id): id is string => typeof id === "string",
+          );
           if (ids.length > 0) return ids;
         }
       } catch {
         // Ignore parse failure
       }
     }
-    const single = dt.getData('application/x-folio-book-id');
+    const single = dt.getData("application/x-folio-book-id");
     if (single) return [single];
     return activeDragIdsRef.current;
   };
 
   const renderSortIcon = (field: SortField) => {
     if (sortField !== field) return null;
-    return sortDirection === 'asc' ? (
+    return sortDirection === "asc" ? (
       <ArrowUp className="w-3 h-3 inline ml-1 text-[var(--accent)]" />
     ) : (
       <ArrowDown className="w-3 h-3 inline ml-1 text-[var(--accent)]" />
@@ -112,11 +136,15 @@ export const BookTable: React.FC<BookTableProps> = ({
               <button
                 type="button"
                 onClick={onToggleSelectAll}
-                aria-label={allSelected ? 'Deselect all visible books' : 'Select all visible books'}
+                aria-label={
+                  allSelected
+                    ? "Deselect all visible books"
+                    : "Select all visible books"
+                }
                 className={`w-4 h-4 rounded flex items-center justify-center border transition-colors cursor-pointer ${
                   allSelected
-                    ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]'
-                    : 'border-[var(--border-strong)] bg-[var(--bg-input)] text-transparent hover:border-[var(--accent)]'
+                    ? "bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]"
+                    : "border-[var(--border-strong)] bg-[var(--bg-input)] text-transparent hover:border-[var(--accent)]"
                 }`}
               >
                 <Check className="w-3 h-3 stroke-[2.5]" />
@@ -125,28 +153,28 @@ export const BookTable: React.FC<BookTableProps> = ({
             <th className="px-3 py-2.5">
               <button
                 type="button"
-                onClick={() => onSortChange('title')}
+                onClick={() => onSortChange("title")}
                 className="hover:text-[var(--text-primary)] cursor-pointer whitespace-nowrap"
               >
-                Title {renderSortIcon('title')}
+                Title {renderSortIcon("title")}
               </button>
             </th>
             <th className="px-3 py-2.5">
               <button
                 type="button"
-                onClick={() => onSortChange('author')}
+                onClick={() => onSortChange("author")}
                 className="hover:text-[var(--text-primary)] cursor-pointer whitespace-nowrap"
               >
-                Author {renderSortIcon('author')}
+                Author {renderSortIcon("author")}
               </button>
             </th>
             <th className="px-3 py-2.5 w-20">
               <button
                 type="button"
-                onClick={() => onSortChange('format')}
+                onClick={() => onSortChange("format")}
                 className="hover:text-[var(--text-primary)] cursor-pointer whitespace-nowrap"
               >
-                Format {renderSortIcon('format')}
+                Format {renderSortIcon("format")}
               </button>
             </th>
             <th className="px-3 py-2.5 hidden md:table-cell">Category</th>
@@ -155,19 +183,19 @@ export const BookTable: React.FC<BookTableProps> = ({
             <th className="px-3 py-2.5 text-right w-28">
               <button
                 type="button"
-                onClick={() => onSortChange('progress')}
+                onClick={() => onSortChange("progress")}
                 className="hover:text-[var(--text-primary)] cursor-pointer whitespace-nowrap"
               >
-                Progress {renderSortIcon('progress')}
+                Progress {renderSortIcon("progress")}
               </button>
             </th>
             <th className="px-3 py-2.5 text-right hidden sm:table-cell w-28">
               <button
                 type="button"
-                onClick={() => onSortChange('addedAt')}
+                onClick={() => onSortChange("addedAt")}
                 className="hover:text-[var(--text-primary)] cursor-pointer whitespace-nowrap"
               >
-                Added {renderSortIcon('addedAt')}
+                Added {renderSortIcon("addedAt")}
               </button>
             </th>
             <th className="px-3 py-2.5 text-right w-28">Actions</th>
@@ -177,11 +205,14 @@ export const BookTable: React.FC<BookTableProps> = ({
           {books.map((book) => {
             const isSelected = selectedIds.has(book.id);
             const isInspected = inspectorOpen && inspectedBookId === book.id;
-            const category = book.categoryId ? categoryById.get(book.categoryId) || '—' : '—';
+            const category = book.categoryId
+              ? categoryById.get(book.categoryId) || "—"
+              : "—";
             const folderNames = getBookFolderIds(book)
               .map((id) => folderById.get(id))
               .filter((name): name is string => Boolean(name));
-            const folder = folderNames.length > 0 ? folderNames.join(' · ') : '—';
+            const folder =
+              folderNames.length > 0 ? folderNames.join(" · ") : "—";
 
             const isBeingDragged = draggingIds.includes(book.id);
             const isDropTarget = dropTarget?.bookId === book.id;
@@ -195,9 +226,15 @@ export const BookTable: React.FC<BookTableProps> = ({
                     selectedIds.has(book.id) && selectedIds.size > 1
                       ? Array.from(selectedIds)
                       : [book.id];
-                  e.dataTransfer.setData('application/x-folio-book-id', book.id);
-                  e.dataTransfer.setData('application/x-folio-book-ids', JSON.stringify(dragIds));
-                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData(
+                    "application/x-folio-book-id",
+                    book.id,
+                  );
+                  e.dataTransfer.setData(
+                    "application/x-folio-book-ids",
+                    JSON.stringify(dragIds),
+                  );
+                  e.dataTransfer.effectAllowed = "move";
                   activeDragIdsRef.current = dragIds;
                   setDraggingIds(dragIds);
                 }}
@@ -206,41 +243,43 @@ export const BookTable: React.FC<BookTableProps> = ({
                   if (!isCustomSort || !onReorderBooks) return;
                   const types = e.dataTransfer.types;
                   if (
-                    !types.includes('application/x-folio-book-id') &&
-                    !types.includes('application/x-folio-book-ids')
+                    !types.includes("application/x-folio-book-id") &&
+                    !types.includes("application/x-folio-book-ids")
                   ) {
                     return;
                   }
                   if (activeDragIdsRef.current.includes(book.id)) return;
                   e.preventDefault();
-                  e.dataTransfer.dropEffect = 'move';
+                  e.dataTransfer.dropEffect = "move";
                   const rect = e.currentTarget.getBoundingClientRect();
-                  const position: 'before' | 'after' =
-                    e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                  const position: "before" | "after" =
+                    e.clientY < rect.top + rect.height / 2 ? "before" : "after";
                   setDropTarget((prev) =>
                     prev?.bookId === book.id && prev.position === position
                       ? prev
-                      : {bookId: book.id, position}
+                      : { bookId: book.id, position },
                   );
                 }}
                 onDragLeave={(e) => {
                   if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                    setDropTarget((prev) => (prev?.bookId === book.id ? null : prev));
+                    setDropTarget((prev) =>
+                      prev?.bookId === book.id ? null : prev,
+                    );
                   }
                 }}
                 onDrop={(e) => {
                   if (!isCustomSort || !onReorderBooks) return;
                   const types = e.dataTransfer.types;
                   if (
-                    !types.includes('application/x-folio-book-id') &&
-                    !types.includes('application/x-folio-book-ids')
+                    !types.includes("application/x-folio-book-id") &&
+                    !types.includes("application/x-folio-book-ids")
                   ) {
                     return;
                   }
                   const dragIds = extractDraggedIds(e.dataTransfer);
                   const rect = e.currentTarget.getBoundingClientRect();
-                  const position: 'before' | 'after' =
-                    e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                  const position: "before" | "after" =
+                    e.clientY < rect.top + rect.height / 2 ? "before" : "after";
                   clearDragState();
                   if (dragIds.length === 0 || dragIds.includes(book.id)) return;
                   e.preventDefault();
@@ -259,18 +298,18 @@ export const BookTable: React.FC<BookTableProps> = ({
                   isDropTarget
                     ? {
                         boxShadow:
-                          dropTarget.position === 'before'
-                            ? 'inset 0 2px 0 var(--accent)'
-                            : 'inset 0 -2px 0 var(--accent)',
+                          dropTarget.position === "before"
+                            ? "inset 0 2px 0 var(--accent)"
+                            : "inset 0 -2px 0 var(--accent)",
                       }
                     : undefined
                 }
                 className={`h-[46px] transition-colors ${
-                  isCustomSort ? 'cursor-grab active:cursor-grabbing' : ''
-                } ${isBeingDragged ? 'opacity-45' : ''} ${
+                  isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
+                } ${isBeingDragged ? "opacity-45" : ""} ${
                   isSelected || isInspected
-                    ? 'bg-[var(--bg-accent-subtle)]'
-                    : 'hover:bg-[var(--bg-surface-hover)]'
+                    ? "bg-[var(--bg-accent-subtle)]"
+                    : "hover:bg-[var(--bg-surface-hover)]"
                 }`}
               >
                 <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
@@ -283,12 +322,16 @@ export const BookTable: React.FC<BookTableProps> = ({
                     )}
                     <button
                       type="button"
-                      aria-label={isSelected ? `Deselect ${book.title}` : `Select ${book.title}`}
+                      aria-label={
+                        isSelected
+                          ? `Deselect ${book.title}`
+                          : `Select ${book.title}`
+                      }
                       onClick={(e) => onToggleSelect(book.id, e.shiftKey)}
                       className={`w-4 h-4 rounded flex items-center justify-center border transition-colors cursor-pointer ${
                         isSelected
-                          ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]'
-                          : 'border-[var(--border-strong)] bg-[var(--bg-input)] text-transparent hover:border-[var(--accent)]'
+                          ? "bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]"
+                          : "border-[var(--border-strong)] bg-[var(--bg-input)] text-transparent hover:border-[var(--accent)]"
                       }`}
                     >
                       <Check className="w-3 h-3 stroke-[2.5]" />
@@ -353,9 +396,9 @@ export const BookTable: React.FC<BookTableProps> = ({
 
                 <td
                   className="px-3 py-2 hidden xl:table-cell text-[var(--text-muted)] max-w-[180px] truncate"
-                  title={book.tags.join(', ')}
+                  title={book.tags.join(", ")}
                 >
-                  {book.tags.length > 0 ? book.tags.join(' · ') : '—'}
+                  {book.tags.length > 0 ? book.tags.join(" · ") : "—"}
                 </td>
 
                 <td className="px-3 py-2 text-right font-mono-tabular text-[var(--text-primary)]">
@@ -363,7 +406,7 @@ export const BookTable: React.FC<BookTableProps> = ({
                     <div className="w-12 h-1 rounded-full bg-[var(--border-subtle)] overflow-hidden hidden sm:block">
                       <div
                         className="h-full bg-[var(--accent)]"
-                        style={{width: `${book.progress}%`}}
+                        style={{ width: `${book.progress}%` }}
                       />
                     </div>
                     <span className="w-8 text-right">{book.progress}%</span>
@@ -382,13 +425,15 @@ export const BookTable: React.FC<BookTableProps> = ({
                     <button
                       type="button"
                       onClick={() => onToggleFavorite(book)}
-                      title={book.isFavorite ? 'Unfavorite' : 'Favorite'}
+                      title={book.isFavorite ? "Unfavorite" : "Favorite"}
                       aria-label={`Toggle favorite for ${book.title}`}
                       className="p-1.5 rounded text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--bg-canvas)] cursor-pointer"
                     >
                       <Star
                         className={`w-3.5 h-3.5 ${
-                          book.isFavorite ? 'fill-[var(--accent)] text-[var(--accent)]' : ''
+                          book.isFavorite
+                            ? "fill-[var(--accent)] text-[var(--accent)]"
+                            : ""
                         }`}
                       />
                     </button>

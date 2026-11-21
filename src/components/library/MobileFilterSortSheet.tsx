@@ -1,5 +1,11 @@
-import {ArrowDownWideNarrow, ArrowUpNarrowWide, Check, GripVertical, RotateCcw} from 'lucide-react';
-import React from 'react';
+import {
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  Check,
+  GripVertical,
+  RotateCcw,
+} from "lucide-react";
+import React from "react";
 import type {
   BookFormat,
   CardDetailOptions,
@@ -7,12 +13,12 @@ import type {
   GroupByField,
   SortDirection,
   SortField,
-} from '../../types/library';
-import {BottomSheet} from '../ui/BottomSheet';
+} from "../../../library";
+import { BottomSheet } from "../ui/BottomSheet";
 
 interface MobileFilterSortSheetProps {
   isOpen: boolean;
-  formatFilter: 'all' | BookFormat;
+  formatFilter: "all" | BookFormat;
   groupBy: GroupByField;
   sortField: SortField;
   sortDirection: SortDirection;
@@ -21,7 +27,7 @@ interface MobileFilterSortSheetProps {
   hasViewFolders: boolean;
   hideFiledBooks: boolean;
   hasActiveFilters: boolean;
-  onFormatChange: (fmt: 'all' | BookFormat) => void;
+  onFormatChange: (fmt: "all" | BookFormat) => void;
   onGroupByChange: (groupBy: GroupByField) => void;
   onSortFieldChange: (field: SortField) => void;
   onToggleSortDirection: () => void;
@@ -32,31 +38,31 @@ interface MobileFilterSortSheetProps {
   onClose: () => void;
 }
 
-const SORT_OPTIONS: Array<{id: SortField; label: string}> = [
-  {id: 'custom', label: 'Custom Order'},
-  {id: 'addedAt', label: 'Date Added'},
-  {id: 'recent', label: 'Recently Read'},
-  {id: 'title', label: 'Title'},
-  {id: 'author', label: 'Author'},
-  {id: 'progress', label: 'Progress'},
-  {id: 'format', label: 'Format'},
+const SORT_OPTIONS: Array<{ id: SortField; label: string }> = [
+  { id: "custom", label: "Custom Order" },
+  { id: "addedAt", label: "Date Added" },
+  { id: "recent", label: "Recently Read" },
+  { id: "title", label: "Title" },
+  { id: "author", label: "Author" },
+  { id: "progress", label: "Progress" },
+  { id: "format", label: "Format" },
 ];
 
-const GROUP_OPTIONS: Array<{id: GroupByField; label: string}> = [
-  {id: 'none', label: 'None'},
-  {id: 'author', label: 'Author'},
-  {id: 'series', label: 'Series'},
-  {id: 'status', label: 'Status'},
-  {id: 'format', label: 'Format'},
+const GROUP_OPTIONS: Array<{ id: GroupByField; label: string }> = [
+  { id: "none", label: "None" },
+  { id: "author", label: "Author" },
+  { id: "series", label: "Series" },
+  { id: "status", label: "Status" },
+  { id: "format", label: "Format" },
 ];
 
-const DETAIL_TOGGLES: Array<{key: keyof CardDetailOptions; label: string}> = [
-  {key: 'subtitle', label: 'Subtitle'},
-  {key: 'author', label: 'Author'},
-  {key: 'format', label: 'Format'},
-  {key: 'category', label: 'Category'},
-  {key: 'progress', label: 'Progress'},
-  {key: 'tags', label: 'Tags'},
+const DETAIL_TOGGLES: Array<{ key: keyof CardDetailOptions; label: string }> = [
+  { key: "subtitle", label: "Subtitle" },
+  { key: "author", label: "Author" },
+  { key: "format", label: "Format" },
+  { key: "category", label: "Category" },
+  { key: "progress", label: "Progress" },
+  { key: "tags", label: "Tags" },
 ];
 
 export const MobileFilterSortSheet: React.FC<MobileFilterSortSheetProps> = ({
@@ -115,18 +121,18 @@ export const MobileFilterSortSheet: React.FC<MobileFilterSortSheetProps> = ({
             Format
           </p>
           <div className="grid grid-cols-4 gap-1 p-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sidebar)]">
-            {(['all', 'epub', 'pdf', 'mobi'] as const).map((fmt) => (
+            {(["all", "epub", "pdf", "mobi"] as const).map((fmt) => (
               <button
                 key={fmt}
                 type="button"
                 onClick={() => onFormatChange(fmt)}
                 className={`min-h-[38px] text-xs font-medium rounded-md transition-colors cursor-pointer ${
                   formatFilter === fmt
-                    ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
-                    : 'text-[var(--text-secondary)]'
+                    ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs"
+                    : "text-[var(--text-secondary)]"
                 }`}
               >
-                {fmt === 'all' ? 'All' : fmt.toUpperCase()}
+                {fmt === "all" ? "All" : fmt.toUpperCase()}
               </button>
             ))}
           </div>
@@ -138,7 +144,7 @@ export const MobileFilterSortSheet: React.FC<MobileFilterSortSheetProps> = ({
             <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
               Sort By
             </p>
-            {sortField === 'custom' ? (
+            {sortField === "custom" ? (
               <span className="min-h-[36px] px-2.5 inline-flex items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-xs font-medium text-[var(--text-muted)]">
                 <GripVertical className="w-3.5 h-3.5 text-[var(--accent)]" />
                 <span>Drag to reorder</span>
@@ -149,7 +155,7 @@ export const MobileFilterSortSheet: React.FC<MobileFilterSortSheetProps> = ({
                 onClick={onToggleSortDirection}
                 className="min-h-[36px] px-2.5 inline-flex items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-xs font-medium text-[var(--text-primary)] cursor-pointer"
               >
-                {sortDirection === 'asc' ? (
+                {sortDirection === "asc" ? (
                   <>
                     <ArrowUpNarrowWide className="w-3.5 h-3.5 text-[var(--accent)]" />
                     <span>Ascending</span>
@@ -173,8 +179,8 @@ export const MobileFilterSortSheet: React.FC<MobileFilterSortSheetProps> = ({
                   onClick={() => onSortFieldChange(opt.id)}
                   className={`min-h-[42px] px-3 rounded-lg border text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
                     active
-                      ? 'border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]'
-                      : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)]'
+                      ? "border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]"
+                      : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)]"
                   }`}
                 >
                   <span>{opt.label}</span>
@@ -200,8 +206,8 @@ export const MobileFilterSortSheet: React.FC<MobileFilterSortSheetProps> = ({
                   onClick={() => onGroupByChange(opt.id)}
                   className={`min-h-[40px] px-2.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
                     active
-                      ? 'border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]'
-                      : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)]'
+                      ? "border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]"
+                      : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)]"
                   }`}
                 >
                   {opt.label}
@@ -217,15 +223,15 @@ export const MobileFilterSortSheet: React.FC<MobileFilterSortSheetProps> = ({
             Grid Density
           </p>
           <div className="grid grid-cols-3 gap-1 p-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sidebar)]">
-            {(['compact', 'standard', 'large'] as const).map((sz) => (
+            {(["compact", "standard", "large"] as const).map((sz) => (
               <button
                 key={sz}
                 type="button"
                 onClick={() => onCoverSizeChange(sz)}
                 className={`min-h-[38px] text-xs font-medium rounded-md capitalize transition-colors cursor-pointer ${
                   coverSize === sz
-                    ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
-                    : 'text-[var(--text-secondary)]'
+                    ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs"
+                    : "text-[var(--text-secondary)]"
                 }`}
               >
                 {sz}
@@ -248,13 +254,15 @@ export const MobileFilterSortSheet: React.FC<MobileFilterSortSheetProps> = ({
                   type="button"
                   role="switch"
                   aria-checked={checked}
-                  onClick={() => onCardDetailsChange({[item.key]: !checked})}
+                  onClick={() => onCardDetailsChange({ [item.key]: !checked })}
                   className="w-full min-h-[44px] px-3.5 flex items-center justify-between text-xs font-medium text-[var(--text-primary)] cursor-pointer"
                 >
                   <span>{item.label}</span>
                   <span
                     className={`w-9 h-5 rounded-full p-0.5 transition-colors flex items-center ${
-                      checked ? 'bg-[var(--accent)] justify-end' : 'bg-[var(--border-strong)] justify-start'
+                      checked
+                        ? "bg-[var(--accent)] justify-end"
+                        : "bg-[var(--border-strong)] justify-start"
                     }`}
                   >
                     <span className="w-4 h-4 rounded-full bg-[var(--bg-elevated)] shadow-xs" />
@@ -274,8 +282,8 @@ export const MobileFilterSortSheet: React.FC<MobileFilterSortSheetProps> = ({
                 <span
                   className={`w-9 h-5 rounded-full p-0.5 transition-colors flex items-center ${
                     hideFiledBooks
-                      ? 'bg-[var(--accent)] justify-end'
-                      : 'bg-[var(--border-strong)] justify-start'
+                      ? "bg-[var(--accent)] justify-end"
+                      : "bg-[var(--border-strong)] justify-start"
                   }`}
                 >
                   <span className="w-4 h-4 rounded-full bg-[var(--bg-elevated)] shadow-xs" />

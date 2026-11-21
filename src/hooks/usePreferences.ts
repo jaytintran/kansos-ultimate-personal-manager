@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from 'react';
+import { useCallback, useEffect, useState } from "react";
 import type {
   CardDetailOptions,
   CoverSize,
@@ -9,17 +9,17 @@ import type {
   SortField,
   ViewFolderCardLayout,
   ViewFolderDisplayMode,
-} from '../types/library';
+} from "../../library";
 
 export const DEFAULT_SIDEBAR_WIDTH = 248;
 export const MIN_SIDEBAR_WIDTH = 200;
 export const MAX_SIDEBAR_WIDTH = 340;
 
-const STORAGE_KEY = 'kanso_library_studio_prefs_v1';
+const STORAGE_KEY = "kanso_library_studio_prefs_v1";
 
 export const DEFAULT_READER_PREFS: ReaderPreferences = {
-  theme: 'kanso',
-  fontFamily: 'source-serif',
+  theme: "kanso",
+  fontFamily: "source-serif",
   fontSize: 18,
   fontWeight: 400,
   wordSpacing: 0,
@@ -27,16 +27,16 @@ export const DEFAULT_READER_PREFS: ReaderPreferences = {
   lineHeight: 1.72,
   paragraphSpacing: 0.9,
   textIndent: 0,
-  textAlign: 'left',
+  textAlign: "left",
   pageMargins: 48,
   pageWidth: 720,
-  contrastPreset: 'balanced',
+  contrastPreset: "balanced",
   brightness: 100,
-  readingLayout: 'scroll',
+  readingLayout: "scroll",
   publisherStyles: false,
-  pdfViewMode: 'original',
-  pdfLayout: 'continuous',
-  pdfFitMode: 'width',
+  pdfViewMode: "original",
+  pdfLayout: "continuous",
+  pdfFitMode: "width",
   pdfZoom: 1.15,
   pdfThemeTone: false,
   pinHeader: true,
@@ -55,7 +55,7 @@ export const DEFAULT_CARD_DETAILS: CardDetailOptions = {
 
 export interface LibraryStudioUiPreferences {
   reader: ReaderPreferences;
-  viewMode: 'grid' | 'table';
+  viewMode: "grid" | "table";
   coverSize: CoverSize;
   cardDetails: CardDetailOptions;
   sortField: SortField;
@@ -71,12 +71,12 @@ export interface LibraryStudioUiPreferences {
 
 const DEFAULT_UI_PREFS: LibraryStudioUiPreferences = {
   reader: DEFAULT_READER_PREFS,
-  viewMode: 'grid',
-  coverSize: 'standard',
+  viewMode: "grid",
+  coverSize: "standard",
   cardDetails: DEFAULT_CARD_DETAILS,
-  sortField: 'lastReadAt',
-  sortDirection: 'desc',
-  groupBy: 'none',
+  sortField: "lastReadAt",
+  sortDirection: "desc",
+  groupBy: "none",
   sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
   sidebarCollapsedDesktop: false,
   collapsedSections: {
@@ -85,15 +85,17 @@ const DEFAULT_UI_PREFS: LibraryStudioUiPreferences = {
     categories: false,
     tags: true,
   },
-  viewFolderDisplayMode: 'card',
-  viewFolderCardLayout: 'stacked',
+  viewFolderDisplayMode: "card",
+  viewFolderCardLayout: "stacked",
   hideFiledBooks: false,
 };
 
-function normalizeReaderPrefs(raw: Partial<ReaderPreferences> | undefined): ReaderPreferences {
-  const merged = {...DEFAULT_READER_PREFS, ...(raw ?? {})};
-  if (merged.fontFamily === 'serif') merged.fontFamily = 'source-serif';
-  if (merged.fontFamily === 'sans') merged.fontFamily = 'dm-sans';
+function normalizeReaderPrefs(
+  raw: Partial<ReaderPreferences> | undefined,
+): ReaderPreferences {
+  const merged = { ...DEFAULT_READER_PREFS, ...(raw ?? {}) };
+  if (merged.fontFamily === "serif") merged.fontFamily = "source-serif";
+  if (merged.fontFamily === "sans") merged.fontFamily = "dm-sans";
   return merged;
 }
 
@@ -106,7 +108,7 @@ function loadPrefs(): LibraryStudioUiPreferences {
       ...DEFAULT_UI_PREFS,
       ...parsed,
       reader: normalizeReaderPrefs(parsed.reader),
-      cardDetails: {...DEFAULT_CARD_DETAILS, ...(parsed.cardDetails ?? {})},
+      cardDetails: { ...DEFAULT_CARD_DETAILS, ...(parsed.cardDetails ?? {}) },
       collapsedSections: {
         ...DEFAULT_UI_PREFS.collapsedSections,
         ...(parsed.collapsedSections ?? {}),
@@ -128,20 +130,26 @@ export function useLibraryPreferences() {
     }
   }, [prefs]);
 
-  const updateUiPrefs = useCallback((patch: Partial<LibraryStudioUiPreferences>) => {
-    setPrefs((prev) => ({...prev, ...patch}));
-  }, []);
+  const updateUiPrefs = useCallback(
+    (patch: Partial<LibraryStudioUiPreferences>) => {
+      setPrefs((prev) => ({ ...prev, ...patch }));
+    },
+    [],
+  );
 
   const updateReaderPrefs = useCallback((patch: Partial<ReaderPreferences>) => {
-    setPrefs((prev) => ({...prev, reader: {...prev.reader, ...patch}}));
+    setPrefs((prev) => ({ ...prev, reader: { ...prev.reader, ...patch } }));
   }, []);
 
   const resetReaderPrefs = useCallback(() => {
-    setPrefs((prev) => ({...prev, reader: {...DEFAULT_READER_PREFS}}));
+    setPrefs((prev) => ({ ...prev, reader: { ...DEFAULT_READER_PREFS } }));
   }, []);
 
   const updateCardDetails = useCallback((patch: Partial<CardDetailOptions>) => {
-    setPrefs((prev) => ({...prev, cardDetails: {...prev.cardDetails, ...patch}}));
+    setPrefs((prev) => ({
+      ...prev,
+      cardDetails: { ...prev.cardDetails, ...patch },
+    }));
   }, []);
 
   const toggleSidebarSection = useCallback((section: SidebarSectionKey) => {

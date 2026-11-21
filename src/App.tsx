@@ -38,7 +38,13 @@ import {
   UniversalContextMenu,
 } from "./components/UniversalContextMenu";
 import { WorkspaceProvider, useWorkspace } from "./context/WorkspaceContext";
-import { ContextMenuRecord, DetailSheetTarget, ViewId } from "./types";
+import {
+  BookJumpRequest,
+  BookNoteLink,
+  ContextMenuRecord,
+  DetailSheetTarget,
+  ViewId,
+} from "./types";
 import { getEntryDayKey, getTodayKey, isVisibleOnTimeline } from "./utils/date";
 import { AchievementsView } from "./views/AchievementsView";
 import { EventsView } from "./views/EventsView";
@@ -147,6 +153,7 @@ const KansoShell: React.FC = () => {
     quickPullGist,
     toasts,
     dismissToast,
+    pushToast,
     updateSettings,
   } = useWorkspace();
   const initialView: ViewId = workspace.settings.defaultView || "focus";
@@ -185,6 +192,9 @@ const KansoShell: React.FC = () => {
   const [libraryZenMode, setLibraryZenMode] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] =
     useState<SettingsModalTab>("appearance");
+  const [bookJumpRequest, setBookJumpRequest] =
+    useState<BookJumpRequest | null>(null);
+  const bookJumpNonceRef = useRef(0);
 
   const handleOpenContextMenu = useCallback(
     (record: ContextMenuRecord, e: React.MouseEvent) => {
@@ -216,6 +226,30 @@ const KansoShell: React.FC = () => {
     }
     setActiveView(view);
   }, []);
+
+  const handleJumpToBookLocation = useCallback(
+    (bookLink: BookNoteLink) => {
+      const targetBook = bookLink.bookId
+        ? workspace.books.find((b) => b.id === bookLink.bookId)
+        : undefined;
+      if (!targetBook) {
+        pushToast("This book is no longer in your Library", "error");
+        return;
+      }
+      setDetailTarget(null);
+      setMoreSheetOpen(false);
+      setHasVisitedLibrary(true);
+      setActiveView("library");
+      bookJumpNonceRef.current += 1;
+      setBookJumpRequest({
+        bookId: targetBook.id,
+        unitIndex: bookLink.unitIndex,
+        scrollRatio: bookLink.scrollRatio ?? 0,
+        nonce: bookJumpNonceRef.current,
+      });
+    },
+    [workspace.books, pushToast],
+  );
 
   const handleMuteBackgroundStreamer = useCallback(() => {
     if (
@@ -782,6 +816,7 @@ const KansoShell: React.FC = () => {
           <NotesView
             onOpenDetail={setDetailTarget}
             onOpenContextMenu={handleOpenContextMenu}
+            onJumpToBookLocation={handleJumpToBookLocation}
           />
         )}
         {activeView === "events" && (
@@ -811,6 +846,8 @@ const KansoShell: React.FC = () => {
               onExitZenMode={() => setLibraryZenMode(false)}
               onMuteBackgroundStreamer={handleMuteBackgroundStreamer}
               isActiveView={activeView === "library"}
+              jumpRequest={bookJumpRequest}
+              onOpenDetail={setDetailTarget}
             />
           </div>
         )}
@@ -1261,6 +1298,7 @@ const KansoShell: React.FC = () => {
         onOpenTimestamps={(entryId, focus) =>
           handleOpenTimestamps(entryId, focus ?? null)
         }
+        onJumpToBookLocation={handleJumpToBookLocation}
       />
 
       {/* Universal Context Menu */}
@@ -1288,7 +1326,7 @@ const KansoShell: React.FC = () => {
       {/* Non-intrusive Toast Feedback */}
       {toasts.length > 0 && (
         <div
-          className="fixed bottom-36 lg:bottom-24 right-4 sm:right-6 z-50 flex flex-col gap-2 max-w-sm"
+          className="fixed bottom-36 lg:bottom-24 right-4 sm:right-6 z-[80] flex flex-col gap-2 max-w-sm"
           aria-live="polite"
         >
           {toasts.map((toast) => (

@@ -1,14 +1,18 @@
-import {X} from 'lucide-react';
-import React, {useState} from 'react';
-import {FOLDER_COLORS, flattenFoldersHierarchy} from '../../lib/formatters';
-import type {FolderColor, FolderRecord} from '../../types/library';
+import { X } from "lucide-react";
+import React, { useState } from "react";
+import { FOLDER_COLORS, flattenFoldersHierarchy } from "../../lib/formatters";
+import type { FolderColor, FolderRecord } from "../../../library";
 
 interface LibraryFolderModalProps {
-  mode: 'create' | 'edit';
+  mode: "create" | "edit";
   folder?: FolderRecord;
   folders: FolderRecord[];
   onClose: () => void;
-  onSave: (payload: {name: string; color: FolderColor; parentId: string | null}) => void;
+  onSave: (payload: {
+    name: string;
+    color: FolderColor;
+    parentId: string | null;
+  }) => void;
 }
 
 export const LibraryFolderModal: React.FC<LibraryFolderModalProps> = ({
@@ -18,19 +22,21 @@ export const LibraryFolderModal: React.FC<LibraryFolderModalProps> = ({
   onClose,
   onSave,
 }) => {
-  const [name, setName] = useState(folder?.name ?? '');
-  const [color, setColor] = useState<FolderColor>(folder?.color ?? 'neutral');
-  const [parentId, setParentId] = useState<string | null>(folder?.parentId ?? null);
+  const [name, setName] = useState(folder?.name ?? "");
+  const [color, setColor] = useState<FolderColor>(folder?.color ?? "neutral");
+  const [parentId, setParentId] = useState<string | null>(
+    folder?.parentId ?? null,
+  );
 
   const parentCandidates = flattenFoldersHierarchy(folders).filter(
-    (item) => item.folder.id !== folder?.id
+    (item) => item.folder.id !== folder?.id,
   );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    onSave({name: trimmed, color, parentId});
+    onSave({ name: trimmed, color, parentId });
     onClose();
   };
 
@@ -42,13 +48,13 @@ export const LibraryFolderModal: React.FC<LibraryFolderModalProps> = ({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={mode === 'create' ? 'Create folder' : 'Edit folder'}
+        aria-label={mode === "create" ? "Create folder" : "Edit folder"}
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-sm rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden"
       >
         <div className="px-4 py-3 border-b border-[var(--border-subtle)] flex items-center justify-between">
           <h2 className="font-display text-sm font-semibold text-[var(--text-primary)]">
-            {mode === 'create' ? 'New Folder' : 'Edit Folder'}
+            {mode === "create" ? "New Folder" : "Edit Folder"}
           </h2>
           <button
             type="button"
@@ -79,7 +85,7 @@ export const LibraryFolderModal: React.FC<LibraryFolderModalProps> = ({
             />
           </div>
 
-          {mode === 'create' && parentCandidates.length > 0 && (
+          {mode === "create" && parentCandidates.length > 0 && (
             <div className="space-y-1.5">
               <label
                 htmlFor="library-folder-parent"
@@ -89,7 +95,7 @@ export const LibraryFolderModal: React.FC<LibraryFolderModalProps> = ({
               </label>
               <select
                 id="library-folder-parent"
-                value={parentId ?? ''}
+                value={parentId ?? ""}
                 onChange={(e) => setParentId(e.target.value || null)}
                 className="w-full h-9 px-2.5 text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] outline-none cursor-pointer"
               >
@@ -119,10 +125,10 @@ export const LibraryFolderModal: React.FC<LibraryFolderModalProps> = ({
                     onClick={() => setColor(swatch.id)}
                     className={`w-6 h-6 rounded-full flex items-center justify-center transition-transform cursor-pointer ${
                       selected
-                        ? 'ring-2 ring-offset-2 ring-[var(--accent)] ring-offset-[var(--bg-elevated)] scale-110'
-                        : 'hover:scale-105'
+                        ? "ring-2 ring-offset-2 ring-[var(--accent)] ring-offset-[var(--bg-elevated)] scale-110"
+                        : "hover:scale-105"
                     }`}
-                    style={{backgroundColor: swatch.swatch}}
+                    style={{ backgroundColor: swatch.swatch }}
                   />
                 );
               })}
@@ -142,7 +148,7 @@ export const LibraryFolderModal: React.FC<LibraryFolderModalProps> = ({
               disabled={!name.trim()}
               className="h-8 px-3.5 rounded-lg bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:opacity-45 text-xs font-semibold cursor-pointer"
             >
-              {mode === 'create' ? 'Create Folder' : 'Save Changes'}
+              {mode === "create" ? "Create Folder" : "Save Changes"}
             </button>
           </div>
         </form>

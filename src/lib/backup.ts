@@ -1,4 +1,4 @@
-import JSZip from 'jszip';
+import JSZip from "jszip";
 import type {
   BookRecord,
   BookmarkRecord,
@@ -6,8 +6,8 @@ import type {
   FolderRecord,
   HighlightRecord,
   ViewFolderRecord,
-} from '../types/library';
-import {libraryDb} from './db';
+} from "../../library";
+import { libraryDb } from "./db";
 
 export interface LibraryBackupFileEntry {
   bookId: string;
@@ -44,20 +44,24 @@ export async function exportLibraryBackupZip(params: {
 }): Promise<Blob> {
   const zip = new JSZip();
   const exportedAt = Date.now();
-  const fileEntries: Array<{bookId: string; archivePath: string; fileName: string}> = [];
+  const fileEntries: Array<{
+    bookId: string;
+    archivePath: string;
+    fileName: string;
+  }> = [];
 
   for (const book of params.books) {
     const stored = await libraryDb.getBookFile(book.id);
     if (!stored) continue;
-    const safeExt = book.format || 'epub';
+    const safeExt = book.format || "epub";
     const archivePath = `files/${book.id}.${safeExt}`;
     zip.file(archivePath, stored.data);
-    fileEntries.push({bookId: book.id, archivePath, fileName: book.fileName});
+    fileEntries.push({ bookId: book.id, archivePath, fileName: book.fileName });
   }
 
   const manifest = {
     version: 1,
-    app: 'kanso-library',
+    app: "kanso-library",
     exportedAt,
     books: params.books,
     folders: params.folders,
@@ -68,18 +72,26 @@ export async function exportLibraryBackupZip(params: {
     fileEntries,
   };
 
-  zip.file('manifest.json', JSON.stringify(manifest, null, 2));
-  return zip.generateAsync({type: 'blob', compression: 'DEFLATE', compressionOptions: {level: 5}});
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+  return zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 5 },
+  });
 }
 
-export async function parseLibraryBackupZip(file: File): Promise<ParsedBackupArchive> {
+export async function parseLibraryBackupZip(
+  file: File,
+): Promise<ParsedBackupArchive> {
   const zip = await JSZip.loadAsync(file);
-  const manifestFile = zip.file('manifest.json');
+  const manifestFile = zip.file("manifest.json");
   if (!manifestFile) {
-    throw new Error('This archive does not contain a valid Library manifest.json.');
+    throw new Error(
+      "This archive does not contain a valid Library manifest.json.",
+    );
   }
 
-  const rawText = await manifestFile.async('string');
+  const rawText = await manifestFile.async("string");
   const parsed = JSON.parse(rawText) as {
     version?: number;
     exportedAt?: number;
@@ -89,7 +101,11 @@ export async function parseLibraryBackupZip(file: File): Promise<ParsedBackupArc
     viewFolders?: ViewFolderRecord[];
     bookmarks?: BookmarkRecord[];
     highlights?: HighlightRecord[];
-    fileEntries?: Array<{bookId: string; archivePath: string; fileName: string}>;
+    fileEntries?: Array<{
+      bookId: string;
+      archivePath: string;
+      fileName: string;
+    }>;
   };
 
   const files: LibraryBackupFileEntry[] = [];
@@ -97,7 +113,7 @@ export async function parseLibraryBackupZip(file: File): Promise<ParsedBackupArc
   for (const entry of entries) {
     const zf = zip.file(entry.archivePath);
     if (!zf) continue;
-    const data = await zf.async('arraybuffer');
+    const data = await zf.async("arraybuffer");
     files.push({
       bookId: entry.bookId,
       fileName: entry.fileName,

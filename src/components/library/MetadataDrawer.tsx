@@ -1,5 +1,5 @@
-import {Check, FileUp, Folder, Plus, Trash2, X} from 'lucide-react';
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import { Check, FileUp, Folder, Plus, Trash2, X } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   flattenFoldersHierarchy,
   formatFileSize,
@@ -9,16 +9,16 @@ import {
   sanitizeFileBaseName,
   splitFileName,
   withBookFolderIds,
-} from '../../lib/formatters';
+} from "../../lib/formatters";
 import type {
   BookRecord,
   CategoryRecord,
   CoverStyle,
   FolderRecord,
   ReadingStatus,
-} from '../../types/library';
-import {BookCover} from './BookCover';
-import {CoverCustomizer} from './CoverCustomizer';
+} from "../../../library";
+import { BookCover } from "./BookCover";
+import { CoverCustomizer } from "./CoverCustomizer";
 
 interface MetadataDrawerProps {
   book: BookRecord;
@@ -47,11 +47,11 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
 }) => {
   const initialFileParts = useMemo(
     () => splitFileName(book.fileName, book.format),
-    [book.fileName, book.format]
+    [book.fileName, book.format],
   );
 
   const [title, setTitle] = useState(book.title);
-  const [subtitle, setSubtitle] = useState(book.subtitle ?? '');
+  const [subtitle, setSubtitle] = useState(book.subtitle ?? "");
   const [fileBaseName, setFileBaseName] = useState(initialFileParts.baseName);
   const [author, setAuthor] = useState(book.author);
   const [series, setSeries] = useState(book.series);
@@ -59,20 +59,28 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
   const [year, setYear] = useState(book.year);
   const [language, setLanguage] = useState(book.language);
   const [description, setDescription] = useState(book.description);
-  const [categoryId, setCategoryId] = useState<string>(book.categoryId ?? '');
-  const [folderIds, setFolderIds] = useState<string[]>(() => getBookFolderIds(book));
+  const [categoryId, setCategoryId] = useState<string>(book.categoryId ?? "");
+  const [folderIds, setFolderIds] = useState<string[]>(() =>
+    getBookFolderIds(book),
+  );
   const [status, setStatus] = useState<ReadingStatus>(book.status);
   const [isFavorite, setIsFavorite] = useState(book.isFavorite);
   const [tags, setTags] = useState<string[]>(book.tags);
-  const [tagInput, setTagInput] = useState('');
-  const [coverDataUrl, setCoverDataUrl] = useState<string | null>(book.coverDataUrl);
-  const [coverPaletteIndex, setCoverPaletteIndex] = useState<number>(book.coverPaletteIndex);
-  const [coverStyle, setCoverStyle] = useState<CoverStyle>(book.coverStyle ?? 'editorial');
+  const [tagInput, setTagInput] = useState("");
+  const [coverDataUrl, setCoverDataUrl] = useState<string | null>(
+    book.coverDataUrl,
+  );
+  const [coverPaletteIndex, setCoverPaletteIndex] = useState<number>(
+    book.coverPaletteIndex,
+  );
+  const [coverStyle, setCoverStyle] = useState<CoverStyle>(
+    book.coverStyle ?? "editorial",
+  );
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const [quickFolder, setQuickFolder] = useState('');
+  const [quickFolder, setQuickFolder] = useState("");
   const [showQuickFolder, setShowQuickFolder] = useState(false);
-  const [quickCategory, setQuickCategory] = useState('');
+  const [quickCategory, setQuickCategory] = useState("");
   const [showQuickCategory, setShowQuickCategory] = useState(false);
   const [isReplacingFile, setIsReplacingFile] = useState(false);
   const replaceFileInputRef = useRef<HTMLInputElement>(null);
@@ -87,24 +95,29 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
     }
   }, [book.coverDataUrl, coverDataUrl]);
 
-  const flatFolders = useMemo(() => flattenFoldersHierarchy(folders), [folders]);
+  const flatFolders = useMemo(
+    () => flattenFoldersHierarchy(folders),
+    [folders],
+  );
 
   const addTagsFromString = (raw: string) => {
     const parts = raw
-      .split(',')
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     if (parts.length === 0) return;
     setTags((prev) => {
       const next = [...prev];
       for (const t of parts) {
-        if (!next.some((existing) => existing.toLowerCase() === t.toLowerCase())) {
+        if (
+          !next.some((existing) => existing.toLowerCase() === t.toLowerCase())
+        ) {
           next.push(t);
         }
       }
       return next;
     });
-    setTagInput('');
+    setTagInput("");
   };
 
   const removeTag = (tagToRemove: string) => {
@@ -115,13 +128,26 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
     e.preventDefault();
     const pendingTag = tagInput.trim();
     const finalTags = pendingTag
-      ? Array.from(new Set([...tags, ...pendingTag.split(',').map((s) => s.trim()).filter(Boolean)]))
+      ? Array.from(
+          new Set([
+            ...tags,
+            ...pendingTag
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          ]),
+        )
       : tags;
 
     const updatedProgress =
-      status === 'finished' ? 100 : status === 'unread' ? 0 : Math.max(1, book.progress);
+      status === "finished"
+        ? 100
+        : status === "unread"
+          ? 0
+          : Math.max(1, book.progress);
 
-    const cleanBaseName = sanitizeFileBaseName(fileBaseName) || initialFileParts.baseName;
+    const cleanBaseName =
+      sanitizeFileBaseName(fileBaseName) || initialFileParts.baseName;
     const nextFileName = `${cleanBaseName}${initialFileParts.extension}`;
 
     onSave(
@@ -129,14 +155,14 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
         {
           ...book,
           title: title.trim() || book.title,
-          subtitle: (subtitle ?? '').trim(),
+          subtitle: (subtitle ?? "").trim(),
           fileName: nextFileName,
-          author: (author ?? '').trim() || 'Unknown Author',
-          series: (series ?? '').trim(),
-          publisher: (publisher ?? '').trim(),
-          year: (year ?? '').trim(),
-          language: (language ?? '').trim() || 'en',
-          description: (description ?? '').trim(),
+          author: (author ?? "").trim() || "Unknown Author",
+          series: (series ?? "").trim(),
+          publisher: (publisher ?? "").trim(),
+          year: (year ?? "").trim(),
+          language: (language ?? "").trim() || "en",
+          description: (description ?? "").trim(),
           categoryId: categoryId || null,
           status,
           progress: status === book.status ? book.progress : updatedProgress,
@@ -146,15 +172,16 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
           coverPaletteIndex,
           coverStyle,
         },
-        folderIds
-      )
+        folderIds,
+      ),
     );
   };
 
   const suggestedTags = existingTags.filter(
     (t) =>
       !tags.some((curr) => curr.toLowerCase() === t.toLowerCase()) &&
-      (tagInput.trim() === '' || t.toLowerCase().includes(tagInput.trim().toLowerCase()))
+      (tagInput.trim() === "" ||
+        t.toLowerCase().includes(tagInput.trim().toLowerCase())),
   );
 
   return (
@@ -185,7 +212,11 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
         </div>
 
         {/* Form Body */}
-        <form id="metadata-edit-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-5">
+        <form
+          id="metadata-edit-form"
+          onSubmit={handleSubmit}
+          className="flex-1 overflow-y-auto p-6 space-y-5"
+        >
           {/* Cover + Customizer */}
           <div className="space-y-4 pb-5 border-b border-[var(--border-subtle)]">
             <div className="flex gap-4 items-start">
@@ -227,8 +258,8 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
                   </div>
                 </div>
                 <p className="font-mono-tabular text-[11px] text-[var(--text-muted)]">
-                  {book.format.toUpperCase()} · {formatFileSize(book.fileSize)} · Added{' '}
-                  {formatShortDate(book.addedAt)}
+                  {book.format.toUpperCase()} · {formatFileSize(book.fileSize)}{" "}
+                  · Added {formatShortDate(book.addedAt)}
                 </p>
                 <div className="pt-0.5">
                   <input
@@ -237,7 +268,7 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
                     accept=".pdf,.epub,.mobi,.prc,.azw"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
-                      e.target.value = '';
+                      e.target.value = "";
                       if (!file) return;
                       setIsReplacingFile(true);
                       try {
@@ -256,7 +287,9 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] hover:border-[var(--accent)] disabled:opacity-55 transition-colors cursor-pointer whitespace-nowrap"
                   >
                     <FileUp className="w-3 h-3 text-[var(--accent)] shrink-0" />
-                    <span>{isReplacingFile ? 'Replacing File…' : 'Replace File'}</span>
+                    <span>
+                      {isReplacingFile ? "Replacing File…" : "Replace File"}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -271,10 +304,12 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
               coverStyle={coverStyle}
               collapsibleGenerated
               onChange={(patch) => {
-                if ('coverDataUrl' in patch) setCoverDataUrl(patch.coverDataUrl ?? null);
+                if ("coverDataUrl" in patch)
+                  setCoverDataUrl(patch.coverDataUrl ?? null);
                 if (patch.coverPaletteIndex !== undefined)
                   setCoverPaletteIndex(patch.coverPaletteIndex);
-                if (patch.coverStyle !== undefined) setCoverStyle(patch.coverStyle);
+                if (patch.coverStyle !== undefined)
+                  setCoverStyle(patch.coverStyle);
               }}
             />
           </div>
@@ -338,7 +373,9 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-medium text-[var(--text-secondary)]">Category</label>
+                <label className="text-xs font-medium text-[var(--text-secondary)]">
+                  Category
+                </label>
                 <button
                   type="button"
                   onClick={() => setShowQuickCategory((v) => !v)}
@@ -360,9 +397,11 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
                     type="button"
                     onClick={async () => {
                       if (!quickCategory.trim()) return;
-                      const created = await onCreateCategory(quickCategory.trim());
+                      const created = await onCreateCategory(
+                        quickCategory.trim(),
+                      );
                       setCategoryId(created.id);
-                      setQuickCategory('');
+                      setQuickCategory("");
                       setShowQuickCategory(false);
                     }}
                     className="px-2.5 py-1.5 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-contrast)] cursor-pointer"
@@ -389,7 +428,7 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-medium text-[var(--text-secondary)]">
-                  Folders{folderIds.length > 0 ? ` (${folderIds.length})` : ''}
+                  Folders{folderIds.length > 0 ? ` (${folderIds.length})` : ""}
                 </label>
                 <div className="flex items-center gap-2.5">
                   {folderIds.length > 0 && (
@@ -425,8 +464,12 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
                     onClick={async () => {
                       if (!quickFolder.trim()) return;
                       const created = await onCreateFolder(quickFolder.trim());
-                      setFolderIds((prev) => (prev.includes(created.id) ? prev : [...prev, created.id]));
-                      setQuickFolder('');
+                      setFolderIds((prev) =>
+                        prev.includes(created.id)
+                          ? prev
+                          : [...prev, created.id],
+                      );
+                      setQuickFolder("");
                       setShowQuickFolder(false);
                     }}
                     className="px-2.5 py-1.5 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-contrast)] cursor-pointer"
@@ -441,7 +484,7 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
                 </p>
               ) : (
                 <div className="max-h-36 overflow-y-auto rounded-md border border-[var(--border-strong)] bg-[var(--bg-input)] divide-y divide-[var(--border-subtle)]">
-                  {flatFolders.map(({folder, depth, pathLabel}) => {
+                  {flatFolders.map(({ folder, depth, pathLabel }) => {
                     const checked = folderIds.includes(folder.id);
                     return (
                       <button
@@ -451,25 +494,31 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
                           setFolderIds((prev) =>
                             prev.includes(folder.id)
                               ? prev.filter((id) => id !== folder.id)
-                              : [...prev, folder.id]
+                              : [...prev, folder.id],
                           )
                         }
                         title={pathLabel}
                         className="w-full px-2.5 py-1.5 flex items-center justify-between gap-2 text-left text-xs hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer"
-                        style={{paddingLeft: `${10 + depth * 12}px`}}
+                        style={{ paddingLeft: `${10 + depth * 12}px` }}
                       >
                         <span className="flex items-center gap-1.5 min-w-0">
                           <Folder
                             className="w-3.5 h-3.5 shrink-0"
-                            style={{color: getFolderColorHex(folder.color) ?? 'var(--text-muted)'}}
+                            style={{
+                              color:
+                                getFolderColorHex(folder.color) ??
+                                "var(--text-muted)",
+                            }}
                           />
-                          <span className="truncate text-[var(--text-primary)]">{folder.name}</span>
+                          <span className="truncate text-[var(--text-primary)]">
+                            {folder.name}
+                          </span>
                         </span>
                         <span
                           className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 transition-colors ${
                             checked
-                              ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]'
-                              : 'border-[var(--border-strong)] text-transparent'
+                              ? "bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]"
+                              : "border-[var(--border-strong)] text-transparent"
                           }`}
                         >
                           <Check className="w-3 h-3 stroke-[2.5]" />
@@ -520,7 +569,7 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ',') {
+                  if (e.key === "Enter" || e.key === ",") {
                     e.preventDefault();
                     addTagsFromString(tagInput);
                   }

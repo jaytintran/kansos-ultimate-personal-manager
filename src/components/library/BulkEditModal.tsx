@@ -9,21 +9,21 @@ import {
   Star,
   Tag,
   X,
-} from 'lucide-react';
-import React, {useEffect, useMemo, useState} from 'react';
+} from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   COVER_PALETTES,
   flattenFoldersHierarchy,
   getBookFolderIds,
   getFolderColorHex,
-} from '../../lib/formatters';
+} from "../../lib/formatters";
 import type {
   BookRecord,
   CategoryRecord,
   FolderRecord,
   ReadingStatus,
   ViewFolderRecord,
-} from '../../types/library';
+} from "../../../library";
 
 export interface BulkEditPatch {
   addViewFolderIds: string[];
@@ -37,10 +37,10 @@ export interface BulkEditPatch {
   series?: string;
   publisher?: string;
   language?: string;
-  categoryAction: 'keep' | 'set' | 'clear';
+  categoryAction: "keep" | "set" | "clear";
   categoryId: string | null;
-  statusAction: 'keep' | ReadingStatus;
-  favoriteAction: 'keep' | 'favorite' | 'unfavorite';
+  statusAction: "keep" | ReadingStatus;
+  favoriteAction: "keep" | "favorite" | "unfavorite";
   resetProgress: boolean;
 }
 
@@ -57,33 +57,38 @@ interface BulkEditModalProps {
   onClose: () => void;
 }
 
-type InitialMembership = 'all' | 'some' | 'none';
-type StagedOverride = 'unchanged' | 'add' | 'remove';
+type InitialMembership = "all" | "some" | "none";
+type StagedOverride = "unchanged" | "add" | "remove";
 
 function nextTriStateOverride(
   initial: InitialMembership,
-  current: StagedOverride
+  current: StagedOverride,
 ): StagedOverride {
-  if (initial === 'none') {
-    return current === 'add' ? 'unchanged' : 'add';
+  if (initial === "none") {
+    return current === "add" ? "unchanged" : "add";
   }
-  if (initial === 'all') {
-    return current === 'remove' ? 'unchanged' : 'remove';
+  if (initial === "all") {
+    return current === "remove" ? "unchanged" : "remove";
   }
   // initial === 'some'
-  if (current === 'unchanged') return 'add';
-  if (current === 'add') return 'remove';
-  return 'unchanged';
+  if (current === "unchanged") return "add";
+  if (current === "add") return "remove";
+  return "unchanged";
 }
 
-function getSharedFieldValue(books: BookRecord[], getter: (b: BookRecord) => string): {
+function getSharedFieldValue(
+  books: BookRecord[],
+  getter: (b: BookRecord) => string,
+): {
   shared: string | null;
   isMixed: boolean;
 } {
-  if (books.length === 0) return {shared: '', isMixed: false};
+  if (books.length === 0) return { shared: "", isMixed: false };
   const first = getter(books[0]);
   const allSame = books.every((b) => getter(b) === first);
-  return allSame ? {shared: first, isMixed: false} : {shared: null, isMixed: true};
+  return allSame
+    ? { shared: first, isMixed: false }
+    : { shared: null, isMixed: true };
 }
 
 export const BulkEditModal: React.FC<BulkEditModalProps> = ({
@@ -99,66 +104,83 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
   onClose,
 }) => {
   const selectedCount = selectedBooks.length;
-  const selectedBookIds = useMemo(() => selectedBooks.map((b) => b.id), [selectedBooks]);
+  const selectedBookIds = useMemo(
+    () => selectedBooks.map((b) => b.id),
+    [selectedBooks],
+  );
 
   // Folder search & staged tri-state overrides
-  const [folderQuery, setFolderQuery] = useState('');
-  const [viewFolderOverrides, setViewFolderOverrides] = useState<Record<string, StagedOverride>>(
-    {}
-  );
+  const [folderQuery, setFolderQuery] = useState("");
+  const [viewFolderOverrides, setViewFolderOverrides] = useState<
+    Record<string, StagedOverride>
+  >({});
   const [sidebarFolderOverrides, setSidebarFolderOverrides] = useState<
     Record<string, StagedOverride>
   >({});
 
   // Inline folder creation
   const [creatingViewFolder, setCreatingViewFolder] = useState(false);
-  const [newViewFolderName, setNewViewFolderName] = useState('');
+  const [newViewFolderName, setNewViewFolderName] = useState("");
   const [creatingSidebarFolder, setCreatingSidebarFolder] = useState(false);
-  const [newSidebarFolderName, setNewSidebarFolderName] = useState('');
+  const [newSidebarFolderName, setNewSidebarFolderName] = useState("");
 
   // Visual tag manager state
-  const [tagOverrides, setTagOverrides] = useState<Record<string, StagedOverride>>({});
+  const [tagOverrides, setTagOverrides] = useState<
+    Record<string, StagedOverride>
+  >({});
   const [customAddedTags, setCustomAddedTags] = useState<string[]>([]);
-  const [newTagInput, setNewTagInput] = useState('');
+  const [newTagInput, setNewTagInput] = useState("");
 
   // Metadata fields (tracked with dirty flags so untouched fields are never overwritten)
-  const [subtitleValue, setSubtitleValue] = useState('');
+  const [subtitleValue, setSubtitleValue] = useState("");
   const [subtitleDirty, setSubtitleDirty] = useState(false);
-  const [authorValue, setAuthorValue] = useState('');
+  const [authorValue, setAuthorValue] = useState("");
   const [authorDirty, setAuthorDirty] = useState(false);
-  const [seriesValue, setSeriesValue] = useState('');
+  const [seriesValue, setSeriesValue] = useState("");
   const [seriesDirty, setSeriesDirty] = useState(false);
-  const [publisherValue, setPublisherValue] = useState('');
+  const [publisherValue, setPublisherValue] = useState("");
   const [publisherDirty, setPublisherDirty] = useState(false);
-  const [languageValue, setLanguageValue] = useState('');
+  const [languageValue, setLanguageValue] = useState("");
   const [languageDirty, setLanguageDirty] = useState(false);
-  const [categorySelect, setCategorySelect] = useState<string>('__keep__');
+  const [categorySelect, setCategorySelect] = useState<string>("__keep__");
 
   // Reading & Favorite controls
-  const [statusAction, setStatusAction] = useState<'keep' | ReadingStatus>('keep');
-  const [favoriteAction, setFavoriteAction] = useState<'keep' | 'favorite' | 'unfavorite'>('keep');
+  const [statusAction, setStatusAction] = useState<"keep" | ReadingStatus>(
+    "keep",
+  );
+  const [favoriteAction, setFavoriteAction] = useState<
+    "keep" | "favorite" | "unfavorite"
+  >("keep");
   const [resetProgress, setResetProgress] = useState(false);
 
   // Escape to close
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         e.preventDefault();
         onClose();
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  const flatSidebarFolders = useMemo(() => flattenFoldersHierarchy(folders), [folders]);
+  const flatSidebarFolders = useMemo(
+    () => flattenFoldersHierarchy(folders),
+    [folders],
+  );
 
   // Initial membership maps across selectedBooks
   const initialViewFolderState = useMemo(() => {
     const map = new Map<string, InitialMembership>();
     for (const vf of currentViewFolders) {
-      const count = selectedBookIds.filter((id) => vf.bookIds.includes(id)).length;
-      map.set(vf.id, count === 0 ? 'none' : count === selectedCount ? 'all' : 'some');
+      const count = selectedBookIds.filter((id) =>
+        vf.bookIds.includes(id),
+      ).length;
+      map.set(
+        vf.id,
+        count === 0 ? "none" : count === selectedCount ? "all" : "some",
+      );
     }
     return map;
   }, [currentViewFolders, selectedBookIds, selectedCount]);
@@ -166,8 +188,13 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
   const initialSidebarFolderState = useMemo(() => {
     const map = new Map<string, InitialMembership>();
     for (const f of folders) {
-      const count = selectedBooks.filter((b) => getBookFolderIds(b).includes(f.id)).length;
-      map.set(f.id, count === 0 ? 'none' : count === selectedCount ? 'all' : 'some');
+      const count = selectedBooks.filter((b) =>
+        getBookFolderIds(b).includes(f.id),
+      ).length;
+      map.set(
+        f.id,
+        count === 0 ? "none" : count === selectedCount ? "all" : "some",
+      );
     }
     return map;
   }, [folders, selectedBooks, selectedCount]);
@@ -188,35 +215,35 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
     return Array.from(byLower.entries())
       .map(([lower, label]) => {
         const count = selectedBooks.filter((b) =>
-          b.tags.some((t) => t.toLowerCase() === lower)
+          b.tags.some((t) => t.toLowerCase() === lower),
         ).length;
         const initial: InitialMembership =
-          count === 0 ? 'none' : count === selectedCount ? 'all' : 'some';
-        return {lower, label, initial};
+          count === 0 ? "none" : count === selectedCount ? "all" : "some";
+        return { lower, label, initial };
       })
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [existingTags, selectedBooks, customAddedTags, selectedCount]);
 
   // Shared metadata placeholders
   const subtitleMeta = useMemo(
-    () => getSharedFieldValue(selectedBooks, (b) => b.subtitle ?? ''),
-    [selectedBooks]
+    () => getSharedFieldValue(selectedBooks, (b) => b.subtitle ?? ""),
+    [selectedBooks],
   );
   const authorMeta = useMemo(
     () => getSharedFieldValue(selectedBooks, (b) => b.author),
-    [selectedBooks]
+    [selectedBooks],
   );
   const seriesMeta = useMemo(
-    () => getSharedFieldValue(selectedBooks, (b) => b.series ?? ''),
-    [selectedBooks]
+    () => getSharedFieldValue(selectedBooks, (b) => b.series ?? ""),
+    [selectedBooks],
   );
   const publisherMeta = useMemo(
-    () => getSharedFieldValue(selectedBooks, (b) => b.publisher ?? ''),
-    [selectedBooks]
+    () => getSharedFieldValue(selectedBooks, (b) => b.publisher ?? ""),
+    [selectedBooks],
   );
   const languageMeta = useMemo(
-    () => getSharedFieldValue(selectedBooks, (b) => b.language ?? ''),
-    [selectedBooks]
+    () => getSharedFieldValue(selectedBooks, (b) => b.language ?? ""),
+    [selectedBooks],
   );
 
   // Filtered folder lists
@@ -224,54 +251,56 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
   const filteredViewFolders = useMemo(
     () =>
       normalizedFolderQuery
-        ? currentViewFolders.filter((vf) => vf.name.toLowerCase().includes(normalizedFolderQuery))
+        ? currentViewFolders.filter((vf) =>
+            vf.name.toLowerCase().includes(normalizedFolderQuery),
+          )
         : currentViewFolders,
-    [currentViewFolders, normalizedFolderQuery]
+    [currentViewFolders, normalizedFolderQuery],
   );
   const filteredSidebarFolders = useMemo(
     () =>
       normalizedFolderQuery
-        ? flatSidebarFolders.filter(({pathLabel}) =>
-            pathLabel.toLowerCase().includes(normalizedFolderQuery)
+        ? flatSidebarFolders.filter(({ pathLabel }) =>
+            pathLabel.toLowerCase().includes(normalizedFolderQuery),
           )
         : flatSidebarFolders,
-    [flatSidebarFolders, normalizedFolderQuery]
+    [flatSidebarFolders, normalizedFolderQuery],
   );
 
   // Compute staged deltas
   const addViewFolderIds = useMemo(
     () =>
       Object.entries(viewFolderOverrides)
-        .filter(([, v]) => v === 'add')
+        .filter(([, v]) => v === "add")
         .map(([k]) => k),
-    [viewFolderOverrides]
+    [viewFolderOverrides],
   );
   const removeViewFolderIds = useMemo(
     () =>
       Object.entries(viewFolderOverrides)
-        .filter(([, v]) => v === 'remove')
+        .filter(([, v]) => v === "remove")
         .map(([k]) => k),
-    [viewFolderOverrides]
+    [viewFolderOverrides],
   );
   const addSidebarFolderIds = useMemo(
     () =>
       Object.entries(sidebarFolderOverrides)
-        .filter(([, v]) => v === 'add')
+        .filter(([, v]) => v === "add")
         .map(([k]) => k),
-    [sidebarFolderOverrides]
+    [sidebarFolderOverrides],
   );
   const removeSidebarFolderIds = useMemo(
     () =>
       Object.entries(sidebarFolderOverrides)
-        .filter(([, v]) => v === 'remove')
+        .filter(([, v]) => v === "remove")
         .map(([k]) => k),
-    [sidebarFolderOverrides]
+    [sidebarFolderOverrides],
   );
 
   const addTags = useMemo(() => {
     const out: string[] = [];
     for (const entry of allTagEntries) {
-      if (tagOverrides[entry.lower] === 'add') {
+      if (tagOverrides[entry.lower] === "add") {
         out.push(entry.label);
       }
     }
@@ -281,7 +310,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
   const removeTags = useMemo(() => {
     const out: string[] = [];
     for (const entry of allTagEntries) {
-      if (tagOverrides[entry.lower] === 'remove') {
+      if (tagOverrides[entry.lower] === "remove") {
         out.push(entry.label);
       }
     }
@@ -301,58 +330,77 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
     seriesDirty ||
     publisherDirty ||
     languageDirty ||
-    categorySelect !== '__keep__';
-  const readingDirty = statusAction !== 'keep' || favoriteAction !== 'keep' || resetProgress;
+    categorySelect !== "__keep__";
+  const readingDirty =
+    statusAction !== "keep" || favoriteAction !== "keep" || resetProgress;
 
   // Live Pending Changes Summary Items
   const pendingSummaryItems = useMemo(() => {
     const items: string[] = [];
-    const totalFolderAdds = addViewFolderIds.length + addSidebarFolderIds.length;
-    const totalFolderRemoves = removeViewFolderIds.length + removeSidebarFolderIds.length;
+    const totalFolderAdds =
+      addViewFolderIds.length + addSidebarFolderIds.length;
+    const totalFolderRemoves =
+      removeViewFolderIds.length + removeSidebarFolderIds.length;
     if (totalFolderAdds > 0) {
-      items.push(`+${totalFolderAdds} ${totalFolderAdds === 1 ? 'folder' : 'folders'}`);
+      items.push(
+        `+${totalFolderAdds} ${totalFolderAdds === 1 ? "folder" : "folders"}`,
+      );
     }
     if (totalFolderRemoves > 0) {
-      items.push(`-${totalFolderRemoves} ${totalFolderRemoves === 1 ? 'folder' : 'folders'}`);
+      items.push(
+        `-${totalFolderRemoves} ${totalFolderRemoves === 1 ? "folder" : "folders"}`,
+      );
     }
     if (addTags.length > 0) {
-      items.push(`+${addTags.length} ${addTags.length === 1 ? 'tag' : 'tags'}`);
+      items.push(`+${addTags.length} ${addTags.length === 1 ? "tag" : "tags"}`);
     }
     if (removeTags.length > 0) {
-      items.push(`-${removeTags.length} ${removeTags.length === 1 ? 'tag' : 'tags'}`);
+      items.push(
+        `-${removeTags.length} ${removeTags.length === 1 ? "tag" : "tags"}`,
+      );
     }
     if (subtitleDirty) {
-      items.push(subtitleValue.trim() ? `Subtitle → ${subtitleValue.trim()}` : 'Clear Subtitle');
+      items.push(
+        subtitleValue.trim()
+          ? `Subtitle → ${subtitleValue.trim()}`
+          : "Clear Subtitle",
+      );
     }
     if (authorDirty && authorValue.trim()) {
       items.push(`Author → ${authorValue.trim()}`);
     }
     if (seriesDirty) {
-      items.push(seriesValue.trim() ? `Series → ${seriesValue.trim()}` : 'Clear Series');
+      items.push(
+        seriesValue.trim() ? `Series → ${seriesValue.trim()}` : "Clear Series",
+      );
     }
     if (publisherDirty) {
-      items.push(publisherValue.trim() ? `Publisher → ${publisherValue.trim()}` : 'Clear Publisher');
+      items.push(
+        publisherValue.trim()
+          ? `Publisher → ${publisherValue.trim()}`
+          : "Clear Publisher",
+      );
     }
     if (languageDirty && languageValue.trim()) {
       items.push(`Language → ${languageValue.trim()}`);
     }
-    if (categorySelect === '__clear__') {
-      items.push('Clear Category');
-    } else if (categorySelect !== '__keep__') {
+    if (categorySelect === "__clear__") {
+      items.push("Clear Category");
+    } else if (categorySelect !== "__keep__") {
       const catName = categories.find((c) => c.id === categorySelect)?.name;
       if (catName) items.push(`Category → ${catName}`);
     }
-    if (statusAction !== 'keep') {
+    if (statusAction !== "keep") {
       const labelMap: Record<ReadingStatus, string> = {
-        unread: 'Mark Unread',
-        reading: 'Mark Reading',
-        finished: 'Mark Finished',
+        unread: "Mark Unread",
+        reading: "Mark Reading",
+        finished: "Mark Finished",
       };
       items.push(labelMap[statusAction]);
     }
-    if (favoriteAction === 'favorite') items.push('Favorite');
-    if (favoriteAction === 'unfavorite') items.push('Unfavorite');
-    if (resetProgress) items.push('Reset progress to 0%');
+    if (favoriteAction === "favorite") items.push("Favorite");
+    if (favoriteAction === "unfavorite") items.push("Unfavorite");
+    if (resetProgress) items.push("Reset progress to 0%");
     return items;
   }, [
     addViewFolderIds.length,
@@ -388,26 +436,26 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
   const resetTags = () => {
     setTagOverrides({});
     setCustomAddedTags([]);
-    setNewTagInput('');
+    setNewTagInput("");
   };
 
   const resetMetadata = () => {
-    setSubtitleValue('');
+    setSubtitleValue("");
     setSubtitleDirty(false);
-    setAuthorValue('');
+    setAuthorValue("");
     setAuthorDirty(false);
-    setSeriesValue('');
+    setSeriesValue("");
     setSeriesDirty(false);
-    setPublisherValue('');
+    setPublisherValue("");
     setPublisherDirty(false);
-    setLanguageValue('');
+    setLanguageValue("");
     setLanguageDirty(false);
-    setCategorySelect('__keep__');
+    setCategorySelect("__keep__");
   };
 
   const resetReading = () => {
-    setStatusAction('keep');
-    setFavoriteAction('keep');
+    setStatusAction("keep");
+    setFavoriteAction("keep");
     setResetProgress(false);
   };
 
@@ -420,7 +468,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
 
   const handleAddTagDraft = (raw: string) => {
     const parts = raw
-      .split(',')
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     if (parts.length === 0) return;
@@ -435,13 +483,13 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
       return next;
     });
     setTagOverrides((prev) => {
-      const next = {...prev};
+      const next = { ...prev };
       for (const p of parts) {
-        next[p.toLowerCase()] = 'add';
+        next[p.toLowerCase()] = "add";
       }
       return next;
     });
-    setNewTagInput('');
+    setNewTagInput("");
   };
 
   const handleQuickCreateViewFolder = async (e: React.FormEvent) => {
@@ -450,9 +498,9 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
     if (!trimmed) return;
     const created = await onCreateViewFolder(trimmed);
     if (created) {
-      setViewFolderOverrides((prev) => ({...prev, [created.id]: 'add'}));
+      setViewFolderOverrides((prev) => ({ ...prev, [created.id]: "add" }));
     }
-    setNewViewFolderName('');
+    setNewViewFolderName("");
     setCreatingViewFolder(false);
   };
 
@@ -461,8 +509,8 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
     const trimmed = newSidebarFolderName.trim();
     if (!trimmed) return;
     const created = await onCreateFolder(trimmed);
-    setSidebarFolderOverrides((prev) => ({...prev, [created.id]: 'add'}));
-    setNewSidebarFolderName('');
+    setSidebarFolderOverrides((prev) => ({ ...prev, [created.id]: "add" }));
+    setNewSidebarFolderName("");
     setCreatingSidebarFolder(false);
   };
 
@@ -477,19 +525,25 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
       removeSidebarFolderIds,
       addTags,
       removeTags,
-      ...(subtitleDirty ? {subtitle: subtitleValue.trim()} : {}),
-      ...(authorDirty && authorValue.trim() ? {author: authorValue.trim()} : {}),
-      ...(seriesDirty ? {series: seriesValue.trim()} : {}),
-      ...(publisherDirty ? {publisher: publisherValue.trim()} : {}),
-      ...(languageDirty && languageValue.trim() ? {language: languageValue.trim()} : {}),
+      ...(subtitleDirty ? { subtitle: subtitleValue.trim() } : {}),
+      ...(authorDirty && authorValue.trim()
+        ? { author: authorValue.trim() }
+        : {}),
+      ...(seriesDirty ? { series: seriesValue.trim() } : {}),
+      ...(publisherDirty ? { publisher: publisherValue.trim() } : {}),
+      ...(languageDirty && languageValue.trim()
+        ? { language: languageValue.trim() }
+        : {}),
       categoryAction:
-        categorySelect === '__keep__'
-          ? 'keep'
-          : categorySelect === '__clear__'
-            ? 'clear'
-            : 'set',
+        categorySelect === "__keep__"
+          ? "keep"
+          : categorySelect === "__clear__"
+            ? "clear"
+            : "set",
       categoryId:
-        categorySelect !== '__keep__' && categorySelect !== '__clear__' ? categorySelect : null,
+        categorySelect !== "__keep__" && categorySelect !== "__clear__"
+          ? categorySelect
+          : null,
       statusAction,
       favoriteAction,
       resetProgress,
@@ -498,48 +552,61 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
 
   const renderTriStateCheckbox = (
     initial: InitialMembership,
-    override: StagedOverride
+    override: StagedOverride,
   ) => {
-    const visual: 'checked' | 'indeterminate' | 'unchecked' =
-      override === 'add'
-        ? 'checked'
-        : override === 'remove'
-          ? 'unchecked'
-          : initial === 'all'
-            ? 'checked'
-            : initial === 'some'
-              ? 'indeterminate'
-              : 'unchecked';
+    const visual: "checked" | "indeterminate" | "unchecked" =
+      override === "add"
+        ? "checked"
+        : override === "remove"
+          ? "unchecked"
+          : initial === "all"
+            ? "checked"
+            : initial === "some"
+              ? "indeterminate"
+              : "unchecked";
 
     return (
       <span
         className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 transition-colors ${
-          visual === 'checked'
-            ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]'
-            : visual === 'indeterminate'
-              ? 'bg-[var(--bg-accent-subtle)] border-[var(--accent)] text-[var(--accent)]'
-              : override === 'remove'
-                ? 'border-[var(--danger)]/60 bg-[var(--danger)]/8 text-transparent'
-                : 'border-[var(--border-strong)] bg-[var(--bg-input)] text-transparent'
+          visual === "checked"
+            ? "bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]"
+            : visual === "indeterminate"
+              ? "bg-[var(--bg-accent-subtle)] border-[var(--accent)] text-[var(--accent)]"
+              : override === "remove"
+                ? "border-[var(--danger)]/60 bg-[var(--danger)]/8 text-transparent"
+                : "border-[var(--border-strong)] bg-[var(--bg-input)] text-transparent"
         }`}
       >
-        {visual === 'checked' && <Check className="w-3 h-3 stroke-[2.75]" />}
-        {visual === 'indeterminate' && <Minus className="w-3 h-3 stroke-[2.75]" />}
+        {visual === "checked" && <Check className="w-3 h-3 stroke-[2.75]" />}
+        {visual === "indeterminate" && (
+          <Minus className="w-3 h-3 stroke-[2.75]" />
+        )}
       </span>
     );
   };
 
-  const renderStateLabel = (initial: InitialMembership, override: StagedOverride) => {
-    if (override === 'add') {
-      return <span className="text-[11px] font-medium text-[var(--accent)]">+ Add</span>;
+  const renderStateLabel = (
+    initial: InitialMembership,
+    override: StagedOverride,
+  ) => {
+    if (override === "add") {
+      return (
+        <span className="text-[11px] font-medium text-[var(--accent)]">
+          + Add
+        </span>
+      );
     }
-    if (override === 'remove') {
-      return <span className="text-[11px] font-medium text-[var(--danger)]">− Remove</span>;
+    if (override === "remove") {
+      return (
+        <span className="text-[11px] font-medium text-[var(--danger)]">
+          − Remove
+        </span>
+      );
     }
-    if (initial === 'all') {
+    if (initial === "all") {
       return <span className="text-[11px] text-[var(--text-muted)]">All</span>;
     }
-    if (initial === 'some') {
+    if (initial === "some") {
       return <span className="text-[11px] text-[var(--text-muted)]">Some</span>;
     }
     return null;
@@ -569,11 +636,13 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                   Bulk Edit
                 </h2>
                 <span className="font-mono-tabular text-xs text-[var(--text-muted)]">
-                  {selectedCount} {selectedCount === 1 ? 'book' : 'books'} selected
+                  {selectedCount} {selectedCount === 1 ? "book" : "books"}{" "}
+                  selected
                 </span>
               </div>
               <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                Only sections you change will be updated; everything else stays intact.
+                Only sections you change will be updated; everything else stays
+                intact.
               </p>
             </div>
             <button
@@ -592,13 +661,19 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
               <div className="flex items-center gap-1.5 shrink-0">
                 {previewStripBooks.map((book) => {
                   const palette =
-                    COVER_PALETTES[Math.abs(book.coverPaletteIndex) % COVER_PALETTES.length];
+                    COVER_PALETTES[
+                      Math.abs(book.coverPaletteIndex) % COVER_PALETTES.length
+                    ];
                   return (
                     <div
                       key={book.id}
                       title={`${book.title} — ${book.author}`}
                       className="w-7 aspect-[3/4] rounded-[3px] border border-[var(--border-subtle)] overflow-hidden shrink-0 shadow-2xs"
-                      style={book.coverDataUrl ? undefined : {backgroundColor: palette.bg}}
+                      style={
+                        book.coverDataUrl
+                          ? undefined
+                          : { backgroundColor: palette.bg }
+                      }
                     >
                       {book.coverDataUrl ? (
                         <img
@@ -611,7 +686,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                         <div className="w-full h-full relative">
                           <div
                             className="absolute inset-y-0 left-0 w-[18%]"
-                            style={{backgroundColor: palette.spine}}
+                            style={{ backgroundColor: palette.spine }}
                           />
                         </div>
                       )}
@@ -628,8 +703,10 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                 {selectedBooks
                   .slice(0, 3)
                   .map((b) => b.title)
-                  .join(' · ')}
-                {selectedBooks.length > 3 ? ` · +${selectedBooks.length - 3} more` : ''}
+                  .join(" · ")}
+                {selectedBooks.length > 3
+                  ? ` · +${selectedBooks.length - 3} more`
+                  : ""}
               </p>
             </div>
           )}
@@ -647,7 +724,9 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
             <section className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-xs font-semibold text-[var(--text-primary)]">Folders</h3>
+                  <h3 className="text-xs font-semibold text-[var(--text-primary)]">
+                    Folders
+                  </h3>
                   <p className="text-[11px] text-[var(--text-muted)]">
                     Click to add or remove across selection (tri-state)
                   </p>
@@ -665,7 +744,8 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
               </div>
 
               {/* Search Folders */}
-              {(currentViewFolders.length > 0 || flatSidebarFolders.length > 0) && (
+              {(currentViewFolders.length > 0 ||
+                flatSidebarFolders.length > 0) && (
                 <div className="relative">
                   <Search className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
@@ -678,7 +758,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                   {folderQuery && (
                     <button
                       type="button"
-                      onClick={() => setFolderQuery('')}
+                      onClick={() => setFolderQuery("")}
                       aria-label="Clear folder filter"
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                     >
@@ -712,7 +792,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                       value={newViewFolderName}
                       onChange={(e) => setNewViewFolderName(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                        if (e.key === "Enter") {
                           e.preventDefault();
                           void handleQuickCreateViewFolder(e);
                         }
@@ -734,13 +814,15 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                   <p className="px-3 py-2 text-xs rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-muted)]">
                     {currentViewFolders.length === 0
                       ? `No folders in "${activeViewLabel}" yet.`
-                      : 'No matching view folders.'}
+                      : "No matching view folders."}
                   </p>
                 ) : (
                   <div className="max-h-36 overflow-y-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-canvas)] divide-y divide-[var(--border-subtle)]">
                     {filteredViewFolders.map((vf) => {
-                      const initial = initialViewFolderState.get(vf.id) ?? 'none';
-                      const override = viewFolderOverrides[vf.id] ?? 'unchanged';
+                      const initial =
+                        initialViewFolderState.get(vf.id) ?? "none";
+                      const override =
+                        viewFolderOverrides[vf.id] ?? "unchanged";
                       return (
                         <button
                           key={vf.id}
@@ -758,15 +840,17 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                             <Folder className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
                             <span
                               className={`truncate ${
-                                override === 'remove'
-                                  ? 'line-through text-[var(--text-muted)]'
-                                  : 'text-[var(--text-primary)]'
+                                override === "remove"
+                                  ? "line-through text-[var(--text-muted)]"
+                                  : "text-[var(--text-primary)]"
                               }`}
                             >
                               {vf.name}
                             </span>
                           </span>
-                          <span className="shrink-0">{renderStateLabel(initial, override)}</span>
+                          <span className="shrink-0">
+                            {renderStateLabel(initial, override)}
+                          </span>
                         </button>
                       );
                     })}
@@ -798,7 +882,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                       value={newSidebarFolderName}
                       onChange={(e) => setNewSidebarFolderName(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                        if (e.key === "Enter") {
                           e.preventDefault();
                           void handleQuickCreateSidebarFolder(e);
                         }
@@ -819,50 +903,61 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                 {filteredSidebarFolders.length === 0 ? (
                   <p className="px-3 py-2 text-xs rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-muted)]">
                     {flatSidebarFolders.length === 0
-                      ? 'No library folders created yet.'
-                      : 'No matching library folders.'}
+                      ? "No library folders created yet."
+                      : "No matching library folders."}
                   </p>
                 ) : (
                   <div className="max-h-36 overflow-y-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-canvas)] divide-y divide-[var(--border-subtle)]">
-                    {filteredSidebarFolders.map(({folder, depth, pathLabel}) => {
-                      const initial = initialSidebarFolderState.get(folder.id) ?? 'none';
-                      const override = sidebarFolderOverrides[folder.id] ?? 'unchanged';
-                      return (
-                        <button
-                          key={folder.id}
-                          type="button"
-                          title={pathLabel}
-                          onClick={() =>
-                            setSidebarFolderOverrides((prev) => ({
-                              ...prev,
-                              [folder.id]: nextTriStateOverride(initial, override),
-                            }))
-                          }
-                          className="w-full py-2 pr-3 flex items-center justify-between gap-2 text-left text-xs hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer"
-                          style={{paddingLeft: `${12 + depth * 12}px`}}
-                        >
-                          <span className="flex items-center gap-2 min-w-0">
-                            {renderTriStateCheckbox(initial, override)}
-                            <Folder
-                              className="w-3.5 h-3.5 shrink-0"
-                              style={{
-                                color: getFolderColorHex(folder.color) ?? 'var(--text-muted)',
-                              }}
-                            />
-                            <span
-                              className={`truncate ${
-                                override === 'remove'
-                                  ? 'line-through text-[var(--text-muted)]'
-                                  : 'text-[var(--text-primary)]'
-                              }`}
-                            >
-                              {folder.name}
+                    {filteredSidebarFolders.map(
+                      ({ folder, depth, pathLabel }) => {
+                        const initial =
+                          initialSidebarFolderState.get(folder.id) ?? "none";
+                        const override =
+                          sidebarFolderOverrides[folder.id] ?? "unchanged";
+                        return (
+                          <button
+                            key={folder.id}
+                            type="button"
+                            title={pathLabel}
+                            onClick={() =>
+                              setSidebarFolderOverrides((prev) => ({
+                                ...prev,
+                                [folder.id]: nextTriStateOverride(
+                                  initial,
+                                  override,
+                                ),
+                              }))
+                            }
+                            className="w-full py-2 pr-3 flex items-center justify-between gap-2 text-left text-xs hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer"
+                            style={{ paddingLeft: `${12 + depth * 12}px` }}
+                          >
+                            <span className="flex items-center gap-2 min-w-0">
+                              {renderTriStateCheckbox(initial, override)}
+                              <Folder
+                                className="w-3.5 h-3.5 shrink-0"
+                                style={{
+                                  color:
+                                    getFolderColorHex(folder.color) ??
+                                    "var(--text-muted)",
+                                }}
+                              />
+                              <span
+                                className={`truncate ${
+                                  override === "remove"
+                                    ? "line-through text-[var(--text-muted)]"
+                                    : "text-[var(--text-primary)]"
+                                }`}
+                              >
+                                {folder.name}
+                              </span>
                             </span>
-                          </span>
-                          <span className="shrink-0">{renderStateLabel(initial, override)}</span>
-                        </button>
-                      );
-                    })}
+                            <span className="shrink-0">
+                              {renderStateLabel(initial, override)}
+                            </span>
+                          </button>
+                        );
+                      },
+                    )}
                   </div>
                 )}
               </div>
@@ -872,7 +967,9 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
             <section className="pt-5 border-t border-[var(--border-subtle)] space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-xs font-semibold text-[var(--text-primary)]">Tags</h3>
+                  <h3 className="text-xs font-semibold text-[var(--text-primary)]">
+                    Tags
+                  </h3>
                   <p className="text-[11px] text-[var(--text-muted)]">
                     Toggle existing tags or add new ones
                   </p>
@@ -895,7 +992,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                   value={newTagInput}
                   onChange={(e) => setNewTagInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ',') {
+                    if (e.key === "Enter" || e.key === ",") {
                       e.preventDefault();
                       handleAddTagDraft(newTagInput);
                     }
@@ -915,16 +1012,19 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
 
               {allTagEntries.length === 0 ? (
                 <p className="text-xs text-[var(--text-muted)]">
-                  No tags in your library yet. Type one above to add it to all selected books.
+                  No tags in your library yet. Type one above to add it to all
+                  selected books.
                 </p>
               ) : (
                 <div className="max-h-36 overflow-y-auto flex flex-wrap gap-1.5 pt-0.5">
-                  {allTagEntries.map(({lower, label, initial}) => {
-                    const override = tagOverrides[lower] ?? 'unchanged';
-                    const isStagedAdd = override === 'add';
-                    const isStagedRemove = override === 'remove';
-                    const isAllExisting = override === 'unchanged' && initial === 'all';
-                    const isSomeExisting = override === 'unchanged' && initial === 'some';
+                  {allTagEntries.map(({ lower, label, initial }) => {
+                    const override = tagOverrides[lower] ?? "unchanged";
+                    const isStagedAdd = override === "add";
+                    const isStagedRemove = override === "remove";
+                    const isAllExisting =
+                      override === "unchanged" && initial === "all";
+                    const isSomeExisting =
+                      override === "unchanged" && initial === "some";
 
                     return (
                       <button
@@ -938,25 +1038,25 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                         }
                         title={
                           isStagedAdd
-                            ? 'Staged to add to all selected books'
+                            ? "Staged to add to all selected books"
                             : isStagedRemove
-                              ? 'Staged to remove from all selected books'
+                              ? "Staged to remove from all selected books"
                               : isAllExisting
-                                ? 'Present on all selected books (click to remove)'
+                                ? "Present on all selected books (click to remove)"
                                 : isSomeExisting
-                                  ? 'Present on some selected books (click to add to all)'
-                                  : 'Click to add to all selected books'
+                                  ? "Present on some selected books (click to add to all)"
+                                  : "Click to add to all selected books"
                         }
                         className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border transition-colors cursor-pointer whitespace-nowrap ${
                           isStagedAdd
-                            ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-contrast)] font-medium'
+                            ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-contrast)] font-medium"
                             : isStagedRemove
-                              ? 'border-[var(--danger)]/60 bg-[var(--danger)]/8 text-[var(--danger)] line-through'
+                              ? "border-[var(--danger)]/60 bg-[var(--danger)]/8 text-[var(--danger)] line-through"
                               : isAllExisting
-                                ? 'border-[var(--accent)]/60 bg-[var(--bg-accent-subtle)] text-[var(--text-primary)] font-medium'
+                                ? "border-[var(--accent)]/60 bg-[var(--bg-accent-subtle)] text-[var(--text-primary)] font-medium"
                                 : isSomeExisting
-                                  ? 'border-dashed border-[var(--accent)]/70 bg-[var(--bg-surface)] text-[var(--text-primary)]'
-                                  : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]'
+                                  ? "border-dashed border-[var(--accent)]/70 bg-[var(--bg-surface)] text-[var(--text-primary)]"
+                                  : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
                         }`}
                       >
                         {isStagedAdd || isAllExisting ? (
@@ -1013,7 +1113,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          setSubtitleValue('');
+                          setSubtitleValue("");
                           setSubtitleDirty(false);
                         }}
                         className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
@@ -1024,18 +1124,21 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                   </div>
                   <input
                     type="text"
-                    value={subtitleDirty ? subtitleValue : ''}
+                    value={subtitleDirty ? subtitleValue : ""}
                     onChange={(e) => {
                       setSubtitleValue(e.target.value);
                       setSubtitleDirty(true);
                     }}
                     placeholder={
                       subtitleMeta.isMixed
-                        ? 'Mixed subtitles (keep existing)'
-                        : subtitleMeta.shared || 'No subtitle (leave empty to keep)'
+                        ? "Mixed subtitles (keep existing)"
+                        : subtitleMeta.shared ||
+                          "No subtitle (leave empty to keep)"
                     }
                     className={`w-full px-3 py-2 text-xs rounded-md border bg-[var(--bg-input)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] ${
-                      subtitleDirty ? 'border-[var(--accent)]' : 'border-[var(--border-strong)]'
+                      subtitleDirty
+                        ? "border-[var(--accent)]"
+                        : "border-[var(--border-strong)]"
                     }`}
                   />
                 </div>
@@ -1050,7 +1153,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          setAuthorValue('');
+                          setAuthorValue("");
                           setAuthorDirty(false);
                         }}
                         className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
@@ -1061,18 +1164,20 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                   </div>
                   <input
                     type="text"
-                    value={authorDirty ? authorValue : ''}
+                    value={authorDirty ? authorValue : ""}
                     onChange={(e) => {
                       setAuthorValue(e.target.value);
                       setAuthorDirty(e.target.value.trim().length > 0);
                     }}
                     placeholder={
                       authorMeta.isMixed
-                        ? 'Mixed authors (keep existing)'
-                        : authorMeta.shared || 'Keep existing'
+                        ? "Mixed authors (keep existing)"
+                        : authorMeta.shared || "Keep existing"
                     }
                     className={`w-full px-3 py-2 text-xs rounded-md border bg-[var(--bg-input)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] ${
-                      authorDirty ? 'border-[var(--accent)]' : 'border-[var(--border-strong)]'
+                      authorDirty
+                        ? "border-[var(--accent)]"
+                        : "border-[var(--border-strong)]"
                     }`}
                   />
                 </div>
@@ -1087,7 +1192,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          setSeriesValue('');
+                          setSeriesValue("");
                           setSeriesDirty(false);
                         }}
                         className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
@@ -1098,18 +1203,20 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                   </div>
                   <input
                     type="text"
-                    value={seriesDirty ? seriesValue : ''}
+                    value={seriesDirty ? seriesValue : ""}
                     onChange={(e) => {
                       setSeriesValue(e.target.value);
                       setSeriesDirty(true);
                     }}
                     placeholder={
                       seriesMeta.isMixed
-                        ? 'Mixed series (keep existing)'
-                        : seriesMeta.shared || 'No series (leave empty to keep)'
+                        ? "Mixed series (keep existing)"
+                        : seriesMeta.shared || "No series (leave empty to keep)"
                     }
                     className={`w-full px-3 py-2 text-xs rounded-md border bg-[var(--bg-input)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] ${
-                      seriesDirty ? 'border-[var(--accent)]' : 'border-[var(--border-strong)]'
+                      seriesDirty
+                        ? "border-[var(--accent)]"
+                        : "border-[var(--border-strong)]"
                     }`}
                   />
                 </div>
@@ -1125,7 +1232,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            setPublisherValue('');
+                            setPublisherValue("");
                             setPublisherDirty(false);
                           }}
                           className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
@@ -1136,20 +1243,20 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                     </div>
                     <input
                       type="text"
-                      value={publisherDirty ? publisherValue : ''}
+                      value={publisherDirty ? publisherValue : ""}
                       onChange={(e) => {
                         setPublisherValue(e.target.value);
                         setPublisherDirty(true);
                       }}
                       placeholder={
                         publisherMeta.isMixed
-                          ? 'Mixed publishers'
-                          : publisherMeta.shared || 'Keep existing'
+                          ? "Mixed publishers"
+                          : publisherMeta.shared || "Keep existing"
                       }
                       className={`w-full px-3 py-2 text-xs rounded-md border bg-[var(--bg-input)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] ${
                         publisherDirty
-                          ? 'border-[var(--accent)]'
-                          : 'border-[var(--border-strong)]'
+                          ? "border-[var(--accent)]"
+                          : "border-[var(--border-strong)]"
                       }`}
                     />
                   </div>
@@ -1163,7 +1270,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            setLanguageValue('');
+                            setLanguageValue("");
                             setLanguageDirty(false);
                           }}
                           className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
@@ -1174,18 +1281,20 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                     </div>
                     <input
                       type="text"
-                      value={languageDirty ? languageValue : ''}
+                      value={languageDirty ? languageValue : ""}
                       onChange={(e) => {
                         setLanguageValue(e.target.value);
                         setLanguageDirty(e.target.value.trim().length > 0);
                       }}
                       placeholder={
-                        languageMeta.isMixed ? 'Mixed' : languageMeta.shared || 'en'
+                        languageMeta.isMixed
+                          ? "Mixed"
+                          : languageMeta.shared || "en"
                       }
                       className={`w-full px-3 py-2 text-xs rounded-md border bg-[var(--bg-input)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] ${
                         languageDirty
-                          ? 'border-[var(--accent)]'
-                          : 'border-[var(--border-strong)]'
+                          ? "border-[var(--accent)]"
+                          : "border-[var(--border-strong)]"
                       }`}
                     />
                   </div>
@@ -1200,13 +1309,15 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                     value={categorySelect}
                     onChange={(e) => setCategorySelect(e.target.value)}
                     className={`w-full px-3 py-2 text-xs rounded-md border bg-[var(--bg-input)] text-[var(--text-primary)] ${
-                      categorySelect !== '__keep__'
-                        ? 'border-[var(--accent)]'
-                        : 'border-[var(--border-strong)]'
+                      categorySelect !== "__keep__"
+                        ? "border-[var(--accent)]"
+                        : "border-[var(--border-strong)]"
                     }`}
                   >
                     <option value="__keep__">Keep existing categories</option>
-                    <option value="__clear__">Clear category (Uncategorized)</option>
+                    <option value="__clear__">
+                      Clear category (Uncategorized)
+                    </option>
                     {categories.map((c) => (
                       <option key={c.id} value={c.id}>
                         Set to: {c.name}
@@ -1252,10 +1363,10 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                 >
                   {(
                     [
-                      {id: 'keep', label: 'Keep'},
-                      {id: 'unread', label: 'Unread'},
-                      {id: 'reading', label: 'Reading'},
-                      {id: 'finished', label: 'Finished'},
+                      { id: "keep", label: "Keep" },
+                      { id: "unread", label: "Unread" },
+                      { id: "reading", label: "Reading" },
+                      { id: "finished", label: "Finished" },
                     ] as const
                   ).map((opt) => (
                     <button
@@ -1263,12 +1374,12 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                       type="button"
                       onClick={() => {
                         setStatusAction(opt.id);
-                        if (opt.id === 'finished') setResetProgress(false);
+                        if (opt.id === "finished") setResetProgress(false);
                       }}
                       className={`py-1.5 px-2 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
                         statusAction === opt.id
-                          ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                          ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs"
+                          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                       }`}
                     >
                       {opt.label}
@@ -1289,9 +1400,9 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                 >
                   {(
                     [
-                      {id: 'keep', label: 'Keep'},
-                      {id: 'favorite', label: 'Favorite'},
-                      {id: 'unfavorite', label: 'Unfavorite'},
+                      { id: "keep", label: "Keep" },
+                      { id: "favorite", label: "Favorite" },
+                      { id: "unfavorite", label: "Unfavorite" },
                     ] as const
                   ).map((opt) => (
                     <button
@@ -1300,11 +1411,11 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                       onClick={() => setFavoriteAction(opt.id)}
                       className={`py-1.5 px-2 text-xs font-medium rounded inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
                         favoriteAction === opt.id
-                          ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                          ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-xs"
+                          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                       }`}
                     >
-                      {opt.id === 'favorite' && (
+                      {opt.id === "favorite" && (
                         <Star className="w-3 h-3 fill-[var(--accent)] text-[var(--accent)]" />
                       )}
                       <span>{opt.label}</span>
@@ -1317,8 +1428,8 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
               <label
                 className={`flex items-start gap-2.5 p-3 rounded-md border transition-colors cursor-pointer ${
                   resetProgress
-                    ? 'border-[var(--accent)] bg-[var(--bg-accent-subtle)]'
-                    : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:border-[var(--border-strong)]'
+                    ? "border-[var(--accent)] bg-[var(--bg-accent-subtle)]"
+                    : "border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:border-[var(--border-strong)]"
                 }`}
               >
                 <input
@@ -1327,8 +1438,8 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                   onChange={(e) => {
                     const checked = e.target.checked;
                     setResetProgress(checked);
-                    if (checked && statusAction === 'finished') {
-                      setStatusAction('unread');
+                    if (checked && statusAction === "finished") {
+                      setStatusAction("unread");
                     }
                   }}
                   className="mt-0.5 w-4 h-4 accent-[var(--accent)] rounded cursor-pointer shrink-0"
@@ -1338,8 +1449,8 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                     Reset reading progress to 0%
                   </span>
                   <span className="block text-[11px] text-[var(--text-muted)] mt-0.5">
-                    Returns selected books to page 1 / opening chapter (keeps bookmarks &amp;
-                    highlights).
+                    Returns selected books to page 1 / opening chapter (keeps
+                    bookmarks &amp; highlights).
                   </span>
                 </div>
               </label>
@@ -1353,12 +1464,15 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
             <p className="min-w-0 truncate text-[var(--text-secondary)]">
               {hasChanges ? (
                 <>
-                  <span className="font-medium text-[var(--text-primary)]">Pending: </span>
-                  <span>{pendingSummaryItems.join(' · ')}</span>
+                  <span className="font-medium text-[var(--text-primary)]">
+                    Pending:{" "}
+                  </span>
+                  <span>{pendingSummaryItems.join(" · ")}</span>
                 </>
               ) : (
                 <span className="text-[var(--text-muted)]">
-                  No changes staged yet — adjust any section above to update selected books.
+                  No changes staged yet — adjust any section above to update
+                  selected books.
                 </span>
               )}
             </p>
@@ -1387,7 +1501,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
               disabled={!hasChanges}
               className="px-4 py-2 text-xs font-medium rounded-md bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
             >
-              Apply to {selectedCount} {selectedCount === 1 ? 'Book' : 'Books'}
+              Apply to {selectedCount} {selectedCount === 1 ? "Book" : "Books"}
             </button>
           </div>
         </div>

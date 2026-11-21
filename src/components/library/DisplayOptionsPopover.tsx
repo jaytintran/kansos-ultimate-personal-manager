@@ -1,5 +1,5 @@
-import React from 'react';
-import type {CardDetailOptions, CoverSize} from '../../types/library';
+import React from "react";
+import type { CardDetailOptions, CoverSize } from "../../../library";
 
 interface DisplayOptionsPopoverProps {
   coverSize: CoverSize;
@@ -8,7 +8,7 @@ interface DisplayOptionsPopoverProps {
   onCardDetailsChange: (patch: Partial<CardDetailOptions>) => void;
 }
 
-const COVER_SIZE_STEPS: CoverSize[] = ['compact', 'standard', 'large'];
+const COVER_SIZE_STEPS: CoverSize[] = ["compact", "standard", "large"];
 
 export const DisplayOptionsPopover: React.FC<DisplayOptionsPopoverProps> = ({
   coverSize,
@@ -27,7 +27,9 @@ export const DisplayOptionsPopover: React.FC<DisplayOptionsPopoverProps> = ({
       {/* Cover Size Slider */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <span className="font-medium text-[var(--text-primary)]">Cover Size</span>
+          <span className="font-medium text-[var(--text-primary)]">
+            Cover Size
+          </span>
           <span className="font-mono-tabular text-[11px] text-[var(--text-secondary)] capitalize">
             {coverSize}
           </span>
@@ -40,7 +42,7 @@ export const DisplayOptionsPopover: React.FC<DisplayOptionsPopoverProps> = ({
           step={1}
           value={sizeIndex}
           onChange={(e) => {
-            const next = COVER_SIZE_STEPS[Number(e.target.value)] ?? 'standard';
+            const next = COVER_SIZE_STEPS[Number(e.target.value)] ?? "standard";
             onCoverSizeChange(next);
           }}
           aria-label="Cover size slider"
@@ -55,8 +57,8 @@ export const DisplayOptionsPopover: React.FC<DisplayOptionsPopoverProps> = ({
               onClick={() => onCoverSizeChange(step)}
               className={`py-1 text-[11px] rounded border transition-colors capitalize cursor-pointer ${
                 coverSize === step
-                  ? 'border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)] font-medium'
-                  : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  ? "border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)] font-medium"
+                  : "border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               {step}
@@ -67,16 +69,18 @@ export const DisplayOptionsPopover: React.FC<DisplayOptionsPopoverProps> = ({
 
       {/* Toggleable Card Details */}
       <div className="pt-3 border-t border-[var(--border-subtle)] space-y-2">
-        <span className="block font-medium text-[var(--text-primary)]">Card Details</span>
+        <span className="block font-medium text-[var(--text-primary)]">
+          Card Details
+        </span>
         <div className="space-y-1.5">
           {(
             [
-              {key: 'subtitle', label: 'Subtitle'},
-              {key: 'author', label: 'Author name'},
-              {key: 'format', label: 'File format (EPUB, PDF, MOBI)'},
-              {key: 'category', label: 'Category label'},
-              {key: 'progress', label: 'Reading progress bar & %'},
-              {key: 'tags', label: 'Tags summary'},
+              { key: "subtitle", label: "Subtitle" },
+              { key: "author", label: "Author name" },
+              { key: "format", label: "File format (EPUB, PDF, MOBI)" },
+              { key: "category", label: "Category label" },
+              { key: "progress", label: "Reading progress bar & %" },
+              { key: "tags", label: "Tags summary" },
             ] as const
           ).map((item) => (
             <label
@@ -87,7 +91,9 @@ export const DisplayOptionsPopover: React.FC<DisplayOptionsPopoverProps> = ({
               <input
                 type="checkbox"
                 checked={cardDetails[item.key]}
-                onChange={(e) => onCardDetailsChange({[item.key]: e.target.checked})}
+                onChange={(e) =>
+                  onCardDetailsChange({ [item.key]: e.target.checked })
+                }
                 className="w-3.5 h-3.5 accent-[var(--accent)] rounded cursor-pointer"
               />
             </label>
