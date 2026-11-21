@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   FileText,
   FolderOpen,
+  GripVertical,
   LayoutGrid,
   List as ListIcon,
   MoreVertical,
@@ -16,14 +17,14 @@ import {
 import { DynamicIcon, LIST_ICON_KEYS } from "../components/IconLibrary";
 import { RichContent } from "../components/RichContent";
 import { useWorkspace } from "../context/WorkspaceContext";
-import { ContextMenuRecord, DetailSheetTarget, NoteNotebook } from "../types";
+import { ContextMenuRecord, DetailSheetTarget, Entry, NoteNotebook } from "../types";
 import {
   countWordsFromHtml,
   formatCompactDayHeading,
   toLocalDateKey,
 } from "../utils/date";
 
-type NoteSort = "pinned" | "updated" | "created" | "title";
+type NoteSort = "custom" | "pinned" | "updated" | "created" | "title";
 type NotesViewMode = "grid" | "list";
 
 const SORT_STORAGE_KEY = "kanso_notes_sort_v1";
@@ -68,10 +69,13 @@ export const NotesView: React.FC<NotesViewProps> = ({
 }) => {
   const {
     workspace,
+    pushToast,
     updateEntry,
     addNoteNotebook,
     updateNoteNotebook,
     deleteNoteNotebook,
+    reorderNoteNotebooks,
+    reorderNoteEntries,
   } = useWorkspace();
 
   const notebooks = useMemo(
@@ -109,6 +113,49 @@ export const NotesView: React.FC<NotesViewProps> = ({
     name: string;
     icon: string;
   } | null>(null);
+
+  // Drag & drop state (Note reordering, Note -> Notebook filing, Notebook tab reordering)
+  const activeDragNoteIdRef = useRef<string | null>(null);
+  const activeDragNotebookIdRef = useRef<string | null>(null);
+  const noteElRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const notebookTabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null);
+  const [noteDropTarget, setNoteDropTarget] = useState<{
+    noteId: string;
+    position: "before" | "after";
+  } | null>(null);
+  const [noteFileDropTargetId, setNoteFileDropTargetId] = useState<
+    string | null
+  >(null);
+
+  const [draggingNotebookId, setDraggingNotebookId] = useState<string | null>(
+    null,
+  );
+  const [notebookDropTarget, setNotebookDropTarget] = useState<{
+    notebookId: string;
+    position: "before" | "after";
+  } | null>(null);
+
+  const clearAllDragStates = useCallback(() => {
+    activeDragNoteIdRef.current = null;
+    activeDragNotebookIdRef.current = null;
+    setDraggingNoteId(null);
+    setNoteDropTarget(null);
+    setNoteFileDropTargetId(null);
+    setDraggingNotebookId(null);
+    setNotebookDropTarget(null);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("dragend", clearAllDragStates);
+    window.addEventListener("drop", clearAllDragStates);
+    return () => {
+      window.removeEventListener("dragend", clearAllDragStates);
+      window.removeEventListener("drop", clearAllDragStates);
+    };
+  }, [clearAllDragStates]);
 
   useEffect(() => {
     try {
@@ -185,6 +232,30 @@ export const NotesView: React.FC<NotesViewProps> = ({
     }
   }, [selectedTag, scopeTags]);
 
+  const customNoteOrderCompare = useCallback((a: Entry, b: Entry) => {
+    const aOrder =
+      typeof a.sortOrder === "number" && Number.isFinite(a.sortOrder)
+        ? a.sortOrder
+        : null;
+    const bOrder =
+      typeof b.sortOrder === "number" && Number.isFinite(b.sortOrder)
+        ? b.sortOrder
+        : null;
+    if (aOrder !== null && bOrder !== null) {
+      if (aOrder !== bOrder) return aOrder - bOrder;
+    } else if (aOrder === null && bOrder !== null) {
+      return -1;
+    } else if (aOrder !== null && bOrder === null) {
+      return 1;
+    }
+    if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
+    const aTime = new Date(a.updatedAt || a.createdAt).getTime();
+    const bTime = new Date(b.updatedAt || b.createdAt).getTime();
+    return bTime - aTime || a.id.localeCompare(b.id);
+  }, []);
+
+  const isCustomSort = sortBy === "custom";
+
   const filteredNotes = useMemo(() => {
     const q = search.trim().toLowerCase();
     return notesInScope
@@ -199,6 +270,9 @@ export const NotesView: React.FC<NotesViewProps> = ({
         );
       })
       .sort((a, b) => {
+        if (sortBy === "custom") {
+          return customNoteOrderCompare(a, b);
+        }
         if (sortBy === "pinned") {
           if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
           return (
@@ -219,7 +293,140 @@ export const NotesView: React.FC<NotesViewProps> = ({
         }
         return a.title.localeCompare(b.title);
       });
-  }, [notesInScope, search, selectedTag, sortBy]);
+  }, [notesInScope, search, selectedTag, sortBy, customNoteOrderCompare]);
+
+  const handleReorderNotes = useCallback(
+    (draggedId: string, targetNoteId: string, position: "before" | "after") => {
+      if (!draggedId || !targetNoteId || draggedId === targetNoteId) return;
+      const visibleIds = filteredNotes.map((n) => n.id);
+      if (!visibleIds.includes(draggedId) || !visibleIds.includes(targetNoteId))
+        return;
+
+      const remainingVisible = visibleIds.filter((id) => id !== draggedId);
+      const targetIndex = remainingVisible.indexOf(targetNoteId);
+      if (targetIndex === -1) return;
+
+      const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
+      const nextVisibleIds = [
+        ...remainingVisible.slice(0, insertIndex),
+        draggedId,
+        ...remainingVisible.slice(insertIndex),
+      ];
+
+      if (nextVisibleIds.every((id, idx) => id === visibleIds[idx])) return;
+
+      const visibleSet = new Set(visibleIds);
+      const globalSorted = [...allNotes].sort(customNoteOrderCompare);
+      const byId = new Map(allNotes.map((n) => [n.id, n]));
+      let visibleCursor = 0;
+      const reorderedGlobal: Entry[] = [];
+
+      for (const note of globalSorted) {
+        if (visibleSet.has(note.id)) {
+          const nextId = nextVisibleIds[visibleCursor++];
+          const nextNote = nextId ? byId.get(nextId) : undefined;
+          if (nextNote) reorderedGlobal.push(nextNote);
+        } else {
+          reorderedGlobal.push(note);
+        }
+      }
+      while (visibleCursor < nextVisibleIds.length) {
+        const nextNote = byId.get(nextVisibleIds[visibleCursor++]);
+        if (nextNote) reorderedGlobal.push(nextNote);
+      }
+
+      const sortOrderById: Record<string, number> = {};
+      reorderedGlobal.forEach((n, idx) => {
+        sortOrderById[n.id] = idx;
+      });
+      reorderNoteEntries(sortOrderById);
+    },
+    [filteredNotes, allNotes, customNoteOrderCompare, reorderNoteEntries],
+  );
+
+  const handleFileNoteToNotebook = useCallback(
+    (noteId: string, targetNotebookId: string | null) => {
+      const note = allNotes.find((n) => n.id === noteId);
+      if (!note) return;
+      const currentNbId = note.notebookId ?? null;
+      if (currentNbId === targetNotebookId) return;
+
+      updateEntry(noteId, { notebookId: targetNotebookId });
+      if (targetNotebookId === null) {
+        pushToast("Moved note to Unfiled", "success");
+      } else {
+        const nb = notebookMap.get(targetNotebookId);
+        pushToast(
+          nb ? `Moved to "${nb.name}"` : "Moved note to notebook",
+          "success",
+        );
+      }
+    },
+    [allNotes, notebookMap, updateEntry, pushToast],
+  );
+
+  const isSingleColumnGrid = useCallback(() => {
+    if (viewMode === "list") return true;
+    const grid = gridRef.current;
+    if (grid) {
+      const cols = getComputedStyle(grid)
+        .gridTemplateColumns.split(" ")
+        .filter(Boolean).length;
+      if (cols > 0) return cols === 1;
+    }
+    return typeof window !== "undefined" ? window.innerWidth < 640 : false;
+  }, [viewMode]);
+
+  const resolveTouchDrop = useCallback(
+    (
+      clientX: number,
+      clientY: number,
+      activeNoteId: string,
+    ): {
+      noteTarget: { noteId: string; position: "before" | "after" } | null;
+      notebookTargetId: string | null;
+    } => {
+      for (const [tabId, el] of notebookTabRefs.current.entries()) {
+        const rect = el.getBoundingClientRect();
+        if (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        ) {
+          return { noteTarget: null, notebookTargetId: tabId };
+        }
+      }
+
+      const singleCol = isSingleColumnGrid();
+      for (const note of filteredNotes) {
+        if (note.id === activeNoteId) continue;
+        const el = noteElRefs.current.get(note.id);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        ) {
+          const position: "before" | "after" = singleCol
+            ? clientY < rect.top + rect.height / 2
+              ? "before"
+              : "after"
+            : clientX < rect.left + rect.width / 2
+              ? "before"
+              : "after";
+          return {
+            noteTarget: { noteId: note.id, position },
+            notebookTargetId: null,
+          };
+        }
+      }
+      return { noteTarget: null, notebookTargetId: null };
+    },
+    [filteredNotes, isSingleColumnGrid],
+  );
 
   const activeNotebook =
     selectedNotebookId !== "all" && selectedNotebookId !== "unfiled"
@@ -393,30 +600,135 @@ export const NotesView: React.FC<NotesViewProps> = ({
           const active = selectedNotebookId === nb.id;
           const count = notebookCounts.counts.get(nb.id) || 0;
           const iconName = resolveNotebookIconName(nb.icon);
+          const isBeingDragged = draggingNotebookId === nb.id;
+          const isNoteDropHover = noteFileDropTargetId === nb.id;
+          const isNbDropTarget = notebookDropTarget?.notebookId === nb.id;
+
           return (
             <button
               key={nb.id}
+              ref={(el) => {
+                if (el) notebookTabRefs.current.set(nb.id, el);
+                else notebookTabRefs.current.delete(nb.id);
+              }}
               type="button"
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("application/x-kanso-notebook-id", nb.id);
+                e.dataTransfer.effectAllowed = "move";
+                activeDragNotebookIdRef.current = nb.id;
+                setDraggingNotebookId(nb.id);
+              }}
+              onDragEnd={clearAllDragStates}
+              onDragOver={(e) => {
+                const types = e.dataTransfer.types;
+                if (types.includes("application/x-kanso-note-id")) {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  setNoteFileDropTargetId(nb.id);
+                  return;
+                }
+                if (types.includes("application/x-kanso-notebook-id")) {
+                  if (activeDragNotebookIdRef.current === nb.id) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const position: "before" | "after" =
+                    e.clientX < rect.left + rect.width / 2 ? "before" : "after";
+                  setNotebookDropTarget((prev) =>
+                    prev?.notebookId === nb.id && prev.position === position
+                      ? prev
+                      : { notebookId: nb.id, position },
+                  );
+                }
+              }}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setNoteFileDropTargetId((prev) =>
+                    prev === nb.id ? null : prev,
+                  );
+                  setNotebookDropTarget((prev) =>
+                    prev?.notebookId === nb.id ? null : prev,
+                  );
+                }
+              }}
+              onDrop={(e) => {
+                const types = e.dataTransfer.types;
+                if (types.includes("application/x-kanso-note-id")) {
+                  const noteId =
+                    e.dataTransfer.getData("application/x-kanso-note-id") ||
+                    activeDragNoteIdRef.current;
+                  clearAllDragStates();
+                  if (!noteId) return;
+                  e.preventDefault();
+                  handleFileNoteToNotebook(noteId, nb.id);
+                  return;
+                }
+                if (types.includes("application/x-kanso-notebook-id")) {
+                  const draggedNbId =
+                    e.dataTransfer.getData(
+                      "application/x-kanso-notebook-id",
+                    ) || activeDragNotebookIdRef.current;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const position: "before" | "after" =
+                    e.clientX < rect.left + rect.width / 2 ? "before" : "after";
+                  clearAllDragStates();
+                  if (!draggedNbId || draggedNbId === nb.id) return;
+                  e.preventDefault();
+                  reorderNoteNotebooks(draggedNbId, nb.id, position);
+                }
+              }}
               onClick={() => setSelectedNotebookId(nb.id)}
-              className="h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-colors whitespace-nowrap"
+              title="Click to open · Drag to reorder · Drop notes here to file"
+              className={`relative h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
+                isBeingDragged ? "opacity-45" : ""
+              } ${
+                isNoteDropHover
+                  ? "ring-1 ring-inset ring-[var(--accent)] rounded-t-md"
+                  : ""
+              }`}
               style={{
-                borderColor: active ? "var(--accent)" : "transparent",
-                color: active ? "var(--text-primary)" : "var(--text-secondary)",
-                backgroundColor: active ? "var(--accent-soft)" : "transparent",
+                borderColor:
+                  isNoteDropHover || active ? "var(--accent)" : "transparent",
+                color:
+                  isNoteDropHover || active
+                    ? "var(--text-primary)"
+                    : "var(--text-secondary)",
+                backgroundColor: isNoteDropHover
+                  ? "var(--accent-soft)"
+                  : active
+                    ? "var(--accent-soft)"
+                    : "transparent",
               }}
             >
+              {isNbDropTarget && (
+                <span
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute top-1.5 bottom-1.5 w-[2.5px] rounded-full bg-[var(--accent)] shadow-[0_0_6px_var(--accent)] z-20 ${
+                    notebookDropTarget.position === "before"
+                      ? "left-0"
+                      : "right-0"
+                  }`}
+                />
+              )}
               <DynamicIcon
                 name={iconName}
                 className="w-3.5 h-3.5 shrink-0"
                 style={{
-                  color: active ? "var(--accent)" : "var(--text-muted)",
+                  color:
+                    isNoteDropHover || active
+                      ? "var(--accent)"
+                      : "var(--text-muted)",
                 }}
               />
               <span className={active ? "font-semibold" : ""}>{nb.name}</span>
               <span
                 className="font-mono tabular-nums text-[11px] opacity-75"
                 style={{
-                  color: active ? "var(--accent)" : "var(--text-muted)",
+                  color:
+                    isNoteDropHover || active
+                      ? "var(--accent)"
+                      : "var(--text-muted)",
                 }}
               >
                 {count}
@@ -425,21 +737,64 @@ export const NotesView: React.FC<NotesViewProps> = ({
           );
         })}
 
-        {notebookCounts.unfiled > 0 && (
+        {(notebookCounts.unfiled > 0 || draggingNoteId !== null) && (
           <button
+            ref={(el) => {
+              if (el) notebookTabRefs.current.set("__unfiled__", el);
+              else notebookTabRefs.current.delete("__unfiled__");
+            }}
             type="button"
+            onDragOver={(e) => {
+              if (
+                !e.dataTransfer.types.includes("application/x-kanso-note-id")
+              ) {
+                return;
+              }
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setNoteFileDropTargetId("__unfiled__");
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                setNoteFileDropTargetId((prev) =>
+                  prev === "__unfiled__" ? null : prev,
+                );
+              }
+            }}
+            onDrop={(e) => {
+              if (
+                !e.dataTransfer.types.includes("application/x-kanso-note-id")
+              ) {
+                return;
+              }
+              const noteId =
+                e.dataTransfer.getData("application/x-kanso-note-id") ||
+                activeDragNoteIdRef.current;
+              clearAllDragStates();
+              if (!noteId) return;
+              e.preventDefault();
+              handleFileNoteToNotebook(noteId, null);
+            }}
             onClick={() => setSelectedNotebookId("unfiled")}
-            className="h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-colors whitespace-nowrap"
+            title="Unfiled notes · Drop a note here to remove it from its notebook"
+            className={`h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-all whitespace-nowrap ${
+              noteFileDropTargetId === "__unfiled__"
+                ? "ring-1 ring-inset ring-[var(--accent)] rounded-t-md"
+                : ""
+            }`}
             style={{
               borderColor:
+                noteFileDropTargetId === "__unfiled__" ||
                 selectedNotebookId === "unfiled"
                   ? "var(--accent)"
                   : "transparent",
               color:
+                noteFileDropTargetId === "__unfiled__" ||
                 selectedNotebookId === "unfiled"
                   ? "var(--text-primary)"
                   : "var(--text-secondary)",
               backgroundColor:
+                noteFileDropTargetId === "__unfiled__" ||
                 selectedNotebookId === "unfiled"
                   ? "var(--accent-soft)"
                   : "transparent",
@@ -449,6 +804,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
               className="w-3.5 h-3.5 shrink-0"
               style={{
                 color:
+                  noteFileDropTargetId === "__unfiled__" ||
                   selectedNotebookId === "unfiled"
                     ? "var(--accent)"
                     : "var(--text-muted)",
@@ -465,6 +821,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
               className="font-mono tabular-nums text-[11px] opacity-75"
               style={{
                 color:
+                  noteFileDropTargetId === "__unfiled__" ||
                   selectedNotebookId === "unfiled"
                     ? "var(--accent)"
                     : "var(--text-muted)",
@@ -549,22 +906,55 @@ export const NotesView: React.FC<NotesViewProps> = ({
           ))}
         </select>
 
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as NoteSort)}
-          aria-label="Sort notes"
-          className="h-8 px-2.5 rounded-lg border text-xs outline-none"
-          style={{
-            backgroundColor: "var(--bg-surface)",
-            borderColor: "var(--border-subtle)",
-            color: "var(--text-secondary)",
-          }}
-        >
-          <option value="pinned">Sort: Pinned First</option>
-          <option value="updated">Sort: Recently Updated</option>
-          <option value="created">Sort: Recently Created</option>
-          <option value="title">Sort: Title A–Z</option>
-        </select>
+        <div className="flex items-center gap-1">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as NoteSort)}
+            aria-label="Sort notes"
+            className="h-8 px-2.5 rounded-lg border text-xs outline-none cursor-pointer"
+            style={{
+              backgroundColor: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <option value="custom">Sort: Custom Order</option>
+            <option value="pinned">Sort: Pinned First</option>
+            <option value="updated">Sort: Recently Updated</option>
+            <option value="created">Sort: Recently Created</option>
+            <option value="title">Sort: Title A–Z</option>
+          </select>
+
+          <button
+            type="button"
+            onClick={() =>
+              setSortBy((prev) => (prev === "custom" ? "pinned" : "custom"))
+            }
+            title={
+              isCustomSort
+                ? "Custom order active — drag cards or rows to rearrange (click to switch back)"
+                : "Enable Custom Order (drag & drop)"
+            }
+            aria-label={
+              isCustomSort
+                ? "Custom drag order active"
+                : "Switch to Custom Order"
+            }
+            aria-pressed={isCustomSort}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
+            style={{
+              backgroundColor: isCustomSort
+                ? "var(--accent-soft)"
+                : "var(--bg-surface)",
+              borderColor: isCustomSort
+                ? "var(--accent)"
+                : "var(--border-subtle)",
+              color: isCustomSort ? "var(--accent)" : "var(--text-secondary)",
+            }}
+          >
+            <GripVertical className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
         {/* Grid / List View Mode Toggle */}
         <div
@@ -633,7 +1023,10 @@ export const NotesView: React.FC<NotesViewProps> = ({
           </p>
         </div>
       ) : viewMode === "grid" ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div
+          ref={gridRef}
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
+        >
           {filteredNotes.map((note) => {
             const words = countWordsFromHtml(note.content);
             const updatedDay = formatCompactDayHeading(
@@ -642,29 +1035,207 @@ export const NotesView: React.FC<NotesViewProps> = ({
             const noteNotebook = note.notebookId
               ? notebookMap.get(note.notebookId)
               : null;
+            const isBeingDragged = draggingNoteId === note.id;
+            const isDropTarget = noteDropTarget?.noteId === note.id;
+            const singleCol = isSingleColumnGrid();
 
             return (
               <article
                 key={note.id}
-                onClick={() => onOpenDetail({ mode: "note", id: note.id })}
+                ref={(el) => {
+                  if (el) noteElRefs.current.set(note.id, el);
+                  else noteElRefs.current.delete(note.id);
+                }}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("application/x-kanso-note-id", note.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  activeDragNoteIdRef.current = note.id;
+                  setDraggingNoteId(note.id);
+                }}
+                onDragEnd={clearAllDragStates}
+                onDragOver={(e) => {
+                  if (!isCustomSort) return;
+                  if (
+                    !e.dataTransfer.types.includes(
+                      "application/x-kanso-note-id",
+                    )
+                  ) {
+                    return;
+                  }
+                  if (activeDragNoteIdRef.current === note.id) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const position: "before" | "after" = singleCol
+                    ? e.clientY < rect.top + rect.height / 2
+                      ? "before"
+                      : "after"
+                    : e.clientX < rect.left + rect.width / 2
+                      ? "before"
+                      : "after";
+                  setNoteDropTarget((prev) =>
+                    prev?.noteId === note.id && prev.position === position
+                      ? prev
+                      : { noteId: note.id, position },
+                  );
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setNoteDropTarget((prev) =>
+                      prev?.noteId === note.id ? null : prev,
+                    );
+                  }
+                }}
+                onDrop={(e) => {
+                  if (!isCustomSort) return;
+                  if (
+                    !e.dataTransfer.types.includes(
+                      "application/x-kanso-note-id",
+                    )
+                  ) {
+                    return;
+                  }
+                  const draggedId =
+                    e.dataTransfer.getData("application/x-kanso-note-id") ||
+                    activeDragNoteIdRef.current;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const position: "before" | "after" = singleCol
+                    ? e.clientY < rect.top + rect.height / 2
+                      ? "before"
+                      : "after"
+                    : e.clientX < rect.left + rect.width / 2
+                      ? "before"
+                      : "after";
+                  clearAllDragStates();
+                  if (!draggedId || draggedId === note.id) return;
+                  e.preventDefault();
+                  handleReorderNotes(draggedId, note.id, position);
+                }}
+                onClick={() => {
+                  if (draggingNoteId) return;
+                  onOpenDetail({ mode: "note", id: note.id });
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   onOpenContextMenu({ kind: "entry", entry: note }, e);
                 }}
-                className="rounded-xl border p-3 flex flex-col justify-between gap-2.5 cursor-pointer transition-colors hover:border-[var(--border-strong)] min-h-[156px]"
+                className={`relative rounded-xl border p-3 flex flex-col justify-between gap-2.5 cursor-pointer transition-all duration-150 hover:border-[var(--border-strong)] min-h-[156px] ${
+                  isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
+                } ${isBeingDragged ? "opacity-45 scale-[0.98]" : ""} ${
+                  isDropTarget
+                    ? "ring-1 ring-[var(--accent)]/60 ring-offset-1 ring-offset-[var(--bg-canvas)]"
+                    : ""
+                }`}
                 style={{
                   backgroundColor: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
+                  borderColor: isDropTarget
+                    ? "var(--accent)"
+                    : "var(--border-subtle)",
                 }}
               >
+                {/* Insertion line indicator when reordering */}
+                {isDropTarget && (
+                  <div
+                    aria-hidden="true"
+                    className={
+                      singleCol
+                        ? `pointer-events-none absolute inset-x-2 h-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
+                            noteDropTarget.position === "before"
+                              ? "-top-1.5"
+                              : "-bottom-1.5"
+                          }`
+                        : `pointer-events-none absolute top-1 bottom-1 w-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
+                            noteDropTarget.position === "before"
+                              ? "-left-1.5"
+                              : "-right-1.5"
+                          }`
+                    }
+                  />
+                )}
+
                 <div className="space-y-1.5 min-w-0">
                   <div className="flex items-start justify-between gap-2">
-                    <h2
-                      className="text-sm font-medium leading-snug line-clamp-2 min-w-0"
-                      style={{ color: "var(--text-primary)" }}
-                    >
-                      {note.title || "Untitled Note"}
-                    </h2>
+                    <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                      {isCustomSort && (
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Reorder ${note.title || "Untitled Note"}`}
+                          title="Drag to reorder or drop onto a notebook tab"
+                          onClick={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => {
+                            if (e.pointerType === "mouse") return;
+                            e.stopPropagation();
+                            e.currentTarget.setPointerCapture(e.pointerId);
+                            activeDragNoteIdRef.current = note.id;
+                            setDraggingNoteId(note.id);
+                            setNoteDropTarget(null);
+                            setNoteFileDropTargetId(null);
+                          }}
+                          onPointerMove={(e) => {
+                            if (
+                              e.pointerType === "mouse" ||
+                              draggingNoteId !== note.id
+                            ) {
+                              return;
+                            }
+                            const resolved = resolveTouchDrop(
+                              e.clientX,
+                              e.clientY,
+                              note.id,
+                            );
+                            setNoteDropTarget(resolved.noteTarget);
+                            setNoteFileDropTargetId(resolved.notebookTargetId);
+                          }}
+                          onPointerUp={(e) => {
+                            if (e.pointerType === "mouse") return;
+                            e.stopPropagation();
+                            if (draggingNoteId === note.id) {
+                              const resolved = resolveTouchDrop(
+                                e.clientX,
+                                e.clientY,
+                                note.id,
+                              );
+                              const nbTarget =
+                                resolved.notebookTargetId ??
+                                noteFileDropTargetId;
+                              const cardTarget =
+                                resolved.noteTarget ?? noteDropTarget;
+                              clearAllDragStates();
+                              if (nbTarget) {
+                                handleFileNoteToNotebook(
+                                  note.id,
+                                  nbTarget === "__unfiled__" ? null : nbTarget,
+                                );
+                              } else if (
+                                cardTarget &&
+                                cardTarget.noteId !== note.id
+                              ) {
+                                handleReorderNotes(
+                                  note.id,
+                                  cardTarget.noteId,
+                                  cardTarget.position,
+                                );
+                              }
+                            } else {
+                              clearAllDragStates();
+                            }
+                          }}
+                          onPointerCancel={clearAllDragStates}
+                          className="touch-none select-none w-6 h-6 -ml-1 -mt-0.5 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+                        >
+                          <GripVertical className="w-3.5 h-3.5" />
+                        </div>
+                      )}
+
+                      <h2
+                        className="text-sm font-medium leading-snug line-clamp-2 min-w-0"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        {note.title || "Untitled Note"}
+                      </h2>
+                    </div>
 
                     {/* Always-visible Pin indicator & Action trigger */}
                     <div className="flex items-center gap-0.5 shrink-0 -mr-1 -mt-0.5">
@@ -751,18 +1322,163 @@ export const NotesView: React.FC<NotesViewProps> = ({
             const plainSnippet = note.content
               ? stripHtmlPreview(note.content)
               : "";
+            const isBeingDragged = draggingNoteId === note.id;
+            const isDropTarget = noteDropTarget?.noteId === note.id;
 
             return (
               <div
                 key={note.id}
-                onClick={() => onOpenDetail({ mode: "note", id: note.id })}
+                ref={(el) => {
+                  if (el) noteElRefs.current.set(note.id, el);
+                  else noteElRefs.current.delete(note.id);
+                }}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("application/x-kanso-note-id", note.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  activeDragNoteIdRef.current = note.id;
+                  setDraggingNoteId(note.id);
+                }}
+                onDragEnd={clearAllDragStates}
+                onDragOver={(e) => {
+                  if (!isCustomSort) return;
+                  if (
+                    !e.dataTransfer.types.includes(
+                      "application/x-kanso-note-id",
+                    )
+                  ) {
+                    return;
+                  }
+                  if (activeDragNoteIdRef.current === note.id) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const position: "before" | "after" =
+                    e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                  setNoteDropTarget((prev) =>
+                    prev?.noteId === note.id && prev.position === position
+                      ? prev
+                      : { noteId: note.id, position },
+                  );
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setNoteDropTarget((prev) =>
+                      prev?.noteId === note.id ? null : prev,
+                    );
+                  }
+                }}
+                onDrop={(e) => {
+                  if (!isCustomSort) return;
+                  if (
+                    !e.dataTransfer.types.includes(
+                      "application/x-kanso-note-id",
+                    )
+                  ) {
+                    return;
+                  }
+                  const draggedId =
+                    e.dataTransfer.getData("application/x-kanso-note-id") ||
+                    activeDragNoteIdRef.current;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const position: "before" | "after" =
+                    e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                  clearAllDragStates();
+                  if (!draggedId || draggedId === note.id) return;
+                  e.preventDefault();
+                  handleReorderNotes(draggedId, note.id, position);
+                }}
+                onClick={() => {
+                  if (draggingNoteId) return;
+                  onOpenDetail({ mode: "note", id: note.id });
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   onOpenContextMenu({ kind: "entry", entry: note }, e);
                 }}
-                className="py-2.5 px-2 -mx-2 rounded-lg flex items-center justify-between gap-3 cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]/75"
+                style={
+                  isDropTarget
+                    ? {
+                        boxShadow:
+                          noteDropTarget.position === "before"
+                            ? "inset 0 2px 0 var(--accent)"
+                            : "inset 0 -2px 0 var(--accent)",
+                      }
+                    : undefined
+                }
+                className={`py-2.5 px-2 -mx-2 rounded-lg flex items-center justify-between gap-3 cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]/75 ${
+                  isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
+                } ${isBeingDragged ? "opacity-50 bg-[var(--accent-soft)]" : ""}`}
               >
                 <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {isCustomSort && (
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Reorder ${note.title || "Untitled Note"}`}
+                      title="Drag to reorder or drop onto a notebook tab"
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => {
+                        if (e.pointerType === "mouse") return;
+                        e.stopPropagation();
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        activeDragNoteIdRef.current = note.id;
+                        setDraggingNoteId(note.id);
+                        setNoteDropTarget(null);
+                        setNoteFileDropTargetId(null);
+                      }}
+                      onPointerMove={(e) => {
+                        if (
+                          e.pointerType === "mouse" ||
+                          draggingNoteId !== note.id
+                        ) {
+                          return;
+                        }
+                        const resolved = resolveTouchDrop(
+                          e.clientX,
+                          e.clientY,
+                          note.id,
+                        );
+                        setNoteDropTarget(resolved.noteTarget);
+                        setNoteFileDropTargetId(resolved.notebookTargetId);
+                      }}
+                      onPointerUp={(e) => {
+                        if (e.pointerType === "mouse") return;
+                        e.stopPropagation();
+                        if (draggingNoteId === note.id) {
+                          const resolved = resolveTouchDrop(
+                            e.clientX,
+                            e.clientY,
+                            note.id,
+                          );
+                          const nbTarget =
+                            resolved.notebookTargetId ?? noteFileDropTargetId;
+                          const rowTarget =
+                            resolved.noteTarget ?? noteDropTarget;
+                          clearAllDragStates();
+                          if (nbTarget) {
+                            handleFileNoteToNotebook(
+                              note.id,
+                              nbTarget === "__unfiled__" ? null : nbTarget,
+                            );
+                          } else if (rowTarget && rowTarget.noteId !== note.id) {
+                            handleReorderNotes(
+                              note.id,
+                              rowTarget.noteId,
+                              rowTarget.position,
+                            );
+                          }
+                        } else {
+                          clearAllDragStates();
+                        }
+                      }}
+                      onPointerCancel={clearAllDragStates}
+                      className="touch-none select-none min-w-[32px] min-h-[36px] -ml-1 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+                    >
+                      <GripVertical className="w-4 h-4" />
+                    </div>
+                  )}
+
                   {note.pinned && (
                     <button
                       type="button"

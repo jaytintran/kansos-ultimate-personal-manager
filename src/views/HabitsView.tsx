@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronLeft,
   ChevronRight,
   Flame,
+  GripVertical,
   LayoutGrid,
   MoreHorizontal,
   Plus,
@@ -63,7 +64,7 @@ function computeStreak(habit: Habit, todayKey: string): number {
 }
 
 export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
-  const { workspace, toggleHabitCompletion } = useWorkspace();
+  const { workspace, toggleHabitCompletion, reorderHabits } = useWorkspace();
   const todayKey = getTodayKey();
 
   const [viewMode, setViewMode] = useState<HabitsViewMode>(() => {
@@ -89,6 +90,31 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
   const [matrixOffset, setMatrixOffset] = useState(0);
   const [cardOffsets, setCardOffsets] = useState<Record<string, number>>({});
 
+  // Drag & drop state across Matrix rows and Cards
+  const activeDragHabitIdRef = useRef<string | null>(null);
+  const habitElRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const cardsGridRef = useRef<HTMLDivElement>(null);
+  const [draggingHabitId, setDraggingHabitId] = useState<string | null>(null);
+  const [habitDropTarget, setHabitDropTarget] = useState<{
+    habitId: string;
+    position: "before" | "after";
+  } | null>(null);
+
+  const clearHabitDragState = useCallback(() => {
+    activeDragHabitIdRef.current = null;
+    setDraggingHabitId(null);
+    setHabitDropTarget(null);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("dragend", clearHabitDragState);
+    window.addEventListener("drop", clearHabitDragState);
+    return () => {
+      window.removeEventListener("dragend", clearHabitDragState);
+      window.removeEventListener("drop", clearHabitDragState);
+    };
+  }, [clearHabitDragState]);
+
   useEffect(() => {
     try {
       localStorage.setItem(VIEW_MODE_KEY, viewMode);
@@ -108,6 +134,53 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
   }, [range]);
 
   const activeHabits = useMemo(() => workspace.habits, [workspace.habits]);
+
+  const isSingleColumnCards = useCallback(() => {
+    if (viewMode === "matrix") return true;
+    const grid = cardsGridRef.current;
+    if (grid) {
+      const cols = getComputedStyle(grid)
+        .gridTemplateColumns.split(" ")
+        .filter(Boolean).length;
+      if (cols > 0) return cols === 1;
+    }
+    return typeof window !== "undefined" ? window.innerWidth < 768 : false;
+  }, [viewMode]);
+
+  const resolveHabitTouchDrop = useCallback(
+    (
+      clientX: number,
+      clientY: number,
+      activeHabitId: string,
+    ): { habitId: string; position: "before" | "after" } | null => {
+      const singleCol = viewMode === "matrix" || isSingleColumnCards();
+      for (const habit of activeHabits) {
+        if (habit.id === activeHabitId) continue;
+        const el = habitElRefs.current.get(habit.id);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        ) {
+          return {
+            habitId: habit.id,
+            position: singleCol
+              ? clientY < rect.top + rect.height / 2
+                ? "before"
+                : "after"
+              : clientX < rect.left + rect.width / 2
+                ? "before"
+                : "after",
+          };
+        }
+      }
+      return null;
+    },
+    [activeHabits, viewMode, isSingleColumnCards],
+  );
 
   const matrixKeys = useMemo(
     () => getDateRange(range, matrixOffset, todayKey),
@@ -371,51 +444,198 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
               >
                 {activeHabits.map((habit) => {
                   const streak = computeStreak(habit, todayKey);
+                  const isBeingDragged = draggingHabitId === habit.id;
+                  const isDropTarget = habitDropTarget?.habitId === habit.id;
+                  const rowShadow = isDropTarget
+                    ? habitDropTarget.position === "before"
+                      ? "inset 0 2.5px 0 var(--accent)"
+                      : "inset 0 -2.5px 0 var(--accent)"
+                    : undefined;
+
                   return (
                     <tr
                       key={habit.id}
-                      className="group hover:bg-[var(--bg-surface-subtle)] transition-colors"
+                      ref={(el) => {
+                        if (el) habitElRefs.current.set(habit.id, el);
+                        else habitElRefs.current.delete(habit.id);
+                      }}
+                      draggable={activeHabits.length > 1}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData(
+                          "application/x-kanso-habit-id",
+                          habit.id,
+                        );
+                        e.dataTransfer.effectAllowed = "move";
+                        activeDragHabitIdRef.current = habit.id;
+                        setDraggingHabitId(habit.id);
+                      }}
+                      onDragEnd={clearHabitDragState}
+                      onDragOver={(e) => {
+                        if (
+                          !e.dataTransfer.types.includes(
+                            "application/x-kanso-habit-id",
+                          )
+                        ) {
+                          return;
+                        }
+                        if (activeDragHabitIdRef.current === habit.id) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const position: "before" | "after" =
+                          e.clientY < rect.top + rect.height / 2
+                            ? "before"
+                            : "after";
+                        setHabitDropTarget((prev) =>
+                          prev?.habitId === habit.id &&
+                          prev.position === position
+                            ? prev
+                            : { habitId: habit.id, position },
+                        );
+                      }}
+                      onDragLeave={(e) => {
+                        if (
+                          !e.currentTarget.contains(e.relatedTarget as Node)
+                        ) {
+                          setHabitDropTarget((prev) =>
+                            prev?.habitId === habit.id ? null : prev,
+                          );
+                        }
+                      }}
+                      onDrop={(e) => {
+                        if (
+                          !e.dataTransfer.types.includes(
+                            "application/x-kanso-habit-id",
+                          )
+                        ) {
+                          return;
+                        }
+                        const draggedId =
+                          e.dataTransfer.getData(
+                            "application/x-kanso-habit-id",
+                          ) || activeDragHabitIdRef.current;
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const position: "before" | "after" =
+                          e.clientY < rect.top + rect.height / 2
+                            ? "before"
+                            : "after";
+                        clearHabitDragState();
+                        if (!draggedId || draggedId === habit.id) return;
+                        e.preventDefault();
+                        reorderHabits(draggedId, habit.id, position);
+                      }}
+                      className={`group hover:bg-[var(--bg-surface-subtle)] transition-colors ${
+                        isBeingDragged
+                          ? "opacity-45 bg-[var(--accent-soft)]"
+                          : ""
+                      }`}
                       style={{ borderColor: "var(--border-subtle)" }}
                     >
                       {/* Sticky Habit Name Column */}
                       <td
                         className="sticky left-0 z-10 px-4 py-2.5"
-                        style={{ backgroundColor: "var(--bg-surface)" }}
+                        style={{
+                          backgroundColor: "var(--bg-surface)",
+                          boxShadow: rowShadow,
+                        }}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onOpenDetail({ mode: "habit", id: habit.id })
-                            }
-                            className="flex items-center gap-2.5 min-w-0 text-left hover:underline"
-                          >
-                            <span
-                              className="h-7 w-7 rounded-lg flex items-center justify-center shrink-0"
-                              style={{
-                                backgroundColor: `${habit.color}1c`,
-                                color: habit.color,
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Reorder ${habit.title}`}
+                              title="Drag to reorder"
+                              onClick={(e) => e.stopPropagation()}
+                              onPointerDown={(e) => {
+                                if (e.pointerType === "mouse") return;
+                                if (activeHabits.length <= 1) return;
+                                e.stopPropagation();
+                                e.currentTarget.setPointerCapture(e.pointerId);
+                                activeDragHabitIdRef.current = habit.id;
+                                setDraggingHabitId(habit.id);
+                                setHabitDropTarget(null);
                               }}
+                              onPointerMove={(e) => {
+                                if (
+                                  e.pointerType === "mouse" ||
+                                  draggingHabitId !== habit.id
+                                ) {
+                                  return;
+                                }
+                                setHabitDropTarget(
+                                  resolveHabitTouchDrop(
+                                    e.clientX,
+                                    e.clientY,
+                                    habit.id,
+                                  ),
+                                );
+                              }}
+                              onPointerUp={(e) => {
+                                if (e.pointerType === "mouse") return;
+                                e.stopPropagation();
+                                if (draggingHabitId === habit.id) {
+                                  const resolved =
+                                    resolveHabitTouchDrop(
+                                      e.clientX,
+                                      e.clientY,
+                                      habit.id,
+                                    ) ?? habitDropTarget;
+                                  clearHabitDragState();
+                                  if (
+                                    resolved &&
+                                    resolved.habitId !== habit.id
+                                  ) {
+                                    reorderHabits(
+                                      habit.id,
+                                      resolved.habitId,
+                                      resolved.position,
+                                    );
+                                  }
+                                } else {
+                                  clearHabitDragState();
+                                }
+                              }}
+                              onPointerCancel={clearHabitDragState}
+                              className="touch-none select-none w-6 h-7 -ml-2 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
                             >
-                              <HabitIcon
-                                name={habit.icon}
-                                className="w-3.5 h-3.5"
-                              />
-                            </span>
-                            <div className="min-w-0">
-                              <div className="text-xs sm:text-sm font-semibold truncate">
-                                {habit.title}
-                              </div>
-                              {habit.purpose && (
-                                <div
-                                  className="text-[11px] truncate max-w-[160px]"
-                                  style={{ color: "var(--text-muted)" }}
-                                >
-                                  {habit.purpose}
-                                </div>
-                              )}
+                              <GripVertical className="w-3.5 h-3.5" />
                             </div>
-                          </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onOpenDetail({ mode: "habit", id: habit.id })
+                              }
+                              className="flex items-center gap-2.5 min-w-0 text-left hover:underline"
+                            >
+                              <span
+                                className="h-7 w-7 rounded-lg flex items-center justify-center shrink-0"
+                                style={{
+                                  backgroundColor: `${habit.color}1c`,
+                                  color: habit.color,
+                                }}
+                              >
+                                <HabitIcon
+                                  name={habit.icon}
+                                  className="w-3.5 h-3.5"
+                                />
+                              </span>
+                              <div className="min-w-0">
+                                <div className="text-xs sm:text-sm font-semibold truncate">
+                                  {habit.title}
+                                </div>
+                                {habit.purpose && (
+                                  <div
+                                    className="text-[11px] truncate max-w-[160px]"
+                                    style={{ color: "var(--text-muted)" }}
+                                  >
+                                    {habit.purpose}
+                                  </div>
+                                )}
+                              </div>
+                            </button>
+                          </div>
 
                           <button
                             type="button"
@@ -444,6 +664,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                               backgroundColor: isToday
                                 ? "var(--accent-soft)"
                                 : "transparent",
+                              boxShadow: rowShadow,
                             }}
                           >
                             <button
@@ -476,7 +697,10 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                       })}
 
                       {/* Flame Streak Column */}
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                      <td
+                        className="px-3 py-2.5 text-right whitespace-nowrap"
+                        style={{ boxShadow: rowShadow }}
+                      >
                         <span
                           className="inline-flex items-center gap-1 font-mono tabular-nums text-xs font-bold"
                           style={{
@@ -497,7 +721,10 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
         </div>
       ) : (
         /* ================= CARDS VIEW ================= */
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div
+          ref={cardsGridRef}
+          className="grid grid-cols-1 md:grid-cols-2 gap-4"
+        >
           {activeHabits.map((habit) => {
             const offset = cardOffsets[habit.id] ?? 0;
             const keys = getDateRange(range, offset, todayKey);
@@ -506,48 +733,208 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
             const rangeLabel = `${formatDaySlashMonth(keys[0])} – ${formatDaySlashMonth(
               keys[keys.length - 1],
             )}`;
+            const isBeingDragged = draggingHabitId === habit.id;
+            const isDropTarget = habitDropTarget?.habitId === habit.id;
+            const singleCol = isSingleColumnCards();
 
             return (
               <article
                 key={habit.id}
-                className="rounded-2xl border p-4 space-y-4 flex flex-col justify-between"
+                ref={(el) => {
+                  if (el) habitElRefs.current.set(habit.id, el);
+                  else habitElRefs.current.delete(habit.id);
+                }}
+                draggable={activeHabits.length > 1}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(
+                    "application/x-kanso-habit-id",
+                    habit.id,
+                  );
+                  e.dataTransfer.effectAllowed = "move";
+                  activeDragHabitIdRef.current = habit.id;
+                  setDraggingHabitId(habit.id);
+                }}
+                onDragEnd={clearHabitDragState}
+                onDragOver={(e) => {
+                  if (
+                    !e.dataTransfer.types.includes(
+                      "application/x-kanso-habit-id",
+                    )
+                  ) {
+                    return;
+                  }
+                  if (activeDragHabitIdRef.current === habit.id) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const position: "before" | "after" = singleCol
+                    ? e.clientY < rect.top + rect.height / 2
+                      ? "before"
+                      : "after"
+                    : e.clientX < rect.left + rect.width / 2
+                      ? "before"
+                      : "after";
+                  setHabitDropTarget((prev) =>
+                    prev?.habitId === habit.id && prev.position === position
+                      ? prev
+                      : { habitId: habit.id, position },
+                  );
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setHabitDropTarget((prev) =>
+                      prev?.habitId === habit.id ? null : prev,
+                    );
+                  }
+                }}
+                onDrop={(e) => {
+                  if (
+                    !e.dataTransfer.types.includes(
+                      "application/x-kanso-habit-id",
+                    )
+                  ) {
+                    return;
+                  }
+                  const draggedId =
+                    e.dataTransfer.getData("application/x-kanso-habit-id") ||
+                    activeDragHabitIdRef.current;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const position: "before" | "after" = singleCol
+                    ? e.clientY < rect.top + rect.height / 2
+                      ? "before"
+                      : "after"
+                    : e.clientX < rect.left + rect.width / 2
+                      ? "before"
+                      : "after";
+                  clearHabitDragState();
+                  if (!draggedId || draggedId === habit.id) return;
+                  e.preventDefault();
+                  reorderHabits(draggedId, habit.id, position);
+                }}
+                className={`relative rounded-2xl border p-4 space-y-4 flex flex-col justify-between transition-all duration-150 ${
+                  activeHabits.length > 1
+                    ? "cursor-grab active:cursor-grabbing"
+                    : ""
+                } ${isBeingDragged ? "opacity-45 scale-[0.98]" : ""} ${
+                  isDropTarget
+                    ? "ring-1 ring-[var(--accent)]/60 ring-offset-1 ring-offset-[var(--bg-canvas)]"
+                    : ""
+                }`}
                 style={{
                   backgroundColor: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
+                  borderColor: isDropTarget
+                    ? "var(--accent)"
+                    : "var(--border-subtle)",
                 }}
               >
+                {/* Insertion line indicator when reordering */}
+                {isDropTarget && (
+                  <div
+                    aria-hidden="true"
+                    className={
+                      singleCol
+                        ? `pointer-events-none absolute inset-x-2 h-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
+                            habitDropTarget.position === "before"
+                              ? "-top-1.5"
+                              : "-bottom-1.5"
+                          }`
+                        : `pointer-events-none absolute top-1.5 bottom-1.5 w-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
+                            habitDropTarget.position === "before"
+                              ? "-left-1.5"
+                              : "-right-1.5"
+                          }`
+                    }
+                  />
+                )}
+
                 {/* Card Header */}
                 <div className="flex items-start justify-between gap-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onOpenDetail({ mode: "habit", id: habit.id })
-                    }
-                    className="flex items-center gap-2.5 min-w-0 text-left hover:underline"
-                  >
-                    <span
-                      className="h-9 w-9 rounded-xl flex items-center justify-center shrink-0"
-                      style={{
-                        backgroundColor: `${habit.color}1c`,
-                        color: habit.color,
+                  <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Reorder ${habit.title}`}
+                      title="Drag to reorder"
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => {
+                        if (e.pointerType === "mouse") return;
+                        if (activeHabits.length <= 1) return;
+                        e.stopPropagation();
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        activeDragHabitIdRef.current = habit.id;
+                        setDraggingHabitId(habit.id);
+                        setHabitDropTarget(null);
                       }}
+                      onPointerMove={(e) => {
+                        if (
+                          e.pointerType === "mouse" ||
+                          draggingHabitId !== habit.id
+                        ) {
+                          return;
+                        }
+                        setHabitDropTarget(
+                          resolveHabitTouchDrop(e.clientX, e.clientY, habit.id),
+                        );
+                      }}
+                      onPointerUp={(e) => {
+                        if (e.pointerType === "mouse") return;
+                        e.stopPropagation();
+                        if (draggingHabitId === habit.id) {
+                          const resolved =
+                            resolveHabitTouchDrop(
+                              e.clientX,
+                              e.clientY,
+                              habit.id,
+                            ) ?? habitDropTarget;
+                          clearHabitDragState();
+                          if (resolved && resolved.habitId !== habit.id) {
+                            reorderHabits(
+                              habit.id,
+                              resolved.habitId,
+                              resolved.position,
+                            );
+                          }
+                        } else {
+                          clearHabitDragState();
+                        }
+                      }}
+                      onPointerCancel={clearHabitDragState}
+                      className="touch-none select-none w-6 h-9 -ml-1.5 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
                     >
-                      <HabitIcon name={habit.icon} className="w-4.5 h-4.5" />
-                    </span>
-                    <div className="min-w-0">
-                      <h2 className="font-display text-base font-bold truncate">
-                        {habit.title}
-                      </h2>
-                      {habit.purpose && (
-                        <p
-                          className="text-xs truncate"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          {habit.purpose}
-                        </p>
-                      )}
+                      <GripVertical className="w-3.5 h-3.5" />
                     </div>
-                  </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenDetail({ mode: "habit", id: habit.id })
+                      }
+                      className="flex items-center gap-2.5 min-w-0 text-left hover:underline"
+                    >
+                      <span
+                        className="h-9 w-9 rounded-xl flex items-center justify-center shrink-0"
+                        style={{
+                          backgroundColor: `${habit.color}1c`,
+                          color: habit.color,
+                        }}
+                      >
+                        <HabitIcon name={habit.icon} className="w-4.5 h-4.5" />
+                      </span>
+                      <div className="min-w-0">
+                        <h2 className="font-display text-base font-bold truncate">
+                          {habit.title}
+                        </h2>
+                        {habit.purpose && (
+                          <p
+                            className="text-xs truncate"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            {habit.purpose}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                  </div>
 
                   {/* Top-Right Streak Counter */}
                   <span

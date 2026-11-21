@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Check,
   Folder,
+  GripVertical,
   Headphones,
   LayoutGrid,
   List,
@@ -28,7 +29,9 @@ import {
 } from './StreamVaultSidebar';
 
 type VaultViewMode = 'grid' | 'table';
-type VaultSortMode = 'recent' | 'listens' | 'rating' | 'title' | 'channel';
+type VaultSortMode = 'custom' | 'recent' | 'listens' | 'rating' | 'title' | 'channel';
+
+const VAULT_SORT_PREFS_KEY = 'kanso_streamer_vault_sort_v1';
 
 interface StreamVaultViewProps {
   isActiveView?: boolean;
@@ -48,6 +51,7 @@ interface StreamVaultViewProps {
   onToggleStreamInGrid: (id: string) => void;
   onStackStream: (id: string) => void;
   onLoadStreamsToGrid: (streamIds: string[], mode?: 'replace' | 'append', label?: string) => void;
+  onReorderStreams: (sortOrderById: Record<string, number>) => void;
   onIncrementListen: (id: string) => void;
   onAddFolder: (name: string, parentId?: string | null) => StreamFolder;
   onRenameFolder: (id: string, name: string) => void;
@@ -73,6 +77,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   onToggleStreamInGrid,
   onStackStream,
   onLoadStreamsToGrid,
+  onReorderStreams,
   onIncrementListen,
   onAddFolder,
   onRenameFolder,
@@ -83,9 +88,59 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<VaultViewMode>('grid');
-  const [sortBy, setSortBy] = useState<VaultSortMode>('recent');
+  const [sortBy, setSortBy] = useState<VaultSortMode>(() => {
+    try {
+      const saved = localStorage.getItem(VAULT_SORT_PREFS_KEY);
+      if (
+        saved === 'custom' ||
+        saved === 'recent' ||
+        saved === 'listens' ||
+        saved === 'rating' ||
+        saved === 'title' ||
+        saved === 'channel'
+      ) {
+        return saved;
+      }
+    } catch {
+      // Ignore storage errors
+    }
+    return 'recent';
+  });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [brokenThumbs, setBrokenThumbs] = useState<Record<string, boolean>>({});
+
+  // Drag-and-drop reorder state (Custom Order)
+  const activeDragStreamIdRef = useRef<string | null>(null);
+  const streamElRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [draggingStreamId, setDraggingStreamId] = useState<string | null>(null);
+  const [streamDropTarget, setStreamDropTarget] = useState<{
+    streamId: string;
+    position: 'before' | 'after';
+  } | null>(null);
+
+  const clearDragState = useCallback(() => {
+    activeDragStreamIdRef.current = null;
+    setDraggingStreamId(null);
+    setStreamDropTarget(null);
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VAULT_SORT_PREFS_KEY, sortBy);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [sortBy]);
+
+  useEffect(() => {
+    window.addEventListener('dragend', clearDragState);
+    window.addEventListener('drop', clearDragState);
+    return () => {
+      window.removeEventListener('dragend', clearDragState);
+      window.removeEventListener('drop', clearDragState);
+    };
+  }, [clearDragState]);
 
   // Editor drawer state
   const [drawerState, setDrawerState] = useState<
@@ -169,6 +224,27 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     }
   }, [scope, folderById]);
 
+  const customStreamOrderCompare = useCallback((a: StreamItem, b: StreamItem) => {
+    const aOrder =
+      typeof a.sortOrder === 'number' && Number.isFinite(a.sortOrder)
+        ? a.sortOrder
+        : null;
+    const bOrder =
+      typeof b.sortOrder === 'number' && Number.isFinite(b.sortOrder)
+        ? b.sortOrder
+        : null;
+    if (aOrder !== null && bOrder !== null) {
+      if (aOrder !== bOrder) return aOrder - bOrder;
+    } else if (aOrder === null && bOrder !== null) {
+      return -1;
+    } else if (aOrder !== null && bOrder === null) {
+      return 1;
+    }
+    return b.addedAt.localeCompare(a.addedAt) || a.id.localeCompare(b.id);
+  }, []);
+
+  const isCustomSort = sortBy === 'custom';
+
   // Filter + sort visible streams
   const visibleStreams = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -219,6 +295,8 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     const sorted = [...filtered];
     sorted.sort((a, b) => {
       switch (sortBy) {
+        case 'custom':
+          return customStreamOrderCompare(a, b);
         case 'listens':
           return (b.listenCount ?? 0) - (a.listenCount ?? 0) || b.addedAt.localeCompare(a.addedAt);
         case 'rating':
@@ -233,7 +311,100 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       }
     });
     return sorted;
-  }, [streams, scope, folders, activeIdSet, selectedTags, searchQuery, sortBy]);
+  }, [streams, scope, folders, activeIdSet, selectedTags, searchQuery, sortBy, customStreamOrderCompare]);
+
+  const handleReorderStreams = useCallback(
+    (draggedId: string, targetId: string, position: 'before' | 'after') => {
+      if (!draggedId || !targetId || draggedId === targetId) return;
+      const visibleIds = visibleStreams.map((s) => s.id);
+      if (!visibleIds.includes(draggedId) || !visibleIds.includes(targetId)) return;
+
+      const remainingVisible = visibleIds.filter((id) => id !== draggedId);
+      const targetIndex = remainingVisible.indexOf(targetId);
+      if (targetIndex === -1) return;
+
+      const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
+      const nextVisibleIds = [
+        ...remainingVisible.slice(0, insertIndex),
+        draggedId,
+        ...remainingVisible.slice(insertIndex),
+      ];
+
+      if (nextVisibleIds.every((id, idx) => id === visibleIds[idx])) return;
+
+      const visibleSet = new Set(visibleIds);
+      const globalSorted = [...streams].sort(customStreamOrderCompare);
+      const byId = new Map(streams.map((s) => [s.id, s]));
+      let visibleCursor = 0;
+      const reorderedGlobal: StreamItem[] = [];
+
+      for (const st of globalSorted) {
+        if (visibleSet.has(st.id)) {
+          const nextId = nextVisibleIds[visibleCursor++];
+          const nextSt = nextId ? byId.get(nextId) : undefined;
+          if (nextSt) reorderedGlobal.push(nextSt);
+        } else {
+          reorderedGlobal.push(st);
+        }
+      }
+      while (visibleCursor < nextVisibleIds.length) {
+        const nextSt = byId.get(nextVisibleIds[visibleCursor++]);
+        if (nextSt) reorderedGlobal.push(nextSt);
+      }
+
+      const sortOrderById: Record<string, number> = {};
+      reorderedGlobal.forEach((s, idx) => {
+        sortOrderById[s.id] = idx;
+      });
+      onReorderStreams(sortOrderById);
+    },
+    [visibleStreams, streams, customStreamOrderCompare, onReorderStreams]
+  );
+
+  const isSingleColumnGrid = useCallback(() => {
+    if (viewMode === 'table') return true;
+    const grid = gridRef.current;
+    if (grid) {
+      const cols = getComputedStyle(grid)
+        .gridTemplateColumns.split(' ')
+        .filter(Boolean).length;
+      if (cols > 0) return cols === 1;
+    }
+    return typeof window !== 'undefined' ? window.innerWidth < 640 : false;
+  }, [viewMode]);
+
+  const resolveVaultTouchDrop = useCallback(
+    (
+      clientX: number,
+      clientY: number,
+      activeStreamId: string
+    ): { streamId: string; position: 'before' | 'after' } | null => {
+      const singleCol = isSingleColumnGrid();
+      for (const item of visibleStreams) {
+        if (item.id === activeStreamId) continue;
+        const el = streamElRefs.current.get(item.id);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        ) {
+          const position: 'before' | 'after' = singleCol
+            ? clientY < rect.top + rect.height / 2
+              ? 'before'
+              : 'after'
+            : clientX < rect.left + rect.width / 2
+            ? 'before'
+            : 'after';
+          return { streamId: item.id, position };
+        }
+      }
+      return null;
+    },
+    [visibleStreams, isSingleColumnGrid]
+  );
 
   const handleLoadFolderToGrid = (folderId: string, folderName: string) => {
     const subtree = getDescendantFolderIds(folderId, folders);
@@ -494,24 +665,57 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               )}
             </div>
 
-            {/* Sort Selector */}
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as VaultSortMode)}
-              className="h-8 px-2.5 rounded-lg border text-xs font-medium outline-none shrink-0"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                borderColor: 'var(--border-subtle)',
-                color: 'var(--text-secondary)',
-              }}
-              aria-label="Sort streams"
-            >
-              <option value="recent">Sort: Recently Added</option>
-              <option value="listens">Sort: Most Listened</option>
-              <option value="rating">Sort: Highest Rated</option>
-              <option value="title">Sort: Title (A–Z)</option>
-              <option value="channel">Sort: Channel (A–Z)</option>
-            </select>
+            {/* Sort Selector + Custom Order GripVertical Toggle */}
+            <div className="inline-flex items-center gap-1 shrink-0">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as VaultSortMode)}
+                className="h-8 px-2.5 rounded-lg border text-xs font-medium outline-none cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-secondary)',
+                }}
+                aria-label="Sort streams"
+              >
+                <option value="custom">Sort: Custom Order</option>
+                <option value="recent">Sort: Recently Added</option>
+                <option value="listens">Sort: Most Listened</option>
+                <option value="rating">Sort: Highest Rated</option>
+                <option value="title">Sort: Title (A–Z)</option>
+                <option value="channel">Sort: Channel (A–Z)</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setSortBy((prev) => (prev === 'custom' ? 'recent' : 'custom'))
+                }
+                title={
+                  isCustomSort
+                    ? 'Custom order active — drag cards or rows to rearrange (click to switch back)'
+                    : 'Enable Custom Order (drag & drop)'
+                }
+                aria-label={
+                  isCustomSort
+                    ? 'Custom drag order active'
+                    : 'Switch to Custom Order'
+                }
+                aria-pressed={isCustomSort}
+                className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
+                style={{
+                  backgroundColor: isCustomSort
+                    ? 'var(--accent-soft)'
+                    : 'var(--bg-surface)',
+                  borderColor: isCustomSort
+                    ? 'var(--accent)'
+                    : 'var(--border-subtle)',
+                  color: isCustomSort ? 'var(--accent)' : 'var(--text-secondary)',
+                }}
+              >
+                <GripVertical className="w-3.5 h-3.5" />
+              </button>
+            </div>
 
             {/* Grid / Table Segmented View Switch */}
             <div
@@ -645,7 +849,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
             </div>
           ) : viewMode === 'grid' ? (
             /* GRID CARDS VIEW */
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 max-w-[1800px]">
+            <div
+              ref={gridRef}
+              className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 max-w-[1800px]"
+            >
               {visibleStreams.map((item) => {
                 const inGrid = activeIdSet.has(item.id);
                 const rating = item.rating ?? 0;
@@ -653,22 +860,132 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                 const itemFolders = (item.folderIds ?? [])
                   .map((fid) => folderById.get(fid)?.name)
                   .filter((n): n is string => Boolean(n));
+                const isBeingDragged = draggingStreamId === item.id;
+                const isDropTarget = streamDropTarget?.streamId === item.id;
+                const singleCol = isSingleColumnGrid();
 
                 return (
                   <article
                     key={item.id}
-                    className="rounded-xl border flex flex-col overflow-hidden transition-colors"
+                    ref={(el) => {
+                      if (el) streamElRefs.current.set(item.id, el);
+                      else streamElRefs.current.delete(item.id);
+                    }}
+                    draggable={isCustomSort}
+                    onDragStart={(e) => {
+                      if (!isCustomSort) return;
+                      if (
+                        e.target instanceof HTMLElement &&
+                        e.target.closest('input, textarea')
+                      ) {
+                        e.preventDefault();
+                        return;
+                      }
+                      e.dataTransfer.setData('application/x-kanso-vault-stream-id', item.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                      activeDragStreamIdRef.current = item.id;
+                      setDraggingStreamId(item.id);
+                      setStreamDropTarget(null);
+                    }}
+                    onDragOver={(e) => {
+                      if (
+                        !isCustomSort ||
+                        !e.dataTransfer.types.includes('application/x-kanso-vault-stream-id')
+                      ) {
+                        return;
+                      }
+                      const activeId = activeDragStreamIdRef.current;
+                      if (!activeId || activeId === item.id) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const position: 'before' | 'after' = singleCol
+                        ? e.clientY < rect.top + rect.height / 2
+                          ? 'before'
+                          : 'after'
+                        : e.clientX < rect.left + rect.width / 2
+                        ? 'before'
+                        : 'after';
+                      setStreamDropTarget((prev) =>
+                        prev?.streamId === item.id && prev.position === position
+                          ? prev
+                          : { streamId: item.id, position }
+                      );
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setStreamDropTarget((prev) =>
+                          prev?.streamId === item.id ? null : prev
+                        );
+                      }
+                    }}
+                    onDrop={(e) => {
+                      if (
+                        !isCustomSort ||
+                        !e.dataTransfer.types.includes('application/x-kanso-vault-stream-id')
+                      ) {
+                        return;
+                      }
+                      const draggedId =
+                        e.dataTransfer.getData('application/x-kanso-vault-stream-id') ||
+                        activeDragStreamIdRef.current;
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const position: 'before' | 'after' = singleCol
+                        ? e.clientY < rect.top + rect.height / 2
+                          ? 'before'
+                          : 'after'
+                        : e.clientX < rect.left + rect.width / 2
+                        ? 'before'
+                        : 'after';
+                      clearDragState();
+                      if (!draggedId || draggedId === item.id) return;
+                      e.preventDefault();
+                      handleReorderStreams(draggedId, item.id, position);
+                    }}
+                    onDragEnd={clearDragState}
+                    className={`relative rounded-xl border flex flex-col transition-all duration-150 ${
+                      isBeingDragged ? 'opacity-45 scale-[0.98]' : ''
+                    } ${
+                      isDropTarget
+                        ? 'ring-1 ring-[var(--accent)]/60 ring-offset-1 ring-offset-[var(--bg-canvas)]'
+                        : ''
+                    }`}
                     style={{
                       backgroundColor: 'var(--bg-surface)',
-                      borderColor: inGrid ? 'var(--accent)' : 'var(--border-subtle)',
+                      borderColor: isDropTarget
+                        ? 'var(--accent)'
+                        : inGrid
+                        ? 'var(--accent)'
+                        : 'var(--border-subtle)',
                     }}
                   >
+                    {isDropTarget && (
+                      <div
+                        aria-hidden="true"
+                        className={
+                          singleCol
+                            ? `pointer-events-none absolute inset-x-2 h-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
+                                streamDropTarget.position === 'before'
+                                  ? '-top-1.5'
+                                  : '-bottom-1.5'
+                              }`
+                            : `pointer-events-none absolute top-1.5 bottom-1.5 w-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
+                                streamDropTarget.position === 'before'
+                                  ? '-left-1.5'
+                                  : '-right-1.5'
+                              }`
+                        }
+                      />
+                    )}
+
+                    <div className="rounded-[11px] overflow-hidden flex-1 flex flex-col">
                     {/* Thumbnail */}
                     <button
                       type="button"
-                      onClick={() =>
-                        setDrawerState({ open: true, mode: 'edit', streamId: item.id })
-                      }
+                      onClick={() => {
+                        if (draggingStreamId) return;
+                        setDrawerState({ open: true, mode: 'edit', streamId: item.id });
+                      }}
                       className="relative aspect-video w-full overflow-hidden text-left group"
                       style={{ backgroundColor: 'var(--bg-surface-subtle)' }}
                     >
@@ -706,17 +1023,71 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     {/* Body */}
                     <div className="p-3.5 flex-1 flex flex-col gap-2">
                       <div className="flex items-start justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDrawerState({ open: true, mode: 'edit', streamId: item.id })
-                          }
-                          className="text-left min-w-0 flex-1"
-                        >
-                          <h3 className="text-sm font-medium leading-snug line-clamp-2 hover:underline">
-                            {item.customLabel || item.title}
-                          </h3>
-                        </button>
+                        <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                          {isCustomSort && (
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Reorder ${item.customLabel || item.title}`}
+                              title="Drag to reorder"
+                              onClick={(e) => e.stopPropagation()}
+                              onPointerDown={(e) => {
+                                if (e.pointerType === 'mouse') return;
+                                e.stopPropagation();
+                                e.currentTarget.setPointerCapture(e.pointerId);
+                                activeDragStreamIdRef.current = item.id;
+                                setDraggingStreamId(item.id);
+                                setStreamDropTarget(null);
+                              }}
+                              onPointerMove={(e) => {
+                                if (
+                                  e.pointerType === 'mouse' ||
+                                  draggingStreamId !== item.id
+                                ) {
+                                  return;
+                                }
+                                setStreamDropTarget(
+                                  resolveVaultTouchDrop(e.clientX, e.clientY, item.id)
+                                );
+                              }}
+                              onPointerUp={(e) => {
+                                if (e.pointerType === 'mouse') return;
+                                e.stopPropagation();
+                                if (draggingStreamId === item.id) {
+                                  const target =
+                                    resolveVaultTouchDrop(e.clientX, e.clientY, item.id) ??
+                                    streamDropTarget;
+                                  clearDragState();
+                                  if (target && target.streamId !== item.id) {
+                                    handleReorderStreams(
+                                      item.id,
+                                      target.streamId,
+                                      target.position
+                                    );
+                                  }
+                                } else {
+                                  clearDragState();
+                                }
+                              }}
+                              onPointerCancel={clearDragState}
+                              className="touch-none select-none w-6 h-6 -ml-1 -mt-0.5 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+                            >
+                              <GripVertical className="w-3.5 h-3.5" />
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (draggingStreamId) return;
+                              setDrawerState({ open: true, mode: 'edit', streamId: item.id });
+                            }}
+                            className="text-left min-w-0 flex-1"
+                          >
+                            <h3 className="text-sm font-medium leading-snug line-clamp-2 hover:underline">
+                              {item.customLabel || item.title}
+                            </h3>
+                          </button>
+                        </div>
                         <button
                           type="button"
                           onClick={() => onUpdateStream(item.id, { favorite: !item.favorite })}
@@ -869,6 +1240,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                         </button>
                       </div>
                     </div>
+                    </div>
                   </article>
                 );
               })}
@@ -910,20 +1282,173 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                       const itemFolders = (item.folderIds ?? [])
                         .map((fid) => folderById.get(fid)?.name)
                         .filter((n): n is string => Boolean(n));
+                      const isBeingDragged = draggingStreamId === item.id;
+                      const isDropTarget = streamDropTarget?.streamId === item.id;
+                      const rowDropShadow = isDropTarget
+                        ? streamDropTarget.position === 'before'
+                          ? 'inset 0 2.5px 0 var(--accent)'
+                          : 'inset 0 -2.5px 0 var(--accent)'
+                        : undefined;
 
                       return (
                         <tr
                           key={item.id}
-                          className="transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
+                          ref={(el) => {
+                            if (el) streamElRefs.current.set(item.id, el);
+                            else streamElRefs.current.delete(item.id);
+                          }}
+                          draggable={isCustomSort}
+                          onDragStart={(e) => {
+                            if (!isCustomSort) return;
+                            if (
+                              e.target instanceof HTMLElement &&
+                              e.target.closest('input, textarea')
+                            ) {
+                              e.preventDefault();
+                              return;
+                            }
+                            e.dataTransfer.setData(
+                              'application/x-kanso-vault-stream-id',
+                              item.id
+                            );
+                            e.dataTransfer.effectAllowed = 'move';
+                            activeDragStreamIdRef.current = item.id;
+                            setDraggingStreamId(item.id);
+                            setStreamDropTarget(null);
+                          }}
+                          onDragOver={(e) => {
+                            if (
+                              !isCustomSort ||
+                              !e.dataTransfer.types.includes(
+                                'application/x-kanso-vault-stream-id'
+                              )
+                            ) {
+                              return;
+                            }
+                            const activeId = activeDragStreamIdRef.current;
+                            if (!activeId || activeId === item.id) return;
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'move';
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const position: 'before' | 'after' =
+                              e.clientY < rect.top + rect.height / 2
+                                ? 'before'
+                                : 'after';
+                            setStreamDropTarget((prev) =>
+                              prev?.streamId === item.id && prev.position === position
+                                ? prev
+                                : { streamId: item.id, position }
+                            );
+                          }}
+                          onDragLeave={(e) => {
+                            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                              setStreamDropTarget((prev) =>
+                                prev?.streamId === item.id ? null : prev
+                              );
+                            }
+                          }}
+                          onDrop={(e) => {
+                            if (
+                              !isCustomSort ||
+                              !e.dataTransfer.types.includes(
+                                'application/x-kanso-vault-stream-id'
+                              )
+                            ) {
+                              return;
+                            }
+                            const draggedId =
+                              e.dataTransfer.getData(
+                                'application/x-kanso-vault-stream-id'
+                              ) || activeDragStreamIdRef.current;
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const position: 'before' | 'after' =
+                              e.clientY < rect.top + rect.height / 2
+                                ? 'before'
+                                : 'after';
+                            clearDragState();
+                            if (!draggedId || draggedId === item.id) return;
+                            e.preventDefault();
+                            handleReorderStreams(draggedId, item.id, position);
+                          }}
+                          onDragEnd={clearDragState}
+                          className={`transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02] ${
+                            isBeingDragged ? 'opacity-45' : ''
+                          }`}
                           style={{ borderColor: 'var(--border-subtle)' }}
                         >
-                          <td className="py-2 pl-3.5 pr-3 max-w-[300px]">
-                            <div className="flex items-center gap-2.5 min-w-0">
+                          <td
+                            className="py-2 pl-3.5 pr-3 max-w-[300px]"
+                            style={{ boxShadow: rowDropShadow }}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              {isCustomSort && (
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-label={`Reorder ${item.customLabel || item.title}`}
+                                  title="Drag to reorder"
+                                  onClick={(e) => e.stopPropagation()}
+                                  onPointerDown={(e) => {
+                                    if (e.pointerType === 'mouse') return;
+                                    e.stopPropagation();
+                                    e.currentTarget.setPointerCapture(e.pointerId);
+                                    activeDragStreamIdRef.current = item.id;
+                                    setDraggingStreamId(item.id);
+                                    setStreamDropTarget(null);
+                                  }}
+                                  onPointerMove={(e) => {
+                                    if (
+                                      e.pointerType === 'mouse' ||
+                                      draggingStreamId !== item.id
+                                    ) {
+                                      return;
+                                    }
+                                    setStreamDropTarget(
+                                      resolveVaultTouchDrop(
+                                        e.clientX,
+                                        e.clientY,
+                                        item.id
+                                      )
+                                    );
+                                  }}
+                                  onPointerUp={(e) => {
+                                    if (e.pointerType === 'mouse') return;
+                                    e.stopPropagation();
+                                    if (draggingStreamId === item.id) {
+                                      const target =
+                                        resolveVaultTouchDrop(
+                                          e.clientX,
+                                          e.clientY,
+                                          item.id
+                                        ) ?? streamDropTarget;
+                                      clearDragState();
+                                      if (target && target.streamId !== item.id) {
+                                        handleReorderStreams(
+                                          item.id,
+                                          target.streamId,
+                                          target.position
+                                        );
+                                      }
+                                    } else {
+                                      clearDragState();
+                                    }
+                                  }}
+                                  onPointerCancel={clearDragState}
+                                  className="touch-none select-none w-6 h-6 -ml-1 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+                                >
+                                  <GripVertical className="w-3.5 h-3.5" />
+                                </div>
+                              )}
                               <button
                                 type="button"
-                                onClick={() =>
-                                  setDrawerState({ open: true, mode: 'edit', streamId: item.id })
-                                }
+                                onClick={() => {
+                                  if (draggingStreamId) return;
+                                  setDrawerState({
+                                    open: true,
+                                    mode: 'edit',
+                                    streamId: item.id,
+                                  });
+                                }}
                                 className="w-14 h-8 rounded overflow-hidden shrink-0 border"
                                 style={{
                                   backgroundColor: 'var(--bg-surface-subtle)',
@@ -936,7 +1461,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                     alt={item.customLabel || item.title}
                                     referrerPolicy="no-referrer"
                                     onError={() =>
-                                      setBrokenThumbs((prev) => ({ ...prev, [item.id]: true }))
+                                      setBrokenThumbs((prev) => ({
+                                        ...prev,
+                                        [item.id]: true,
+                                      }))
                                     }
                                     className="w-full h-full object-cover"
                                   />
@@ -952,9 +1480,14 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                               <div className="min-w-0">
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    setDrawerState({ open: true, mode: 'edit', streamId: item.id })
-                                  }
+                                  onClick={() => {
+                                    if (draggingStreamId) return;
+                                    setDrawerState({
+                                      open: true,
+                                      mode: 'edit',
+                                      streamId: item.id,
+                                    });
+                                  }}
                                   className="text-xs font-semibold truncate block max-w-full text-left hover:underline"
                                 >
                                   {item.customLabel || item.title}
@@ -971,7 +1504,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             </div>
                           </td>
 
-                          <td className="py-2 px-3 text-xs whitespace-nowrap">
+                          <td
+                            className="py-2 px-3 text-xs whitespace-nowrap"
+                            style={{ boxShadow: rowDropShadow }}
+                          >
                             <button
                               type="button"
                               onClick={() =>
@@ -987,7 +1523,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             </button>
                           </td>
 
-                          <td className="py-2 px-3 text-xs max-w-[200px]">
+                          <td
+                            className="py-2 px-3 text-xs max-w-[200px]"
+                            style={{ boxShadow: rowDropShadow }}
+                          >
                             <div className="truncate" style={{ color: 'var(--text-secondary)' }}>
                               {item.category || 'General'}
                               {item.tags.length > 0 && (
@@ -999,13 +1538,19 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             </div>
                           </td>
 
-                          <td className="py-2 px-3 text-xs hidden xl:table-cell max-w-[160px]">
+                          <td
+                            className="py-2 px-3 text-xs hidden xl:table-cell max-w-[160px]"
+                            style={{ boxShadow: rowDropShadow }}
+                          >
                             <div className="truncate" style={{ color: 'var(--text-muted)' }}>
                               {itemFolders.length > 0 ? itemFolders.join(', ') : '—'}
                             </div>
                           </td>
 
-                          <td className="py-2 px-3 whitespace-nowrap">
+                          <td
+                            className="py-2 px-3 whitespace-nowrap"
+                            style={{ boxShadow: rowDropShadow }}
+                          >
                             <div className="inline-flex items-center gap-0.5">
                               {[1, 2, 3, 4, 5].map((star) => (
                                 <button
@@ -1028,7 +1573,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             </div>
                           </td>
 
-                          <td className="py-2 px-3 text-right whitespace-nowrap">
+                          <td
+                            className="py-2 px-3 text-right whitespace-nowrap"
+                            style={{ boxShadow: rowDropShadow }}
+                          >
                             <button
                               type="button"
                               onClick={() => onIncrementListen(item.id)}
@@ -1041,7 +1589,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             </button>
                           </td>
 
-                          <td className="py-2 pl-3 pr-3.5 text-right whitespace-nowrap">
+                          <td
+                            className="py-2 pl-3 pr-3.5 text-right whitespace-nowrap"
+                            style={{ boxShadow: rowDropShadow }}
+                          >
                             <div className="inline-flex items-center gap-1">
                               <button
                                 type="button"

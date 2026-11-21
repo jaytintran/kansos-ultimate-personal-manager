@@ -57,6 +57,7 @@ export interface Entry {
   tabId?: string | null;
   tags: string[];
   pinned?: boolean;
+  sortOrder?: number;
   location?: string;
   isAchievement?: boolean;
   eventCategory?: EventCategory;
@@ -156,6 +157,7 @@ export interface ListItem {
   url?: string;
   scheduledAt: string | null;
   completedAt?: string | null;
+  sortOrder?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -270,6 +272,7 @@ export interface StreamItem {
   rating?: number; // 0..5
   listenCount?: number;
   lastListenedAt?: string | null;
+  sortOrder?: number;
   addedAt: string;
 }
 

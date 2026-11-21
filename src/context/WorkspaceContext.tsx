@@ -70,6 +70,7 @@ const VIEW_PREFERENCE_STORAGE_KEYS = [
   "kanso_events_filters_v1",
   "kanso_library_studio_prefs_v1",
   "kanso_library_voice_prefs_v1",
+  "kanso_streamer_vault_sort_v1",
 ] as const;
 
 const DEFAULT_GIST_CONFIG: GistSyncConfig = {
@@ -383,12 +384,23 @@ interface WorkspaceContextValue {
   addNoteNotebook: (name: string, icon?: string) => NoteNotebook;
   updateNoteNotebook: (id: string, patch: Partial<NoteNotebook>) => void;
   deleteNoteNotebook: (id: string) => void;
+  reorderNoteNotebooks: (
+    draggedId: string,
+    targetId: string,
+    position: "before" | "after",
+  ) => void;
+  reorderNoteEntries: (sortOrderById: Record<string, number>) => void;
 
   // Habit actions
   addHabit: (habit: Omit<Habit, "id" | "createdAt" | "completions">) => Habit;
   updateHabit: (id: string, patch: Partial<Habit>) => void;
   deleteHabit: (id: string) => void;
   toggleHabitCompletion: (habitId: string, dateKey: string) => void;
+  reorderHabits: (
+    draggedId: string,
+    targetId: string,
+    position: "before" | "after",
+  ) => void;
 
   // Lists actions
   addList: (
@@ -400,12 +412,21 @@ interface WorkspaceContextValue {
   updateList: (id: string, patch: Partial<ListCollection>) => void;
   renameList: (id: string, title: string, icon?: string) => void;
   deleteList: (id: string) => void;
+  reorderLists: (
+    draggedId: string,
+    targetId: string,
+    position: "before" | "after",
+  ) => void;
   addListItem: (
     listId: string,
     rawText: string,
     status?: ListItemStatus,
   ) => ListItem | null;
   updateListItem: (id: string, patch: Partial<ListItem>) => void;
+  reorderListItems: (
+    sortOrderById: Record<string, number>,
+    statusPatch?: { id: string; status: ListItemStatus },
+  ) => void;
   deleteListItem: (id: string) => void;
 
   // Library Studio actions (Gist-synced metadata + IndexedDB annotations)
@@ -472,6 +493,7 @@ interface WorkspaceContextValue {
   updateStreamFolder: (id: string, patch: Partial<StreamFolder>) => void;
   deleteStreamFolder: (id: string) => void;
   reorderActiveStreams: (fromIndex: number, toIndex: number) => void;
+  reorderVaultStreams: (sortOrderById: Record<string, number>) => void;
   updateStreamerState: (patch: Partial<StreamerState>) => void;
   saveStreamPreset: (name: string, category?: string) => StreamPreset;
   loadStreamPreset: (presetId: string) => void;
@@ -1618,6 +1640,51 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace, pushToast],
   );
 
+  const reorderNoteNotebooks = useCallback(
+    (draggedId: string, targetId: string, position: "before" | "after") => {
+      if (!draggedId || !targetId || draggedId === targetId) return;
+      mutateWorkspace((prev) => {
+        const current = prev.noteNotebooks ?? [];
+        const dragged = current.find((nb) => nb.id === draggedId);
+        if (!dragged || !current.some((nb) => nb.id === targetId)) return prev;
+        const remaining = current.filter((nb) => nb.id !== draggedId);
+        const targetIdx = remaining.findIndex((nb) => nb.id === targetId);
+        if (targetIdx === -1) return prev;
+        const insertIdx = position === "before" ? targetIdx : targetIdx + 1;
+        const nextNotebooks = [
+          ...remaining.slice(0, insertIdx),
+          dragged,
+          ...remaining.slice(insertIdx),
+        ];
+        if (nextNotebooks.every((nb, idx) => nb.id === current[idx]?.id)) {
+          return prev;
+        }
+        return {
+          ...prev,
+          noteNotebooks: nextNotebooks,
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const reorderNoteEntries = useCallback(
+    (sortOrderById: Record<string, number>) => {
+      if (Object.keys(sortOrderById).length === 0) return;
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: prev.entries.map((e) => {
+          const nextOrder = sortOrderById[e.id];
+          if (typeof nextOrder !== "number" || e.sortOrder === nextOrder) {
+            return e;
+          }
+          return { ...e, sortOrder: nextOrder };
+        }),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
   // Habits
   const addHabit = useCallback(
     (habit: Omit<Habit, "id" | "createdAt" | "completions">): Habit => {
@@ -1739,6 +1806,34 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           habits: nextHabits,
           habitLogs: [habitLog, ...(prev.habitLogs ?? [])],
           entries: [linkedEntry, ...prev.entries],
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const reorderHabits = useCallback(
+    (draggedId: string, targetId: string, position: "before" | "after") => {
+      if (!draggedId || !targetId || draggedId === targetId) return;
+      mutateWorkspace((prev) => {
+        const current = prev.habits ?? [];
+        const dragged = current.find((h) => h.id === draggedId);
+        if (!dragged || !current.some((h) => h.id === targetId)) return prev;
+        const remaining = current.filter((h) => h.id !== draggedId);
+        const targetIdx = remaining.findIndex((h) => h.id === targetId);
+        if (targetIdx === -1) return prev;
+        const insertIdx = position === "before" ? targetIdx : targetIdx + 1;
+        const nextHabits = [
+          ...remaining.slice(0, insertIdx),
+          dragged,
+          ...remaining.slice(insertIdx),
+        ];
+        if (nextHabits.every((h, idx) => h.id === current[idx]?.id)) {
+          return prev;
+        }
+        return {
+          ...prev,
+          habits: nextHabits,
         };
       });
     },
@@ -1867,6 +1962,79 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
             completedAt = null;
           }
           return { ...item, ...patch, completedAt, updatedAt: nowIso };
+        }),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const reorderLists = useCallback(
+    (draggedId: string, targetId: string, position: "before" | "after") => {
+      if (!draggedId || !targetId || draggedId === targetId) return;
+      mutateWorkspace((prev) => {
+        const current = prev.lists ?? [];
+        const dragged = current.find((l) => l.id === draggedId);
+        if (!dragged || !current.some((l) => l.id === targetId)) return prev;
+        const remaining = current.filter((l) => l.id !== draggedId);
+        const targetIdx = remaining.findIndex((l) => l.id === targetId);
+        if (targetIdx === -1) return prev;
+        const insertIdx = position === "before" ? targetIdx : targetIdx + 1;
+        const nextLists = [
+          ...remaining.slice(0, insertIdx),
+          dragged,
+          ...remaining.slice(insertIdx),
+        ];
+        if (nextLists.every((l, idx) => l.id === current[idx]?.id)) {
+          return prev;
+        }
+        return {
+          ...prev,
+          lists: nextLists,
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const reorderListItems = useCallback(
+    (
+      sortOrderById: Record<string, number>,
+      statusPatch?: { id: string; status: ListItemStatus },
+    ) => {
+      if (Object.keys(sortOrderById).length === 0 && !statusPatch) return;
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        listItems: prev.listItems.map((item) => {
+          const nextOrder = sortOrderById[item.id];
+          const isStatusTarget =
+            statusPatch &&
+            statusPatch.id === item.id &&
+            item.status !== statusPatch.status;
+          if (typeof nextOrder !== "number" && !isStatusTarget) return item;
+
+          let nextItem = item;
+          if (
+            typeof nextOrder === "number" &&
+            item.sortOrder !== nextOrder
+          ) {
+            nextItem = { ...nextItem, sortOrder: nextOrder };
+          }
+          if (isStatusTarget && statusPatch) {
+            const completedAt =
+              statusPatch.status === "done"
+                ? nowIso
+                : item.status === "done"
+                  ? null
+                  : (item.completedAt ?? null);
+            nextItem = {
+              ...nextItem,
+              status: statusPatch.status,
+              completedAt,
+              updatedAt: nowIso,
+            };
+          }
+          return nextItem;
         }),
       }));
     },
@@ -2463,6 +2631,23 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const reorderActiveStreams = reorderActiveSlots;
 
+  const reorderVaultStreams = useCallback(
+    (sortOrderById: Record<string, number>) => {
+      if (Object.keys(sortOrderById).length === 0) return;
+      mutateWorkspace((prev) => ({
+        ...prev,
+        streams: prev.streams.map((s) => {
+          const nextOrder = sortOrderById[s.id];
+          if (typeof nextOrder !== "number" || s.sortOrder === nextOrder) {
+            return s;
+          }
+          return { ...s, sortOrder: nextOrder };
+        }),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
   const updateStreamerState = useCallback(
     (patch: Partial<StreamerState>) => {
       mutateWorkspace((prev) => ({
@@ -2802,16 +2987,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         addNoteNotebook,
         updateNoteNotebook,
         deleteNoteNotebook,
+        reorderNoteNotebooks,
+        reorderNoteEntries,
         addHabit,
         updateHabit,
         deleteHabit,
         toggleHabitCompletion,
+        reorderHabits,
         addList,
         updateList,
         renameList,
         deleteList,
+        reorderLists,
         addListItem,
         updateListItem,
+        reorderListItems,
         deleteListItem,
         addBook,
         updateBook,
@@ -2835,6 +3025,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         updateStreamFolder,
         deleteStreamFolder,
         reorderActiveStreams,
+        reorderVaultStreams,
         updateStreamerState,
         saveStreamPreset,
         loadStreamPreset,

@@ -105,6 +105,7 @@ export const StreamerView = forwardRef<
     removeStreamSlot,
     clearStreamSlots,
     reorderActiveSlots,
+    reorderVaultStreams,
     incrementStreamListen,
     addStreamFolder,
     updateStreamFolder,
@@ -155,9 +156,40 @@ export const StreamerView = forwardRef<
   const handshakeTimersRef = useRef<Record<string, number[]>>({});
   const prevSummaryRef = useRef<StreamerPlaybackSummary | null>(null);
 
-  // Drag-and-drop reorder state
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  // Drag-and-drop reorder state (keyed by slotId so playing YouTube iframes stay stable)
+  const activeDragSlotIdRef = useRef<string | null>(null);
+  const dragStartRafRef = useRef<number | null>(null);
+  const slotElRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const slotsGridRef = useRef<HTMLDivElement | null>(null);
+  const [draggingSlotId, setDraggingSlotId] = useState<string | null>(null);
+  const [slotDropTarget, setSlotDropTarget] = useState<{
+    slotId: string;
+    position: "before" | "after";
+  } | null>(null);
+
+  const clearSlotDragState = useCallback(() => {
+    if (dragStartRafRef.current !== null) {
+      window.cancelAnimationFrame(dragStartRafRef.current);
+      dragStartRafRef.current = null;
+    }
+    activeDragSlotIdRef.current = null;
+    setDraggingSlotId(null);
+    setSlotDropTarget(null);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("dragend", clearSlotDragState);
+    window.addEventListener("drop", clearSlotDragState);
+    window.addEventListener("blur", clearSlotDragState);
+    return () => {
+      if (dragStartRafRef.current !== null) {
+        window.cancelAnimationFrame(dragStartRafRef.current);
+      }
+      window.removeEventListener("dragend", clearSlotDragState);
+      window.removeEventListener("drop", clearSlotDragState);
+      window.removeEventListener("blur", clearSlotDragState);
+    };
+  }, [clearSlotDragState]);
 
   // Responsive viewport listeners
   useEffect(() => {
@@ -187,6 +219,19 @@ export const StreamerView = forwardRef<
     const rawSlots = streamerState.activeSlots ?? [];
     return rawSlots.filter((sl) => streamById.has(sl.streamId));
   }, [streamerState.activeSlots, streamById]);
+
+  // Render slots in a stable DOM order keyed by slotId and use CSS `order`
+  // so reordering cards NEVER moves/reloads live YouTube iframes or drops audio.
+  const domOrderedSlots = useMemo<StackSlot[]>(
+    () => [...activeSlots].sort((a, b) => a.slotId.localeCompare(b.slotId)),
+    [activeSlots],
+  );
+
+  const slotOrderIndexById = useMemo(() => {
+    const map = new Map<string, number>();
+    activeSlots.forEach((sl, idx) => map.set(sl.slotId, idx));
+    return map;
+  }, [activeSlots]);
 
   const activeStreams = useMemo(
     () =>
@@ -853,6 +898,70 @@ export const StreamerView = forwardRef<
     };
   }, [viewMode, isDesktopGridViewport, sizingMode, desktopColumns]);
 
+  const singleColDropAxis = useMemo(() => {
+    if (viewMode === "mixer") return true;
+    if (!isDesktopGridViewport) return viewMode !== "tiles";
+    return desktopColumns <= 1;
+  }, [viewMode, isDesktopGridViewport, desktopColumns]);
+
+  const handleReorderSlot = useCallback(
+    (
+      draggedSlotId: string,
+      targetSlotId: string,
+      position: "before" | "after",
+    ) => {
+      if (!draggedSlotId || !targetSlotId || draggedSlotId === targetSlotId) {
+        return;
+      }
+      const fromIndex = activeSlots.findIndex(
+        (s) => s.slotId === draggedSlotId,
+      );
+      const targetIdx = activeSlots.findIndex(
+        (s) => s.slotId === targetSlotId,
+      );
+      if (fromIndex === -1 || targetIdx === -1) return;
+      const adjustedTarget = targetIdx > fromIndex ? targetIdx - 1 : targetIdx;
+      const toIndex =
+        position === "before" ? adjustedTarget : adjustedTarget + 1;
+      if (fromIndex !== toIndex) {
+        reorderActiveSlots(fromIndex, toIndex);
+      }
+    },
+    [activeSlots, reorderActiveSlots],
+  );
+
+  const resolveSlotTouchDrop = useCallback(
+    (
+      clientX: number,
+      clientY: number,
+      activeSlotId: string,
+    ): { slotId: string; position: "before" | "after" } | null => {
+      for (const slot of activeSlots) {
+        if (slot.slotId === activeSlotId) continue;
+        const el = slotElRefs.current.get(slot.slotId);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        ) {
+          const position: "before" | "after" = singleColDropAxis
+            ? clientY < rect.top + rect.height / 2
+              ? "before"
+              : "after"
+            : clientX < rect.left + rect.width / 2
+              ? "before"
+              : "after";
+          return { slotId: slot.slotId, position };
+        }
+      }
+      return null;
+    },
+    [activeSlots, singleColDropAxis],
+  );
+
   const handleVaultLoadStreams = useCallback(
     (
       streamIds: string[],
@@ -1010,6 +1119,7 @@ export const StreamerView = forwardRef<
               </div>
             ) : (
               <div
+                ref={slotsGridRef}
                 className={
                   viewMode === "mixer"
                     ? "flex flex-col gap-2.5 max-w-[1400px] mx-auto"
@@ -1023,47 +1133,173 @@ export const StreamerView = forwardRef<
                 }
                 style={gridContainerStyle}
               >
-                {activeSlots.map((slot, index) => {
+                {domOrderedSlots.map((slot) => {
                   const stream = streamById.get(slot.streamId);
                   if (!stream) return null;
+                  const visualIndex = slotOrderIndexById.get(slot.slotId) ?? 0;
+                  const dropPosition =
+                    slotDropTarget?.slotId === slot.slotId
+                      ? slotDropTarget.position
+                      : null;
 
                   return (
                     <StreamSlotCard
                       key={slot.slotId}
                       slot={slot}
                       stream={stream}
-                      index={index}
+                      index={visualIndex}
                       viewMode={viewMode}
                       isGloballyMuted={viewMuted}
                       completedLoops={completedLoops[slot.slotId] || 0}
                       loopTargetReached={Boolean(loopDoneMap[slot.slotId])}
-                      isDragging={dragIndex === index}
-                      isDropTarget={
-                        dragOverIndex === index && dragIndex !== index
-                      }
+                      isDragging={draggingSlotId === slot.slotId}
+                      isAnyDragging={draggingSlotId !== null}
+                      dropPosition={dropPosition}
+                      singleColDropAxis={singleColDropAxis}
+                      canReorder={activeSlots.length > 1}
+                      cardRef={(el) => {
+                        if (el) slotElRefs.current.set(slot.slotId, el);
+                        else slotElRefs.current.delete(slot.slotId);
+                      }}
                       iframeRef={(el) => {
                         iframeRefs.current[slot.slotId] = el;
                       }}
                       onIframeLoad={(el) => handleIframeLoad(slot, el)}
-                      onDragStart={() => setDragIndex(index)}
+                      onDragStart={(e) => {
+                        if (activeSlots.length <= 1) {
+                          e.preventDefault();
+                          return;
+                        }
+                        e.dataTransfer.setData(
+                          "application/x-kanso-stream-slot-id",
+                          slot.slotId,
+                        );
+                        e.dataTransfer.effectAllowed = "move";
+                        activeDragSlotIdRef.current = slot.slotId;
+                        setSlotDropTarget(null);
+                        if (dragStartRafRef.current !== null) {
+                          window.cancelAnimationFrame(dragStartRafRef.current);
+                        }
+                        // Defer visual opacity/scale & iframe drag shield by 1 frame so
+                        // the browser snapshots the unscaled card before mutating styles.
+                        dragStartRafRef.current = window.requestAnimationFrame(
+                          () => {
+                            dragStartRafRef.current = null;
+                            if (activeDragSlotIdRef.current === slot.slotId) {
+                              setDraggingSlotId(slot.slotId);
+                            }
+                          },
+                        );
+                      }}
                       onDragOver={(e) => {
+                        const hasSlotType =
+                          Array.from(e.dataTransfer.types).includes(
+                            "application/x-kanso-stream-slot-id",
+                          ) || Boolean(activeDragSlotIdRef.current);
+                        if (!hasSlotType) return;
+                        const activeId = activeDragSlotIdRef.current;
+                        if (!activeId || activeId === slot.slotId) return;
                         e.preventDefault();
-                        if (dragIndex !== null && dragIndex !== index) {
-                          setDragOverIndex(index);
+                        e.dataTransfer.dropEffect = "move";
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const position: "before" | "after" = singleColDropAxis
+                          ? e.clientY < rect.top + rect.height / 2
+                            ? "before"
+                            : "after"
+                          : e.clientX < rect.left + rect.width / 2
+                            ? "before"
+                            : "after";
+                        setSlotDropTarget((prev) =>
+                          prev?.slotId === slot.slotId &&
+                          prev.position === position
+                            ? prev
+                            : { slotId: slot.slotId, position },
+                        );
+                      }}
+                      onDragLeave={(e) => {
+                        if (
+                          !e.currentTarget.contains(e.relatedTarget as Node)
+                        ) {
+                          setSlotDropTarget((prev) =>
+                            prev?.slotId === slot.slotId ? null : prev,
+                          );
                         }
                       }}
                       onDrop={(e) => {
+                        const hasSlotType =
+                          Array.from(e.dataTransfer.types).includes(
+                            "application/x-kanso-stream-slot-id",
+                          ) || Boolean(activeDragSlotIdRef.current);
+                        if (!hasSlotType) return;
+                        const draggedId =
+                          e.dataTransfer.getData(
+                            "application/x-kanso-stream-slot-id",
+                          ) || activeDragSlotIdRef.current;
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const position: "before" | "after" = singleColDropAxis
+                          ? e.clientY < rect.top + rect.height / 2
+                            ? "before"
+                            : "after"
+                          : e.clientX < rect.left + rect.width / 2
+                            ? "before"
+                            : "after";
+                        clearSlotDragState();
+                        if (!draggedId || draggedId === slot.slotId) return;
                         e.preventDefault();
-                        if (dragIndex !== null && dragIndex !== index) {
-                          reorderActiveSlots(dragIndex, index);
+                        handleReorderSlot(draggedId, slot.slotId, position);
+                      }}
+                      onDragEnd={clearSlotDragState}
+                      onGripPointerDown={(e) => {
+                        if (
+                          e.pointerType === "mouse" ||
+                          activeSlots.length <= 1
+                        ) {
+                          return;
                         }
-                        setDragIndex(null);
-                        setDragOverIndex(null);
+                        e.stopPropagation();
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        activeDragSlotIdRef.current = slot.slotId;
+                        setDraggingSlotId(slot.slotId);
+                        setSlotDropTarget(null);
                       }}
-                      onDragEnd={() => {
-                        setDragIndex(null);
-                        setDragOverIndex(null);
+                      onGripPointerMove={(e) => {
+                        if (
+                          e.pointerType === "mouse" ||
+                          activeDragSlotIdRef.current !== slot.slotId
+                        ) {
+                          return;
+                        }
+                        setSlotDropTarget(
+                          resolveSlotTouchDrop(
+                            e.clientX,
+                            e.clientY,
+                            slot.slotId,
+                          ),
+                        );
                       }}
+                      onGripPointerUp={(e) => {
+                        if (e.pointerType === "mouse") return;
+                        e.stopPropagation();
+                        if (activeDragSlotIdRef.current === slot.slotId) {
+                          const target =
+                            resolveSlotTouchDrop(
+                              e.clientX,
+                              e.clientY,
+                              slot.slotId,
+                            ) ?? slotDropTarget;
+                          clearSlotDragState();
+                          if (target && target.slotId !== slot.slotId) {
+                            handleReorderSlot(
+                              slot.slotId,
+                              target.slotId,
+                              target.position,
+                            );
+                          }
+                        } else {
+                          clearSlotDragState();
+                        }
+                      }}
+                      onGripPointerCancel={clearSlotDragState}
                       onToggleMute={() => handleToggleCardMute(slot)}
                       onChangeVolume={(vol) =>
                         handleChangeCardVolume(slot, vol)
@@ -1163,6 +1399,7 @@ export const StreamerView = forwardRef<
             onToggleStreamInGrid={toggleStreamInGrid}
             onStackStream={handleSidebarStackStream}
             onLoadStreamsToGrid={handleVaultLoadStreams}
+            onReorderStreams={reorderVaultStreams}
             onIncrementListen={incrementStreamListen}
             onAddFolder={(name, parentId) =>
               addStreamFolder(name, parentId ?? null)

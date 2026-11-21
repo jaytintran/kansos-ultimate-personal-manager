@@ -12,13 +12,22 @@ interface StreamSlotCardProps {
   completedLoops: number;
   loopTargetReached: boolean;
   isDragging: boolean;
-  isDropTarget: boolean;
+  isAnyDragging: boolean;
+  dropPosition: 'before' | 'after' | null;
+  singleColDropAxis: boolean;
+  canReorder: boolean;
+  cardRef?: (el: HTMLElement | null) => void;
   iframeRef: (el: HTMLIFrameElement | null) => void;
   onIframeLoad: (iframe: HTMLIFrameElement | null) => void;
-  onDragStart: () => void;
+  onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
+  onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
   onDragEnd: () => void;
+  onGripPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onGripPointerMove: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onGripPointerUp: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onGripPointerCancel: () => void;
   onToggleMute: () => void;
   onChangeVolume: (volume: number) => void;
   onToggleLoopMode: () => void;
@@ -29,18 +38,28 @@ interface StreamSlotCardProps {
 export const StreamSlotCard: React.FC<StreamSlotCardProps> = ({
   slot,
   stream,
+  index,
   viewMode,
   isGloballyMuted,
   completedLoops,
   loopTargetReached,
   isDragging,
-  isDropTarget,
+  isAnyDragging,
+  dropPosition,
+  singleColDropAxis,
+  canReorder,
+  cardRef,
   iframeRef,
   onIframeLoad,
   onDragStart,
   onDragOver,
+  onDragLeave,
   onDrop,
   onDragEnd,
+  onGripPointerDown,
+  onGripPointerMove,
+  onGripPointerUp,
+  onGripPointerCancel,
   onToggleMute,
   onChangeVolume,
   onToggleLoopMode,
@@ -67,23 +86,73 @@ export const StreamSlotCard: React.FC<StreamSlotCardProps> = ({
 
   return (
     <article
-      draggable
-      onDragStart={onDragStart}
+      ref={cardRef}
+      draggable={canReorder}
+      onMouseDownCapture={(e) => {
+        if (!canReorder) return;
+        const blocked =
+          e.target instanceof Element &&
+          Boolean(e.target.closest('input, textarea, button, select, iframe'));
+        e.currentTarget.draggable = !blocked;
+      }}
+      onMouseUpCapture={(e) => {
+        if (canReorder && !e.currentTarget.draggable) {
+          e.currentTarget.draggable = true;
+        }
+      }}
+      onDragStart={(e) => {
+        if (
+          !canReorder ||
+          (e.target instanceof Element &&
+            e.target.closest('input, textarea, button, select, iframe'))
+        ) {
+          e.preventDefault();
+          return;
+        }
+        onDragStart(e);
+      }}
       onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
       onDrop={onDrop}
-      onDragEnd={onDragEnd}
-      className={`rounded-xl border overflow-hidden flex transition-all ${
-        isMixer ? 'flex-col sm:flex-row' : 'flex-col'
+      onDragEnd={(e) => {
+        e.currentTarget.draggable = canReorder;
+        onDragEnd();
+      }}
+      className={`group relative rounded-xl border transition-all duration-150 ${
+        canReorder ? 'cursor-grab active:cursor-grabbing' : ''
+      } ${isDragging ? 'opacity-45 scale-[0.98]' : ''} ${
+        dropPosition
+          ? 'ring-1 ring-[var(--accent)]/60 ring-offset-1 ring-offset-[var(--bg-canvas)]'
+          : ''
       }`}
       style={{
+        order: index,
         backgroundColor: 'var(--bg-surface)',
-        borderColor: isDropTarget ? 'var(--accent)' : 'var(--border-subtle)',
-        opacity: isDragging ? 0.55 : 1,
-        outline: isDropTarget ? '2px solid var(--accent)' : 'none',
-        outlineOffset: '1px',
+        borderColor: dropPosition ? 'var(--accent)' : 'var(--border-subtle)',
       }}
     >
-      {/* Video Frame (kept continuously mounted across viewModes so audio never drops) */}
+      {/* Directional accent insertion bar when reordering */}
+      {dropPosition && (
+        <div
+          aria-hidden="true"
+          className={
+            singleColDropAxis
+              ? `pointer-events-none absolute inset-x-2 h-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-30 ${
+                  dropPosition === 'before' ? '-top-1.5' : '-bottom-1.5'
+                }`
+              : `pointer-events-none absolute top-1.5 bottom-1.5 w-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-30 ${
+                  dropPosition === 'before' ? '-left-1.5' : '-right-1.5'
+                }`
+          }
+        />
+      )}
+
+      <div
+        className={`rounded-[11px] overflow-hidden flex ${
+          isMixer ? 'flex-col sm:flex-row' : 'flex-col'
+        }`}
+      >
+      {/* Video Frame (kept continuously mounted across viewModes & reorders so audio never drops) */}
       <div
         className={
           isMixer
@@ -96,10 +165,16 @@ export const StreamSlotCard: React.FC<StreamSlotCardProps> = ({
           onLoad={(e) => onIframeLoad(e.currentTarget)}
           src={buildYouTubeEmbedUrl(stream.videoId)}
           title={displayTitle}
-          className="absolute inset-0 w-full h-full border-0"
+          className={`absolute inset-0 w-full h-full border-0 ${
+            isAnyDragging ? 'pointer-events-none' : ''
+          }`}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
         />
+        {/* Transparent drag shield so cross-origin YouTube iframes never swallow dragover/drop events */}
+        {isAnyDragging && (
+          <div aria-hidden="true" className="absolute inset-0 z-10" />
+        )}
       </div>
 
       {/* Header + Controls Container */}
@@ -110,24 +185,33 @@ export const StreamSlotCard: React.FC<StreamSlotCardProps> = ({
             : 'contents'
         }
       >
-        {/* Clean Card Header: Drag Grip + Title/Subtitle + Remove (No < or > chevrons) */}
+        {/* Clean Card Header: Drag Grip + Title/Subtitle + Remove */}
         <div
-          className={`px-2.5 ${isTiles ? 'py-1.5' : 'py-2'} border-b flex items-center justify-between gap-2 ${
+          className={`px-2.5 ${isTiles ? 'py-1.5' : 'py-2'} border-b flex items-center justify-between gap-2 select-none ${
             isMixer ? '' : 'order-1'
-          }`}
+          } ${canReorder ? 'cursor-grab active:cursor-grabbing' : ''}`}
           style={{
             borderColor: 'var(--border-subtle)',
             backgroundColor: 'var(--bg-surface-subtle)',
           }}
         >
           <div className="flex items-center gap-1.5 min-w-0 flex-1">
-            <span
-              className="inline-flex items-center justify-center cursor-grab active:cursor-grabbing shrink-0"
-              style={{ color: 'var(--text-muted)' }}
-              title="Drag to reorder"
-            >
-              <GripVertical className="w-3.5 h-3.5" />
-            </span>
+            {canReorder && (
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={`Reorder ${displayTitle}`}
+                title="Drag to reorder"
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={onGripPointerDown}
+                onPointerMove={onGripPointerMove}
+                onPointerUp={onGripPointerUp}
+                onPointerCancel={onGripPointerCancel}
+                className="touch-none select-none w-6 h-6 -ml-1 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+              >
+                <GripVertical className="w-3.5 h-3.5" />
+              </div>
+            )}
 
             <div className="min-w-0 flex-1">
               <div
@@ -285,6 +369,7 @@ export const StreamSlotCard: React.FC<StreamSlotCardProps> = ({
             </span>
           </div>
         </div>
+      </div>
       </div>
     </article>
   );

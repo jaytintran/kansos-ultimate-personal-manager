@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCircle2,
@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Circle,
   Clock,
+  GripVertical,
   MoreVertical,
   Pencil,
   Pin,
@@ -81,6 +82,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
     updateCustomTab,
     deleteCustomTab,
     deleteEntry,
+    reorderNoteEntries,
   } = useWorkspace();
 
   const [activeTab, setActiveTab] = useState<"today" | "scratchpad" | string>(
@@ -153,6 +155,52 @@ export const FocusView: React.FC<FocusViewProps> = ({
     [activeEntries],
   );
 
+  // X-Active drag & drop reorder state
+  const activeDragXIdRef = useRef<string | null>(null);
+  const xRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [draggingXId, setDraggingXId] = useState<string | null>(null);
+  const [xDropTarget, setXDropTarget] = useState<{
+    entryId: string;
+    position: "before" | "after";
+  } | null>(null);
+
+  const clearXDragState = useCallback(() => {
+    activeDragXIdRef.current = null;
+    setDraggingXId(null);
+    setXDropTarget(null);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("dragend", clearXDragState);
+    window.addEventListener("drop", clearXDragState);
+    return () => {
+      window.removeEventListener("dragend", clearXDragState);
+      window.removeEventListener("drop", clearXDragState);
+    };
+  }, [clearXDragState]);
+
+  const customEntryOrderCompare = useCallback((a: Entry, b: Entry) => {
+    const aOrder =
+      typeof a.sortOrder === "number" && Number.isFinite(a.sortOrder)
+        ? a.sortOrder
+        : null;
+    const bOrder =
+      typeof b.sortOrder === "number" && Number.isFinite(b.sortOrder)
+        ? b.sortOrder
+        : null;
+    if (aOrder !== null && bOrder !== null) {
+      if (aOrder !== bOrder) return aOrder - bOrder;
+    } else if (aOrder === null && bOrder !== null) {
+      return -1;
+    } else if (aOrder !== null && bOrder === null) {
+      return 1;
+    }
+    return (
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() ||
+      a.id.localeCompare(b.id)
+    );
+  }, []);
+
   const xActiveTasks = useMemo(
     () =>
       activeEntries
@@ -161,11 +209,55 @@ export const FocusView: React.FC<FocusViewProps> = ({
             (e.source === "focus-active" || e.focusBucket === "x-active") &&
             !e.completed,
         )
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        ),
-    [activeEntries],
+        .sort(customEntryOrderCompare),
+    [activeEntries, customEntryOrderCompare],
+  );
+
+  const handleReorderXActive = useCallback(
+    (draggedId: string, targetId: string, position: "before" | "after") => {
+      if (!draggedId || !targetId || draggedId === targetId) return;
+      const ids = xActiveTasks.map((t) => t.id);
+      if (!ids.includes(draggedId) || !ids.includes(targetId)) return;
+      const remaining = ids.filter((id) => id !== draggedId);
+      const targetIndex = remaining.indexOf(targetId);
+      if (targetIndex === -1) return;
+      const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
+      const nextIds = [
+        ...remaining.slice(0, insertIndex),
+        draggedId,
+        ...remaining.slice(insertIndex),
+      ];
+      if (nextIds.every((id, idx) => id === ids[idx])) return;
+
+      const sortOrderById: Record<string, number> = {};
+      nextIds.forEach((id, idx) => {
+        sortOrderById[id] = idx;
+      });
+      reorderNoteEntries(sortOrderById);
+    },
+    [xActiveTasks, reorderNoteEntries],
+  );
+
+  const resolveXTouchDrop = useCallback(
+    (
+      clientY: number,
+      activeId: string,
+    ): { entryId: string; position: "before" | "after" } | null => {
+      for (const task of xActiveTasks) {
+        if (task.id === activeId) continue;
+        const el = xRowRefs.current.get(task.id);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (clientY >= rect.top && clientY <= rect.bottom) {
+          return {
+            entryId: task.id,
+            position: clientY < rect.top + rect.height / 2 ? "before" : "after",
+          };
+        }
+      }
+      return null;
+    },
+    [xActiveTasks],
   );
 
   const atXCapacity = xActiveTasks.length >= xLimit;
@@ -577,69 +669,212 @@ export const FocusView: React.FC<FocusViewProps> = ({
                     borderColor: "var(--border-subtle)",
                   }}
                 >
-                  {xActiveTasks.map((entry) => (
-                    <div
-                      key={entry.id}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        onOpenContextMenu({ kind: "entry", entry }, e);
-                      }}
-                      className="group flex items-start gap-3 px-3.5 py-3 transition-colors hover:bg-[var(--bg-surface-subtle)]"
-                      style={{ borderColor: "var(--border-subtle)" }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleEntryCompleted(entry.id)}
-                        className="mt-0.5 h-5 w-5 flex items-center justify-center rounded-full shrink-0 transition-colors"
-                        style={{ color: "var(--text-muted)" }}
-                        title="Mark complete"
-                        aria-label={`Complete ${entry.title}`}
-                      >
-                        <Circle className="w-4.5 h-4.5" />
-                      </button>
+                  {xActiveTasks.map((entry) => {
+                    const isBeingDragged = draggingXId === entry.id;
+                    const isDropTarget = xDropTarget?.entryId === entry.id;
 
-                      <div className="flex-1 min-w-0 space-y-0.5">
-                        <InlineTitleEdit
-                          value={entry.title}
-                          allowMobileEdit
-                          onCommit={(nextTitle) =>
-                            updateEntry(entry.id, { title: nextTitle })
+                    return (
+                      <div
+                        key={entry.id}
+                        ref={(el) => {
+                          if (el) xRowRefs.current.set(entry.id, el);
+                          else xRowRefs.current.delete(entry.id);
+                        }}
+                        draggable={xActiveTasks.length > 1}
+                        onDragStart={(e) => {
+                          if (
+                            e.target instanceof HTMLElement &&
+                            e.target.closest("input, textarea")
+                          ) {
+                            e.preventDefault();
+                            return;
                           }
-                          className="text-sm font-medium"
-                        />
-                        {(entry.scheduledAt || entry.tags.length > 0) && (
-                          <div
-                            className="flex flex-wrap items-center gap-x-2 text-xs font-mono tabular-nums"
-                            style={{ color: "var(--text-muted)" }}
-                          >
-                            {entry.scheduledAt && (
-                              <span>
-                                {formatTime(entry.scheduledAt, timeFormat)}
-                              </span>
-                            )}
-                            {entry.tags.length > 0 && (
-                              <span>
-                                {entry.tags.map((t) => `#${t}`).join(" ")}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
+                          e.dataTransfer.setData(
+                            "application/x-kanso-xactive-id",
+                            entry.id,
+                          );
+                          e.dataTransfer.effectAllowed = "move";
+                          activeDragXIdRef.current = entry.id;
+                          setDraggingXId(entry.id);
+                        }}
+                        onDragEnd={clearXDragState}
+                        onDragOver={(e) => {
+                          if (
+                            !e.dataTransfer.types.includes(
+                              "application/x-kanso-xactive-id",
+                            )
+                          ) {
+                            return;
+                          }
+                          if (activeDragXIdRef.current === entry.id) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const position: "before" | "after" =
+                            e.clientY < rect.top + rect.height / 2
+                              ? "before"
+                              : "after";
+                          setXDropTarget((prev) =>
+                            prev?.entryId === entry.id &&
+                            prev.position === position
+                              ? prev
+                              : { entryId: entry.id, position },
+                          );
+                        }}
+                        onDragLeave={(e) => {
+                          if (
+                            !e.currentTarget.contains(e.relatedTarget as Node)
+                          ) {
+                            setXDropTarget((prev) =>
+                              prev?.entryId === entry.id ? null : prev,
+                            );
+                          }
+                        }}
+                        onDrop={(e) => {
+                          if (
+                            !e.dataTransfer.types.includes(
+                              "application/x-kanso-xactive-id",
+                            )
+                          ) {
+                            return;
+                          }
+                          const draggedId =
+                            e.dataTransfer.getData(
+                              "application/x-kanso-xactive-id",
+                            ) || activeDragXIdRef.current;
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const position: "before" | "after" =
+                            e.clientY < rect.top + rect.height / 2
+                              ? "before"
+                              : "after";
+                          clearXDragState();
+                          if (!draggedId || draggedId === entry.id) return;
+                          e.preventDefault();
+                          handleReorderXActive(draggedId, entry.id, position);
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
                           onOpenContextMenu({ kind: "entry", entry }, e);
                         }}
-                        className="h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0"
-                        style={{ color: "var(--text-muted)" }}
-                        aria-label="More actions"
+                        className={`relative group flex items-start gap-2.5 px-3.5 py-3 transition-colors hover:bg-[var(--bg-surface-subtle)] ${
+                          isBeingDragged
+                            ? "opacity-45 bg-[var(--accent-soft)]"
+                            : ""
+                        }`}
+                        style={{
+                          borderColor: "var(--border-subtle)",
+                          boxShadow: isDropTarget
+                            ? xDropTarget.position === "before"
+                              ? "inset 0 2.5px 0 var(--accent)"
+                              : "inset 0 -2.5px 0 var(--accent)"
+                            : undefined,
+                        }}
                       >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Reorder ${entry.title}`}
+                          title="Drag to reorder"
+                          onClick={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => {
+                            if (e.pointerType === "mouse") return;
+                            if (xActiveTasks.length <= 1) return;
+                            e.stopPropagation();
+                            e.currentTarget.setPointerCapture(e.pointerId);
+                            activeDragXIdRef.current = entry.id;
+                            setDraggingXId(entry.id);
+                            setXDropTarget(null);
+                          }}
+                          onPointerMove={(e) => {
+                            if (
+                              e.pointerType === "mouse" ||
+                              draggingXId !== entry.id
+                            ) {
+                              return;
+                            }
+                            setXDropTarget(
+                              resolveXTouchDrop(e.clientY, entry.id),
+                            );
+                          }}
+                          onPointerUp={(e) => {
+                            if (e.pointerType === "mouse") return;
+                            e.stopPropagation();
+                            if (draggingXId === entry.id) {
+                              const resolved =
+                                resolveXTouchDrop(e.clientY, entry.id) ??
+                                xDropTarget;
+                              clearXDragState();
+                              if (resolved && resolved.entryId !== entry.id) {
+                                handleReorderXActive(
+                                  entry.id,
+                                  resolved.entryId,
+                                  resolved.position,
+                                );
+                              }
+                            } else {
+                              clearXDragState();
+                            }
+                          }}
+                          onPointerCancel={clearXDragState}
+                          className="touch-none select-none w-6 h-6 -ml-1.5 mt-0 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+                        >
+                          <GripVertical className="w-3.5 h-3.5" />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleEntryCompleted(entry.id)}
+                          className="mt-0.5 h-5 w-5 flex items-center justify-center rounded-full shrink-0 transition-colors"
+                          style={{ color: "var(--text-muted)" }}
+                          title="Mark complete"
+                          aria-label={`Complete ${entry.title}`}
+                        >
+                          <Circle className="w-4.5 h-4.5" />
+                        </button>
+
+                        <div className="flex-1 min-w-0 space-y-0.5">
+                          <InlineTitleEdit
+                            value={entry.title}
+                            allowMobileEdit
+                            onCommit={(nextTitle) =>
+                              updateEntry(entry.id, { title: nextTitle })
+                            }
+                            className="text-sm font-medium"
+                          />
+                          {(entry.scheduledAt || entry.tags.length > 0) && (
+                            <div
+                              className="flex flex-wrap items-center gap-x-2 text-xs font-mono tabular-nums"
+                              style={{ color: "var(--text-muted)" }}
+                            >
+                              {entry.scheduledAt && (
+                                <span>
+                                  {formatTime(entry.scheduledAt, timeFormat)}
+                                </span>
+                              )}
+                              {entry.tags.length > 0 && (
+                                <span>
+                                  {entry.tags.map((t) => `#${t}`).join(" ")}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenContextMenu({ kind: "entry", entry }, e);
+                          }}
+                          className="h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0"
+                          style={{ color: "var(--text-muted)" }}
+                          aria-label="More actions"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div
