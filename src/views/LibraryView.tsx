@@ -104,6 +104,13 @@ export interface LibraryViewProps {
   onToggleZenMode?: () => void;
   onExitZenMode?: () => void;
   onMuteBackgroundStreamer?: () => void;
+  /**
+   * Whether this Library instance is the currently-visible view.
+   * Used to gate global listeners & pause the reader when the Library
+   * stays mounted offscreen (keep-alive in App.tsx).
+   * Defaults to true for safety.
+   */
+  isActiveView?: boolean;
 }
 
 function makeId(prefix: string): string {
@@ -129,6 +136,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onToggleZenMode,
   onExitZenMode,
   onMuteBackgroundStreamer,
+  isActiveView = true,
 }) => {
   const {
     workspace,
@@ -242,13 +250,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   // Exit Zen mode whenever returning from Reader back to Library grid
   useEffect(() => {
+    if (!isActiveView) return;
     if (!activeBookId && zenMode) {
       onExitZenMode?.();
     }
-  }, [activeBookId, zenMode, onExitZenMode]);
+  }, [isActiveView, activeBookId, zenMode, onExitZenMode]);
 
   // Global Cmd/Ctrl+K Command Palette & Escape handling when in Library shelf view
   useEffect(() => {
+    if (!isActiveView) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -261,12 +271,20 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeBookId, contextMenu, displayPopoverOpen, selectedIds.size]);
+  }, [
+    isActiveView,
+    activeBookId,
+    contextMenu,
+    displayPopoverOpen,
+    selectedIds.size,
+  ]);
 
   // Track internal book drag state synchronously + for FloatingFolderDropDock
   const isInternalBookDragRef = useRef(false);
 
   useEffect(() => {
+    if (!isActiveView) return;
+
     const onDragStart = (e: DragEvent) => {
       const types = e.dataTransfer?.types;
       if (
@@ -292,7 +310,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       window.removeEventListener("dragend", onDragEnd);
       window.removeEventListener("drop", onDragEnd);
     };
-  }, []);
+  }, [isActiveView]);
 
   const isPureExternalFileDrag = useCallback(
     (dt: DataTransfer | null): boolean => {

@@ -8,6 +8,8 @@ import {
   LayoutGrid,
   Maximize2,
   Minimize2,
+  PanelRightClose,
+  PanelRightOpen,
   Pause,
   Play,
   RotateCcw,
@@ -38,6 +40,8 @@ interface StreamerTransportBarProps {
   onChangeLayoutMode: (mode: StreamLayoutMode) => void;
   sizingMode: StreamSizingMode;
   onChangeSizingMode: (mode: StreamSizingMode) => void;
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
   onTogglePlayPauseAll: () => void;
   onToggleMuteAll: () => void;
   onSyncAll: () => void;
@@ -92,6 +96,8 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
   onChangeLayoutMode,
   sizingMode,
   onChangeSizingMode,
+  sidebarOpen,
+  onToggleSidebar,
   onTogglePlayPauseAll,
   onToggleMuteAll,
   onSyncAll,
@@ -813,6 +819,35 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
         >
           <Trash2 className="w-3.5 h-3.5" />
           <span className="hidden xl:inline">Clear</span>
+        </button>
+
+        {/* Studio Sidebar Toggle */}
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors hover:bg-[var(--bg-surface-hover)]"
+          style={{
+            backgroundColor: sidebarOpen
+              ? "var(--accent-soft)"
+              : "var(--bg-surface)",
+            borderColor: sidebarOpen ? "var(--accent)" : "var(--border-subtle)",
+            color: sidebarOpen ? "var(--accent)" : "var(--text-secondary)",
+          }}
+          title={
+            sidebarOpen
+              ? "Hide presets & library sidebar"
+              : "Show presets & library sidebar"
+          }
+          aria-label={
+            sidebarOpen ? "Hide studio sidebar" : "Show studio sidebar"
+          }
+        >
+          {sidebarOpen ? (
+            <PanelRightClose className="w-3.5 h-3.5" />
+          ) : (
+            <PanelRightOpen className="w-3.5 h-3.5" />
+          )}
+          <span className="hidden lg:inline">Presets</span>
         </button>
       </div>
     </div>

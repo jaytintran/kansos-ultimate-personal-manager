@@ -136,7 +136,11 @@ const MOBILE_MORE_IDS: ViewId[] = [
 const KansoShell: React.FC = () => {
   const { workspace, toasts, dismissToast, updateSettings } = useWorkspace();
   const [activeView, setActiveView] = useState<ViewId>("focus");
+
+  // Track whether Library and Streamer has ever been opened, so we can keep it mounted -> audio keeps running | book tabs persists
   const [hasVisitedStreamer, setHasVisitedStreamer] = useState(false);
+  const [hasVisitedLibrary, setHasVisitedLibrary] = useState(false);
+
   const [streamerPlayback, setStreamerPlayback] =
     useState<StreamerPlaybackSummary>({
       activeCount: 0,
@@ -185,6 +189,9 @@ const KansoShell: React.FC = () => {
   const navigateToView = useCallback((view: ViewId) => {
     if (view === "streamer") {
       setHasVisitedStreamer(true);
+    }
+    if (view === "library") {
+      setHasVisitedLibrary(true);
     }
     if (view !== "library") {
       setLibraryZenMode(false);
@@ -661,13 +668,23 @@ const KansoShell: React.FC = () => {
             onOpenContextMenu={handleOpenContextMenu}
           />
         )}
-        {activeView === "library" && (
-          <LibraryView
-            zenMode={libraryZenMode}
-            onToggleZenMode={() => setLibraryZenMode((z) => !z)}
-            onExitZenMode={() => setLibraryZenMode(false)}
-            onMuteBackgroundStreamer={handleMuteBackgroundStreamer}
-          />
+        {hasVisitedLibrary && (
+          <div
+            className={
+              activeView === "library"
+                ? "block"
+                : "fixed -left-[9999px] top-0 w-[1024px] h-[600px] opacity-0 pointer-events-none select-none overflow-hidden"
+            }
+            aria-hidden={activeView !== "library"}
+          >
+            <LibraryView
+              zenMode={libraryZenMode}
+              onToggleZenMode={() => setLibraryZenMode((z) => !z)}
+              onExitZenMode={() => setLibraryZenMode(false)}
+              onMuteBackgroundStreamer={handleMuteBackgroundStreamer}
+              isActiveView={activeView === "library"}
+            />
+          </div>
         )}
         {hasVisitedStreamer && (
           <div

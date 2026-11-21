@@ -15,8 +15,6 @@ interface StreamerTopBarProps {
   onChangeSubView: (subView: StreamerSubView) => void;
   activeCount: number;
   vaultCount: number;
-  sidebarOpen: boolean;
-  onToggleSidebar: () => void;
   onQuickAddUrl: (rawUrl: string) => Promise<boolean>;
 }
 
@@ -25,8 +23,6 @@ export const StreamerTopBar: React.FC<StreamerTopBarProps> = ({
   onChangeSubView,
   activeCount,
   vaultCount,
-  sidebarOpen,
-  onToggleSidebar,
   onQuickAddUrl,
 }) => {
   const [quickUrl, setQuickUrl] = useState("");
@@ -54,144 +50,108 @@ export const StreamerTopBar: React.FC<StreamerTopBarProps> = ({
         borderColor: "var(--border-subtle)",
       }}
     >
-      {/* Left: Unified View Heading + Live Grid / Vault Switcher */}
-      <div className="flex items-center gap-3 min-w-0">
-        <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight whitespace-nowrap">
-          Streamer
-        </h1>
-
-        <div
-          className="inline-flex items-center h-8 gap-0.5 p-0.5 rounded-lg border shrink-0"
+      {/* Left: Title-as-tabs — "Streamer | Vault" */}
+      <div
+        className="flex items-center min-w-0"
+        role="tablist"
+        aria-label="Streamer subview"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={subView === "grid"}
+          onClick={() => onChangeSubView("grid")}
+          className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight whitespace-nowrap transition-colors cursor-pointer"
           style={{
-            backgroundColor: "var(--bg-surface)",
-            borderColor: "var(--border-subtle)",
+            color:
+              subView === "grid" ? "var(--text-primary)" : "var(--text-muted)",
           }}
-          role="tablist"
-          aria-label="Streamer subview"
+          onMouseEnter={(e) => {
+            if (subView !== "grid") {
+              e.currentTarget.style.color = "var(--text-secondary)";
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (subView !== "grid") {
+              e.currentTarget.style.color = "var(--text-muted)";
+            }
+          }}
         >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={subView === "grid"}
-            onClick={() => onChangeSubView("grid")}
-            className="h-full px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-            style={{
-              backgroundColor:
-                subView === "grid" ? "var(--accent-soft)" : "transparent",
-              color:
-                subView === "grid" ? "var(--accent)" : "var(--text-secondary)",
-            }}
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-            <span>Live Grid</span>
-            <span
-              className="text-[11px] font-mono tabular-nums opacity-80"
-              style={{
-                color:
-                  subView === "grid" ? "var(--accent)" : "var(--text-muted)",
-              }}
-            >
-              {activeCount}
-            </span>
-          </button>
+          Streamer
+        </button>
 
-          <button
-            type="button"
-            role="tab"
-            aria-selected={subView === "vault"}
-            onClick={() => onChangeSubView("vault")}
-            className="h-full px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-            style={{
-              backgroundColor:
-                subView === "vault" ? "var(--accent-soft)" : "transparent",
-              color:
-                subView === "vault" ? "var(--accent)" : "var(--text-secondary)",
-            }}
-          >
-            <FolderKanban className="w-3.5 h-3.5" />
-            <span>Vault</span>
-            <span
-              className="text-[11px] font-mono tabular-nums opacity-80"
-              style={{
-                color:
-                  subView === "vault" ? "var(--accent)" : "var(--text-muted)",
-              }}
-            >
-              {vaultCount}
-            </span>
-          </button>
-        </div>
+        <span
+          aria-hidden="true"
+          className="mx-2.5 shrink-0"
+          style={{
+            width: 1,
+            height: "1.1em",
+            backgroundColor: "var(--border-strong)",
+          }}
+        />
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={subView === "vault"}
+          onClick={() => onChangeSubView("vault")}
+          className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight whitespace-nowrap transition-colors cursor-pointer"
+          style={{
+            color:
+              subView === "vault" ? "var(--text-primary)" : "var(--text-muted)",
+          }}
+          onMouseEnter={(e) => {
+            if (subView !== "vault") {
+              e.currentTarget.style.color = "var(--text-secondary)";
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (subView !== "vault") {
+              e.currentTarget.style.color = "var(--text-muted)";
+            }
+          }}
+        >
+          Vault
+        </button>
       </div>
 
       {/* Right (Live Grid): Compact 32px Quick-Add URL Form + Studio Sidebar Toggle */}
-      {subView === "grid" && (
-        <div className="flex flex-1 flex-wrap items-center justify-end gap-1.5 min-w-[240px]">
-          <form
-            onSubmit={handleQuickAddSubmit}
-            className="flex flex-1 items-center gap-1.5 min-w-[200px] max-w-md"
-          >
-            <input
-              type="text"
-              value={quickUrl}
-              onChange={(e) => setQuickUrl(e.target.value)}
-              placeholder="Paste YouTube URL or 11-char ID..."
-              className="flex-1 min-w-0 h-8 px-2.5 rounded-lg border text-xs outline-none transition-colors"
-              style={{
-                backgroundColor: "var(--bg-surface)",
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-primary)",
-              }}
-              aria-label="Paste YouTube URL or 11-character ID"
-            />
-            <button
-              type="submit"
-              disabled={!quickUrl.trim() || adding}
-              className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-45 transition-opacity"
-              style={{
-                backgroundColor: "var(--accent)",
-                color: "var(--accent-fg)",
-              }}
-            >
-              {adding ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Plus className="w-3.5 h-3.5" />
-              )}
-              <span>Add</span>
-            </button>
-          </form>
-
-          <button
-            type="button"
-            onClick={onToggleSidebar}
-            className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors hover:bg-[var(--bg-surface-hover)]"
+      <div className="flex flex-1 flex-wrap items-center justify-end gap-1.5 min-w-[240px]">
+        <form
+          onSubmit={handleQuickAddSubmit}
+          className="flex flex-1 items-center gap-1.5 min-w-[200px] max-w-md"
+        >
+          <input
+            type="text"
+            value={quickUrl}
+            onChange={(e) => setQuickUrl(e.target.value)}
+            placeholder="Paste YouTube URL or 11-char ID..."
+            className="flex-1 min-w-0 h-8 px-2.5 rounded-lg border text-xs outline-none transition-colors"
             style={{
-              backgroundColor: sidebarOpen
-                ? "var(--accent-soft)"
-                : "var(--bg-surface)",
-              borderColor: sidebarOpen
-                ? "var(--accent)"
-                : "var(--border-subtle)",
-              color: sidebarOpen ? "var(--accent)" : "var(--text-secondary)",
+              backgroundColor: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-primary)",
             }}
-            title={
-              sidebarOpen
-                ? "Hide presets & library sidebar"
-                : "Show presets & library sidebar"
-            }
-            aria-label={
-              sidebarOpen ? "Hide studio sidebar" : "Show studio sidebar"
-            }
+            aria-label="Paste YouTube URL or 11-character ID"
+          />
+          <button
+            type="submit"
+            disabled={!quickUrl.trim() || adding}
+            className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-45 transition-opacity"
+            style={{
+              backgroundColor: "var(--accent)",
+              color: "var(--accent-fg)",
+            }}
           >
-            {sidebarOpen ? (
-              <PanelRightClose className="w-3.5 h-3.5" />
+            {adding ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              <PanelRightOpen className="w-3.5 h-3.5" />
+              <Plus className="w-3.5 h-3.5" />
             )}
-            <span className="hidden sm:inline">Presets</span>
+            <span>Add</span>
           </button>
-        </div>
-      )}
+        </form>
+      </div>
     </header>
   );
 };
