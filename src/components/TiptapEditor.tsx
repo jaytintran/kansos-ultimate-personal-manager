@@ -5,7 +5,16 @@ import Placeholder from '@tiptap/extension-placeholder';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import CodeBlock from '@tiptap/extension-code-block';
+import { TableKit } from '@tiptap/extension-table';
+import { selectedRect } from '@tiptap/pm/tables';
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  BetweenHorizontalEnd,
+  BetweenHorizontalStart,
+  BetweenVerticalEnd,
+  BetweenVerticalStart,
   Bold,
   CheckSquare,
   Code,
@@ -16,11 +25,14 @@ import {
   List,
   ListOrdered,
   Minus,
+  PanelTop,
   Quote,
   Redo2,
   Slash,
   Strikethrough,
+  Table2,
   Terminal,
+  Trash2,
   Undo2,
 } from 'lucide-react';
 
@@ -142,6 +154,15 @@ const SLASH_ITEMS: SlashItem[] = [
     action: (ed) => ed.chain().focus().toggleCodeBlock().run(),
   },
   {
+    id: 'table',
+    label: 'Table',
+    description: 'Resizable table with header row',
+    keywords: 'table grid columns rows spreadsheet markdown',
+    icon: Table2,
+    action: (ed) =>
+      ed.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+  },
+  {
     id: 'divider',
     label: 'Divider',
     description: 'Horizontal rule separator',
@@ -151,6 +172,96 @@ const SLASH_ITEMS: SlashItem[] = [
   },
 ];
 
+type TableCellAlign = 'left' | 'center' | 'right' | null;
+
+function splitMarkdownTableRow(line: string): string[] {
+  let working = line.trim();
+  if (working.startsWith('|')) {
+    working = working.slice(1);
+  }
+  if (working.endsWith('|')) {
+    let slashCount = 0;
+    for (let i = working.length - 2; i >= 0 && working[i] === '\\'; i--) {
+      slashCount++;
+    }
+    if (slashCount % 2 === 0) {
+      working = working.slice(0, -1);
+    }
+  }
+
+  const cells: string[] = [];
+  let current = '';
+  let inBackticks = false;
+
+  for (let i = 0; i < working.length; i++) {
+    const ch = working[i];
+    if (ch === '\\' && i + 1 < working.length && working[i + 1] === '|') {
+      current += '|';
+      i++;
+      continue;
+    }
+    if (ch === '`') {
+      inBackticks = !inBackticks;
+      current += ch;
+      continue;
+    }
+    if (ch === '|' && !inBackticks) {
+      cells.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function parseTableSeparatorRow(line: string): TableCellAlign[] | null {
+  const trimmed = line.trim();
+  if (!trimmed || !trimmed.includes('|')) return null;
+  const cells = splitMarkdownTableRow(trimmed);
+  if (cells.length === 0) return null;
+
+  const alignments: TableCellAlign[] = [];
+  for (const raw of cells) {
+    const cell = raw.trim();
+    if (!/^:?-+:?$/.test(cell) || !cell.includes('-')) {
+      return null;
+    }
+    const leftColon = cell.startsWith(':');
+    const rightColon = cell.endsWith(':');
+    if (leftColon && rightColon) {
+      alignments.push('center');
+    } else if (leftColon) {
+      alignments.push('left');
+    } else if (rightColon) {
+      alignments.push('right');
+    } else {
+      alignments.push(null);
+    }
+  }
+  return alignments;
+}
+
+function hasMarkdownTable(text: string): boolean {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  let inFence = false;
+  for (let i = 0; i < lines.length - 1; i++) {
+    const line = lines[i];
+    if (line.trim().startsWith('```')) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (line.includes('|') && splitMarkdownTableRow(line).some(Boolean)) {
+      if (parseTableSeparatorRow(lines[i + 1])) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function looksLikeMarkdown(text: string): boolean {
   return (
     /^#{1,3}\s+/m.test(text) ||
@@ -159,7 +270,8 @@ function looksLikeMarkdown(text: string): boolean {
     /^\d+\.\s+\S+/m.test(text) ||
     /^>\s+\S+/m.test(text) ||
     /^```/m.test(text) ||
-    /\*\*[^*]+\*\*/.test(text)
+    /\*\*[^*]+\*\*/.test(text) ||
+    hasMarkdownTable(text)
   );
 }
 
@@ -190,7 +302,8 @@ function markdownToHtml(md: string): string {
     listMode = null;
   };
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (line.trim().startsWith('```')) {
       if (!inCode) {
         closeList();
@@ -217,6 +330,55 @@ function markdownToHtml(md: string): string {
     const trimmed = line.trim();
     if (!trimmed) {
       closeList();
+      continue;
+    }
+
+    // GFM Pipe Table (header row + alignment/separator row + body rows)
+    const nextAligns =
+      i + 1 < lines.length && trimmed.includes('|')
+        ? parseTableSeparatorRow(lines[i + 1])
+        : null;
+    if (nextAligns) {
+      closeList();
+      const headerCells = splitMarkdownTableRow(trimmed);
+      const colCount = Math.max(nextAligns.length, headerCells.length);
+      const colAlign = (idx: number) => nextAligns[idx] ?? null;
+      const cellAttr = (align: TableCellAlign) =>
+        align ? ` style="text-align: ${align}"` : '';
+
+      const tableRows: string[] = [];
+      const headerHtml = Array.from({ length: colCount }, (_, idx) => {
+        const rawCell = headerCells[idx] ?? '';
+        const content = rawCell ? inlineMd(rawCell) : '';
+        return `<th${cellAttr(colAlign(idx))}><p>${content}</p></th>`;
+      }).join('');
+      tableRows.push(`<tr>${headerHtml}</tr>`);
+
+      let j = i + 2;
+      while (j < lines.length) {
+        const rowLine = lines[j];
+        const rowTrimmed = rowLine.trim();
+        if (
+          !rowTrimmed ||
+          !rowTrimmed.includes('|') ||
+          rowTrimmed.startsWith('```') ||
+          /^#{1,6}\s+/.test(rowTrimmed) ||
+          /^---+$/.test(rowTrimmed)
+        ) {
+          break;
+        }
+        const rowCells = splitMarkdownTableRow(rowTrimmed);
+        const bodyHtml = Array.from({ length: colCount }, (_, idx) => {
+          const rawCell = rowCells[idx] ?? '';
+          const content = rawCell ? inlineMd(rawCell) : '';
+          return `<td${cellAttr(colAlign(idx))}><p>${content}</p></td>`;
+        }).join('');
+        tableRows.push(`<tr>${bodyHtml}</tr>`);
+        j++;
+      }
+
+      out.push(`<table><tbody>${tableRows.join('')}</tbody></table>`);
+      i = j - 1;
       continue;
     }
 
@@ -292,6 +454,66 @@ function markdownToHtml(md: string): string {
     );
   }
   return out.join('');
+}
+
+function isTableHeaderRowActive(editor: Editor): boolean {
+  if (!editor.isActive('table')) return false;
+  const { $from } = editor.state.selection;
+  for (let d = $from.depth; d > 0; d--) {
+    const node = $from.node(d);
+    if (node.type.name === 'table') {
+      const firstRow = node.firstChild;
+      if (!firstRow || firstRow.childCount === 0) return false;
+      return firstRow.firstChild?.type.name === 'tableHeader';
+    }
+  }
+  return false;
+}
+
+function getActiveTableCellAlign(editor: Editor): TableCellAlign {
+  if (!editor.isActive('table')) return null;
+  const align =
+    (editor.getAttributes('tableHeader')?.align as TableCellAlign | undefined) ??
+    (editor.getAttributes('tableCell')?.align as TableCellAlign | undefined) ??
+    null;
+  return align === 'left' || align === 'center' || align === 'right' ? align : null;
+}
+
+function applyTableColumnAlignment(
+  editor: Editor,
+  align: 'left' | 'center' | 'right'
+): void {
+  if (!editor.isActive('table')) return;
+  const { state, view } = editor;
+  try {
+    const rect = selectedRect(state);
+    const cellPositions = new Set<number>();
+    for (let row = 0; row < rect.map.height; row++) {
+      for (let col = rect.left; col < rect.right; col++) {
+        cellPositions.add(rect.tableStart + rect.map.map[row * rect.map.width + col]);
+      }
+    }
+    const current = getActiveTableCellAlign(editor);
+    const nextAlign: TableCellAlign = current === align ? null : align;
+    const tr = state.tr;
+    cellPositions.forEach((pos) => {
+      const cell = tr.doc.nodeAt(pos);
+      if (cell) {
+        tr.setNodeMarkup(pos, undefined, { ...cell.attrs, align: nextAlign });
+      }
+    });
+    if (tr.docChanged) {
+      view.dispatch(tr);
+      view.focus();
+    }
+  } catch {
+    const current = getActiveTableCellAlign(editor);
+    editor
+      .chain()
+      .focus()
+      .setCellAttribute('align', current === align ? null : align)
+      .run();
+  }
 }
 
 interface FloatingPos {
@@ -413,13 +635,31 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
       Placeholder.configure({ placeholder }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      TableKit.configure({
+        table: {
+          resizable: true,
+          renderWrapper: true,
+          cellMinWidth: 64,
+          handleWidth: 6,
+          lastColumnResizable: true,
+        },
+      }),
     ],
     content: content || '',
     editorProps: {
       handlePaste: (_view, event) => {
-        const htmlData = event.clipboardData?.getData('text/html');
-        const textData = event.clipboardData?.getData('text/plain');
-        if (!htmlData && textData && looksLikeMarkdown(textData)) {
+        const htmlData = event.clipboardData?.getData('text/html') || '';
+        const textData = event.clipboardData?.getData('text/plain') || '';
+        const hasSemanticHtml =
+          Boolean(htmlData) &&
+          /<(table|thead|tbody|tr|th|td|ul|ol|li|h[1-6]|blockquote|strong|b|em|i|a)\b/i.test(
+            htmlData
+          );
+        if (
+          textData &&
+          ((!htmlData && looksLikeMarkdown(textData)) ||
+            (!hasSemanticHtml && hasMarkdownTable(textData)))
+        ) {
           event.preventDefault();
           const converted = markdownToHtml(textData);
           editorRef.current?.chain().focus().insertContent(converted).run();
@@ -466,6 +706,9 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     },
     onSelectionUpdate: ({ editor: ed }) => {
       updateSelectionToolbar(ed);
+      forceRerender((n) => (n + 1) % 10000);
+    },
+    onTransaction: () => {
       forceRerender((n) => (n + 1) % 10000);
     },
     onBlur: () => {
@@ -552,6 +795,9 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   if (!editor) return null;
 
   const isCodeBlockActive = editor.isActive('codeBlock');
+  const isTableActive = editor.isActive('table');
+  const tableHasHeader = isTableActive ? isTableHeaderRowActive(editor) : false;
+  const activeCellAlign = isTableActive ? getActiveTableCellAlign(editor) : null;
   const currentCodeLang = (editor.getAttributes('codeBlock')?.language as string) || 'plaintext';
 
   const applySlashItem = (item: SlashItem) => {
@@ -652,13 +898,324 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     </div>
   );
 
+  const TableActionBtn: React.FC<{
+    active?: boolean;
+    disabled?: boolean;
+    danger?: boolean;
+    onClick: () => void;
+    label: string;
+    children: React.ReactNode;
+  }> = ({ active, disabled, danger, onClick, label, children }) => (
+    <button
+      type="button"
+      disabled={disabled}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onClick();
+      }}
+      title={label}
+      aria-label={label}
+      className="h-7 px-2 shrink-0 inline-flex items-center gap-1 rounded-md text-[11px] font-medium whitespace-nowrap transition-colors hover:bg-[var(--bg-surface-hover)] disabled:opacity-35"
+      style={{
+        backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
+        color: danger
+          ? 'var(--danger)'
+          : active
+            ? 'var(--accent)'
+            : 'var(--text-secondary)',
+      }}
+    >
+      {children}
+    </button>
+  );
+
+  const tableControlsBar = isTableActive && (
+    <div
+      role="toolbar"
+      aria-label="Table controls"
+      className="sticky top-0 z-20 mb-3 flex items-center gap-0.5 overflow-x-auto no-scrollbar rounded-xl border px-1.5 py-1 backdrop-blur-md"
+      style={{
+        backgroundColor: 'color-mix(in srgb, var(--bg-surface) 92%, transparent)',
+        borderColor: 'var(--border-subtle)',
+      }}
+    >
+      <TableActionBtn
+        disabled={!editor.can().addRowBefore()}
+        onClick={() => editor.chain().focus().addRowBefore().run()}
+        label="Add row above"
+      >
+        <BetweenHorizontalStart className="w-3.5 h-3.5" />
+        <span>+Row ↑</span>
+      </TableActionBtn>
+      <TableActionBtn
+        disabled={!editor.can().addRowAfter()}
+        onClick={() => editor.chain().focus().addRowAfter().run()}
+        label="Add row below"
+      >
+        <BetweenHorizontalEnd className="w-3.5 h-3.5" />
+        <span>+Row ↓</span>
+      </TableActionBtn>
+      <TableActionBtn
+        disabled={!editor.can().deleteRow()}
+        onClick={() => editor.chain().focus().deleteRow().run()}
+        label="Delete row"
+      >
+        <span>−Row</span>
+      </TableActionBtn>
+
+      <span
+        className="mx-1 h-4 w-px shrink-0"
+        style={{ backgroundColor: 'var(--border-subtle)' }}
+        aria-hidden="true"
+      />
+
+      <TableActionBtn
+        disabled={!editor.can().addColumnBefore()}
+        onClick={() => editor.chain().focus().addColumnBefore().run()}
+        label="Add column left"
+      >
+        <BetweenVerticalStart className="w-3.5 h-3.5" />
+        <span>+Col ←</span>
+      </TableActionBtn>
+      <TableActionBtn
+        disabled={!editor.can().addColumnAfter()}
+        onClick={() => editor.chain().focus().addColumnAfter().run()}
+        label="Add column right"
+      >
+        <BetweenVerticalEnd className="w-3.5 h-3.5" />
+        <span>+Col →</span>
+      </TableActionBtn>
+      <TableActionBtn
+        disabled={!editor.can().deleteColumn()}
+        onClick={() => editor.chain().focus().deleteColumn().run()}
+        label="Delete column"
+      >
+        <span>−Col</span>
+      </TableActionBtn>
+
+      <span
+        className="mx-1 h-4 w-px shrink-0"
+        style={{ backgroundColor: 'var(--border-subtle)' }}
+        aria-hidden="true"
+      />
+
+      <TableActionBtn
+        active={tableHasHeader}
+        disabled={!editor.can().toggleHeaderRow()}
+        onClick={() => editor.chain().focus().toggleHeaderRow().run()}
+        label="Toggle header row"
+      >
+        <PanelTop className="w-3.5 h-3.5" />
+        <span>Header</span>
+      </TableActionBtn>
+
+      <span
+        className="mx-1 h-4 w-px shrink-0"
+        style={{ backgroundColor: 'var(--border-subtle)' }}
+        aria-hidden="true"
+      />
+
+      <ToolbarBtn
+        size="sm"
+        active={activeCellAlign === 'left'}
+        onClick={() => applyTableColumnAlignment(editor, 'left')}
+        label="Align column left"
+      >
+        <AlignLeft className="w-3.5 h-3.5" />
+      </ToolbarBtn>
+      <ToolbarBtn
+        size="sm"
+        active={activeCellAlign === 'center'}
+        onClick={() => applyTableColumnAlignment(editor, 'center')}
+        label="Align column center"
+      >
+        <AlignCenter className="w-3.5 h-3.5" />
+      </ToolbarBtn>
+      <ToolbarBtn
+        size="sm"
+        active={activeCellAlign === 'right'}
+        onClick={() => applyTableColumnAlignment(editor, 'right')}
+        label="Align column right"
+      >
+        <AlignRight className="w-3.5 h-3.5" />
+      </ToolbarBtn>
+
+      <span
+        className="mx-1 h-4 w-px shrink-0"
+        style={{ backgroundColor: 'var(--border-subtle)' }}
+        aria-hidden="true"
+      />
+
+      <TableActionBtn
+        danger
+        disabled={!editor.can().deleteTable()}
+        onClick={() => editor.chain().focus().deleteTable().run()}
+        label="Delete table"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+        <span>Delete</span>
+      </TableActionBtn>
+    </div>
+  );
+
   // ================= BORDERLESS CANVAS VARIANT =================
   if (variant === 'borderless') {
     return (
       <div ref={wrapperRef} className="relative">
-        {/* Contextual Code Block language selector (only visible when cursor is inside code block) */}
+        {/* Subtle Desktop Editorial Toolbar for DetailSheet */}
+        <div
+          role="toolbar"
+          aria-label="Editor formatting"
+          className="hidden lg:flex items-center gap-0.5 pb-2.5 mb-3 border-b"
+          style={{ borderColor: 'var(--border-subtle)' }}
+        >
+          <ToolbarBtn
+            size="sm"
+            active={editor.isActive('heading', { level: 2 })}
+            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+            label="Heading 2"
+          >
+            <Heading2 className="w-3.5 h-3.5" />
+          </ToolbarBtn>
+          <ToolbarBtn
+            size="sm"
+            active={editor.isActive('bold')}
+            onClick={() => editor.chain().focus().toggleBold().run()}
+            label="Bold"
+          >
+            <Bold className="w-3.5 h-3.5" />
+          </ToolbarBtn>
+          <ToolbarBtn
+            size="sm"
+            active={editor.isActive('italic')}
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+            label="Italic"
+          >
+            <Italic className="w-3.5 h-3.5" />
+          </ToolbarBtn>
+          <ToolbarBtn
+            size="sm"
+            active={editor.isActive('strike')}
+            onClick={() => editor.chain().focus().toggleStrike().run()}
+            label="Strikethrough"
+          >
+            <Strikethrough className="w-3.5 h-3.5" />
+          </ToolbarBtn>
+          <ToolbarBtn
+            size="sm"
+            active={editor.isActive('code')}
+            onClick={() => editor.chain().focus().toggleCode().run()}
+            label="Inline code"
+          >
+            <Code className="w-3.5 h-3.5" />
+          </ToolbarBtn>
+
+          <span
+            className="mx-1 h-4 w-px"
+            style={{ backgroundColor: 'var(--border-subtle)' }}
+            aria-hidden="true"
+          />
+
+          <ToolbarBtn
+            size="sm"
+            active={editor.isActive('bulletList')}
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+            label="Bullet list"
+          >
+            <List className="w-3.5 h-3.5" />
+          </ToolbarBtn>
+          <ToolbarBtn
+            size="sm"
+            active={editor.isActive('orderedList')}
+            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            label="Numbered list"
+          >
+            <ListOrdered className="w-3.5 h-3.5" />
+          </ToolbarBtn>
+          <ToolbarBtn
+            size="sm"
+            active={editor.isActive('taskList')}
+            onClick={() => editor.chain().focus().toggleTaskList().run()}
+            label="Checklist"
+          >
+            <CheckSquare className="w-3.5 h-3.5" />
+          </ToolbarBtn>
+          <ToolbarBtn
+            size="sm"
+            active={editor.isActive('blockquote')}
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            label="Quote"
+          >
+            <Quote className="w-3.5 h-3.5" />
+          </ToolbarBtn>
+          <ToolbarBtn
+            size="sm"
+            active={isCodeBlockActive}
+            onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+            label="Code block"
+          >
+            <Terminal className="w-3.5 h-3.5" />
+          </ToolbarBtn>
+          <ToolbarBtn
+            size="sm"
+            active={isTableActive}
+            onClick={() =>
+              editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+            }
+            label="Insert table"
+          >
+            <Table2 className="w-3.5 h-3.5" />
+          </ToolbarBtn>
+
+          {isCodeBlockActive && (
+            <select
+              value={currentCodeLang}
+              onChange={(e) =>
+                editor
+                  .chain()
+                  .focus()
+                  .updateAttributes('codeBlock', { language: e.target.value })
+                  .run()
+              }
+              aria-label="Code language"
+              className="h-7 px-2 rounded-md border text-[11px] font-mono outline-none ml-1"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              {CODE_LANGUAGES.map((lang) => (
+                <option key={lang} value={lang}>
+                  {lang}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <div className="ml-auto flex items-center gap-0.5">
+            <ToolbarBtn
+              size="sm"
+              disabled={!editor.can().undo()}
+              onClick={() => editor.chain().focus().undo().run()}
+              label="Undo"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+            </ToolbarBtn>
+            <ToolbarBtn
+              size="sm"
+              disabled={!editor.can().redo()}
+              onClick={() => editor.chain().focus().redo().run()}
+              label="Redo"
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </ToolbarBtn>
+          </div>
+        </div>
+
+        {/* Mobile Code Block language selector (when inside code block on mobile) */}
         {isCodeBlockActive && (
-          <div className="flex items-center justify-end gap-2 mb-2">
+          <div className="lg:hidden flex items-center justify-end gap-2 mb-2">
             <span
               className="text-[11px] font-mono inline-flex items-center gap-1"
               style={{ color: 'var(--text-muted)' }}
@@ -691,6 +1248,8 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
             </select>
           </div>
         )}
+
+        {tableControlsBar}
 
         {/* Floating Selection Toolbar (appears above highlighted text on desktop & touch) */}
         {selectionBar && (
@@ -897,6 +1456,15 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
         >
           <Terminal className="w-4 h-4" />
         </ToolbarBtn>
+        <ToolbarBtn
+          active={isTableActive}
+          onClick={() =>
+            editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+          }
+          label="Insert table"
+        >
+          <Table2 className="w-4 h-4" />
+        </ToolbarBtn>
 
         {isCodeBlockActive && (
           <select
@@ -941,6 +1509,15 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
           </ToolbarBtn>
         </div>
       </div>
+
+      {isTableActive && (
+        <div
+          className="px-2 pt-2"
+          style={{ backgroundColor: 'var(--bg-surface)' }}
+        >
+          {tableControlsBar}
+        </div>
+      )}
 
       <div className="kanso-tiptap px-4 py-3" style={{ minHeight }}>
         <EditorContent editor={editor} />
@@ -1088,6 +1665,15 @@ export const TiptapThumbToolbar: React.FC<TiptapThumbToolbarProps> = ({ editor, 
             label="Code block"
           >
             <Terminal className="w-4 h-4" />
+          </ThumbBtn>
+          <ThumbBtn
+            active={editor?.isActive('table')}
+            onAction={() =>
+              editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+            }
+            label="Insert table"
+          >
+            <Table2 className="w-4 h-4" />
           </ThumbBtn>
           <ThumbBtn
             disabled={!editor?.can().undo()}

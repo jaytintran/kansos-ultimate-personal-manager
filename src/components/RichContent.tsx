@@ -68,10 +68,36 @@ function highlightCode(code: string, lang?: string | null): string {
   }
 }
 
-function processRichHtml(rawHtml: string): string {
-  if (!rawHtml || !rawHtml.trim()) return '';
+function sanitizeTableStyle(rawStyle: string, tagName: string): string {
+  const safeDecls: string[] = [];
+  const decls = rawStyle.split(';');
+  for (const decl of decls) {
+    const colonIdx = decl.indexOf(':');
+    if (colonIdx <= 0) continue;
+    const prop = decl.slice(0, colonIdx).trim().toLowerCase();
+    const val = decl.slice(colonIdx + 1).trim().toLowerCase();
+    if (!val || /url\(|expression\(|javascript:/i.test(val)) continue;
+
+    if ((tagName === 'th' || tagName === 'td') && prop === 'text-align') {
+      if (val === 'left' || val === 'center' || val === 'right') {
+        safeDecls.push(`text-align: ${val}`);
+      }
+    } else if (
+      (tagName === 'table' || tagName === 'col') &&
+      (prop === 'width' || prop === 'min-width')
+    ) {
+      if (/^\d+(?:\.\d+)?(px|%)$/.test(val)) {
+        safeDecls.push(`${prop}: ${val}`);
+      }
+    }
+  }
+  return safeDecls.join('; ');
+}
+
+function processRichHtml(rawHtml: string): { html: string; hasTable: boolean } {
+  if (!rawHtml || !rawHtml.trim()) return { html: '', hasTable: false };
   if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
-    return rawHtml;
+    return { html: rawHtml, hasTable: /<table\b/i.test(rawHtml) };
   }
 
   try {
@@ -81,11 +107,51 @@ function processRichHtml(rawHtml: string): string {
     // Strip dangerous tags and event handlers
     doc.querySelectorAll('script, style, iframe, object, embed, link').forEach((el) => el.remove());
     doc.querySelectorAll('*').forEach((el) => {
+      const tag = el.tagName.toLowerCase();
       for (const attr of Array.from(el.attributes)) {
         const name = attr.name.toLowerCase();
-        if (name.startsWith('on') || (name === 'href' && attr.value.trim().toLowerCase().startsWith('javascript:'))) {
+        if (
+          name.startsWith('on') ||
+          (name === 'href' && attr.value.trim().toLowerCase().startsWith('javascript:'))
+        ) {
           el.removeAttribute(attr.name);
+          continue;
         }
+        if (name === 'style') {
+          if (tag === 'table' || tag === 'col' || tag === 'th' || tag === 'td') {
+            const safeStyle = sanitizeTableStyle(attr.value, tag);
+            if (safeStyle) {
+              el.setAttribute('style', safeStyle);
+            } else {
+              el.removeAttribute('style');
+            }
+          } else {
+            el.removeAttribute('style');
+          }
+        }
+      }
+
+      if ((tag === 'th' || tag === 'td') && !el.getAttribute('style')) {
+        const legacyAlign = (el.getAttribute('align') || '').trim().toLowerCase();
+        if (legacyAlign === 'left' || legacyAlign === 'center' || legacyAlign === 'right') {
+          el.setAttribute('style', `text-align: ${legacyAlign}`);
+        }
+      }
+    });
+
+    // Ensure every table is wrapped for clean borders & horizontal overflow
+    const tables = Array.from(doc.querySelectorAll('table'));
+    tables.forEach((table) => {
+      const parent = table.parentElement;
+      const alreadyWrapped =
+        parent &&
+        (parent.classList.contains('tableWrapper') ||
+          parent.classList.contains('kanso-table-wrap'));
+      if (!alreadyWrapped && parent) {
+        const wrapper = doc.createElement('div');
+        wrapper.className = 'kanso-table-wrap';
+        parent.insertBefore(wrapper, table);
+        wrapper.appendChild(table);
       }
     });
 
@@ -104,9 +170,12 @@ function processRichHtml(rawHtml: string): string {
       }
     });
 
-    return doc.body.innerHTML;
+    return {
+      html: doc.body.innerHTML,
+      hasTable: tables.length > 0,
+    };
   } catch {
-    return rawHtml;
+    return { html: rawHtml, hasTable: /<table\b/i.test(rawHtml) };
   }
 }
 
@@ -117,12 +186,14 @@ interface RichContentProps {
 }
 
 export const RichContent: React.FC<RichContentProps> = ({ html, className = '', fade = false }) => {
-  const processed = useMemo(() => processRichHtml(html), [html]);
+  const { html: processed, hasTable } = useMemo(() => processRichHtml(html), [html]);
   if (!processed) return null;
 
   return (
     <div
-      className={`kanso-rich-content text-sm leading-relaxed ${fade ? 'kanso-card-fade' : ''} ${className}`}
+      className={`kanso-rich-content text-sm leading-relaxed ${fade ? 'kanso-card-fade' : ''} ${
+        hasTable ? 'kanso-rich-has-table' : ''
+      } ${className}`}
       style={{ color: 'var(--text-secondary)' }}
       dangerouslySetInnerHTML={{ __html: processed }}
     />

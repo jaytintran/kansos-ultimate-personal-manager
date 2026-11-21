@@ -304,6 +304,61 @@ function serializeNodeToMarkdown(node: globalThis.Node): string {
       return `${serializeList(el, false)}\n\n`;
     case "ol":
       return `${serializeList(el, true)}\n\n`;
+    case "table": {
+      const rows = Array.from(el.querySelectorAll("tr"));
+      if (rows.length === 0) return "";
+      const matrix: string[][] = [];
+      const aligns: ("left" | "center" | "right" | null)[] = [];
+
+      rows.forEach((tr, rowIdx) => {
+        const cells = Array.from(tr.children).filter((c) => {
+          const t = c.tagName.toLowerCase();
+          return t === "th" || t === "td";
+        });
+        const rowVals = cells.map((cell, colIdx) => {
+          if (rowIdx === 0 || !aligns[colIdx]) {
+            const rawAlign = (
+              (cell as HTMLElement).style?.textAlign ||
+              cell.getAttribute("align") ||
+              ""
+            )
+              .trim()
+              .toLowerCase();
+            if (
+              rawAlign === "left" ||
+              rawAlign === "center" ||
+              rawAlign === "right"
+            ) {
+              aligns[colIdx] = rawAlign;
+            } else if (aligns[colIdx] === undefined) {
+              aligns[colIdx] = null;
+            }
+          }
+          return serializeInlineChildren(cell)
+            .replace(/\s*\n+\s*/g, " ")
+            .replace(/\|/g, "\\|")
+            .trim();
+        });
+        matrix.push(rowVals);
+      });
+
+      const colCount = Math.max(...matrix.map((r) => r.length), 1);
+      const formatRow = (vals: string[]) =>
+        `| ${Array.from({ length: colCount }, (_, i) => vals[i] ?? "").join(" | ")} |`;
+      const sepRow = `| ${Array.from({ length: colCount }, (_, i) => {
+        const a = aligns[i];
+        if (a === "center") return ":---:";
+        if (a === "left") return ":---";
+        if (a === "right") return "---:";
+        return "---";
+      }).join(" | ")} |`;
+
+      const outRows = [formatRow(matrix[0]), sepRow];
+      for (let r = 1; r < matrix.length; r++) {
+        outRows.push(formatRow(matrix[r]));
+      }
+      return `${outRows.join("\n")}\n\n`;
+    }
     case "a": {
       const href = el.getAttribute("href") || "";
       const label = serializeInlineChildren(el).trim() || href;
