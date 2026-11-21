@@ -71,6 +71,7 @@ import { ReaderTabStrip } from "../components/reader/ReaderTabStrip";
 import { ReaderView } from "../components/reader/ReaderView";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useLibraryPreferences } from "../hooks/usePreferences";
+import { pruneBookVoicePreferences } from "../hooks/useVoicePreferences";
 import {
   exportLibraryBackupZip,
   parseLibraryBackupZip,
@@ -625,9 +626,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       const deleteSet = new Set(idsToDelete);
       if (deleteSet.size === 0) return;
 
-      for (const id of deleteSet) {
-        await libraryDb.deleteBookData(id);
-      }
+      await libraryDb.deleteBooksData(Array.from(deleteSet));
+      pruneBookVoicePreferences(deleteSet);
 
       updateLibraryState((prev) => ({
         books: prev.books.filter((b) => !deleteSet.has(b.id)),

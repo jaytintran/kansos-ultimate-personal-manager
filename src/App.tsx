@@ -2,18 +2,20 @@ import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Calendar,
+  CloudDownload,
+  CloudUpload,
   FileText,
   GitCommitVertical,
   Grid2x2Check,
   ListTodo,
+  Loader2,
   MonitorPlay,
   Moon,
   MoreHorizontal,
-  Palette,
   Pause,
   Play,
   RefreshCw,
-  SlidersHorizontal,
+  Settings,
   Sun,
   Target,
   Trophy,
@@ -23,7 +25,10 @@ import {
 } from "lucide-react";
 import { DetailSheet } from "./components/DetailSheet";
 import { KansoLogo } from "./components/KansoLogo";
-import { SettingsSyncModal } from "./components/SettingsSyncModal";
+import {
+  SettingsModalTab,
+  SettingsSyncModal,
+} from "./components/SettingsSyncModal";
 import {
   TimestampFieldFocus,
   TimestampsModal,
@@ -134,12 +139,26 @@ const MOBILE_MORE_IDS: ViewId[] = [
 ];
 
 const KansoShell: React.FC = () => {
-  const { workspace, toasts, dismissToast, updateSettings } = useWorkspace();
-  const [activeView, setActiveView] = useState<ViewId>("focus");
+  const {
+    workspace,
+    gistConfig,
+    gistSyncBusy,
+    quickPushGist,
+    quickPullGist,
+    toasts,
+    dismissToast,
+    updateSettings,
+  } = useWorkspace();
+  const initialView: ViewId = workspace.settings.defaultView || "focus";
+  const [activeView, setActiveView] = useState<ViewId>(initialView);
 
   // Track whether Library and Streamer has ever been opened, so we can keep it mounted -> audio keeps running | book tabs persists
-  const [hasVisitedStreamer, setHasVisitedStreamer] = useState(false);
-  const [hasVisitedLibrary, setHasVisitedLibrary] = useState(false);
+  const [hasVisitedStreamer, setHasVisitedStreamer] = useState(
+    initialView === "streamer",
+  );
+  const [hasVisitedLibrary, setHasVisitedLibrary] = useState(
+    initialView === "library",
+  );
 
   const [streamerPlayback, setStreamerPlayback] =
     useState<StreamerPlaybackSummary>({
@@ -164,9 +183,8 @@ const KansoShell: React.FC = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [libraryZenMode, setLibraryZenMode] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<
-    "appearance" | "sync" | "workspace"
-  >("appearance");
+  const [settingsInitialTab, setSettingsInitialTab] =
+    useState<SettingsModalTab>("appearance");
 
   const handleOpenContextMenu = useCallback(
     (record: ContextMenuRecord, e: React.MouseEvent) => {
@@ -285,11 +303,16 @@ const KansoShell: React.FC = () => {
     });
   };
 
-  const openModal = (tab: "appearance" | "sync" | "workspace") => {
+  const openModal = (tab: SettingsModalTab) => {
     setMoreSheetOpen(false);
     setSettingsInitialTab(tab);
     setSettingsOpen(true);
   };
+
+  const hasGistToken = Boolean(gistConfig.token.trim());
+  const hasGistId = Boolean(gistConfig.gistId.trim());
+  const isGistConfigured = hasGistToken || hasGistId;
+  const showNavCounts = workspace.settings.showNavCounts ?? true;
 
   const isMoreViewActive = MOBILE_MORE_IDS.includes(activeView);
   const activeViewDef = ALL_NAV_ITEMS.find((item) => item.id === activeView);
@@ -449,16 +472,18 @@ const KansoShell: React.FC = () => {
                             )}
                           </button>
 
-                          <span
-                            className="text-xs font-mono tabular-nums pl-0.5 pr-0.5"
-                            style={{
-                              color: active
-                                ? "var(--accent)"
-                                : "var(--text-muted)",
-                            }}
-                          >
-                            {count}
-                          </span>
+                          {showNavCounts && (
+                            <span
+                              className="text-xs font-mono tabular-nums pl-0.5 pr-0.5"
+                              style={{
+                                color: active
+                                  ? "var(--accent)"
+                                  : "var(--text-muted)",
+                              }}
+                            >
+                              {count}
+                            </span>
+                          )}
                         </div>
                       </div>
                     );
@@ -483,14 +508,18 @@ const KansoShell: React.FC = () => {
                         <Icon className="w-4 h-4 shrink-0" />
                         <span>{item.label}</span>
                       </span>
-                      <span
-                        className="text-xs font-mono tabular-nums"
-                        style={{
-                          color: active ? "var(--accent)" : "var(--text-muted)",
-                        }}
-                      >
-                        {count}
-                      </span>
+                      {showNavCounts && (
+                        <span
+                          className="text-xs font-mono tabular-nums"
+                          style={{
+                            color: active
+                              ? "var(--accent)"
+                              : "var(--text-muted)",
+                          }}
+                        >
+                          {count}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -498,57 +527,126 @@ const KansoShell: React.FC = () => {
             ))}
           </nav>
 
-          {/* Bottom Utility Actions */}
+          {/* Bottom Utility Dock (Option 1: Top Sync Bar + Bottom Wide Settings) */}
           <div
-            className="pt-4 mt-4 border-t space-y-1 shrink-0"
+            className="pt-3.5 mt-3 border-t space-y-2 shrink-0"
             style={{ borderColor: "var(--border-subtle)" }}
           >
+            {/* Top Row: Gist Sync Bar */}
+            {isGistConfigured ? (
+              <div
+                className="flex items-center justify-between gap-1 p-1 rounded-xl border"
+                style={{
+                  backgroundColor: "var(--bg-surface-subtle)",
+                  borderColor: "var(--border-subtle)",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => openModal("sync")}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium min-w-0 flex-1 text-left transition-colors hover:bg-[var(--bg-surface-hover)]"
+                  style={{ color: "var(--text-secondary)" }}
+                  title={
+                    gistConfig.lastSyncedAt
+                      ? `Last ${gistConfig.lastDirection || "sync"}: ${new Date(gistConfig.lastSyncedAt).toLocaleString()}`
+                      : "Configure GitHub Gist Sync"
+                  }
+                >
+                  <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Gist Sync</span>
+                </button>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    disabled={gistSyncBusy !== null || !hasGistToken}
+                    onClick={() => void quickPushGist()}
+                    className="h-7 w-7 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface)] disabled:opacity-40"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-primary)",
+                    }}
+                    title={
+                      hasGistToken
+                        ? "Quick Push to GitHub Gist"
+                        : "Add GitHub token in Gist Sync to push"
+                    }
+                    aria-label="Quick Push to GitHub Gist"
+                  >
+                    {gistSyncBusy === "push" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CloudUpload className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={gistSyncBusy !== null || !hasGistId}
+                    onClick={() => void quickPullGist()}
+                    className="h-7 w-7 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface)] disabled:opacity-40"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-primary)",
+                    }}
+                    title={
+                      hasGistId
+                        ? "Instant Pull from GitHub Gist"
+                        : "Push once or add Gist ID to pull"
+                    }
+                    aria-label="Instant Pull from GitHub Gist"
+                  >
+                    {gistSyncBusy === "pull" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CloudDownload className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => openModal("sync")}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
+                style={{
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <span className="flex items-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Gist Sync</span>
+                </span>
+                <span style={{ color: "var(--text-muted)" }}>Setup</span>
+              </button>
+            )}
+
+            {/* Bottom Row: Wide Settings Button */}
             <button
               type="button"
               onClick={() => openModal("appearance")}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
-              style={{ color: "var(--text-secondary)" }}
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-semibold transition-colors hover:bg-[var(--bg-surface-subtle)]"
+              style={{
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-primary)",
+              }}
             >
               <span className="flex items-center gap-2">
-                <Palette className="w-3.5 h-3.5" />
-                <span>Theme</span>
+                <Settings
+                  className="w-3.5 h-3.5"
+                  style={{ color: "var(--accent)" }}
+                />
+                <span>Settings</span>
               </span>
               <span
-                className="capitalize"
+                className="text-[11px] font-normal capitalize"
                 style={{ color: "var(--text-muted)" }}
               >
-                {workspace.settings.theme}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => openModal("sync")}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              <span className="flex items-center gap-2">
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Gist Sync</span>
-              </span>
-              <span style={{ color: "var(--text-muted)" }}>2-Way</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => openModal("workspace")}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              <span className="flex items-center gap-2">
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                <span>Workspace</span>
-              </span>
-              <span
-                className="font-mono tabular-nums"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {workspace.settings.xActiveLimit}-Active
+                {workspace.settings.theme} · {workspace.settings.xActiveLimit}
               </span>
             </button>
           </div>
@@ -583,7 +681,7 @@ const KansoShell: React.FC = () => {
             <button
               type="button"
               onClick={toggleColorMode}
-              className="h-10 w-10 flex items-center justify-center rounded-lg"
+              className="h-9 w-9 flex items-center justify-center rounded-lg"
               style={{ color: "var(--text-secondary)" }}
               aria-label="Toggle color mode"
             >
@@ -593,23 +691,60 @@ const KansoShell: React.FC = () => {
                 <Moon className="w-4 h-4" />
               )}
             </button>
-            <button
-              type="button"
-              onClick={() => openModal("sync")}
-              className="h-10 w-10 flex items-center justify-center rounded-lg"
-              style={{ color: "var(--text-secondary)" }}
-              aria-label="GitHub Gist Sync"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
+
+            {isGistConfigured ? (
+              <>
+                <button
+                  type="button"
+                  disabled={gistSyncBusy !== null || !hasGistToken}
+                  onClick={() => void quickPushGist()}
+                  className="h-9 w-9 flex items-center justify-center rounded-lg disabled:opacity-40"
+                  style={{ color: "var(--text-secondary)" }}
+                  aria-label="Quick Push to GitHub Gist"
+                  title="Quick Push to GitHub Gist"
+                >
+                  {gistSyncBusy === "push" ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CloudUpload className="w-4 h-4" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  disabled={gistSyncBusy !== null || !hasGistId}
+                  onClick={() => void quickPullGist()}
+                  className="h-9 w-9 flex items-center justify-center rounded-lg disabled:opacity-40"
+                  style={{ color: "var(--text-secondary)" }}
+                  aria-label="Instant Pull from GitHub Gist"
+                  title="Instant Pull from GitHub Gist"
+                >
+                  {gistSyncBusy === "pull" ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CloudDownload className="w-4 h-4" />
+                  )}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => openModal("sync")}
+                className="h-9 w-9 flex items-center justify-center rounded-lg"
+                style={{ color: "var(--text-secondary)" }}
+                aria-label="GitHub Gist Sync"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => openModal("appearance")}
-              className="h-10 w-10 flex items-center justify-center rounded-lg"
+              className="h-9 w-9 flex items-center justify-center rounded-lg"
               style={{ color: "var(--text-secondary)" }}
-              aria-label="Themes and settings"
+              aria-label="Settings"
             >
-              <Palette className="w-4 h-4" />
+              <Settings className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -917,16 +1052,18 @@ const KansoShell: React.FC = () => {
                           >
                             {item.label}
                           </span>
-                          <span
-                            className="text-xs font-mono tabular-nums"
-                            style={{
-                              color: active
-                                ? "var(--accent)"
-                                : "var(--text-muted)",
-                            }}
-                          >
-                            {count}
-                          </span>
+                          {showNavCounts && (
+                            <span
+                              className="text-xs font-mono tabular-nums"
+                              style={{
+                                color: active
+                                  ? "var(--accent)"
+                                  : "var(--text-muted)",
+                              }}
+                            >
+                              {count}
+                            </span>
+                          )}
                         </div>
                         <div
                           className="text-[11px] mt-0.5 line-clamp-1"
@@ -970,14 +1107,18 @@ const KansoShell: React.FC = () => {
                             : "var(--text-secondary)",
                         }}
                       />
-                      <span
-                        className="text-xs font-mono tabular-nums"
-                        style={{
-                          color: active ? "var(--accent)" : "var(--text-muted)",
-                        }}
-                      >
-                        {count}
-                      </span>
+                      {showNavCounts && (
+                        <span
+                          className="text-xs font-mono tabular-nums"
+                          style={{
+                            color: active
+                              ? "var(--accent)"
+                              : "var(--text-muted)",
+                          }}
+                        >
+                          {count}
+                        </span>
+                      )}
                     </div>
                     <div>
                       <div
@@ -1002,48 +1143,111 @@ const KansoShell: React.FC = () => {
               })}
             </div>
 
+            {/* Mobile Option 1 Utility Dock: Top Sync Bar + Bottom Wide Settings */}
             <div
-              className="pt-3 border-t grid grid-cols-3 gap-2"
+              className="pt-3 border-t space-y-2"
               style={{ borderColor: "var(--border-subtle)" }}
             >
+              {isGistConfigured ? (
+                <div
+                  className="flex items-center justify-between gap-1.5 p-1.5 rounded-xl border"
+                  style={{
+                    backgroundColor: "var(--bg-surface-subtle)",
+                    borderColor: "var(--border-subtle)",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => openModal("sync")}
+                    className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium min-w-0 flex-1 text-left"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">Gist Sync</span>
+                  </button>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      disabled={gistSyncBusy !== null || !hasGistToken}
+                      onClick={() => void quickPushGist()}
+                      className="h-9 px-3 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-40"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {gistSyncBusy === "push" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <CloudUpload className="w-3.5 h-3.5" />
+                      )}
+                      <span>Push</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={gistSyncBusy !== null || !hasGistId}
+                      onClick={() => void quickPullGist()}
+                      className="h-9 px-3 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-40"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {gistSyncBusy === "pull" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <CloudDownload className="w-3.5 h-3.5" />
+                      )}
+                      <span>Pull</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openModal("sync")}
+                  className="w-full h-11 px-3.5 rounded-xl border text-xs font-medium flex items-center justify-between"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Gist Sync</span>
+                  </span>
+                  <span style={{ color: "var(--text-muted)" }}>Setup</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => openModal("appearance")}
-                className="h-11 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5"
+                className="w-full h-11 px-3.5 rounded-xl border text-xs font-semibold flex items-center justify-between"
                 style={{
                   backgroundColor: "var(--bg-surface)",
                   borderColor: "var(--border-subtle)",
-                  color: "var(--text-secondary)",
+                  color: "var(--text-primary)",
                 }}
               >
-                <Palette className="w-3.5 h-3.5" />
-                <span>Themes</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => openModal("sync")}
-                className="h-11 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5"
-                style={{
-                  backgroundColor: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Gist Sync</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => openModal("workspace")}
-                className="h-11 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5"
-                style={{
-                  backgroundColor: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                <span>Settings</span>
+                <span className="flex items-center gap-2">
+                  <Settings
+                    className="w-4 h-4"
+                    style={{ color: "var(--accent)" }}
+                  />
+                  <span>Settings</span>
+                </span>
+                <span
+                  className="text-[11px] font-normal"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Theme · Workspace · Storage
+                </span>
               </button>
             </div>
           </div>

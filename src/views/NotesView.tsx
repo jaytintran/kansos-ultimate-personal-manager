@@ -324,6 +324,8 @@ export const NotesView: React.FC<NotesViewProps> = ({
                   title: "",
                   content: "",
                   notebookId: activeNotebook ? activeNotebook.id : null,
+                  syncToTimeline:
+                    workspace.settings.defaultNoteTimelineSync ?? false,
                 },
               })
             }

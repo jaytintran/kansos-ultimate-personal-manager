@@ -62,6 +62,10 @@ export function createEmptyWorkspace(): KansoWorkspace {
       xActiveLimit: 5,
       timeFormat: '12h',
       timelineDisplayMode: 'default',
+      defaultView: 'focus',
+      showNavCounts: true,
+      defaultTimelineType: 'task',
+      defaultNoteTimelineSync: false,
       epubPrefs: {
         fontSize: 17,
         fontFamily: 'serif',

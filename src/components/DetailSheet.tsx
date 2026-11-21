@@ -261,7 +261,12 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
       const nextCat: EventCategory = src?.eventCategory ?? "personal";
       const nextAtt: EventAttendance = src?.attendance ?? null;
       const nextListIds = src?.listIds ?? [];
-      const nextSync = Boolean(src?.syncToTimeline);
+      const nextSync = Boolean(
+        src?.syncToTimeline ??
+          (target.mode === "note" && !existingEntry
+            ? workspace.settings.defaultNoteTimelineSync
+            : false),
+      );
       const nextNotebookId = src?.notebookId ?? null;
 
       setTitle(nextTitle);

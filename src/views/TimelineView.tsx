@@ -106,7 +106,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   const [calendarPopoverOpen, setCalendarPopoverOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<TimelineFilter>("all");
-  const [composerType, setComposerType] = useState<EntryType>("task");
+  const [composerType, setComposerType] = useState<EntryType>(
+    workspace.settings.defaultTimelineType || "task",
+  );
   const [carryOverCollapsed, setCarryOverCollapsed] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);

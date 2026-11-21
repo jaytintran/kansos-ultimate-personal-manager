@@ -42,6 +42,7 @@ import {
   ToastMessage,
   WorkspaceSettings,
 } from "../types";
+import { pruneBookVoicePreferences, pruneMissingBookVoicePreferences } from "../hooks/useVoicePreferences";
 import { libraryDb } from "../lib/db";
 import { normalizeLibraryWorkspaceData } from "../lib/migrateLibrary";
 import {
@@ -52,12 +53,22 @@ import {
   parseLocalDateKey,
   toLocalDateKey,
 } from "../utils/date";
-import { clearAllBookFiles, deleteBookFile } from "../utils/ebookStorage";
+import { pullWorkspaceFromGist, pushWorkspaceToGist } from "../utils/gist";
 import { syncNativeStatusBar } from "../utils/nativeStatusBar";
 import { parseNlpInput } from "../utils/nlp";
 
 const STORAGE_WORKSPACE_KEY = "kanso_workspace_v1";
 const STORAGE_GIST_KEY = "kanso_gist_config_v1";
+const VIEW_PREFERENCE_STORAGE_KEYS = [
+  "kanso_habits_view_mode_v1",
+  "kanso_habits_range_v1",
+  "kanso_notes_sort_v1",
+  "kanso_notes_view_mode_v1",
+  "kanso_lists_prefs_v1",
+  "kanso_events_filters_v1",
+  "kanso_library_studio_prefs_v1",
+  "kanso_library_voice_prefs_v1",
+] as const;
 
 const DEFAULT_GIST_CONFIG: GistSyncConfig = {
   token: "",
@@ -370,7 +381,7 @@ interface WorkspaceContextValue {
     },
   ) => BookRecord;
   updateBook: (id: string, patch: Partial<BookRecord>) => void;
-  deleteBook: (id: string) => void;
+  deleteBook: (id: string) => Promise<void>;
   updateLibraryState: (
     updater: (prev: {
       books: BookRecord[];
@@ -432,9 +443,16 @@ interface WorkspaceContextValue {
   deleteStreamPreset: (presetId: string) => void;
 
   // Settings, Sync & Reset
+  gistSyncBusy: "push" | "pull" | null;
+  quickPushGist: () => Promise<boolean>;
+  quickPullGist: () => Promise<boolean>;
   updateSettings: (patch: Partial<WorkspaceSettings>) => void;
   updateGistConfig: (patch: Partial<GistSyncConfig>) => void;
   replaceWorkspace: (next: KansoWorkspace, toastMessage?: string) => void;
+  purgeWorkspaceSection: (
+    toastMessage: string,
+    updater: (prev: KansoWorkspace) => KansoWorkspace,
+  ) => void;
   clearWorkspaceData: () => void;
   restoreSampleData: () => void;
 }
@@ -448,6 +466,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     useState<KansoWorkspace>(loadInitialWorkspace);
   const [gistConfig, setGistConfig] = useState<GistSyncConfig>(
     loadInitialGistConfig,
+  );
+  const [gistSyncBusy, setGistSyncBusy] = useState<"push" | "pull" | null>(
+    null,
   );
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -1004,10 +1025,75 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const deleteEntry = useCallback(
     (id: string) => {
-      mutateWorkspace((prev) => ({
-        ...prev,
-        entries: prev.entries.filter((e) => e.id !== id),
-      }));
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => {
+        // Cascade to child sub-notes (parentId hierarchy)
+        const doomedIds = new Set<string>([id]);
+        let added = true;
+        while (added) {
+          added = false;
+          for (const e of prev.entries) {
+            if (e.parentId && doomedIds.has(e.parentId) && !doomedIds.has(e.id)) {
+              doomedIds.add(e.id);
+              added = true;
+            }
+          }
+        }
+
+        // Cascade to linked HabitLog records and habit.completions[dateKey]
+        const deletedHabitPairs = new Map<string, Set<string>>();
+        const recordHabitPair = (
+          habitId: string | undefined,
+          dateKey: string | undefined,
+        ) => {
+          if (!habitId || !dateKey) return;
+          let set = deletedHabitPairs.get(habitId);
+          if (!set) {
+            set = new Set<string>();
+            deletedHabitPairs.set(habitId, set);
+          }
+          set.add(dateKey);
+        };
+
+        for (const e of prev.entries) {
+          if (doomedIds.has(e.id) && e.habitId && e.habitDateKey) {
+            recordHabitPair(e.habitId, e.habitDateKey);
+          }
+        }
+        for (const hl of prev.habitLogs ?? []) {
+          if (doomedIds.has(hl.entryId)) {
+            recordHabitPair(hl.habitId, hl.dateKey);
+          }
+        }
+
+        const nextHabits =
+          deletedHabitPairs.size > 0
+            ? prev.habits.map((h) => {
+                const datesToClear = deletedHabitPairs.get(h.id);
+                if (!datesToClear) return h;
+                const nextCompletions = { ...h.completions };
+                let changed = false;
+                for (const d of datesToClear) {
+                  if (d in nextCompletions) {
+                    delete nextCompletions[d];
+                    changed = true;
+                  }
+                }
+                return changed
+                  ? { ...h, completions: nextCompletions, updatedAt: nowIso }
+                  : h;
+              })
+            : prev.habits;
+
+        return {
+          ...prev,
+          entries: prev.entries.filter((e) => !doomedIds.has(e.id)),
+          habitLogs: (prev.habitLogs ?? []).filter(
+            (hl) => !doomedIds.has(hl.entryId),
+          ),
+          habits: nextHabits,
+        };
+      });
     },
     [mutateWorkspace],
   );
@@ -1316,34 +1402,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace, pushToast],
   );
 
-  const trashNotePage = useCallback(
-    (id: string) => {
-      mutateWorkspace((prev) => {
-        const doomed = new Set<string>([id]);
-        let added = true;
-        while (added) {
-          added = false;
-          for (const e of prev.entries) {
-            if (
-              e.type === "note" &&
-              e.parentId &&
-              doomed.has(e.parentId) &&
-              !doomed.has(e.id)
-            ) {
-              doomed.add(e.id);
-              added = true;
-            }
-          }
-        }
-        return {
-          ...prev,
-          entries: prev.entries.filter((e) => !doomed.has(e.id)),
-        };
-      });
-      pushToast("Note deleted");
-    },
-    [mutateWorkspace, pushToast],
-  );
 
   const addNoteNotebook = useCallback(
     (name: string, icon = "📓"): NoteNotebook => {
@@ -1378,12 +1436,13 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const deleteNoteNotebook = useCallback(
     (id: string) => {
+      const nowIso = new Date().toISOString();
       mutateWorkspace((prev) => ({
         ...prev,
         noteNotebooks: (prev.noteNotebooks ?? []).filter((nb) => nb.id !== id),
         entries: prev.entries.map((e) =>
           e.type === "note" && e.notebookId === id
-            ? { ...e, notebookId: null }
+            ? { ...e, notebookId: null, updatedAt: nowIso }
             : e,
         ),
       }));
@@ -1690,7 +1749,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const deleteBook = useCallback(
-    (id: string) => {
+    async (id: string): Promise<void> => {
+      await libraryDb.deleteBookData(id);
+      pruneBookVoicePreferences([id]);
       mutateWorkspace((prev) => ({
         ...prev,
         books: prev.books.filter((b) => b.id !== id),
@@ -1705,8 +1766,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           bookIds: vf.bookIds.filter((bid) => bid !== id),
         })),
       }));
-      void deleteBookFile(id);
-      void libraryDb.deleteBookData(id);
       pushToast("Book removed from Library");
     },
     [mutateWorkspace, pushToast],
@@ -1868,16 +1927,22 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         const currentSlots = prev.streamerState.activeSlots ?? [];
         const nextSlots = currentSlots.filter((sl) => sl.streamId !== id);
         const nextActive = nextSlots.map((sl) => sl.streamId);
-        return {
-          ...prev,
-          streams: prev.streams.filter((s) => s.id !== id),
-          streamPresets: prev.streamPresets.map((p) => ({
+        const nextPresets = prev.streamPresets
+          .map((p) => ({
             ...p,
             streamIds: p.streamIds.filter((sid) => sid !== id),
             slots: p.slots
               ? p.slots.filter((sl) => sl.streamId !== id)
               : undefined,
-          })),
+          }))
+          .filter((p) => p.streamIds.length > 0);
+        const activePresetStillExists =
+          prev.streamerState.activePresetId !== null &&
+          nextPresets.some((p) => p.id === prev.streamerState.activePresetId);
+        return {
+          ...prev,
+          streams: prev.streams.filter((s) => s.id !== id),
+          streamPresets: nextPresets,
           streamerState: {
             ...prev.streamerState,
             activeSlots: nextSlots,
@@ -1886,6 +1951,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
               prev.streamerState.spotlightStreamId === id
                 ? nextActive[0] || null
                 : prev.streamerState.spotlightStreamId,
+            activePresetId: activePresetStillExists
+              ? prev.streamerState.activePresetId
+              : null,
           },
         };
       });
@@ -2406,12 +2474,18 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         }),
       );
 
+      const validBookIds = new Set(normalizedLib.books.map((b) => b.id));
+      pruneMissingBookVoicePreferences(validBookIds);
+
       void (async () => {
         try {
-          await libraryDb.replaceAllAnnotations(
-            normalizedLib.bookBookmarks,
-            normalizedLib.bookHighlights,
-          );
+          await Promise.all([
+            libraryDb.replaceAllAnnotations(
+              normalizedLib.bookBookmarks,
+              normalizedLib.bookHighlights,
+            ),
+            libraryDb.pruneBookFiles(validBookIds),
+          ]);
         } catch {
           // Ignore
         }
@@ -2422,9 +2496,81 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [pushToast],
   );
 
+  const purgeWorkspaceSection = useCallback(
+    (
+      toastMessage: string,
+      updater: (prev: KansoWorkspace) => KansoWorkspace,
+    ) => {
+      mutateWorkspace(updater);
+      if (toastMessage) pushToast(toastMessage, "success");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const quickPushGist = useCallback(async (): Promise<boolean> => {
+    if (gistSyncBusy !== null) return false;
+    setGistSyncBusy("push");
+    try {
+      const result = await pushWorkspaceToGist(workspace, gistConfig);
+      updateGistConfig({
+        gistId: result.gistId,
+        lastSyncedAt: result.updatedAt,
+        lastDirection: "push",
+      });
+      pushToast(
+        result.createdNew
+          ? `Created Gist (${result.gistId.slice(0, 8)}…) & pushed`
+          : "Pushed workspace to GitHub Gist",
+        "success",
+      );
+      return true;
+    } catch (err) {
+      pushToast(
+        err instanceof Error ? err.message : "Gist push failed.",
+        "error",
+      );
+      return false;
+    } finally {
+      setGistSyncBusy(null);
+    }
+  }, [gistSyncBusy, workspace, gistConfig, updateGistConfig, pushToast]);
+
+  const quickPullGist = useCallback(async (): Promise<boolean> => {
+    if (gistSyncBusy !== null) return false;
+    setGistSyncBusy("pull");
+    try {
+      const preview = await pullWorkspaceFromGist(gistConfig);
+      replaceWorkspace(
+        preview.workspace,
+        "Pulled workspace from GitHub Gist",
+      );
+      updateGistConfig({
+        lastSyncedAt: new Date().toISOString(),
+        lastDirection: "pull",
+      });
+      return true;
+    } catch (err) {
+      pushToast(
+        err instanceof Error ? err.message : "Gist pull failed.",
+        "error",
+      );
+      return false;
+    } finally {
+      setGistSyncBusy(null);
+    }
+  }, [gistSyncBusy, gistConfig, replaceWorkspace, updateGistConfig, pushToast]);
+
   const clearWorkspaceData = useCallback(() => {
-    void clearAllBookFiles();
     void libraryDb.clearAllData();
+    if (typeof localStorage !== "undefined") {
+      for (const key of VIEW_PREFERENCE_STORAGE_KEYS) {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          // Ignore
+        }
+      }
+    }
     setWorkspace((prev) => ({
       ...createEmptyWorkspace(),
       settings: prev.settings,
@@ -2434,14 +2580,19 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const restoreSampleData = useCallback(() => {
     const seeded = createSeedWorkspace();
+    const validBookIds = new Set(seeded.books.map((b) => b.id));
+    pruneMissingBookVoicePreferences(validBookIds);
     setWorkspace((prev) => ({
       ...seeded,
       settings: prev.settings,
     }));
-    void libraryDb.replaceAllAnnotations(
-      seeded.bookBookmarks ?? [],
-      seeded.bookHighlights ?? [],
-    );
+    void Promise.all([
+      libraryDb.replaceAllAnnotations(
+        seeded.bookBookmarks ?? [],
+        seeded.bookHighlights ?? [],
+      ),
+      libraryDb.pruneBookFiles(validBookIds),
+    ]);
     pushToast("Sample workspace data restored", "success");
   }, [pushToast]);
 
@@ -2516,9 +2667,13 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         saveStreamPreset,
         loadStreamPreset,
         deleteStreamPreset,
+        gistSyncBusy,
+        quickPushGist,
+        quickPullGist,
         updateSettings,
         updateGistConfig,
         replaceWorkspace,
+        purgeWorkspaceSection,
         clearWorkspaceData,
         restoreSampleData,
       }}

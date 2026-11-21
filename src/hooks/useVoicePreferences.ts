@@ -72,6 +72,61 @@ function loadVoicePrefs(): StoredVoicePrefs {
   }
 }
 
+export function pruneBookVoicePreferences(bookIdsToDelete: Iterable<string>): void {
+  const targets = new Set(bookIdsToDelete);
+  if (targets.size === 0 || typeof localStorage === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(VOICE_PREFS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Partial<StoredVoicePrefs>;
+    if (!parsed.perBook || typeof parsed.perBook !== 'object') return;
+    let changed = false;
+    const nextPerBook: Record<string, BookVoiceOverride> = {};
+    for (const [id, override] of Object.entries(parsed.perBook)) {
+      if (targets.has(id)) {
+        changed = true;
+      } else {
+        nextPerBook[id] = override;
+      }
+    }
+    if (changed) {
+      localStorage.setItem(
+        VOICE_PREFS_KEY,
+        JSON.stringify({...parsed, perBook: nextPerBook})
+      );
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function pruneMissingBookVoicePreferences(validBookIds: Set<string>): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(VOICE_PREFS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Partial<StoredVoicePrefs>;
+    if (!parsed.perBook || typeof parsed.perBook !== 'object') return;
+    let changed = false;
+    const nextPerBook: Record<string, BookVoiceOverride> = {};
+    for (const [id, override] of Object.entries(parsed.perBook)) {
+      if (validBookIds.has(id)) {
+        nextPerBook[id] = override;
+      } else {
+        changed = true;
+      }
+    }
+    if (changed) {
+      localStorage.setItem(
+        VOICE_PREFS_KEY,
+        JSON.stringify({...parsed, perBook: nextPerBook})
+      );
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function useVoicePreferences(bookId: string) {
   const [stored, setStored] = useState<StoredVoicePrefs>(loadVoicePrefs);
 

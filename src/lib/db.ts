@@ -1,5 +1,5 @@
 import type {BookmarkRecord, HighlightRecord} from '../types/library';
-import {ensureSampleBookFile} from '../utils/ebookStorage';
+import {generateSampleEpubBytes, generateSamplePdfBytes} from '../utils/ebookStorage';
 
 const DB_NAME = 'kanso_library_studio_v2';
 const DB_VERSION = 1;
@@ -70,37 +70,113 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-async function readLegacyKansoFile(bookId: string): Promise<ArrayBuffer | null> {
+let legacyMigrationPromise: Promise<void> | null = null;
+
+function deleteLegacyDatabase(): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.deleteDatabase(LEGACY_DB_NAME);
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+async function runLegacyV1Migration(): Promise<void> {
+  if (typeof indexedDB === 'undefined') return;
   try {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    if (typeof indexedDB.databases === 'function') {
+      const dbs = await indexedDB.databases().catch(() => null);
+      if (dbs && !dbs.some((d) => d.name === LEGACY_DB_NAME)) {
+        return;
+      }
+    }
+
+    const legacyDb = await new Promise<IDBDatabase>((resolve, reject) => {
       const req = indexedDB.open(LEGACY_DB_NAME, 1);
       req.onupgradeneeded = () => {
-        if (!req.result.objectStoreNames.contains(LEGACY_STORE_NAME)) {
-          req.result.createObjectStore(LEGACY_STORE_NAME);
-        }
+        // Do not fail if store didn't exist
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
-    const data = await new Promise<ArrayBuffer | null>((resolve) => {
-      const tx = db.transaction(LEGACY_STORE_NAME, 'readonly');
-      const req = tx.objectStore(LEGACY_STORE_NAME).get(bookId);
-      req.onsuccess = () => {
-        db.close();
-        const val = req.result;
-        if (val instanceof ArrayBuffer) resolve(val);
-        else if (val?.buffer instanceof ArrayBuffer) resolve(val.buffer);
-        else resolve(null);
-      };
-      req.onerror = () => {
-        db.close();
-        resolve(null);
-      };
-    });
-    return data;
+
+    const migratedEntries: {bookId: string; data: ArrayBuffer}[] = [];
+    if (legacyDb.objectStoreNames.contains(LEGACY_STORE_NAME)) {
+      await new Promise<void>((resolve) => {
+        const tx = legacyDb.transaction(LEGACY_STORE_NAME, 'readonly');
+        const req = tx.objectStore(LEGACY_STORE_NAME).openCursor();
+        req.onsuccess = () => {
+          const cursor = req.result;
+          if (!cursor) {
+            resolve();
+            return;
+          }
+          const val = cursor.value;
+          const buf =
+            val instanceof ArrayBuffer
+              ? val
+              : val?.buffer instanceof ArrayBuffer
+                ? val.buffer
+                : null;
+          if (buf && cursor.key !== undefined && cursor.key !== null) {
+            migratedEntries.push({bookId: String(cursor.key), data: buf});
+          }
+          cursor.continue();
+        };
+        req.onerror = () => resolve();
+      });
+    }
+    legacyDb.close();
+
+    if (migratedEntries.length > 0) {
+      const prepared = await Promise.all(
+        migratedEntries.map(async ({bookId, data}) => ({
+          bookId,
+          data,
+          byteLength: data.byteLength,
+          sha256: await computeSha256Hex(data),
+          updatedAt: Date.now(),
+        }))
+      );
+      const db = await openDb();
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(FILES_STORE, 'readwrite');
+        const store = tx.objectStore(FILES_STORE);
+        const existingReq = store.getAllKeys();
+        existingReq.onsuccess = () => {
+          const existingKeys = new Set((existingReq.result || []).map((k) => String(k)));
+          for (const rec of prepared) {
+            if (!existingKeys.has(rec.bookId)) {
+              store.put(rec);
+            }
+          }
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+      });
+    }
+
+    await deleteLegacyDatabase();
   } catch {
-    return null;
+    // Non-fatal: continue with primary v2 DB
   }
+}
+
+async function migrateLegacyV1Once(): Promise<void> {
+  if (!legacyMigrationPromise) {
+    legacyMigrationPromise = runLegacyV1Migration();
+  }
+  await legacyMigrationPromise;
 }
 
 export const libraryDb = {
@@ -130,6 +206,7 @@ export const libraryDb = {
   },
 
   async getBookFile(bookId: string): Promise<StoredBookFile | null> {
+    await migrateLegacyV1Once();
     const db = await openDb();
     const existing = await new Promise<StoredBookFile | null>((resolve, reject) => {
       const tx = db.transaction(FILES_STORE, 'readonly');
@@ -145,26 +222,21 @@ export const libraryDb = {
     });
     if (existing) return existing;
 
-    // Seamless fallback to legacy Kanso v1 IndexedDB or built-in sample books
-    const legacy = await readLegacyKansoFile(bookId);
-    if (legacy) {
-      return this.saveBookFile(bookId, legacy);
+    // Built-in sample books generated on demand directly into the unified v2 IndexedDB
+    if (bookId === 'book-sample-pdf') {
+      const sampleBuf = generateSamplePdfBytes();
+      return this.saveBookFile(bookId, sampleBuf);
     }
-
-    if (bookId === 'book-sample-pdf' || bookId === 'book-sample-epub') {
-      const sampleBuf = await ensureSampleBookFile(
-        bookId,
-        bookId === 'book-sample-pdf' ? 'pdf' : 'epub'
-      );
-      if (sampleBuf) {
-        return this.saveBookFile(bookId, sampleBuf);
-      }
+    if (bookId === 'book-sample-epub') {
+      const sampleBuf = await generateSampleEpubBytes();
+      return this.saveBookFile(bookId, sampleBuf);
     }
 
     return null;
   },
 
   async deleteBookFile(bookId: string): Promise<void> {
+    await migrateLegacyV1Once();
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(FILES_STORE, 'readwrite');
@@ -181,6 +253,7 @@ export const libraryDb = {
   },
 
   async listAllBookFiles(): Promise<StoredBookFile[]> {
+    await migrateLegacyV1Once();
     const db = await openDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(FILES_STORE, 'readonly');
@@ -207,11 +280,38 @@ export const libraryDb = {
 
   async deleteOrphanBookFiles(bookIds: string[]): Promise<void> {
     if (bookIds.length === 0) return;
+    await migrateLegacyV1Once();
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(FILES_STORE, 'readwrite');
       const store = tx.objectStore(FILES_STORE);
       for (const id of bookIds) store.delete(id);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+  },
+
+  async pruneBookFiles(validBookIds: Set<string>): Promise<void> {
+    await migrateLegacyV1Once();
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(FILES_STORE, 'readwrite');
+      const store = tx.objectStore(FILES_STORE);
+      const keysReq = store.getAllKeys();
+      keysReq.onsuccess = () => {
+        for (const key of keysReq.result || []) {
+          const id = String(key);
+          if (!validBookIds.has(id)) {
+            store.delete(key);
+          }
+        }
+      };
       tx.oncomplete = () => {
         db.close();
         resolve();
@@ -355,20 +455,52 @@ export const libraryDb = {
     });
   },
 
+  async deleteBooksData(bookIds: string[]): Promise<void> {
+    const uniqueIds = Array.from(new Set(bookIds));
+    if (uniqueIds.length === 0) return;
+    await migrateLegacyV1Once();
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction([FILES_STORE, BOOKMARKS_STORE, HIGHLIGHTS_STORE], 'readwrite');
+      const filesStore = tx.objectStore(FILES_STORE);
+      const bmStore = tx.objectStore(BOOKMARKS_STORE);
+      const bmIdx = bmStore.index('bookId');
+      const hlStore = tx.objectStore(HIGHLIGHTS_STORE);
+      const hlIdx = hlStore.index('bookId');
+
+      for (const bookId of uniqueIds) {
+        filesStore.delete(bookId);
+        const bmKeysReq = bmIdx.getAllKeys(bookId);
+        bmKeysReq.onsuccess = () => {
+          for (const key of bmKeysReq.result || []) {
+            bmStore.delete(key);
+          }
+        };
+        const hlKeysReq = hlIdx.getAllKeys(bookId);
+        hlKeysReq.onsuccess = () => {
+          for (const key of hlKeysReq.result || []) {
+            hlStore.delete(key);
+          }
+        };
+      }
+
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+  },
+
   async deleteBookAssets(bookId: string): Promise<void> {
-    await this.deleteBookFile(bookId);
-    const [bms, hls] = await Promise.all([
-      this.getBookmarksForBook(bookId),
-      this.getHighlightsForBook(bookId),
-    ]);
-    await Promise.all([
-      ...bms.map((b) => this.deleteBookmark(b.id)),
-      ...hls.map((h) => this.deleteHighlight(h.id)),
-    ]);
+    await this.deleteBooksData([bookId]);
   },
 
   async deleteBookData(bookId: string): Promise<void> {
-    await this.deleteBookAssets(bookId);
+    await this.deleteBooksData([bookId]);
   },
 
   async replaceAllAnnotations(
@@ -396,6 +528,7 @@ export const libraryDb = {
   },
 
   async clearAll(): Promise<void> {
+    await migrateLegacyV1Once();
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction([FILES_STORE, BOOKMARKS_STORE, HIGHLIGHTS_STORE], 'readwrite');
@@ -411,6 +544,7 @@ export const libraryDb = {
         reject(tx.error);
       };
     });
+    await deleteLegacyDatabase();
   },
 
   async clearAllData(): Promise<void> {

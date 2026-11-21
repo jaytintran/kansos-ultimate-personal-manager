@@ -313,6 +313,10 @@ export interface WorkspaceSettings {
   xActiveLimit: number;
   timeFormat: "12h" | "24h";
   timelineDisplayMode?: TimelineDisplayMode;
+  defaultView?: ViewId;
+  showNavCounts?: boolean;
+  defaultTimelineType?: EntryType;
+  defaultNoteTimelineSync?: boolean;
   epubPrefs?: EpubReaderPrefs;
 }
 
