@@ -55,6 +55,7 @@ interface LegacyBookShape {
   bookmarks?: LegacyBookBookmark[];
   addedAt?: string | number;
   lastReadAt?: string | number | null;
+  sortOrder?: number;
 }
 
 function toEpochMs(val: string | number | null | undefined, fallback: number): number {
@@ -260,6 +261,10 @@ export function normalizeLibraryWorkspaceData(raw: {
         item.lastReadAt === null || item.lastReadAt === undefined
           ? null
           : toEpochMs(item.lastReadAt, now),
+      sortOrder:
+        typeof item.sortOrder === 'number' && Number.isFinite(item.sortOrder)
+          ? item.sortOrder
+          : undefined,
     };
   });
 

@@ -225,3 +225,48 @@ export async function compressCoverImageToDataUrl(
     URL.revokeObjectURL(objectUrl);
   }
 }
+
+/**
+ * Compresses an existing image data URL (e.g. extracted from an EPUB) to a
+ * compact JPEG thumbnail so BookRecord metadata stays lightweight in storage.
+ */
+export async function compressCoverDataUrl(
+  dataUrl: string,
+  maxWidth = 360,
+  maxHeight = 520,
+  quality = 0.8
+): Promise<string> {
+  if (!dataUrl || !dataUrl.startsWith('data:image/')) return dataUrl;
+  // Keep already-compact covers (e.g. <= ~35 KB binary / 48 KB data URL) untouched
+  if (dataUrl.length <= 48_000) return dataUrl;
+  // Avoid rasterizing SVGs if tiny; rasterize large images on canvas
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('Invalid cover image'));
+      image.src = dataUrl;
+    });
+
+    const naturalW = Math.max(1, img.naturalWidth || img.width);
+    const naturalH = Math.max(1, img.naturalHeight || img.height);
+    const ratio = Math.min(1, maxWidth / naturalW, maxHeight / naturalH);
+    const width = Math.max(1, Math.round(naturalW * ratio));
+    const height = Math.max(1, Math.round(naturalH * ratio));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return dataUrl;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(img, 0, 0, width, height);
+    const compressed = canvas.toDataURL('image/jpeg', quality);
+    return compressed.length < dataUrl.length ? compressed : dataUrl;
+  } catch {
+    return dataUrl;
+  }
+}
+

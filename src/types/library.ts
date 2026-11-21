@@ -31,6 +31,7 @@ export type SmartView =
 export type SidebarSectionKey = 'library' | 'folders' | 'categories' | 'tags';
 
 export type SortField =
+  | 'custom'
   | 'recent'
   | 'lastReadAt'
   | 'addedAt'
@@ -96,6 +97,7 @@ export interface BookRecord {
   currentLocation?: BookLocation | null;
   addedAt: number; // epoch ms
   lastReadAt: number | null; // epoch ms
+  sortOrder?: number; // user-defined custom sort order index
 }
 
 export interface FolderRecord {

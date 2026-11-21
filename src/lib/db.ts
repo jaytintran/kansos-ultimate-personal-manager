@@ -2,10 +2,17 @@ import type {BookmarkRecord, HighlightRecord} from '../types/library';
 import {generateSampleEpubBytes, generateSamplePdfBytes} from '../utils/ebookStorage';
 
 const DB_NAME = 'kanso_library_studio_v2';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const FILES_STORE = 'book_files';
 const BOOKMARKS_STORE = 'bookmarks';
 const HIGHLIGHTS_STORE = 'highlights';
+const WORKSPACE_STORE = 'workspace_state';
+
+export interface StoredWorkspaceSnapshot {
+  id: 'primary';
+  workspace: unknown;
+  savedAt: number;
+}
 
 // Legacy Kanso v1 IndexedDB store for seamless zero-data-loss migration
 const LEGACY_DB_NAME = 'kanso_library_files_v1';
@@ -63,6 +70,9 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(HIGHLIGHTS_STORE)) {
         const hlStore = db.createObjectStore(HIGHLIGHTS_STORE, {keyPath: 'id'});
         hlStore.createIndex('bookId', 'bookId', {unique: false});
+      }
+      if (!db.objectStoreNames.contains(WORKSPACE_STORE)) {
+        db.createObjectStore(WORKSPACE_STORE, {keyPath: 'id'});
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -545,6 +555,45 @@ export const libraryDb = {
       };
     });
     await deleteLegacyDatabase();
+  },
+
+  async saveWorkspaceSnapshot(workspace: unknown): Promise<void> {
+    if (typeof indexedDB === 'undefined') return;
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(WORKSPACE_STORE, 'readwrite');
+      const record: StoredWorkspaceSnapshot = {
+        id: 'primary',
+        workspace,
+        savedAt: Date.now(),
+      };
+      tx.objectStore(WORKSPACE_STORE).put(record);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error || new Error('Failed to save workspace snapshot'));
+      };
+    });
+  },
+
+  async loadWorkspaceSnapshot(): Promise<StoredWorkspaceSnapshot | null> {
+    if (typeof indexedDB === 'undefined') return null;
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(WORKSPACE_STORE, 'readonly');
+      const req = tx.objectStore(WORKSPACE_STORE).get('primary');
+      req.onsuccess = () => {
+        db.close();
+        resolve((req.result as StoredWorkspaceSnapshot | undefined) ?? null);
+      };
+      req.onerror = () => {
+        db.close();
+        reject(req.error);
+      };
+    });
   },
 
   async clearAllData(): Promise<void> {

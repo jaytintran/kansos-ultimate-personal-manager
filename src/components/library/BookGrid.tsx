@@ -1,5 +1,5 @@
-import {Check, Info, MoreHorizontal, Pencil, Star, X} from 'lucide-react';
-import React from 'react';
+import {Check, GripVertical, Info, MoreHorizontal, Pencil, Star, X} from 'lucide-react';
+import React, {useRef, useState} from 'react';
 import type {
   BookRecord,
   CardDetailOptions,
@@ -17,6 +17,12 @@ interface BookGridProps {
   cardDetails: CardDetailOptions;
   inspectorOpen: boolean;
   inspectedBookId: string | null;
+  isCustomSort?: boolean;
+  onReorderBooks?: (
+    draggedIds: string[],
+    targetBookId: string,
+    position: 'before' | 'after'
+  ) => void;
   onOpenBook: (book: BookRecord) => void;
   onInspectBook: (book: BookRecord) => void;
   onEditBook: (book: BookRecord) => void;
@@ -45,6 +51,8 @@ export const BookGrid: React.FC<BookGridProps> = ({
   cardDetails,
   inspectorOpen,
   inspectedBookId,
+  isCustomSort = false,
+  onReorderBooks,
   onOpenBook,
   onInspectBook,
   onEditBook,
@@ -55,6 +63,36 @@ export const BookGrid: React.FC<BookGridProps> = ({
   onContextMenuBook,
 }) => {
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
+  const activeDragIdsRef = useRef<string[]>([]);
+  const [draggingIds, setDraggingIds] = useState<string[]>([]);
+  const [dropTarget, setDropTarget] = useState<{
+    bookId: string;
+    position: 'before' | 'after';
+  } | null>(null);
+
+  const clearDragState = () => {
+    activeDragIdsRef.current = [];
+    setDraggingIds([]);
+    setDropTarget(null);
+  };
+
+  const extractDraggedIds = (dt: DataTransfer): string[] => {
+    const multi = dt.getData('application/x-folio-book-ids');
+    if (multi) {
+      try {
+        const parsed = JSON.parse(multi);
+        if (Array.isArray(parsed)) {
+          const ids = parsed.filter((id): id is string => typeof id === 'string');
+          if (ids.length > 0) return ids;
+        }
+      } catch {
+        // Ignore parse failure
+      }
+    }
+    const single = dt.getData('application/x-folio-book-id');
+    if (single) return [single];
+    return activeDragIdsRef.current;
+  };
 
   const handleCardPrimaryClick = (book: BookRecord, e: React.MouseEvent) => {
     if (isSelectionMode || e.shiftKey || e.metaKey || e.ctrlKey) {
@@ -105,6 +143,9 @@ export const BookGrid: React.FC<BookGridProps> = ({
           );
         }
 
+        const isBeingDragged = draggingIds.includes(book.id);
+        const isDropTarget = dropTarget?.bookId === book.id;
+
         return (
           <article
             key={book.id}
@@ -117,14 +158,75 @@ export const BookGrid: React.FC<BookGridProps> = ({
               e.dataTransfer.setData('application/x-folio-book-id', book.id);
               e.dataTransfer.setData('application/x-folio-book-ids', JSON.stringify(dragIds));
               e.dataTransfer.effectAllowed = 'move';
+              activeDragIdsRef.current = dragIds;
+              setDraggingIds(dragIds);
+            }}
+            onDragEnd={clearDragState}
+            onDragOver={(e) => {
+              if (!isCustomSort || !onReorderBooks) return;
+              const types = e.dataTransfer.types;
+              if (
+                !types.includes('application/x-folio-book-id') &&
+                !types.includes('application/x-folio-book-ids')
+              ) {
+                return;
+              }
+              if (activeDragIdsRef.current.includes(book.id)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              const rect = e.currentTarget.getBoundingClientRect();
+              const position: 'before' | 'after' =
+                e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
+              setDropTarget((prev) =>
+                prev?.bookId === book.id && prev.position === position
+                  ? prev
+                  : {bookId: book.id, position}
+              );
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                setDropTarget((prev) => (prev?.bookId === book.id ? null : prev));
+              }
+            }}
+            onDrop={(e) => {
+              if (!isCustomSort || !onReorderBooks) return;
+              const types = e.dataTransfer.types;
+              if (
+                !types.includes('application/x-folio-book-id') &&
+                !types.includes('application/x-folio-book-ids')
+              ) {
+                return;
+              }
+              const dragIds = extractDraggedIds(e.dataTransfer);
+              const rect = e.currentTarget.getBoundingClientRect();
+              const position: 'before' | 'after' =
+                e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
+              clearDragState();
+              if (dragIds.length === 0 || dragIds.includes(book.id)) return;
+              e.preventDefault();
+              onReorderBooks(dragIds, book.id, position);
             }}
             onContextMenu={(e) => {
               if (!onContextMenuBook) return;
               e.preventDefault();
               onContextMenuBook(book, e);
             }}
-            className="group flex flex-col min-w-0"
+            className={`group relative flex flex-col min-w-0 transition-all duration-150 ${
+              isCustomSort ? 'cursor-grab active:cursor-grabbing' : ''
+            } ${isBeingDragged ? 'opacity-45 scale-[0.98]' : ''}`}
           >
+            {/* Insertion line indicator when reordering */}
+            {isDropTarget && (
+              <div
+                aria-hidden="true"
+                className={`pointer-events-none absolute top-0 bottom-10 w-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
+                  dropTarget.position === 'before'
+                    ? '-left-2 sm:-left-3'
+                    : '-right-2 sm:-right-3'
+                }`}
+              />
+            )}
+
             {/* 3:4 Cover Container */}
             <div
               onClick={(e) => handleCardPrimaryClick(book, e)}
@@ -132,9 +234,11 @@ export const BookGrid: React.FC<BookGridProps> = ({
               className={`relative cursor-pointer rounded-[5px] transition-transform duration-150 ease-out group-hover:-translate-y-0.5 ${
                 isSelected
                   ? 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-canvas)]'
-                  : isInspected
-                    ? 'ring-2 ring-[var(--text-primary)]/45 ring-offset-2 ring-offset-[var(--bg-canvas)]'
-                    : ''
+                  : isDropTarget
+                    ? 'ring-1 ring-[var(--accent)]/60 ring-offset-2 ring-offset-[var(--bg-canvas)]'
+                    : isInspected
+                      ? 'ring-2 ring-[var(--text-primary)]/45 ring-offset-2 ring-offset-[var(--bg-canvas)]'
+                      : ''
               }`}
             >
               <BookCover
@@ -258,6 +362,17 @@ export const BookGrid: React.FC<BookGridProps> = ({
                     <MoreHorizontal className="w-4 h-4" />
                   </span>
                 </button>
+              )}
+
+              {/* Subtle Reorder Grip Badge on Desktop hover in Custom Order mode */}
+              {isCustomSort && (
+                <span
+                  aria-hidden="true"
+                  title="Drag to reorder"
+                  className="hidden lg:flex absolute bottom-2.5 left-2 w-6 h-6 rounded items-center justify-center bg-[var(--bg-elevated)]/90 border border-[var(--border-subtle)] text-[var(--text-secondary)] opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                >
+                  <GripVertical className="w-3.5 h-3.5" />
+                </span>
               )}
 
               {/* Subtle Favorite Badge on Mobile Cover when favorited */}

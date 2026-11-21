@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Command,
   FolderPlus,
+  GripVertical,
   LayoutGrid,
   List,
   PanelRight,
@@ -440,6 +441,30 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     [viewBooks, filedBookIdSet],
   );
 
+  const customBookOrderCompare = useCallback(
+    (a: BookRecord, b: BookRecord) => {
+      const aOrder =
+        typeof a.sortOrder === "number" && Number.isFinite(a.sortOrder)
+          ? a.sortOrder
+          : null;
+      const bOrder =
+        typeof b.sortOrder === "number" && Number.isFinite(b.sortOrder)
+          ? b.sortOrder
+          : null;
+      if (aOrder !== null && bOrder !== null) {
+        if (aOrder !== bOrder) return aOrder - bOrder;
+      } else if (aOrder !== null) {
+        return -1;
+      } else if (bOrder !== null) {
+        return 1;
+      }
+      const aTime = a.lastReadAt ?? a.addedAt;
+      const bTime = b.lastReadAt ?? b.addedAt;
+      return bTime - aTime || a.id.localeCompare(b.id);
+    },
+    [],
+  );
+
   // Step 2: Visible books after view-folder drill-down / hide-filed + sorting
   const visibleBooks = useMemo(() => {
     let list = viewBooks;
@@ -453,6 +478,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     const dir = prefs.sortDirection === "asc" ? 1 : -1;
     return [...list].sort((a, b) => {
       switch (prefs.sortField) {
+        case "custom":
+          return customBookOrderCompare(a, b);
         case "title":
           return a.title.localeCompare(b.title) * dir;
         case "author":
@@ -484,6 +511,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     filedBookIdSet,
     prefs.sortField,
     prefs.sortDirection,
+    customBookOrderCompare,
   ]);
 
   // Grouped visible books when groupBy !== 'none'
@@ -621,6 +649,71 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     [handleUpdateBook],
   );
 
+  const handleReorderBooks = useCallback(
+    (
+      draggedIds: string[],
+      targetBookId: string,
+      position: "before" | "after",
+    ) => {
+      if (draggedIds.length === 0 || draggedIds.includes(targetBookId)) return;
+      const draggedSet = new Set(draggedIds);
+      const visibleIds = visibleBooks.map((b) => b.id);
+      if (!visibleIds.includes(targetBookId)) return;
+
+      const draggedInVisibleOrder = visibleIds.filter((id) =>
+        draggedSet.has(id),
+      );
+      if (draggedInVisibleOrder.length === 0) return;
+
+      const remainingVisible = visibleIds.filter((id) => !draggedSet.has(id));
+      const targetIndex = remainingVisible.indexOf(targetBookId);
+      if (targetIndex === -1) return;
+
+      const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
+      const nextVisibleIds = [
+        ...remainingVisible.slice(0, insertIndex),
+        ...draggedInVisibleOrder,
+        ...remainingVisible.slice(insertIndex),
+      ];
+
+      if (nextVisibleIds.every((id, idx) => id === visibleIds[idx])) return;
+
+      const visibleSet = new Set(visibleIds);
+      updateLibraryState((prev) => {
+        const globalSorted = [...prev.books].sort(customBookOrderCompare);
+        const byId = new Map(prev.books.map((b) => [b.id, b]));
+        let visibleCursor = 0;
+        const reorderedGlobal: BookRecord[] = [];
+        for (const book of globalSorted) {
+          if (visibleSet.has(book.id)) {
+            const nextId = nextVisibleIds[visibleCursor++];
+            const nextBook = nextId ? byId.get(nextId) : undefined;
+            if (nextBook) reorderedGlobal.push(nextBook);
+          } else {
+            reorderedGlobal.push(book);
+          }
+        }
+        while (visibleCursor < nextVisibleIds.length) {
+          const nextBook = byId.get(nextVisibleIds[visibleCursor++]);
+          if (nextBook) reorderedGlobal.push(nextBook);
+        }
+
+        const sortOrderById = new Map<string, number>();
+        reorderedGlobal.forEach((b, idx) => {
+          sortOrderById.set(b.id, idx);
+        });
+
+        return {
+          books: prev.books.map((b) => ({
+            ...b,
+            sortOrder: sortOrderById.get(b.id) ?? b.sortOrder,
+          })),
+        };
+      });
+    },
+    [visibleBooks, customBookOrderCompare, updateLibraryState],
+  );
+
   const handleDeleteBooksConfirmed = useCallback(
     async (idsToDelete: string[]) => {
       const deleteSet = new Set(idsToDelete);
@@ -680,6 +773,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
       setIsImporting(true);
       const newlyAdded: BookRecord[] = [];
+      const knownBooks: BookRecord[] = [...books];
       const duplicatesFound: PendingDuplicateItem[] = [];
 
       try {
@@ -688,15 +782,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             const { meta: metadata, buffer: arrayBuffer } =
               await extractBookImportMetadata(file);
 
-            // Detect duplicate by exact file hash, filename+size, or normalized title+author
-            const existingByFile = books.find(
+            // Detect duplicate against both existing books and earlier items in this batch
+            const existingByFile = knownBooks.find(
               (b) =>
                 (b.fileHash && b.fileHash === metadata.fileHash) ||
                 (b.fileName.toLowerCase() === metadata.fileName.toLowerCase() &&
                   b.fileSize === metadata.fileSize),
             );
             const existingByTitle = !existingByFile
-              ? books.find(
+              ? knownBooks.find(
                   (b) =>
                     b.title.trim().toLowerCase() ===
                       metadata.title.trim().toLowerCase() &&
@@ -763,20 +857,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             };
 
             newlyAdded.push(record);
-
-            // If we are currently drilled into a View Folder, add the new book to it
-            if (drilledViewFolder) {
-              updateLibraryState((prev) => ({
-                libraryViewFolders: prev.libraryViewFolders.map((vf) =>
-                  vf.id === drilledViewFolder.id
-                    ? {
-                        ...vf,
-                        bookIds: Array.from(new Set([...vf.bookIds, newId])),
-                      }
-                    : vf,
-                ),
-              }));
-            }
+            knownBooks.push(record);
           } catch (err) {
             notify(
               `Failed to import "${file.name}"`,
@@ -787,8 +868,24 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         }
 
         if (newlyAdded.length > 0) {
+          const addedIds = newlyAdded.map((b) => b.id);
+          const drilledId = drilledViewFolder?.id ?? null;
           updateLibraryState((prev) => ({
             books: [...newlyAdded, ...prev.books],
+            ...(drilledId
+              ? {
+                  libraryViewFolders: prev.libraryViewFolders.map((vf) =>
+                    vf.id === drilledId
+                      ? {
+                          ...vf,
+                          bookIds: Array.from(
+                            new Set([...vf.bookIds, ...addedIds]),
+                          ),
+                        }
+                      : vf,
+                  ),
+                }
+              : {}),
           }));
           notify(
             newlyAdded.length === 1
@@ -1895,12 +1992,18 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 <div className="hidden lg:flex items-center gap-1">
                   <select
                     value={prefs.sortField}
-                    onChange={(e) =>
-                      updateUiPrefs({ sortField: e.target.value as SortField })
-                    }
+                    onChange={(e) => {
+                      const nextField = e.target.value as SortField;
+                      updateUiPrefs(
+                        nextField === "custom"
+                          ? { sortField: "custom", sortDirection: "asc" }
+                          : { sortField: nextField },
+                      );
+                    }}
                     aria-label="Sort books by"
                     className="h-8 px-2.5 text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] outline-none cursor-pointer"
                   >
+                    <option value="custom">Sort: Custom Order</option>
                     <option value="lastReadAt">Sort: Recently Read</option>
                     <option value="addedAt">Sort: Date Added</option>
                     <option value="title">Sort: Title</option>
@@ -1912,6 +2015,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
                   <button
                     type="button"
+                    disabled={prefs.sortField === "custom"}
                     onClick={() =>
                       updateUiPrefs({
                         sortDirection:
@@ -1919,14 +2023,26 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       })
                     }
                     title={
-                      prefs.sortDirection === "asc"
-                        ? "Ascending order"
-                        : "Descending order"
+                      prefs.sortField === "custom"
+                        ? "Custom order — drag books to rearrange"
+                        : prefs.sortDirection === "asc"
+                          ? "Ascending order"
+                          : "Descending order"
                     }
-                    aria-label="Toggle sort direction"
-                    className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+                    aria-label={
+                      prefs.sortField === "custom"
+                        ? "Custom drag order active"
+                        : "Toggle sort direction"
+                    }
+                    className={`h-8 w-8 inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] ${
+                      prefs.sortField === "custom"
+                        ? "text-[var(--accent)] opacity-80 cursor-default"
+                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+                    }`}
                   >
-                    {prefs.sortDirection === "asc" ? (
+                    {prefs.sortField === "custom" ? (
+                      <GripVertical className="w-3.5 h-3.5" />
+                    ) : prefs.sortDirection === "asc" ? (
                       <ArrowUpNarrowWide className="w-3.5 h-3.5" />
                     ) : (
                       <ArrowDownWideNarrow className="w-3.5 h-3.5" />
@@ -2252,6 +2368,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                               inspectedBookId={inspectedBookId}
                               sortField={prefs.sortField}
                               sortDirection={prefs.sortDirection}
+                              isCustomSort={prefs.sortField === "custom"}
+                              onReorderBooks={handleReorderBooks}
                               onSortChange={(field) => {
                                 if (prefs.sortField === field) {
                                   updateUiPrefs({
@@ -2311,6 +2429,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                               cardDetails={prefs.cardDetails}
                               inspectorOpen={inspectorOpen}
                               inspectedBookId={inspectedBookId}
+                              isCustomSort={prefs.sortField === "custom"}
+                              onReorderBooks={handleReorderBooks}
                               onOpenBook={(book) => handleOpenBook(book)}
                               onInspectBook={(book) => {
                                 setInspectedBookId(book.id);
@@ -2356,6 +2476,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                             cardDetails={prefs.cardDetails}
                             selectedIds={selectedIds}
                             isSelectionMode={selectedIds.size > 0}
+                            isCustomSort={prefs.sortField === "custom"}
+                            onReorderBooks={handleReorderBooks}
                             onOpenBook={(book) => handleOpenBook(book)}
                             onQuickAction={(book) => setMobileActionBook(book)}
                             onToggleSelect={handleToggleSelectBook}
@@ -2688,7 +2810,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         hasActiveFilters={hasActiveFilters}
         onFormatChange={setFormatFilter}
         onGroupByChange={(groupBy) => updateUiPrefs({ groupBy })}
-        onSortFieldChange={(sortField) => updateUiPrefs({ sortField })}
+        onSortFieldChange={(sortField) =>
+          updateUiPrefs(
+            sortField === "custom"
+              ? { sortField: "custom", sortDirection: "asc" }
+              : { sortField },
+          )
+        }
         onToggleSortDirection={() =>
           updateUiPrefs({
             sortDirection: prefs.sortDirection === "asc" ? "desc" : "asc",

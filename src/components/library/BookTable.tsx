@@ -1,5 +1,5 @@
-import {ArrowDown, ArrowUp, BookOpen, Check, Info, Pencil, Star} from 'lucide-react';
-import React, {useMemo} from 'react';
+import {ArrowDown, ArrowUp, BookOpen, Check, GripVertical, Info, Pencil, Star} from 'lucide-react';
+import React, {useMemo, useRef, useState} from 'react';
 import {flattenFoldersHierarchy, formatShortDate, getBookFolderIds} from '../../lib/formatters';
 import type {
   BookRecord,
@@ -20,6 +20,12 @@ interface BookTableProps {
   inspectedBookId: string | null;
   sortField: SortField;
   sortDirection: SortDirection;
+  isCustomSort?: boolean;
+  onReorderBooks?: (
+    draggedIds: string[],
+    targetBookId: string,
+    position: 'before' | 'after'
+  ) => void;
   onSortChange: (field: SortField) => void;
   onToggleSelect: (bookId: string, shiftKey: boolean) => void;
   onToggleSelectAll: () => void;
@@ -40,6 +46,8 @@ export const BookTable: React.FC<BookTableProps> = ({
   inspectedBookId,
   sortField,
   sortDirection,
+  isCustomSort = false,
+  onReorderBooks,
   onSortChange,
   onToggleSelect,
   onToggleSelectAll,
@@ -54,6 +62,37 @@ export const BookTable: React.FC<BookTableProps> = ({
     () => new Map(flattenFoldersHierarchy(folders).map((item) => [item.folder.id, item.pathLabel])),
     [folders]
   );
+
+  const activeDragIdsRef = useRef<string[]>([]);
+  const [draggingIds, setDraggingIds] = useState<string[]>([]);
+  const [dropTarget, setDropTarget] = useState<{
+    bookId: string;
+    position: 'before' | 'after';
+  } | null>(null);
+
+  const clearDragState = () => {
+    activeDragIdsRef.current = [];
+    setDraggingIds([]);
+    setDropTarget(null);
+  };
+
+  const extractDraggedIds = (dt: DataTransfer): string[] => {
+    const multi = dt.getData('application/x-folio-book-ids');
+    if (multi) {
+      try {
+        const parsed = JSON.parse(multi);
+        if (Array.isArray(parsed)) {
+          const ids = parsed.filter((id): id is string => typeof id === 'string');
+          if (ids.length > 0) return ids;
+        }
+      } catch {
+        // Ignore parse failure
+      }
+    }
+    const single = dt.getData('application/x-folio-book-id');
+    if (single) return [single];
+    return activeDragIdsRef.current;
+  };
 
   const renderSortIcon = (field: SortField) => {
     if (sortField !== field) return null;
@@ -144,6 +183,9 @@ export const BookTable: React.FC<BookTableProps> = ({
               .filter((name): name is string => Boolean(name));
             const folder = folderNames.length > 0 ? folderNames.join(' · ') : '—';
 
+            const isBeingDragged = draggingIds.includes(book.id);
+            const isDropTarget = dropTarget?.bookId === book.id;
+
             return (
               <tr
                 key={book.id}
@@ -156,6 +198,53 @@ export const BookTable: React.FC<BookTableProps> = ({
                   e.dataTransfer.setData('application/x-folio-book-id', book.id);
                   e.dataTransfer.setData('application/x-folio-book-ids', JSON.stringify(dragIds));
                   e.dataTransfer.effectAllowed = 'move';
+                  activeDragIdsRef.current = dragIds;
+                  setDraggingIds(dragIds);
+                }}
+                onDragEnd={clearDragState}
+                onDragOver={(e) => {
+                  if (!isCustomSort || !onReorderBooks) return;
+                  const types = e.dataTransfer.types;
+                  if (
+                    !types.includes('application/x-folio-book-id') &&
+                    !types.includes('application/x-folio-book-ids')
+                  ) {
+                    return;
+                  }
+                  if (activeDragIdsRef.current.includes(book.id)) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const position: 'before' | 'after' =
+                    e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                  setDropTarget((prev) =>
+                    prev?.bookId === book.id && prev.position === position
+                      ? prev
+                      : {bookId: book.id, position}
+                  );
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setDropTarget((prev) => (prev?.bookId === book.id ? null : prev));
+                  }
+                }}
+                onDrop={(e) => {
+                  if (!isCustomSort || !onReorderBooks) return;
+                  const types = e.dataTransfer.types;
+                  if (
+                    !types.includes('application/x-folio-book-id') &&
+                    !types.includes('application/x-folio-book-ids')
+                  ) {
+                    return;
+                  }
+                  const dragIds = extractDraggedIds(e.dataTransfer);
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const position: 'before' | 'after' =
+                    e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                  clearDragState();
+                  if (dragIds.length === 0 || dragIds.includes(book.id)) return;
+                  e.preventDefault();
+                  onReorderBooks(dragIds, book.id, position);
                 }}
                 onContextMenu={(e) => {
                   if (!onContextMenuBook) return;
@@ -166,25 +255,45 @@ export const BookTable: React.FC<BookTableProps> = ({
                   if (inspectorOpen) onInspectBook(book);
                 }}
                 onDoubleClick={() => onOpenBook(book)}
+                style={
+                  isDropTarget
+                    ? {
+                        boxShadow:
+                          dropTarget.position === 'before'
+                            ? 'inset 0 2px 0 var(--accent)'
+                            : 'inset 0 -2px 0 var(--accent)',
+                      }
+                    : undefined
+                }
                 className={`h-[46px] transition-colors ${
+                  isCustomSort ? 'cursor-grab active:cursor-grabbing' : ''
+                } ${isBeingDragged ? 'opacity-45' : ''} ${
                   isSelected || isInspected
                     ? 'bg-[var(--bg-accent-subtle)]'
                     : 'hover:bg-[var(--bg-surface-hover)]'
                 }`}
               >
                 <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    aria-label={isSelected ? `Deselect ${book.title}` : `Select ${book.title}`}
-                    onClick={(e) => onToggleSelect(book.id, e.shiftKey)}
-                    className={`w-4 h-4 rounded flex items-center justify-center border transition-colors cursor-pointer ${
-                      isSelected
-                        ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]'
-                        : 'border-[var(--border-strong)] bg-[var(--bg-input)] text-transparent hover:border-[var(--accent)]'
-                    }`}
-                  >
-                    <Check className="w-3 h-3 stroke-[2.5]" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {isCustomSort && (
+                      <GripVertical
+                        aria-hidden="true"
+                        className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      aria-label={isSelected ? `Deselect ${book.title}` : `Select ${book.title}`}
+                      onClick={(e) => onToggleSelect(book.id, e.shiftKey)}
+                      className={`w-4 h-4 rounded flex items-center justify-center border transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-contrast)]'
+                          : 'border-[var(--border-strong)] bg-[var(--bg-input)] text-transparent hover:border-[var(--accent)]'
+                      }`}
+                    >
+                      <Check className="w-3 h-3 stroke-[2.5]" />
+                    </button>
+                  </div>
                 </td>
 
                 <td className="px-3 py-2 max-w-[280px]">

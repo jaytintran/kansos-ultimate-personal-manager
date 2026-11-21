@@ -6,6 +6,7 @@ import type {
   ParsedTocItem,
 } from '../../types/library';
 import {computeSha256Hex} from '../db';
+import {compressCoverDataUrl} from '../formatters';
 
 function cleanBaseName(fileName: string): string {
   return (
@@ -151,12 +152,13 @@ async function parseEpubCore(
   }
 
   let coverDataUrl: string | null = null;
-  if (coverHref) {
+  if (!includeFullChapters && coverHref) {
     const fullCoverPath = resolveRelativePath(opfDir, coverHref);
     const coverFile = findZipFile(zip, fullCoverPath);
     if (coverFile) {
       const b64 = await coverFile.async('base64');
-      coverDataUrl = `data:${guessMime(fullCoverPath)};base64,${b64}`;
+      const rawDataUrl = `data:${guessMime(fullCoverPath)};base64,${b64}`;
+      coverDataUrl = await compressCoverDataUrl(rawDataUrl);
     }
   }
 

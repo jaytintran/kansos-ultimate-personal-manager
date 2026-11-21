@@ -1,5 +1,5 @@
-import {Check, MoreHorizontal, Star} from 'lucide-react';
-import React from 'react';
+import {Check, GripVertical, MoreHorizontal, Star} from 'lucide-react';
+import React, {useRef, useState} from 'react';
 import type {BookRecord, CardDetailOptions, CategoryRecord} from '../../types/library';
 import {BookCover} from './BookCover';
 
@@ -9,6 +9,12 @@ interface MobileBookListProps {
   cardDetails: CardDetailOptions;
   selectedIds: Set<string>;
   isSelectionMode: boolean;
+  isCustomSort?: boolean;
+  onReorderBooks?: (
+    draggedIds: string[],
+    targetBookId: string,
+    position: 'before' | 'after'
+  ) => void;
   onOpenBook: (book: BookRecord) => void;
   onQuickAction: (book: BookRecord) => void;
   onToggleSelect: (bookId: string, shiftKey: boolean) => void;
@@ -20,16 +26,50 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
   cardDetails,
   selectedIds,
   isSelectionMode,
+  isCustomSort = false,
+  onReorderBooks,
   onOpenBook,
   onQuickAction,
   onToggleSelect,
 }) => {
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    bookId: string;
+    position: 'before' | 'after';
+  } | null>(null);
+
+  const resolveDropTargetAtY = (
+    clientY: number,
+    activeId: string
+  ): {bookId: string; position: 'before' | 'after'} | null => {
+    for (const book of books) {
+      if (book.id === activeId) continue;
+      const el = rowRefs.current.get(book.id);
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (clientY >= rect.top && clientY <= rect.bottom) {
+        return {
+          bookId: book.id,
+          position: clientY < rect.top + rect.height / 2 ? 'before' : 'after',
+        };
+      }
+    }
+    return null;
+  };
+
+  const resetPointerDrag = () => {
+    setDraggingId(null);
+    setDropTarget(null);
+  };
 
   return (
     <div className="divide-y divide-[var(--border-subtle)] border-y border-[var(--border-subtle)] bg-[var(--bg-surface)] -mx-4 sm:mx-0 sm:rounded-lg sm:border">
       {books.map((book) => {
         const isSelected = selectedIds.has(book.id);
+        const isDragging = draggingId === book.id;
+        const isDropTarget = dropTarget?.bookId === book.id;
         const categoryName = book.categoryId ? categoryNameById.get(book.categoryId) : null;
         const progressLabel =
           book.status === 'finished'
@@ -41,17 +81,72 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
         return (
           <div
             key={book.id}
+            ref={(el) => {
+              if (el) rowRefs.current.set(book.id, el);
+              else rowRefs.current.delete(book.id);
+            }}
             onClick={() => {
+              if (draggingId) return;
               if (isSelectionMode) {
                 onToggleSelect(book.id, false);
               } else {
                 onOpenBook(book);
               }
             }}
+            style={
+              isDropTarget
+                ? {
+                    boxShadow:
+                      dropTarget.position === 'before'
+                        ? 'inset 0 2px 0 var(--accent)'
+                        : 'inset 0 -2px 0 var(--accent)',
+                  }
+                : undefined
+            }
             className={`flex items-center gap-3 px-4 py-3 min-h-[76px] transition-colors active:bg-[var(--bg-surface-hover)] cursor-pointer ${
-              isSelected ? 'bg-[var(--bg-accent-subtle)]/60' : ''
+              isDragging
+                ? 'opacity-65 bg-[var(--accent-soft)]'
+                : isSelected
+                  ? 'bg-[var(--bg-accent-subtle)]/60'
+                  : ''
             }`}
           >
+            {/* Touch/Pointer Drag Handle when Custom Order is active */}
+            {isCustomSort && !isSelectionMode && onReorderBooks && (
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={`Reorder ${book.title}`}
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  setDraggingId(book.id);
+                  setDropTarget(null);
+                }}
+                onPointerMove={(e) => {
+                  if (draggingId !== book.id) return;
+                  const nextTarget = resolveDropTargetAtY(e.clientY, book.id);
+                  setDropTarget(nextTarget);
+                }}
+                onPointerUp={(e) => {
+                  e.stopPropagation();
+                  if (draggingId === book.id) {
+                    const finalTarget =
+                      resolveDropTargetAtY(e.clientY, book.id) ?? dropTarget;
+                    if (finalTarget && finalTarget.bookId !== book.id) {
+                      onReorderBooks([book.id], finalTarget.bookId, finalTarget.position);
+                    }
+                  }
+                  resetPointerDrag();
+                }}
+                onPointerCancel={resetPointerDrag}
+                className="touch-none select-none min-w-[36px] min-h-[44px] -ml-2 flex items-center justify-center rounded-lg text-[var(--text-muted)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+              >
+                <GripVertical className="w-4 h-4" />
+              </div>
+            )}
+
             {/* Selection Checkbox (visible when in selection mode) */}
             {isSelectionMode && (
               <button

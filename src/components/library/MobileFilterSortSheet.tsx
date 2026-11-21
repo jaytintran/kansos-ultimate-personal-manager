@@ -1,4 +1,4 @@
-import {ArrowDownWideNarrow, ArrowUpNarrowWide, Check, RotateCcw} from 'lucide-react';
+import {ArrowDownWideNarrow, ArrowUpNarrowWide, Check, GripVertical, RotateCcw} from 'lucide-react';
 import React from 'react';
 import type {
   BookFormat,
@@ -33,6 +33,7 @@ interface MobileFilterSortSheetProps {
 }
 
 const SORT_OPTIONS: Array<{id: SortField; label: string}> = [
+  {id: 'custom', label: 'Custom Order'},
   {id: 'addedAt', label: 'Date Added'},
   {id: 'recent', label: 'Recently Read'},
   {id: 'title', label: 'Title'},
@@ -137,23 +138,30 @@ export const MobileFilterSortSheet: React.FC<MobileFilterSortSheetProps> = ({
             <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
               Sort By
             </p>
-            <button
-              type="button"
-              onClick={onToggleSortDirection}
-              className="min-h-[36px] px-2.5 inline-flex items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-xs font-medium text-[var(--text-primary)] cursor-pointer"
-            >
-              {sortDirection === 'asc' ? (
-                <>
-                  <ArrowUpNarrowWide className="w-3.5 h-3.5 text-[var(--accent)]" />
-                  <span>Ascending</span>
-                </>
-              ) : (
-                <>
-                  <ArrowDownWideNarrow className="w-3.5 h-3.5 text-[var(--accent)]" />
-                  <span>Descending</span>
-                </>
-              )}
-            </button>
+            {sortField === 'custom' ? (
+              <span className="min-h-[36px] px-2.5 inline-flex items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-xs font-medium text-[var(--text-muted)]">
+                <GripVertical className="w-3.5 h-3.5 text-[var(--accent)]" />
+                <span>Drag to reorder</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={onToggleSortDirection}
+                className="min-h-[36px] px-2.5 inline-flex items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-xs font-medium text-[var(--text-primary)] cursor-pointer"
+              >
+                {sortDirection === 'asc' ? (
+                  <>
+                    <ArrowUpNarrowWide className="w-3.5 h-3.5 text-[var(--accent)]" />
+                    <span>Ascending</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowDownWideNarrow className="w-3.5 h-3.5 text-[var(--accent)]" />
+                    <span>Descending</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-1.5">
             {SORT_OPTIONS.map((opt) => {

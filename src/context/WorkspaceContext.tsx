@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import {
@@ -44,6 +45,7 @@ import {
 } from "../types";
 import { pruneBookVoicePreferences, pruneMissingBookVoicePreferences } from "../hooks/useVoicePreferences";
 import { libraryDb } from "../lib/db";
+import { compressCoverDataUrl } from "../lib/formatters";
 import { normalizeLibraryWorkspaceData } from "../lib/migrateLibrary";
 import {
   buildDateAtTime,
@@ -183,96 +185,129 @@ function purgeWorkspace(ws: KansoWorkspace): KansoWorkspace {
   };
 }
 
-function loadInitialWorkspace(): KansoWorkspace {
+function normalizeParsedWorkspace(
+  parsed: Partial<KansoWorkspace> | null | undefined,
+): KansoWorkspace | null {
+  if (!parsed || !Array.isArray(parsed.entries) || !parsed.settings) {
+    return null;
+  }
+  const empty = createEmptyWorkspace();
+  const seed = createSeedWorkspace();
+  const hasBooksField = Array.isArray(parsed.books);
+  const hasStreamsField = Array.isArray(parsed.streams);
+  const hasScratchpadsField = Array.isArray(parsed.scratchpads);
+  const hasCustomTabsField = Array.isArray(parsed.customTabs);
+  const normalizedLib = hasBooksField
+    ? normalizeLibraryWorkspaceData({
+        books: parsed.books,
+        libraryFolders: parsed.libraryFolders,
+        libraryCategories: parsed.libraryCategories,
+        libraryViewFolders: parsed.libraryViewFolders,
+        bookBookmarks: parsed.bookBookmarks,
+        bookHighlights: parsed.bookHighlights,
+      })
+    : {
+        books: seed.books,
+        libraryFolders: seed.libraryFolders ?? [],
+        libraryCategories: seed.libraryCategories ?? [],
+        libraryViewFolders: seed.libraryViewFolders ?? [],
+        bookBookmarks: seed.bookBookmarks ?? [],
+        bookHighlights: seed.bookHighlights ?? [],
+      };
+  return purgeWorkspace({
+    ...empty,
+    ...parsed,
+    version: 3,
+    entries: migrateEntries(parsed.entries),
+    scratchpads: hasScratchpadsField
+      ? parsed.scratchpads!
+      : (seed.scratchpads ?? []),
+    customTabs: hasCustomTabsField
+      ? parsed.customTabs!
+      : (seed.customTabs ?? []),
+    habitLogs: Array.isArray(parsed.habitLogs) ? parsed.habitLogs : [],
+    noteNotebooks: Array.isArray(parsed.noteNotebooks)
+      ? parsed.noteNotebooks
+      : (seed.noteNotebooks ?? []),
+    books: normalizedLib.books,
+    libraryFolders: normalizedLib.libraryFolders,
+    libraryCategories: normalizedLib.libraryCategories,
+    libraryViewFolders: normalizedLib.libraryViewFolders,
+    bookBookmarks: normalizedLib.bookBookmarks,
+    bookHighlights: normalizedLib.bookHighlights,
+    streams: hasStreamsField ? parsed.streams! : seed.streams,
+    streamFolders: Array.isArray(parsed.streamFolders)
+      ? parsed.streamFolders
+      : hasStreamsField
+        ? []
+        : (seed.streamFolders ?? []),
+    streamPresets: Array.isArray(parsed.streamPresets)
+      ? parsed.streamPresets
+      : hasStreamsField
+        ? []
+        : seed.streamPresets,
+    streamerState: parsed.streamerState
+      ? normalizeStreamerState(
+          parsed.streamerState,
+          new Set(
+            (hasStreamsField ? parsed.streams! : seed.streams).map((s) => s.id),
+          ),
+        )
+      : hasStreamsField
+        ? { ...DEFAULT_STREAMER_STATE }
+        : seed.streamerState,
+    settings: {
+      ...empty.settings,
+      ...parsed.settings,
+      timelineDisplayMode: parsed.settings.timelineDisplayMode || "default",
+      epubPrefs: {
+        ...empty.settings.epubPrefs!,
+        ...(parsed.settings.epubPrefs || {}),
+      },
+    },
+  } as KansoWorkspace);
+}
+
+function loadInitialWorkspaceState(): {
+  workspace: KansoWorkspace;
+  fromLocalStorage: boolean;
+} {
   try {
     const raw = localStorage.getItem(STORAGE_WORKSPACE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<KansoWorkspace>;
-      if (parsed && Array.isArray(parsed.entries) && parsed.settings) {
-        const empty = createEmptyWorkspace();
-        const seed = createSeedWorkspace();
-        const hasBooksField = Array.isArray(parsed.books);
-        const hasStreamsField = Array.isArray(parsed.streams);
-        const hasScratchpadsField = Array.isArray(parsed.scratchpads);
-        const hasCustomTabsField = Array.isArray(parsed.customTabs);
-        const normalizedLib = hasBooksField
-          ? normalizeLibraryWorkspaceData({
-              books: parsed.books,
-              libraryFolders: parsed.libraryFolders,
-              libraryCategories: parsed.libraryCategories,
-              libraryViewFolders: parsed.libraryViewFolders,
-              bookBookmarks: parsed.bookBookmarks,
-              bookHighlights: parsed.bookHighlights,
-            })
-          : {
-              books: seed.books,
-              libraryFolders: seed.libraryFolders ?? [],
-              libraryCategories: seed.libraryCategories ?? [],
-              libraryViewFolders: seed.libraryViewFolders ?? [],
-              bookBookmarks: seed.bookBookmarks ?? [],
-              bookHighlights: seed.bookHighlights ?? [],
-            };
-        return purgeWorkspace({
-          ...empty,
-          ...parsed,
-          version: 3,
-          entries: migrateEntries(parsed.entries),
-          scratchpads: hasScratchpadsField
-            ? parsed.scratchpads!
-            : (seed.scratchpads ?? []),
-          customTabs: hasCustomTabsField
-            ? parsed.customTabs!
-            : (seed.customTabs ?? []),
-          habitLogs: Array.isArray(parsed.habitLogs) ? parsed.habitLogs : [],
-          noteNotebooks: Array.isArray(parsed.noteNotebooks)
-            ? parsed.noteNotebooks
-            : (seed.noteNotebooks ?? []),
-          books: normalizedLib.books,
-          libraryFolders: normalizedLib.libraryFolders,
-          libraryCategories: normalizedLib.libraryCategories,
-          libraryViewFolders: normalizedLib.libraryViewFolders,
-          bookBookmarks: normalizedLib.bookBookmarks,
-          bookHighlights: normalizedLib.bookHighlights,
-          streams: hasStreamsField ? parsed.streams! : seed.streams,
-          streamFolders: Array.isArray(parsed.streamFolders)
-            ? parsed.streamFolders
-            : hasStreamsField
-              ? []
-              : (seed.streamFolders ?? []),
-          streamPresets: Array.isArray(parsed.streamPresets)
-            ? parsed.streamPresets
-            : hasStreamsField
-              ? []
-              : seed.streamPresets,
-          streamerState: parsed.streamerState
-            ? normalizeStreamerState(
-                parsed.streamerState,
-                new Set(
-                  (hasStreamsField ? parsed.streams! : seed.streams).map(
-                    (s) => s.id,
-                  ),
-                ),
-              )
-            : hasStreamsField
-              ? { ...DEFAULT_STREAMER_STATE }
-              : seed.streamerState,
-          settings: {
-            ...empty.settings,
-            ...parsed.settings,
-            timelineDisplayMode:
-              parsed.settings.timelineDisplayMode || "default",
-            epubPrefs: {
-              ...empty.settings.epubPrefs!,
-              ...(parsed.settings.epubPrefs || {}),
-            },
-          },
-        } as KansoWorkspace);
+      const normalized = normalizeParsedWorkspace(parsed);
+      if (normalized) {
+        return { workspace: normalized, fromLocalStorage: true };
       }
     }
   } catch {
     // Fallback to seed data
   }
-  return createSeedWorkspace();
+  return { workspace: createSeedWorkspace(), fromLocalStorage: false };
+}
+
+function persistWorkspaceToLocalStorage(
+  ws: KansoWorkspace,
+): "full" | "compact" | "failed" {
+  try {
+    localStorage.setItem(STORAGE_WORKSPACE_KEY, JSON.stringify(ws));
+    return "full";
+  } catch {
+    // Retry without inline book cover data URLs so localStorage metadata cache fits within ~5 MB quota
+    try {
+      const compactWs: KansoWorkspace = {
+        ...ws,
+        books: ws.books.map((b) =>
+          b.coverDataUrl ? { ...b, coverDataUrl: null } : b,
+        ),
+      };
+      localStorage.setItem(STORAGE_WORKSPACE_KEY, JSON.stringify(compactWs));
+      return "compact";
+    } catch {
+      return "failed";
+    }
+  }
 }
 
 function loadInitialGistConfig(): GistSyncConfig {
@@ -462,8 +497,17 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [workspace, setWorkspace] =
-    useState<KansoWorkspace>(loadInitialWorkspace);
+  const initialLoadRef = useRef<{
+    workspace: KansoWorkspace;
+    fromLocalStorage: boolean;
+  } | null>(null);
+  if (!initialLoadRef.current) {
+    initialLoadRef.current = loadInitialWorkspaceState();
+  }
+
+  const [workspace, setWorkspace] = useState<KansoWorkspace>(
+    () => initialLoadRef.current!.workspace,
+  );
   const [gistConfig, setGistConfig] = useState<GistSyncConfig>(
     loadInitialGistConfig,
   );
@@ -471,6 +515,13 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     null,
   );
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const latestWorkspaceRef = useRef<KansoWorkspace>(workspace);
+  latestWorkspaceRef.current = workspace;
+  const hasUserMutatedRef = useRef(false);
+  const skipInitialPersistRef = useRef(true);
+  const quotaToastShownRef = useRef(false);
+  const idbWriteQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
 
   const pushToast = useCallback(
     (text: string, tone: ToastMessage["tone"] = "neutral") => {
@@ -487,14 +538,51 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Persist workspace to localStorage offline
+  const enqueueIdbWorkspaceSave = useCallback((ws: KansoWorkspace) => {
+    const task = idbWriteQueueRef.current
+      .catch(() => true)
+      .then(async () => {
+        try {
+          await libraryDb.saveWorkspaceSnapshot(ws);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+    idbWriteQueueRef.current = task;
+    return task;
+  }, []);
+
+  // Persist workspace durably to both localStorage (with cover-stripped fallback) and IndexedDB
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_WORKSPACE_KEY, JSON.stringify(workspace));
-    } catch {
-      // Storage quota safeguard
+    if (skipInitialPersistRef.current) {
+      skipInitialPersistRef.current = false;
+      return;
     }
-  }, [workspace]);
+    const lsResult = persistWorkspaceToLocalStorage(workspace);
+    void enqueueIdbWorkspaceSave(workspace).then((idbOk) => {
+      if (lsResult === "failed" && !idbOk && !quotaToastShownRef.current) {
+        quotaToastShownRef.current = true;
+        pushToast(
+          "Browser storage is full — free up space in Settings → Storage.",
+          "error",
+        );
+      }
+    });
+  }, [workspace, enqueueIdbWorkspaceSave, pushToast]);
+
+  // Flush workspace synchronously to localStorage if the tab is closed or refreshed
+  useEffect(() => {
+    const flushNow = () => {
+      persistWorkspaceToLocalStorage(latestWorkspaceRef.current);
+    };
+    window.addEventListener("pagehide", flushNow);
+    window.addEventListener("beforeunload", flushNow);
+    return () => {
+      window.removeEventListener("pagehide", flushNow);
+      window.removeEventListener("beforeunload", flushNow);
+    };
+  }, []);
 
   // Persist gist config locally
   useEffect(() => {
@@ -520,19 +608,97 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     );
   }, [workspace.settings.theme, workspace.settings.colorMode]);
 
-  // Hydrate IndexedDB bookmarks & highlights on startup from workspace (supports Gist sync & seed data)
+  // Hydrate workspace from IndexedDB if newer/more complete, compact oversized legacy covers, and seed annotations
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
+        let effectiveWorkspace = latestWorkspaceRef.current;
+
+        const snapshot = await libraryDb
+          .loadWorkspaceSnapshot()
+          .catch(() => null);
+        if (cancelled) return;
+
+        if (!hasUserMutatedRef.current && snapshot?.workspace) {
+          const hydrated = normalizeParsedWorkspace(
+            snapshot.workspace as Partial<KansoWorkspace>,
+          );
+          if (hydrated) {
+            const lsWs = latestWorkspaceRef.current;
+            const lsTime = Date.parse(lsWs.updatedAt || "") || 0;
+            const idbTime = Date.parse(hydrated.updatedAt || "") || 0;
+            const lsMissingCovers = lsWs.books.some(
+              (b) =>
+                !b.coverDataUrl &&
+                hydrated.books.some(
+                  (hb) => hb.id === b.id && Boolean(hb.coverDataUrl),
+                ),
+            );
+
+            const shouldPreferIdb =
+              !initialLoadRef.current?.fromLocalStorage ||
+              idbTime > lsTime ||
+              (idbTime === lsTime &&
+                (lsMissingCovers || hydrated.books.length > lsWs.books.length));
+
+            if (shouldPreferIdb) {
+              effectiveWorkspace = hydrated;
+              setWorkspace(hydrated);
+            } else if (lsTime > idbTime) {
+              void enqueueIdbWorkspaceSave(lsWs);
+            }
+          }
+        } else if (!hasUserMutatedRef.current && !snapshot?.workspace) {
+          void enqueueIdbWorkspaceSave(effectiveWorkspace);
+        }
+
+        // One-time compaction of any legacy uncompressed book covers (> 100 KB)
+        const oversizedBooks = effectiveWorkspace.books.filter(
+          (b) =>
+            typeof b.coverDataUrl === "string" && b.coverDataUrl.length > 100_000,
+        );
+        if (oversizedBooks.length > 0 && !cancelled) {
+          const compacted = await Promise.all(
+            oversizedBooks.map(async (b) => ({
+              id: b.id,
+              original: b.coverDataUrl!,
+              compressed: await compressCoverDataUrl(b.coverDataUrl!),
+            })),
+          );
+          if (!cancelled) {
+            const patchMap = new Map(
+              compacted
+                .filter(
+                  (c) => c.compressed && c.compressed.length < c.original.length,
+                )
+                .map((c) => [c.id, c.compressed]),
+            );
+            if (patchMap.size > 0) {
+              setWorkspace((prev) => ({
+                ...prev,
+                books: prev.books.map((b) => {
+                  const nextCover = patchMap.get(b.id);
+                  return nextCover &&
+                    b.coverDataUrl &&
+                    b.coverDataUrl.length > 100_000
+                    ? { ...b, coverDataUrl: nextCover }
+                    : b;
+                }),
+                updatedAt: new Date().toISOString(),
+              }));
+            }
+          }
+        }
+
         const [dbBookmarks, dbHighlights] = await Promise.all([
           libraryDb.getAllBookmarks(),
           libraryDb.getAllHighlights(),
         ]);
         if (cancelled) return;
 
-        const wsBookmarks = workspace.bookBookmarks ?? [];
-        const wsHighlights = workspace.bookHighlights ?? [];
+        const wsBookmarks = effectiveWorkspace.bookBookmarks ?? [];
+        const wsHighlights = effectiveWorkspace.bookHighlights ?? [];
 
         // If IndexedDB is empty but workspace has synced/seeded annotations, seed IndexedDB
         if (dbBookmarks.length === 0 && wsBookmarks.length > 0) {
@@ -554,6 +720,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const mutateWorkspace = useCallback(
     (updater: (prev: KansoWorkspace) => KansoWorkspace) => {
+      hasUserMutatedRef.current = true;
       setWorkspace((prev) => {
         const next = updater(prev);
         return { ...next, updatedAt: new Date().toISOString() };
@@ -2416,6 +2583,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const replaceWorkspace = useCallback(
     (next: KansoWorkspace, toastMessage?: string) => {
+      hasUserMutatedRef.current = true;
       const empty = createEmptyWorkspace();
       const normalizedLib = normalizeLibraryWorkspaceData({
         books: next.books,
@@ -2561,6 +2729,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [gistSyncBusy, gistConfig, replaceWorkspace, updateGistConfig, pushToast]);
 
   const clearWorkspaceData = useCallback(() => {
+    hasUserMutatedRef.current = true;
     void libraryDb.clearAllData();
     if (typeof localStorage !== "undefined") {
       for (const key of VIEW_PREFERENCE_STORAGE_KEYS) {
@@ -2574,17 +2743,20 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     setWorkspace((prev) => ({
       ...createEmptyWorkspace(),
       settings: prev.settings,
+      updatedAt: new Date().toISOString(),
     }));
     pushToast("Workspace cleared to a blank slate", "success");
   }, [pushToast]);
 
   const restoreSampleData = useCallback(() => {
+    hasUserMutatedRef.current = true;
     const seeded = createSeedWorkspace();
     const validBookIds = new Set(seeded.books.map((b) => b.id));
     pruneMissingBookVoicePreferences(validBookIds);
     setWorkspace((prev) => ({
       ...seeded,
       settings: prev.settings,
+      updatedAt: new Date().toISOString(),
     }));
     void Promise.all([
       libraryDb.replaceAllAnnotations(
