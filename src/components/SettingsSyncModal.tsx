@@ -12,6 +12,7 @@ import {
   FileText,
   HardDrive,
   Headphones,
+  Layers,
   ListTodo,
   MonitorPlay,
   Moon,
@@ -66,8 +67,15 @@ import {
   validateWorkspacePayload,
 } from "../utils/gist";
 import { KansoLogo } from "./KansoLogo";
+import { ViewsSettingsPanel } from "./settings/ViewsSettingsPanel";
+import { resolveNavigationConfig } from "../lib/viewNavigation";
 
-export type SettingsModalTab = "appearance" | "sync" | "workspace" | "storage";
+export type SettingsModalTab =
+  | "appearance"
+  | "views"
+  | "sync"
+  | "workspace"
+  | "storage";
 
 interface SettingsSyncModalProps {
   open: boolean;
@@ -853,6 +861,10 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
 
   const showNavCounts = workspace.settings.showNavCounts ?? true;
   const defaultView = workspace.settings.defaultView ?? "focus";
+  const resolvedNav = useMemo(
+    () => resolveNavigationConfig(workspace.settings.navigation),
+    [workspace.settings.navigation],
+  );
   const defaultTimelineType = workspace.settings.defaultTimelineType ?? "task";
   const defaultNoteTimelineSync =
     workspace.settings.defaultNoteTimelineSync ?? false;
@@ -966,7 +978,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
           }}
         >
           <div
-            className="grid grid-cols-4 gap-1 p-1 rounded-xl border"
+            className="grid grid-cols-5 gap-1 p-1 rounded-xl border"
             style={{
               backgroundColor: "var(--bg-surface-subtle)",
               borderColor: "var(--border-subtle)",
@@ -976,8 +988,9 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
             {(
               [
                 { id: "appearance", label: "Theme", icon: Palette },
-                { id: "sync", label: "Gist Sync", icon: RefreshCw },
-                { id: "workspace", label: "Workspace", icon: SlidersHorizontal },
+                { id: "views", label: "Views", icon: Layers },
+                { id: "sync", label: "Sync", icon: RefreshCw },
+                { id: "workspace", label: "General", icon: SlidersHorizontal },
                 { id: "storage", label: "Storage", icon: HardDrive },
               ] as {
                 id: SettingsModalTab;
@@ -994,7 +1007,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                   role="tab"
                   aria-selected={active}
                   onClick={() => setTab(item.id)}
-                  className="h-8 px-2 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+                  className="h-8 px-1.5 sm:px-2 rounded-lg text-[11px] sm:text-xs font-semibold inline-flex items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
                   style={{
                     backgroundColor: active
                       ? "var(--bg-surface)"
@@ -1015,6 +1028,18 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
 
         {/* Scrollable Body */}
         <div className="flex-1 overflow-y-auto overscroll-none p-4 sm:p-5 space-y-5">
+          {/* ================= VIEWS TAB ================= */}
+          {tab === "views" && (
+            <ViewsSettingsPanel
+              navigation={workspace.settings.navigation}
+              defaultView={defaultView}
+              onUpdateNavigation={(nextNav) =>
+                updateSettings({ navigation: nextNav })
+              }
+              onToast={pushToast}
+            />
+          )}
+
           {/* ================= THEME TAB ================= */}
           {tab === "appearance" && (
             <>
@@ -1593,11 +1618,15 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                     color: "var(--text-primary)",
                   }}
                 >
-                  {STARTUP_VIEW_OPTIONS.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.label}
-                    </option>
-                  ))}
+                  {STARTUP_VIEW_OPTIONS.map((v) => {
+                    const isHidden = resolvedNav.hiddenSet.has(v.id);
+                    return (
+                      <option key={v.id} value={v.id}>
+                        {v.label}
+                        {isHidden ? " (Hidden)" : ""}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 

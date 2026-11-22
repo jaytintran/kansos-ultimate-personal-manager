@@ -1,18 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BookOpen,
-  Calendar,
   ChevronDown,
   ChevronUp,
   CloudDownload,
   CloudUpload,
-  FileText,
-  GitCommitVertical,
-  Grid2x2Check,
   Headphones,
-  ListTodo,
   Loader2,
-  MonitorPlay,
   Moon,
   MoreHorizontal,
   PanelLeftClose,
@@ -24,12 +17,8 @@ import {
   SkipBack,
   SkipForward,
   Sun,
-  Target,
-  Trophy,
-  Users,
   Volume2,
   VolumeX,
-  Wallet,
   X,
 } from "lucide-react";
 import { DetailSheet } from "./components/DetailSheet";
@@ -55,6 +44,10 @@ import {
   ViewId,
 } from "./types";
 import { formatAudioDuration } from "./lib/audioFormatters";
+import {
+  resolveNavigationConfig,
+  VIEW_META_MAP,
+} from "./lib/viewNavigation";
 import { getEntryDayKey, getTodayKey, isVisibleOnTimeline } from "./utils/date";
 import { AchievementsView } from "./views/AchievementsView";
 import {
@@ -76,113 +69,6 @@ import {
   StreamerView,
 } from "./views/StreamerView";
 import { TimelineView } from "./views/TimelineView";
-
-interface NavItemDef {
-  id: ViewId;
-  label: string;
-  description: string;
-  icon: React.ComponentType<{
-    className?: string;
-    style?: React.CSSProperties;
-  }>;
-}
-
-const DESKTOP_NAV_GROUPS: NavItemDef[][] = [
-  [
-    {
-      id: "focus",
-      label: "Focus",
-      description: "Anchors, X-Active & tabs",
-      icon: Target,
-    },
-    {
-      id: "timeline",
-      label: "Timeline",
-      description: "Daily chronological spine",
-      icon: GitCommitVertical,
-    },
-    {
-      id: "habits",
-      label: "Habits",
-      description: "Matrix, cards & streaks",
-      icon: Grid2x2Check,
-    },
-    {
-      id: "achievements",
-      label: "Achievements",
-      description: "Milestones & completed wins",
-      icon: Trophy,
-    },
-  ],
-  [
-    {
-      id: "notes",
-      label: "Notes",
-      description: "Card grid & rich editor",
-      icon: FileText,
-    },
-    {
-      id: "events",
-      label: "Events",
-      description: "Scheduled calendar items",
-      icon: Calendar,
-    },
-    {
-      id: "lists",
-      label: "Lists",
-      description: "Collections & backlogs",
-      icon: ListTodo,
-    },
-  ],
-  [
-    {
-      id: "library",
-      label: "Library",
-      description: "Offline PDF & EPUB reader",
-      icon: BookOpen,
-    },
-    {
-      id: "streamer",
-      label: "Streamer",
-      description: "Multi-YouTube stream grid",
-      icon: MonitorPlay,
-    },
-    {
-      id: "audio",
-      label: "Audio",
-      description: "Local audio studio & mixer",
-      icon: Headphones,
-    },
-  ],
-  [
-    {
-      id: "contacts",
-      label: "Contacts",
-      description: "Personal CRM & relationships",
-      icon: Users,
-    },
-    {
-      id: "finance",
-      label: "Finance",
-      description: "Multi-currency money & bills",
-      icon: Wallet,
-    },
-  ],
-];
-
-const ALL_NAV_ITEMS: NavItemDef[] = DESKTOP_NAV_GROUPS.flat();
-
-const MOBILE_PRIMARY_IDS: ViewId[] = ["focus", "timeline", "habits", "notes"];
-const MOBILE_MORE_IDS: ViewId[] = [
-  "lists",
-  "events",
-  "contacts",
-  "finance",
-  "library",
-  "streamer",
-  "audio",
-  "achievements",
-];
 
 const NON_KEYBOARD_INPUT_TYPES = new Set([
   "button",
@@ -234,7 +120,13 @@ const KansoShell: React.FC = () => {
     pushToast,
     updateSettings,
   } = useWorkspace();
-  const initialView: ViewId = workspace.settings.defaultView || "focus";
+  const navConfig = useMemo(
+    () => resolveNavigationConfig(workspace.settings.navigation),
+    [workspace.settings.navigation],
+  );
+  const initialView: ViewId = navConfig.resolveSafeView(
+    workspace.settings.defaultView,
+  );
   const [activeView, setActiveView] = useState<ViewId>(initialView);
 
   // Track whether Library, Streamer, and Audio have ever been opened, so we can keep them mounted -> audio keeps running | book tabs persist
@@ -449,6 +341,13 @@ const KansoShell: React.FC = () => {
     setActiveView(view);
   }, []);
 
+  // Safely redirect if the active view is turned off (e.g. from Settings or a Gist pull)
+  useEffect(() => {
+    if (navConfig.hiddenSet.has(activeView)) {
+      navigateToView(navConfig.resolveSafeView(workspace.settings.defaultView));
+    }
+  }, [navConfig, activeView, workspace.settings.defaultView, navigateToView]);
+
   const handleJumpToBookLocation = useCallback(
     (bookLink: BookNoteLink) => {
       const targetBook = bookLink.bookId
@@ -624,8 +523,8 @@ const KansoShell: React.FC = () => {
   const isGistConfigured = hasGistToken || hasGistId;
   const showNavCounts = workspace.settings.showNavCounts ?? true;
 
-  const isMoreViewActive = MOBILE_MORE_IDS.includes(activeView);
-  const activeViewDef = ALL_NAV_ITEMS.find((item) => item.id === activeView);
+  const isMoreViewActive = navConfig.mobileMoreVisible.includes(activeView);
+  const activeViewDef = VIEW_META_MAP[activeView];
 
   const isFixedHeightView =
     activeView === "streamer" ||
@@ -730,7 +629,7 @@ const KansoShell: React.FC = () => {
             }`}
             aria-label="Main workspace navigation"
           >
-            {DESKTOP_NAV_GROUPS.map((group, groupIdx) => (
+            {navConfig.desktopGroupsVisible.map((groupIds, groupIdx) => (
               <div
                 key={groupIdx}
                 className={
@@ -744,7 +643,8 @@ const KansoShell: React.FC = () => {
                     : undefined
                 }
               >
-                {group.map((item) => {
+                {groupIds.map((viewId) => {
+                  const item = VIEW_META_MAP[viewId];
                   const Icon = item.icon;
                   const active = activeView === item.id;
                   const count = navCounts[item.id];
@@ -1525,9 +1425,14 @@ const KansoShell: React.FC = () => {
           }}
           aria-label="Mobile workspace navigation"
         >
-        <div className="h-15 grid grid-cols-5 items-center px-1 px-safe">
-          {MOBILE_PRIMARY_IDS.map((id) => {
-            const item = ALL_NAV_ITEMS.find((n) => n.id === id)!;
+        <div
+          className="h-15 grid items-center px-1 px-safe"
+          style={{
+            gridTemplateColumns: `repeat(${navConfig.mobilePrimaryVisible.length + 1}, minmax(0, 1fr))`,
+          }}
+        >
+          {navConfig.mobilePrimaryVisible.map((id) => {
+            const item = VIEW_META_MAP[id];
             const Icon = item.icon;
             const active = activeView === item.id && !moreSheetOpen;
             return (
@@ -1544,7 +1449,7 @@ const KansoShell: React.FC = () => {
                 }}
               >
                 <Icon className="w-4.5 h-4.5" />
-                <span className="text-[10px] font-medium leading-none">
+                <span className="text-[10px] font-medium leading-none truncate max-w-full px-0.5">
                   {item.label}
                 </span>
               </button>
@@ -1635,9 +1540,21 @@ const KansoShell: React.FC = () => {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
-              {MOBILE_MORE_IDS.map((id) => {
-                const item = ALL_NAV_ITEMS.find((n) => n.id === id)!;
+            {navConfig.mobileMoreVisible.length === 0 ? (
+              <div
+                className="p-4 rounded-xl border text-center text-xs"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-muted)",
+                }}
+              >
+                No additional views in More. Customize views in Settings → Views.
+              </div>
+            ) : (
+            <div className="grid grid-cols-2 gap-2.5 max-h-[50dvh] overflow-y-auto">
+              {navConfig.mobileMoreVisible.map((id) => {
+                const item = VIEW_META_MAP[id];
                 const Icon = item.icon;
                 const active = activeView === item.id;
                 const count = navCounts[item.id];
@@ -1857,6 +1774,7 @@ const KansoShell: React.FC = () => {
                 );
               })}
             </div>
+            )}
 
             {/* Mobile Option 1 Utility Dock: Top Sync Bar + Bottom Wide Settings */}
             <div
@@ -1961,7 +1879,7 @@ const KansoShell: React.FC = () => {
                   className="text-[11px] font-normal"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  Theme · Workspace · Storage
+                  Theme · Views · Workspace
                 </span>
               </button>
             </div>

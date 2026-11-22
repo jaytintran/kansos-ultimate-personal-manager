@@ -363,6 +363,13 @@ export interface StreamerState {
 // Workspace Settings, Gist Sync & Envelope
 // ==========================================================================
 
+export interface WorkspaceNavigationSettings {
+  hiddenViews?: ViewId[];
+  desktopGroups?: ViewId[][];
+  mobilePrimary?: ViewId[];
+  mobileMore?: ViewId[];
+}
+
 export interface WorkspaceSettings {
   theme: ThemeId;
   colorMode: ColorMode;
@@ -374,6 +381,7 @@ export interface WorkspaceSettings {
   defaultTimelineType?: EntryType;
   defaultNoteTimelineSync?: boolean;
   epubPrefs?: EpubReaderPrefs;
+  navigation?: WorkspaceNavigationSettings;
 }
 
 export interface GistSyncConfig {

@@ -68,6 +68,7 @@ import { audioDb, contactPhotoDb, libraryDb } from "../lib/db";
 import { advanceSubscriptionDueDate } from "../lib/financeUtils";
 import { compressCoverDataUrl } from "../lib/formatters";
 import { normalizeLibraryWorkspaceData } from "../lib/migrateLibrary";
+import { sanitizeNavigationSettings } from "../lib/viewNavigation";
 import {
   buildDateAtTime,
   formatTime,
@@ -414,6 +415,7 @@ function normalizeParsedWorkspace(
         ...empty.settings.epubPrefs!,
         ...(parsed.settings.epubPrefs || {}),
       },
+      navigation: sanitizeNavigationSettings(parsed.settings.navigation),
     },
   } as KansoWorkspace);
 }
@@ -4335,10 +4337,24 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   // Settings & Workspace lifecycle
   const updateSettings = useCallback(
     (patch: Partial<WorkspaceSettings>) => {
-      mutateWorkspace((prev) => ({
-        ...prev,
-        settings: { ...prev.settings, ...patch },
-      }));
+      mutateWorkspace((prev) => {
+        const nextSettings: WorkspaceSettings = {
+          ...prev.settings,
+          ...patch,
+        };
+        if ("navigation" in patch) {
+          const sanitized = sanitizeNavigationSettings(patch.navigation);
+          if (sanitized) {
+            nextSettings.navigation = sanitized;
+          } else {
+            delete nextSettings.navigation;
+          }
+        }
+        return {
+          ...prev,
+          settings: nextSettings,
+        };
+      });
     },
     [mutateWorkspace],
   );
@@ -4540,6 +4556,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
               ...empty.settings.epubPrefs!,
               ...(cleanNext.settings?.epubPrefs || {}),
             },
+            navigation: sanitizeNavigationSettings(
+              cleanNext.settings?.navigation,
+            ),
           },
         });
       });
