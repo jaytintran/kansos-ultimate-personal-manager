@@ -9,9 +9,17 @@ import React, {
 import {
   createEmptyWorkspace,
   createSeedWorkspace,
+  DEFAULT_AUDIO_STATE,
   DEFAULT_STREAMER_STATE,
 } from "../data/seedData";
 import {
+  AudioEqPreset,
+  AudioFolderRecord,
+  AudioMixPreset,
+  AudioMixSlot,
+  AudioPlaylistRecord,
+  AudioStudioState,
+  AudioTrackRecord,
   BookBookmark,
   BookHighlight,
   BookNoteLink,
@@ -45,7 +53,7 @@ import {
   WorkspaceSettings,
 } from "../types";
 import { pruneBookVoicePreferences, pruneMissingBookVoicePreferences } from "../hooks/useVoicePreferences";
-import { libraryDb } from "../lib/db";
+import { audioDb, libraryDb } from "../lib/db";
 import { compressCoverDataUrl } from "../lib/formatters";
 import { normalizeLibraryWorkspaceData } from "../lib/migrateLibrary";
 import {
@@ -78,6 +86,7 @@ const VIEW_PREFERENCE_STORAGE_KEYS = [
   "kanso_library_studio_prefs_v1",
   "kanso_library_voice_prefs_v1",
   "kanso_streamer_vault_sort_v1",
+  "kanso_audio_studio_prefs_v1",
 ] as const;
 
 const DEFAULT_GIST_CONFIG: GistSyncConfig = {
@@ -152,6 +161,76 @@ function normalizeStreamerState(
         ? Math.max(0, Math.min(100, Math.round(merged.masterVolume)))
         : 100,
     sidebarOpen: merged.sidebarOpen ?? true,
+  };
+}
+
+function createDefaultAudioSlot(
+  trackId: string,
+  overrides?: Partial<Omit<AudioMixSlot, "slotId" | "trackId">>,
+): AudioMixSlot {
+  return {
+    slotId: uid("aslot"),
+    trackId,
+    volume:
+      typeof overrides?.volume === "number"
+        ? Math.max(0, Math.min(100, Math.round(overrides.volume)))
+        : 85,
+    muted: Boolean(overrides?.muted),
+    solo: Boolean(overrides?.solo),
+    loop: Boolean(overrides?.loop),
+    playbackRate:
+      typeof overrides?.playbackRate === "number"
+        ? Math.max(0.5, Math.min(3, overrides.playbackRate))
+        : 1,
+    abLoopStart: overrides?.abLoopStart ?? null,
+    abLoopEnd: overrides?.abLoopEnd ?? null,
+  };
+}
+
+function normalizeAudioState(
+  raw: Partial<AudioStudioState> | undefined,
+  validTrackIds: Set<string>,
+): AudioStudioState {
+  const merged = { ...DEFAULT_AUDIO_STATE, ...(raw || {}) };
+  const slots = Array.isArray(merged.activeSlots)
+    ? merged.activeSlots
+        .filter((sl) => sl && validTrackIds.has(sl.trackId))
+        .map((sl) =>
+          createDefaultAudioSlot(sl.trackId, {
+            volume: sl.volume,
+            muted: sl.muted,
+            solo: sl.solo,
+            loop: sl.loop,
+            playbackRate: sl.playbackRate,
+            abLoopStart: sl.abLoopStart,
+            abLoopEnd: sl.abLoopEnd,
+          }),
+        )
+    : [];
+  const primaryTrackId =
+    merged.primaryTrackId && validTrackIds.has(merged.primaryTrackId)
+      ? merged.primaryTrackId
+      : slots[0]?.trackId || null;
+  const queueTrackIds = Array.isArray(merged.queueTrackIds)
+    ? merged.queueTrackIds.filter((id) => validTrackIds.has(id))
+    : [];
+  return {
+    ...merged,
+    activeSlots: slots,
+    primaryTrackId,
+    queueTrackIds,
+    masterVolume:
+      typeof merged.masterVolume === "number"
+        ? Math.max(0, Math.min(100, Math.round(merged.masterVolume)))
+        : 100,
+    eqPreset: merged.eqPreset || "flat",
+    shuffle: Boolean(merged.shuffle),
+    repeatMode:
+      merged.repeatMode === "one" || merged.repeatMode === "all"
+        ? merged.repeatMode
+        : "off",
+    activePresetId: merged.activePresetId || null,
+    mixerExpanded: Boolean(merged.mixerExpanded),
   };
 }
 
@@ -264,6 +343,22 @@ function normalizeParsedWorkspace(
       : hasStreamsField
         ? { ...DEFAULT_STREAMER_STATE }
         : seed.streamerState,
+    audioTracks: Array.isArray(parsed.audioTracks) ? parsed.audioTracks : [],
+    audioFolders: Array.isArray(parsed.audioFolders) ? parsed.audioFolders : [],
+    audioPlaylists: Array.isArray(parsed.audioPlaylists)
+      ? parsed.audioPlaylists
+      : [],
+    audioMixPresets: Array.isArray(parsed.audioMixPresets)
+      ? parsed.audioMixPresets
+      : [],
+    audioState: normalizeAudioState(
+      parsed.audioState,
+      new Set(
+        (Array.isArray(parsed.audioTracks) ? parsed.audioTracks : []).map(
+          (t) => t.id,
+        ),
+      ),
+    ),
     settings: {
       ...empty.settings,
       ...parsed.settings,
@@ -302,12 +397,15 @@ function persistWorkspaceToLocalStorage(
     localStorage.setItem(STORAGE_WORKSPACE_KEY, JSON.stringify(ws));
     return "full";
   } catch {
-    // Retry without inline book cover data URLs so localStorage metadata cache fits within ~5 MB quota
+    // Retry without inline book/audio cover data URLs so localStorage metadata cache fits within ~5 MB quota
     try {
       const compactWs: KansoWorkspace = {
         ...ws,
         books: ws.books.map((b) =>
           b.coverDataUrl ? { ...b, coverDataUrl: null } : b,
+        ),
+        audioTracks: (ws.audioTracks ?? []).map((t) =>
+          t.coverDataUrl ? { ...t, coverDataUrl: null } : t,
         ),
       };
       localStorage.setItem(STORAGE_WORKSPACE_KEY, JSON.stringify(compactWs));
@@ -511,6 +609,64 @@ interface WorkspaceContextValue {
   saveStreamPreset: (name: string, category?: string) => StreamPreset;
   loadStreamPreset: (presetId: string) => void;
   deleteStreamPreset: (presetId: string) => void;
+
+  // Audio Studio actions (device-local files + multi-track mixer)
+  addAudioTrack: (
+    track: Omit<AudioTrackRecord, "id" | "addedAt"> & {
+      id?: string;
+      addedAt?: number;
+    },
+  ) => AudioTrackRecord;
+  updateAudioTrack: (id: string, patch: Partial<AudioTrackRecord>) => void;
+  deleteAudioTracks: (ids: string[]) => Promise<void>;
+  updateAudioFolder: (id: string, patch: Partial<AudioFolderRecord>) => void;
+  addAudioFolder: (
+    name: string,
+    parentId?: string | null,
+    color?: AudioFolderRecord["color"],
+  ) => AudioFolderRecord;
+  deleteAudioFolder: (id: string) => void;
+  addAudioPlaylist: (
+    name: string,
+    trackIds?: string[],
+    description?: string,
+    color?: AudioPlaylistRecord["color"],
+  ) => AudioPlaylistRecord;
+  updateAudioPlaylist: (
+    id: string,
+    patch: Partial<AudioPlaylistRecord>,
+  ) => void;
+  deleteAudioPlaylist: (id: string) => void;
+  addTracksToPlaylist: (playlistId: string, trackIds: string[]) => void;
+  removeTrackFromPlaylist: (playlistId: string, trackId: string) => void;
+  reorderPlaylistTracks: (
+    playlistId: string,
+    fromIndex: number,
+    toIndex: number,
+  ) => void;
+  reorderAudioTracks: (sortOrderById: Record<string, number>) => void;
+  updateAudioState: (
+    patch:
+      | Partial<AudioStudioState>
+      | ((prev: AudioStudioState) => AudioStudioState),
+  ) => void;
+  playAudioTrack: (trackId: string, options?: { replaceMix?: boolean }) => void;
+  addAudioMixSlot: (
+    trackId: string,
+    overrides?: Partial<Omit<AudioMixSlot, "slotId" | "trackId">>,
+  ) => AudioMixSlot | null;
+  updateAudioMixSlot: (slotId: string, patch: Partial<AudioMixSlot>) => void;
+  updateAllAudioMixSlots: (
+    updater: (slot: AudioMixSlot) => AudioMixSlot,
+  ) => void;
+  removeAudioMixSlot: (slotId: string) => void;
+  clearAudioMixSlots: () => void;
+  reorderAudioMixSlots: (fromIndex: number, toIndex: number) => void;
+  saveAudioMixPreset: (name: string, category?: string) => AudioMixPreset;
+  loadAudioMixPreset: (presetId: string) => void;
+  deleteAudioMixPreset: (presetId: string) => void;
+  recordAudioPlay: (trackId: string) => void;
+  setAudioEqPreset: (eqPreset: AudioEqPreset) => void;
 
   // Settings, Sync & Reset
   gistSyncBusy: "push" | "pull" | null;
@@ -2854,6 +3010,612 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace, pushToast],
   );
 
+  // Audio Studio actions (100% local per device, matching Library rules)
+  const addAudioTrack = useCallback(
+    (
+      track: Omit<AudioTrackRecord, "id" | "addedAt"> & {
+        id?: string;
+        addedAt?: number;
+      },
+    ): AudioTrackRecord => {
+      const created: AudioTrackRecord = {
+        ...track,
+        id: track.id || uid("aud"),
+        addedAt: track.addedAt ?? Date.now(),
+        tags: Array.isArray(track.tags) ? track.tags : [],
+        folderIds: Array.isArray(track.folderIds)
+          ? track.folderIds
+          : track.folderId
+            ? [track.folderId]
+            : [],
+        currentPositionSeconds: track.currentPositionSeconds ?? 0,
+        playCount: track.playCount ?? 0,
+        lastPlayedAt: track.lastPlayedAt ?? null,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioTracks: [created, ...(prev.audioTracks ?? [])],
+      }));
+      return created;
+    },
+    [mutateWorkspace],
+  );
+
+  const updateAudioTrack = useCallback(
+    (id: string, patch: Partial<AudioTrackRecord>) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioTracks: (prev.audioTracks ?? []).map((t) =>
+          t.id === id ? { ...t, ...patch } : t,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteAudioTracks = useCallback(
+    async (ids: string[]): Promise<void> => {
+      const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+      if (uniqueIds.length === 0) return;
+      const deleteSet = new Set(uniqueIds);
+      await audioDb.deleteAudioFiles(uniqueIds).catch(() => undefined);
+
+      mutateWorkspace((prev) => {
+        const tracks = prev.audioTracks ?? [];
+        const deletedTracks = tracks.filter((t) => deleteSet.has(t.id));
+        const remainingUris = new Set(
+          tracks
+            .filter((t) => !deleteSet.has(t.id) && t.externalUri)
+            .map((t) => t.externalUri!),
+        );
+        for (const t of deletedTracks) {
+          if (t.externalUri && !remainingUris.has(t.externalUri)) {
+            void releaseAndroidUri(t.externalUri);
+          }
+        }
+
+        const currentState = prev.audioState ?? { ...DEFAULT_AUDIO_STATE };
+        const nextSlots = currentState.activeSlots.filter(
+          (sl) => !deleteSet.has(sl.trackId),
+        );
+        const nextQueue = currentState.queueTrackIds.filter(
+          (tid) => !deleteSet.has(tid),
+        );
+        const nextPrimary =
+          currentState.primaryTrackId && !deleteSet.has(currentState.primaryTrackId)
+            ? currentState.primaryTrackId
+            : nextSlots[0]?.trackId || null;
+
+        const nextPlaylists = (prev.audioPlaylists ?? []).map((pl) => ({
+          ...pl,
+          trackIds: pl.trackIds.filter((tid) => !deleteSet.has(tid)),
+          updatedAt: Date.now(),
+        }));
+        const nextPresets = (prev.audioMixPresets ?? [])
+          .map((p) => ({
+            ...p,
+            slots: p.slots.filter((sl) => !deleteSet.has(sl.trackId)),
+          }))
+          .filter((p) => p.slots.length > 0);
+
+        return {
+          ...prev,
+          audioTracks: tracks.filter((t) => !deleteSet.has(t.id)),
+          audioPlaylists: nextPlaylists,
+          audioMixPresets: nextPresets,
+          audioState: {
+            ...currentState,
+            activeSlots: nextSlots,
+            queueTrackIds: nextQueue,
+            primaryTrackId: nextPrimary,
+          },
+        };
+      });
+
+      pushToast(
+        uniqueIds.length === 1
+          ? "Track removed from Audio"
+          : `Removed ${uniqueIds.length} tracks from Audio`,
+      );
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const addAudioFolder = useCallback(
+    (
+      name: string,
+      parentId: string | null = null,
+      color: AudioFolderRecord["color"] = "slate",
+    ): AudioFolderRecord => {
+      const created: AudioFolderRecord = {
+        id: uid("afld"),
+        name: name.trim() || "Untitled Folder",
+        parentId,
+        color,
+        createdAt: Date.now(),
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioFolders: [...(prev.audioFolders ?? []), created],
+      }));
+      pushToast(`Created folder "${created.name}"`, "success");
+      return created;
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const updateAudioFolder = useCallback(
+    (id: string, patch: Partial<AudioFolderRecord>) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioFolders: (prev.audioFolders ?? []).map((f) =>
+          f.id === id ? { ...f, ...patch } : f,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteAudioFolder = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => {
+        const folders = prev.audioFolders ?? [];
+        const target = folders.find((f) => f.id === id);
+        const fallbackParent = target?.parentId ?? null;
+        return {
+          ...prev,
+          audioFolders: folders
+            .filter((f) => f.id !== id)
+            .map((f) =>
+              f.parentId === id ? { ...f, parentId: fallbackParent } : f,
+            ),
+          audioTracks: (prev.audioTracks ?? []).map((t) => {
+            const nextFolderIds = (t.folderIds ?? (t.folderId ? [t.folderId] : []))
+              .filter((fid) => fid !== id);
+            return {
+              ...t,
+              folderIds: nextFolderIds,
+              folderId: nextFolderIds[0] ?? null,
+            };
+          }),
+        };
+      });
+      pushToast("Folder deleted");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const addAudioPlaylist = useCallback(
+    (
+      name: string,
+      trackIds: string[] = [],
+      description = "",
+      color: AudioPlaylistRecord["color"] = "ochre",
+    ): AudioPlaylistRecord => {
+      const now = Date.now();
+      const created: AudioPlaylistRecord = {
+        id: uid("apl"),
+        name: name.trim() || "Untitled Playlist",
+        description: description.trim() || undefined,
+        color,
+        trackIds: Array.from(new Set(trackIds.filter(Boolean))),
+        createdAt: now,
+        updatedAt: now,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioPlaylists: [...(prev.audioPlaylists ?? []), created],
+      }));
+      pushToast(`Created playlist "${created.name}"`, "success");
+      return created;
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const updateAudioPlaylist = useCallback(
+    (id: string, patch: Partial<AudioPlaylistRecord>) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioPlaylists: (prev.audioPlaylists ?? []).map((pl) =>
+          pl.id === id ? { ...pl, ...patch, updatedAt: Date.now() } : pl,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteAudioPlaylist = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioPlaylists: (prev.audioPlaylists ?? []).filter((pl) => pl.id !== id),
+      }));
+      pushToast("Playlist deleted");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const addTracksToPlaylist = useCallback(
+    (playlistId: string, trackIds: string[]) => {
+      if (trackIds.length === 0) return;
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioPlaylists: (prev.audioPlaylists ?? []).map((pl) => {
+          if (pl.id !== playlistId) return pl;
+          const existing = new Set(pl.trackIds);
+          const merged = [
+            ...pl.trackIds,
+            ...trackIds.filter((tid) => !existing.has(tid)),
+          ];
+          return { ...pl, trackIds: merged, updatedAt: Date.now() };
+        }),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const removeTrackFromPlaylist = useCallback(
+    (playlistId: string, trackId: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioPlaylists: (prev.audioPlaylists ?? []).map((pl) =>
+          pl.id === playlistId
+            ? {
+                ...pl,
+                trackIds: pl.trackIds.filter((id) => id !== trackId),
+                updatedAt: Date.now(),
+              }
+            : pl,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const reorderPlaylistTracks = useCallback(
+    (playlistId: string, fromIndex: number, toIndex: number) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioPlaylists: (prev.audioPlaylists ?? []).map((pl) => {
+          if (pl.id !== playlistId) return pl;
+          const list = [...pl.trackIds];
+          if (
+            fromIndex < 0 ||
+            toIndex < 0 ||
+            fromIndex >= list.length ||
+            toIndex >= list.length ||
+            fromIndex === toIndex
+          ) {
+            return pl;
+          }
+          const [moved] = list.splice(fromIndex, 1);
+          list.splice(toIndex, 0, moved);
+          return { ...pl, trackIds: list, updatedAt: Date.now() };
+        }),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const reorderAudioTracks = useCallback(
+    (sortOrderById: Record<string, number>) => {
+      if (Object.keys(sortOrderById).length === 0) return;
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioTracks: (prev.audioTracks ?? []).map((t) => {
+          const nextOrder = sortOrderById[t.id];
+          if (typeof nextOrder !== "number" || t.sortOrder === nextOrder) {
+            return t;
+          }
+          return { ...t, sortOrder: nextOrder };
+        }),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const updateAudioState = useCallback(
+    (
+      patch:
+        | Partial<AudioStudioState>
+        | ((prev: AudioStudioState) => AudioStudioState),
+    ) => {
+      mutateWorkspace((prev) => {
+        const current = prev.audioState ?? { ...DEFAULT_AUDIO_STATE };
+        const nextState =
+          typeof patch === "function" ? patch(current) : { ...current, ...patch };
+        return {
+          ...prev,
+          audioState: nextState,
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const playAudioTrack = useCallback(
+    (trackId: string, options?: { replaceMix?: boolean }) => {
+      const now = Date.now();
+      mutateWorkspace((prev) => {
+        const tracks = prev.audioTracks ?? [];
+        const exists = tracks.some((t) => t.id === trackId);
+        if (!exists) return prev;
+        const current = prev.audioState ?? { ...DEFAULT_AUDIO_STATE };
+        const existingSlot = current.activeSlots.find(
+          (sl) => sl.trackId === trackId,
+        );
+        let nextSlots: AudioMixSlot[];
+        if (options?.replaceMix) {
+          nextSlots = [
+            existingSlot ||
+              createDefaultAudioSlot(trackId, {
+                volume: current.activeSlots[0]?.volume ?? 90,
+                loop: current.activeSlots[0]?.loop ?? false,
+              }),
+          ];
+        } else if (existingSlot) {
+          nextSlots = current.activeSlots;
+        } else {
+          nextSlots = [...current.activeSlots, createDefaultAudioSlot(trackId)];
+        }
+        return {
+          ...prev,
+          audioTracks: tracks.map((t) =>
+            t.id === trackId
+              ? { ...t, playCount: (t.playCount ?? 0) + 1, lastPlayedAt: now }
+              : t,
+          ),
+          audioState: {
+            ...current,
+            activeSlots: nextSlots,
+            primaryTrackId: trackId,
+            activePresetId: null,
+          },
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const addAudioMixSlot = useCallback(
+    (
+      trackId: string,
+      overrides?: Partial<Omit<AudioMixSlot, "slotId" | "trackId">>,
+    ): AudioMixSlot | null => {
+      const tracks = workspace.audioTracks ?? [];
+      if (!tracks.some((t) => t.id === trackId)) return null;
+      const newSlot = createDefaultAudioSlot(trackId, overrides);
+      const now = Date.now();
+      mutateWorkspace((prev) => {
+        const current = prev.audioState ?? { ...DEFAULT_AUDIO_STATE };
+        const nextSlots = [...current.activeSlots, newSlot];
+        return {
+          ...prev,
+          audioTracks: (prev.audioTracks ?? []).map((t) =>
+            t.id === trackId
+              ? { ...t, playCount: (t.playCount ?? 0) + 1, lastPlayedAt: now }
+              : t,
+          ),
+          audioState: {
+            ...current,
+            activeSlots: nextSlots,
+            primaryTrackId: current.primaryTrackId || trackId,
+            activePresetId: null,
+          },
+        };
+      });
+      return newSlot;
+    },
+    [workspace.audioTracks, mutateWorkspace],
+  );
+
+  const updateAudioMixSlot = useCallback(
+    (slotId: string, patch: Partial<AudioMixSlot>) => {
+      mutateWorkspace((prev) => {
+        const current = prev.audioState ?? { ...DEFAULT_AUDIO_STATE };
+        return {
+          ...prev,
+          audioState: {
+            ...current,
+            activeSlots: current.activeSlots.map((sl) =>
+              sl.slotId === slotId ? { ...sl, ...patch } : sl,
+            ),
+          },
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const updateAllAudioMixSlots = useCallback(
+    (updater: (slot: AudioMixSlot) => AudioMixSlot) => {
+      mutateWorkspace((prev) => {
+        const current = prev.audioState ?? { ...DEFAULT_AUDIO_STATE };
+        return {
+          ...prev,
+          audioState: {
+            ...current,
+            activeSlots: current.activeSlots.map(updater),
+          },
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const removeAudioMixSlot = useCallback(
+    (slotId: string) => {
+      mutateWorkspace((prev) => {
+        const current = prev.audioState ?? { ...DEFAULT_AUDIO_STATE };
+        const removed = current.activeSlots.find((sl) => sl.slotId === slotId);
+        const nextSlots = current.activeSlots.filter(
+          (sl) => sl.slotId !== slotId,
+        );
+        const stillHasPrimary =
+          current.primaryTrackId &&
+          nextSlots.some((sl) => sl.trackId === current.primaryTrackId);
+        const nextPrimary = stillHasPrimary
+          ? current.primaryTrackId
+          : removed && current.primaryTrackId === removed.trackId
+            ? nextSlots[0]?.trackId || null
+            : nextSlots[0]?.trackId || null;
+        return {
+          ...prev,
+          audioState: {
+            ...current,
+            activeSlots: nextSlots,
+            primaryTrackId: nextPrimary,
+            activePresetId: null,
+          },
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const clearAudioMixSlots = useCallback(() => {
+    mutateWorkspace((prev) => ({
+      ...prev,
+      audioState: {
+        ...(prev.audioState ?? DEFAULT_AUDIO_STATE),
+        activeSlots: [],
+        primaryTrackId: null,
+        activePresetId: null,
+      },
+    }));
+    pushToast("Cleared active audio mixer");
+  }, [mutateWorkspace, pushToast]);
+
+  const reorderAudioMixSlots = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      mutateWorkspace((prev) => {
+        const current = prev.audioState ?? { ...DEFAULT_AUDIO_STATE };
+        const list = [...current.activeSlots];
+        if (
+          fromIndex < 0 ||
+          toIndex < 0 ||
+          fromIndex >= list.length ||
+          toIndex >= list.length ||
+          fromIndex === toIndex
+        ) {
+          return prev;
+        }
+        const [moved] = list.splice(fromIndex, 1);
+        list.splice(toIndex, 0, moved);
+        return {
+          ...prev,
+          audioState: {
+            ...current,
+            activeSlots: list,
+          },
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const saveAudioMixPreset = useCallback(
+    (name: string, category = "General"): AudioMixPreset => {
+      const current = workspace.audioState ?? DEFAULT_AUDIO_STATE;
+      const trimmed = name.trim() || "Untitled Mix";
+      const created: AudioMixPreset = {
+        id: uid("amix"),
+        name: trimmed,
+        category: category.trim() || "General",
+        masterVolume: current.masterVolume,
+        eqPreset: current.eqPreset,
+        slots: current.activeSlots.map((sl) => ({ ...sl })),
+        createdAt: Date.now(),
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioMixPresets: [created, ...(prev.audioMixPresets ?? [])],
+        audioState: {
+          ...(prev.audioState ?? DEFAULT_AUDIO_STATE),
+          activePresetId: created.id,
+        },
+      }));
+      pushToast(`Saved mix preset "${trimmed}"`, "success");
+      return created;
+    },
+    [workspace.audioState, mutateWorkspace, pushToast],
+  );
+
+  const loadAudioMixPreset = useCallback(
+    (presetId: string) => {
+      const preset = (workspace.audioMixPresets ?? []).find(
+        (p) => p.id === presetId,
+      );
+      if (!preset) return;
+      const validIds = new Set((workspace.audioTracks ?? []).map((t) => t.id));
+      const restoredSlots = preset.slots
+        .filter((sl) => validIds.has(sl.trackId))
+        .map((sl) => ({ ...sl, slotId: uid("aslot") }));
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioState: {
+          ...(prev.audioState ?? DEFAULT_AUDIO_STATE),
+          activeSlots: restoredSlots,
+          primaryTrackId: restoredSlots[0]?.trackId || null,
+          masterVolume: preset.masterVolume ?? 100,
+          eqPreset: preset.eqPreset || "flat",
+          activePresetId: preset.id,
+          mixerExpanded: restoredSlots.length > 1,
+        },
+      }));
+      pushToast(`Loaded mix "${preset.name}"`, "success");
+    },
+    [workspace.audioMixPresets, workspace.audioTracks, mutateWorkspace, pushToast],
+  );
+
+  const deleteAudioMixPreset = useCallback(
+    (presetId: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioMixPresets: (prev.audioMixPresets ?? []).filter(
+          (p) => p.id !== presetId,
+        ),
+        audioState: {
+          ...(prev.audioState ?? DEFAULT_AUDIO_STATE),
+          activePresetId:
+            prev.audioState?.activePresetId === presetId
+              ? null
+              : prev.audioState?.activePresetId ?? null,
+        },
+      }));
+      pushToast("Mix preset deleted");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const recordAudioPlay = useCallback(
+    (trackId: string) => {
+      const now = Date.now();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioTracks: (prev.audioTracks ?? []).map((t) =>
+          t.id === trackId
+            ? { ...t, playCount: (t.playCount ?? 0) + 1, lastPlayedAt: now }
+            : t,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const setAudioEqPreset = useCallback(
+    (eqPreset: AudioEqPreset) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        audioState: {
+          ...(prev.audioState ?? DEFAULT_AUDIO_STATE),
+          eqPreset,
+        },
+      }));
+    },
+    [mutateWorkspace],
+  );
+
   // Settings & Workspace lifecycle
   const updateSettings = useCallback(
     (patch: Partial<WorkspaceSettings>) => {
@@ -2994,6 +3756,37 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           libraryViewFolders: finalLibraryViewFolders,
           bookBookmarks: finalBookBookmarks,
           bookHighlights: finalBookHighlights,
+          audioTracks: preserveLocalLibrary
+            ? prev.audioTracks ?? []
+            : Array.isArray(cleanNext.audioTracks)
+              ? cleanNext.audioTracks
+              : [],
+          audioFolders: preserveLocalLibrary
+            ? prev.audioFolders ?? []
+            : Array.isArray(cleanNext.audioFolders)
+              ? cleanNext.audioFolders
+              : [],
+          audioPlaylists: preserveLocalLibrary
+            ? prev.audioPlaylists ?? []
+            : Array.isArray(cleanNext.audioPlaylists)
+              ? cleanNext.audioPlaylists
+              : [],
+          audioMixPresets: preserveLocalLibrary
+            ? prev.audioMixPresets ?? []
+            : Array.isArray(cleanNext.audioMixPresets)
+              ? cleanNext.audioMixPresets
+              : [],
+          audioState: preserveLocalLibrary
+            ? prev.audioState ?? { ...DEFAULT_AUDIO_STATE }
+            : normalizeAudioState(
+                cleanNext.audioState,
+                new Set(
+                  (Array.isArray(cleanNext.audioTracks)
+                    ? cleanNext.audioTracks
+                    : []
+                  ).map((t) => t.id),
+                ),
+              ),
           streams: nextStreams,
           streamFolders: Array.isArray(cleanNext.streamFolders)
             ? cleanNext.streamFolders
@@ -3020,6 +3813,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
       if (!preserveLocalLibrary && normalizedLib) {
         const validBookIds = new Set(normalizedLib.books.map((b) => b.id));
+        const validAudioIds = new Set(
+          (Array.isArray(cleanNext.audioTracks)
+            ? cleanNext.audioTracks
+            : []
+          ).map((t) => t.id),
+        );
         pruneMissingBookVoicePreferences(validBookIds);
 
         void (async () => {
@@ -3030,6 +3829,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
                 normalizedLib.bookHighlights,
               ),
               libraryDb.pruneBookFiles(validBookIds),
+              audioDb.pruneAudioFiles(validAudioIds),
             ]);
           } catch {
             // Ignore
@@ -3225,6 +4025,32 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         saveStreamPreset,
         loadStreamPreset,
         deleteStreamPreset,
+        addAudioTrack,
+        updateAudioTrack,
+        deleteAudioTracks,
+        addAudioFolder,
+        updateAudioFolder,
+        deleteAudioFolder,
+        addAudioPlaylist,
+        updateAudioPlaylist,
+        deleteAudioPlaylist,
+        addTracksToPlaylist,
+        removeTrackFromPlaylist,
+        reorderPlaylistTracks,
+        reorderAudioTracks,
+        updateAudioState,
+        playAudioTrack,
+        addAudioMixSlot,
+        updateAudioMixSlot,
+        updateAllAudioMixSlots,
+        removeAudioMixSlot,
+        clearAudioMixSlots,
+        reorderAudioMixSlots,
+        saveAudioMixPreset,
+        loadAudioMixPreset,
+        deleteAudioMixPreset,
+        recordAudioPlay,
+        setAudioEqPreset,
         gistSyncBusy,
         quickPushGist,
         quickPullGist,

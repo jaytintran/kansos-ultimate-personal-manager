@@ -5,8 +5,9 @@ import {
 } from "../utils/ebookStorage";
 
 const DB_NAME = "kanso_library_studio_v2";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const FILES_STORE = "book_files";
+const AUDIO_FILES_STORE = "audio_files";
 const BOOKMARKS_STORE = "bookmarks";
 const HIGHLIGHTS_STORE = "highlights";
 const WORKSPACE_STORE = "workspace_state";
@@ -31,6 +32,22 @@ export interface StoredBookFile {
 
 export interface BookFileAuditEntry {
   bookId: string;
+  byteLength: number;
+  sha256: string;
+}
+
+export interface StoredAudioFile {
+  trackId: string;
+  mimeType: string;
+  data: ArrayBuffer;
+  byteLength: number;
+  sha256: string;
+  updatedAt: number;
+}
+
+export interface AudioFileAuditEntry {
+  trackId: string;
+  mimeType: string;
   byteLength: number;
   sha256: string;
 }
@@ -65,6 +82,9 @@ function openDb(): Promise<IDBDatabase> {
       const db = req.result;
       if (!db.objectStoreNames.contains(FILES_STORE)) {
         db.createObjectStore(FILES_STORE, { keyPath: "bookId" });
+      }
+      if (!db.objectStoreNames.contains(AUDIO_FILES_STORE)) {
+        db.createObjectStore(AUDIO_FILES_STORE, { keyPath: "trackId" });
       }
       if (!db.objectStoreNames.contains(BOOKMARKS_STORE)) {
         const bmStore = db.createObjectStore(BOOKMARKS_STORE, {
@@ -292,6 +312,23 @@ export const libraryDb = {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(FILES_STORE, "readwrite");
       tx.objectStore(FILES_STORE).delete(bookId);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+  },
+
+  async clearBookFiles(): Promise<void> {
+    await migrateLegacyV1Once();
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(FILES_STORE, "readwrite");
+      tx.objectStore(FILES_STORE).clear();
       tx.oncomplete = () => {
         db.close();
         resolve();
@@ -589,10 +626,19 @@ export const libraryDb = {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(
-        [FILES_STORE, BOOKMARKS_STORE, HIGHLIGHTS_STORE, WORKSPACE_STORE],
+        [
+          FILES_STORE,
+          AUDIO_FILES_STORE,
+          BOOKMARKS_STORE,
+          HIGHLIGHTS_STORE,
+          WORKSPACE_STORE,
+        ],
         "readwrite",
       );
       tx.objectStore(FILES_STORE).clear();
+      if (db.objectStoreNames.contains(AUDIO_FILES_STORE)) {
+        tx.objectStore(AUDIO_FILES_STORE).clear();
+      }
       tx.objectStore(BOOKMARKS_STORE).clear();
       tx.objectStore(HIGHLIGHTS_STORE).clear();
       tx.objectStore(WORKSPACE_STORE).clear();
@@ -649,5 +695,181 @@ export const libraryDb = {
 
   async clearAllData(): Promise<void> {
     await this.clearAll();
+  },
+};
+
+export const audioDb = {
+  async saveAudioFile(
+    trackId: string,
+    data: ArrayBuffer,
+    mimeType = "audio/mpeg",
+    precomputedHash?: string,
+  ): Promise<StoredAudioFile> {
+    const sha256 = precomputedHash || (await computeSha256Hex(data));
+    const record: StoredAudioFile = {
+      trackId,
+      mimeType,
+      data,
+      byteLength: data.byteLength,
+      sha256,
+      updatedAt: Date.now(),
+    };
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(AUDIO_FILES_STORE, "readwrite");
+      tx.objectStore(AUDIO_FILES_STORE).put(record);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error || new Error("Failed to save audio file"));
+      };
+    });
+    return record;
+  },
+
+  async getAudioFile(trackId: string): Promise<StoredAudioFile | null> {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(AUDIO_FILES_STORE, "readonly");
+      const req = tx.objectStore(AUDIO_FILES_STORE).get(trackId);
+      req.onsuccess = () => {
+        db.close();
+        resolve((req.result as StoredAudioFile | undefined) ?? null);
+      };
+      req.onerror = () => {
+        db.close();
+        reject(req.error);
+      };
+    });
+  },
+
+  async hasAudioFile(trackId: string): Promise<boolean> {
+    const db = await openDb();
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(AUDIO_FILES_STORE, "readonly");
+        const req = tx.objectStore(AUDIO_FILES_STORE).count(trackId);
+        req.onsuccess = () => {
+          db.close();
+          resolve((req.result || 0) > 0);
+        };
+        req.onerror = () => {
+          db.close();
+          resolve(false);
+        };
+      } catch {
+        db.close();
+        resolve(false);
+      }
+    });
+  },
+
+  async deleteAudioFile(trackId: string): Promise<void> {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(AUDIO_FILES_STORE, "readwrite");
+      tx.objectStore(AUDIO_FILES_STORE).delete(trackId);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+  },
+
+  async deleteAudioFiles(trackIds: string[]): Promise<void> {
+    const unique = Array.from(new Set(trackIds.filter(Boolean)));
+    if (unique.length === 0) return;
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(AUDIO_FILES_STORE, "readwrite");
+      const store = tx.objectStore(AUDIO_FILES_STORE);
+      for (const id of unique) store.delete(id);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+  },
+
+  async listAllAudioFiles(): Promise<StoredAudioFile[]> {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(AUDIO_FILES_STORE, "readonly");
+      const req = tx.objectStore(AUDIO_FILES_STORE).getAll();
+      req.onsuccess = () => {
+        db.close();
+        resolve((req.result as StoredAudioFile[]) || []);
+      };
+      req.onerror = () => {
+        db.close();
+        reject(req.error);
+      };
+    });
+  },
+
+  async auditAudioFiles(): Promise<AudioFileAuditEntry[]> {
+    const files = await this.listAllAudioFiles();
+    return files.map((f) => ({
+      trackId: f.trackId,
+      mimeType: f.mimeType || "audio/mpeg",
+      byteLength: f.byteLength || f.data?.byteLength || 0,
+      sha256: f.sha256 || "",
+    }));
+  },
+
+  async deleteOrphanAudioFiles(trackIds: string[]): Promise<void> {
+    await this.deleteAudioFiles(trackIds);
+  },
+
+  async pruneAudioFiles(validTrackIds: Set<string>): Promise<void> {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(AUDIO_FILES_STORE, "readwrite");
+      const store = tx.objectStore(AUDIO_FILES_STORE);
+      const keysReq = store.getAllKeys();
+      keysReq.onsuccess = () => {
+        for (const key of keysReq.result || []) {
+          const id = String(key);
+          if (!validTrackIds.has(id)) {
+            store.delete(key);
+          }
+        }
+      };
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+  },
+
+  async clearAllAudioFiles(): Promise<void> {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(AUDIO_FILES_STORE, "readwrite");
+      tx.objectStore(AUDIO_FILES_STORE).clear();
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
   },
 };

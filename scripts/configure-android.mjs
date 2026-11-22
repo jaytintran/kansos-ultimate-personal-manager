@@ -254,11 +254,16 @@ public class KansoMediaPlaybackService extends Service {
 
     public static final String ACTION_START_OR_UPDATE = "com.kanso.workspace.MEDIA_START_OR_UPDATE";
     public static final String ACTION_STOP_SERVICE = "com.kanso.workspace.MEDIA_STOP_SERVICE";
+    public static final String ACTION_NOTIFY_PLAY = "com.kanso.workspace.MEDIA_NOTIFY_PLAY";
     public static final String ACTION_NOTIFY_PAUSE = "com.kanso.workspace.MEDIA_NOTIFY_PAUSE";
+    public static final String ACTION_NOTIFY_NEXT = "com.kanso.workspace.MEDIA_NOTIFY_NEXT";
+    public static final String ACTION_NOTIFY_PREV = "com.kanso.workspace.MEDIA_NOTIFY_PREV";
     public static final String ACTION_NOTIFY_STOP = "com.kanso.workspace.MEDIA_NOTIFY_STOP";
 
     public static final String EXTRA_TITLE = "title";
     public static final String EXTRA_SUBTITLE = "subtitle";
+    public static final String EXTRA_PLAYING = "playing";
+    public static final String EXTRA_SHOW_TRACK_CONTROLS = "showTrackControls";
 
     public interface ControlListener {
         void onMediaControl(String action);
@@ -272,6 +277,9 @@ public class KansoMediaPlaybackService extends Service {
 
     private PowerManager.WakeLock wakeLock;
     private MediaSession mediaSession;
+    private String lastTitle = "Kanso Media";
+    private String lastSubtitle = "Playing in background";
+    private boolean lastShowTrackControls = false;
 
     @Override
     public void onCreate() {
@@ -294,12 +302,47 @@ public class KansoMediaPlaybackService extends Service {
             return START_NOT_STICKY;
         }
 
+        if (ACTION_NOTIFY_PLAY.equals(action)) {
+            ControlListener listener = controlListener;
+            if (listener != null) {
+                listener.onMediaControl("play");
+            }
+            MainActivity.backgroundAudioActive = true;
+            acquireWakeLock();
+            updateMediaSession(lastTitle, lastSubtitle, true);
+            startServiceForeground(buildNotification(lastTitle, lastSubtitle, true, lastShowTrackControls));
+            return START_NOT_STICKY;
+        }
+
         if (ACTION_NOTIFY_PAUSE.equals(action)) {
             ControlListener listener = controlListener;
             if (listener != null) {
                 listener.onMediaControl("pause");
             }
-            stopPlaybackService();
+            if (lastShowTrackControls) {
+                MainActivity.backgroundAudioActive = false;
+                releaseWakeLock();
+                updateMediaSession(lastTitle, lastSubtitle, false);
+                startServiceForeground(buildNotification(lastTitle, lastSubtitle, false, true));
+            } else {
+                stopPlaybackService();
+            }
+            return START_NOT_STICKY;
+        }
+
+        if (ACTION_NOTIFY_NEXT.equals(action)) {
+            ControlListener listener = controlListener;
+            if (listener != null) {
+                listener.onMediaControl("next");
+            }
+            return START_NOT_STICKY;
+        }
+
+        if (ACTION_NOTIFY_PREV.equals(action)) {
+            ControlListener listener = controlListener;
+            if (listener != null) {
+                listener.onMediaControl("previous");
+            }
             return START_NOT_STICKY;
         }
 
@@ -314,23 +357,36 @@ public class KansoMediaPlaybackService extends Service {
 
         String title = intent != null ? intent.getStringExtra(EXTRA_TITLE) : null;
         String subtitle = intent != null ? intent.getStringExtra(EXTRA_SUBTITLE) : null;
+        boolean playing = intent == null || intent.getBooleanExtra(EXTRA_PLAYING, true);
+        boolean showTrackControls = intent != null && intent.getBooleanExtra(EXTRA_SHOW_TRACK_CONTROLS, false);
+
         if (title == null || title.trim().isEmpty()) {
-            title = "Kanso Streamer";
+            title = "Kanso Media";
         }
         if (subtitle == null || subtitle.trim().isEmpty()) {
-            subtitle = "Playing in background";
+            subtitle = playing ? "Playing in background" : "Paused";
         }
+        lastTitle = title;
+        lastSubtitle = subtitle;
+        lastShowTrackControls = showTrackControls;
 
-        acquireWakeLock();
-        updateMediaSession(title, subtitle, true);
-        Notification notification = buildNotification(title, subtitle);
+        if (playing) {
+            acquireWakeLock();
+        } else {
+            releaseWakeLock();
+        }
+        updateMediaSession(title, subtitle, playing);
+        startServiceForeground(buildNotification(title, subtitle, playing, showTrackControls));
+
+        return START_NOT_STICKY;
+    }
+
+    private void startServiceForeground(Notification notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }
-
-        return START_NOT_STICKY;
     }
 
     @Override
@@ -362,15 +418,50 @@ public class KansoMediaPlaybackService extends Service {
 
     private void initMediaSession() {
         try {
-            mediaSession = new MediaSession(this, "KansoStreamerSession");
+            mediaSession = new MediaSession(this, "KansoMediaSession");
             mediaSession.setCallback(new MediaSession.Callback() {
+                @Override
+                public void onPlay() {
+                    ControlListener listener = controlListener;
+                    if (listener != null) {
+                        listener.onMediaControl("play");
+                    }
+                    MainActivity.backgroundAudioActive = true;
+                    acquireWakeLock();
+                    updateMediaSession(lastTitle, lastSubtitle, true);
+                    startServiceForeground(buildNotification(lastTitle, lastSubtitle, true, lastShowTrackControls));
+                }
+
                 @Override
                 public void onPause() {
                     ControlListener listener = controlListener;
                     if (listener != null) {
                         listener.onMediaControl("pause");
                     }
-                    stopPlaybackService();
+                    if (lastShowTrackControls) {
+                        MainActivity.backgroundAudioActive = false;
+                        releaseWakeLock();
+                        updateMediaSession(lastTitle, lastSubtitle, false);
+                        startServiceForeground(buildNotification(lastTitle, lastSubtitle, false, true));
+                    } else {
+                        stopPlaybackService();
+                    }
+                }
+
+                @Override
+                public void onSkipToNext() {
+                    ControlListener listener = controlListener;
+                    if (listener != null) {
+                        listener.onMediaControl("next");
+                    }
+                }
+
+                @Override
+                public void onSkipToPrevious() {
+                    ControlListener listener = controlListener;
+                    if (listener != null) {
+                        listener.onMediaControl("previous");
+                    }
                 }
 
                 @Override
@@ -397,13 +488,19 @@ public class KansoMediaPlaybackService extends Service {
                 .build();
             mediaSession.setMetadata(metadata);
 
-            int state = playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_STOPPED;
+            int state = playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED;
+            long actions = PlaybackState.ACTION_PLAY
+                | PlaybackState.ACTION_PAUSE
+                | PlaybackState.ACTION_STOP;
+            if (lastShowTrackControls) {
+                actions |= PlaybackState.ACTION_SKIP_TO_NEXT | PlaybackState.ACTION_SKIP_TO_PREVIOUS;
+            }
             PlaybackState playbackState = new PlaybackState.Builder()
-                .setActions(PlaybackState.ACTION_PAUSE | PlaybackState.ACTION_STOP)
-                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                .setActions(actions)
+                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, playing ? 1.0f : 0.0f)
                 .build();
             mediaSession.setPlaybackState(playbackState);
-            mediaSession.setActive(playing);
+            mediaSession.setActive(true);
         } catch (Exception ignored) {
             // Ignore session state errors
         }
@@ -411,7 +508,7 @@ public class KansoMediaPlaybackService extends Service {
 
     private void stopPlaybackService() {
         MainActivity.backgroundAudioActive = false;
-        updateMediaSession("Kanso Streamer", "Paused", false);
+        updateMediaSession(lastTitle, "Paused", false);
         releaseWakeLock();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE);
@@ -449,10 +546,10 @@ public class KansoMediaPlaybackService extends Service {
             if (existing == null) {
                 NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
-                    "Streamer Background Audio",
+                    "Background Audio & Streams",
                     NotificationManager.IMPORTANCE_LOW
                 );
-                channel.setDescription("Keeps active Streamer View mixes playing when Kanso is in the background.");
+                channel.setDescription("Keeps active Audio tracks and Streamer mixes playing when Kanso is in the background.");
                 channel.setShowBadge(false);
                 channel.setSound(null, null);
                 manager.createNotificationChannel(channel);
@@ -460,7 +557,7 @@ public class KansoMediaPlaybackService extends Service {
         }
     }
 
-    private Notification buildNotification(String title, String subtitle) {
+    private Notification buildNotification(String title, String subtitle, boolean playing, boolean showTrackControls) {
         Intent openIntent = new Intent(this, MainActivity.class);
         openIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openPendingIntent = PendingIntent.getActivity(
@@ -470,12 +567,30 @@ public class KansoMediaPlaybackService extends Service {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        Intent pauseIntent = new Intent(this, KansoMediaPlaybackService.class);
-        pauseIntent.setAction(ACTION_NOTIFY_PAUSE);
-        PendingIntent pausePendingIntent = PendingIntent.getService(
+        Intent prevIntent = new Intent(this, KansoMediaPlaybackService.class);
+        prevIntent.setAction(ACTION_NOTIFY_PREV);
+        PendingIntent prevPendingIntent = PendingIntent.getService(
+            this,
+            3,
+            prevIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        Intent playPauseIntent = new Intent(this, KansoMediaPlaybackService.class);
+        playPauseIntent.setAction(playing ? ACTION_NOTIFY_PAUSE : ACTION_NOTIFY_PLAY);
+        PendingIntent playPausePendingIntent = PendingIntent.getService(
             this,
             1,
-            pauseIntent,
+            playPauseIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        Intent nextIntent = new Intent(this, KansoMediaPlaybackService.class);
+        nextIntent.setAction(ACTION_NOTIFY_NEXT);
+        PendingIntent nextPendingIntent = PendingIntent.getService(
+            this,
+            4,
+            nextIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
@@ -497,10 +612,10 @@ public class KansoMediaPlaybackService extends Service {
             ? new Notification.Builder(this, CHANNEL_ID)
             : new Notification.Builder(this);
 
-        Notification.Action pauseAction = new Notification.Action.Builder(
-            Icon.createWithResource(this, android.R.drawable.ic_media_pause),
-            "Pause",
-            pausePendingIntent
+        Notification.Action playPauseAction = new Notification.Action.Builder(
+            Icon.createWithResource(this, playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play),
+            playing ? "Pause" : "Play",
+            playPausePendingIntent
         ).build();
 
         Notification.Action stopAction = new Notification.Action.Builder(
@@ -513,20 +628,49 @@ public class KansoMediaPlaybackService extends Service {
             .setSmallIcon(iconRes)
             .setContentTitle(title)
             .setContentText(subtitle)
-            .setOngoing(true)
+            .setOngoing(playing)
             .setOnlyAlertOnce(true)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setCategory(Notification.CATEGORY_TRANSPORT)
-            .setContentIntent(openPendingIntent)
-            .addAction(pauseAction)
-            .addAction(stopAction);
+            .setContentIntent(openPendingIntent);
 
-        if (mediaSession != null) {
-            builder.setStyle(
-                new Notification.MediaStyle()
-                    .setMediaSession(mediaSession.getSessionToken())
-                    .setShowActionsInCompactView(0, 1)
-            );
+        if (showTrackControls) {
+            Notification.Action prevAction = new Notification.Action.Builder(
+                Icon.createWithResource(this, android.R.drawable.ic_media_previous),
+                "Previous",
+                prevPendingIntent
+            ).build();
+            Notification.Action nextAction = new Notification.Action.Builder(
+                Icon.createWithResource(this, android.R.drawable.ic_media_next),
+                "Next",
+                nextPendingIntent
+            ).build();
+
+            builder
+                .addAction(prevAction)
+                .addAction(playPauseAction)
+                .addAction(nextAction)
+                .addAction(stopAction);
+
+            if (mediaSession != null) {
+                builder.setStyle(
+                    new Notification.MediaStyle()
+                        .setMediaSession(mediaSession.getSessionToken())
+                        .setShowActionsInCompactView(0, 1, 2)
+                );
+            }
+        } else {
+            builder
+                .addAction(playPauseAction)
+                .addAction(stopAction);
+
+            if (mediaSession != null) {
+                builder.setStyle(
+                    new Notification.MediaStyle()
+                        .setMediaSession(mediaSession.getSessionToken())
+                        .setShowActionsInCompactView(0, 1)
+                );
+            }
         }
 
         return builder.build();
@@ -608,6 +752,18 @@ public class KansoSafPlugin extends Plugin {
             || lower.endsWith(".azw");
     }
 
+    private static boolean isSupportedAudioName(String name) {
+        if (name == null) return false;
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".mp3")
+            || lower.endsWith(".m4a")
+            || lower.endsWith(".wav")
+            || lower.endsWith(".ogg")
+            || lower.endsWith(".flac")
+            || lower.endsWith(".opus")
+            || lower.endsWith(".aac");
+    }
+
     private void persistReadPermission(Uri uri) {
         if (uri == null) return;
         try {
@@ -668,16 +824,26 @@ public class KansoSafPlugin extends Plugin {
     @PluginMethod
     public void pickDocuments(PluginCall call) {
         boolean allowMultiple = call.getBoolean("allowMultiple", true);
+        String mediaType = call.getString("mediaType", "ebook");
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
-        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
-            "application/epub+zip",
-            "application/pdf",
-            "application/x-mobipocket-ebook",
-            "application/vnd.amazon.mobi8-ebook",
-            "application/octet-stream"
-        });
+        if ("audio".equals(mediaType)) {
+            intent.setType("audio/*");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
+                "audio/*",
+                "application/ogg",
+                "application/octet-stream"
+            });
+        } else {
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
+                "application/epub+zip",
+                "application/pdf",
+                "application/x-mobipocket-ebook",
+                "application/vnd.amazon.mobi8-ebook",
+                "application/octet-stream"
+            });
+        }
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, allowMultiple);
         intent.addFlags(
             Intent.FLAG_GRANT_READ_URI_PERMISSION |
@@ -780,6 +946,8 @@ public class KansoSafPlugin extends Plugin {
     @PluginMethod
     public void scanDirectory(PluginCall call) {
         String treeUriStr = call.getString("treeUri");
+        String mediaType = call.getString("mediaType", "ebook");
+        final boolean isAudioScan = "audio".equals(mediaType);
         if (treeUriStr == null || treeUriStr.trim().isEmpty()) {
             call.reject("Missing treeUri parameter");
             return;
@@ -835,7 +1003,7 @@ public class KansoSafPlugin extends Plugin {
                                 if (name == null || !name.startsWith(".")) {
                                     queue.add(childId);
                                 }
-                            } else if (isSupportedBookName(name)) {
+                            } else if (isAudioScan ? isSupportedAudioName(name) : isSupportedBookName(name)) {
                                 Uri docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childId);
                                 JSObject item = new JSObject();
                                 item.put("uri", docUri.toString());
@@ -1008,15 +1176,17 @@ public class KansoSafPlugin extends Plugin {
     @PluginMethod
     public void setBackgroundMediaState(PluginCall call) {
         boolean playing = Boolean.TRUE.equals(call.getBoolean("playing", false));
-        String title = call.getString("title", "Kanso Streamer");
-        String subtitle = call.getString("subtitle", "Playing in background");
+        boolean keepServiceAlive = Boolean.TRUE.equals(call.getBoolean("keepServiceAlive", false));
+        boolean showTrackControls = Boolean.TRUE.equals(call.getBoolean("showTrackControls", false));
+        String title = call.getString("title", "Kanso Media");
+        String subtitle = call.getString("subtitle", playing ? "Playing in background" : "Paused");
 
         Context ctx = getContext();
         Activity activity = getActivity();
         MainActivity.backgroundAudioActive = playing;
 
-        if (playing) {
-            if (activity != null && this.bridge != null && this.bridge.getWebView() != null) {
+        if (playing || keepServiceAlive) {
+            if (playing && activity != null && this.bridge != null && this.bridge.getWebView() != null) {
                 final android.webkit.WebView webView = this.bridge.getWebView();
                 activity.runOnUiThread(() -> {
                     webView.onResume();
@@ -1029,11 +1199,14 @@ public class KansoSafPlugin extends Plugin {
                 serviceIntent.setAction(KansoMediaPlaybackService.ACTION_START_OR_UPDATE);
                 serviceIntent.putExtra(KansoMediaPlaybackService.EXTRA_TITLE, title);
                 serviceIntent.putExtra(KansoMediaPlaybackService.EXTRA_SUBTITLE, subtitle);
+                serviceIntent.putExtra(KansoMediaPlaybackService.EXTRA_PLAYING, playing);
+                serviceIntent.putExtra(KansoMediaPlaybackService.EXTRA_SHOW_TRACK_CONTROLS, showTrackControls);
                 ContextCompat.startForegroundService(ctx, serviceIntent);
             } catch (Exception ignored) {
                 // Guard against OS foreground-start restrictions if app is already closing
             }
             if (
+                playing &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 activity != null &&
                 !hasRequestedNotificationPermission &&

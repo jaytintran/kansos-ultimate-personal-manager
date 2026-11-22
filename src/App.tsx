@@ -2,11 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   BookOpen,
   Calendar,
+  ChevronDown,
+  ChevronUp,
   CloudDownload,
   CloudUpload,
   FileText,
   GitCommitVertical,
   Grid2x2Check,
+  Headphones,
   ListTodo,
   Loader2,
   MonitorPlay,
@@ -16,6 +19,8 @@ import {
   Play,
   RefreshCw,
   Settings,
+  SkipBack,
+  SkipForward,
   Sun,
   Target,
   Trophy,
@@ -45,8 +50,14 @@ import {
   DetailSheetTarget,
   ViewId,
 } from "./types";
+import { formatAudioDuration } from "./lib/audioFormatters";
 import { getEntryDayKey, getTodayKey, isVisibleOnTimeline } from "./utils/date";
 import { AchievementsView } from "./views/AchievementsView";
+import {
+  AudioControllerHandle,
+  AudioPlaybackSummary,
+  AudioView,
+} from "./views/AudioView";
 import { EventsView } from "./views/EventsView";
 import { FocusView } from "./views/FocusView";
 import { HabitsView } from "./views/HabitsView";
@@ -130,6 +141,12 @@ const DESKTOP_NAV_GROUPS: NavItemDef[][] = [
       description: "Multi-YouTube stream grid",
       icon: MonitorPlay,
     },
+    {
+      id: "audio",
+      label: "Audio",
+      description: "Local audio studio & mixer",
+      icon: Headphones,
+    },
   ],
 ];
 
@@ -141,6 +158,7 @@ const MOBILE_MORE_IDS: ViewId[] = [
   "events",
   "library",
   "streamer",
+  "audio",
   "achievements",
 ];
 
@@ -189,12 +207,15 @@ const KansoShell: React.FC = () => {
   const initialView: ViewId = workspace.settings.defaultView || "focus";
   const [activeView, setActiveView] = useState<ViewId>(initialView);
 
-  // Track whether Library and Streamer has ever been opened, so we can keep it mounted -> audio keeps running | book tabs persists
+  // Track whether Library, Streamer, and Audio have ever been opened, so we can keep them mounted -> audio keeps running | book tabs persist
   const [hasVisitedStreamer, setHasVisitedStreamer] = useState(
     initialView === "streamer",
   );
   const [hasVisitedLibrary, setHasVisitedLibrary] = useState(
     initialView === "library",
+  );
+  const [hasVisitedAudio, setHasVisitedAudio] = useState(
+    initialView === "audio",
   );
 
   const [streamerPlayback, setStreamerPlayback] =
@@ -206,6 +227,22 @@ const KansoShell: React.FC = () => {
       isAllPaused: false,
     });
   const streamerControllerRef = useRef<StreamerControllerHandle | null>(null);
+
+  const [audioPlayback, setAudioPlayback] = useState<AudioPlaybackSummary>({
+    activeCount: 0,
+    playingCount: 0,
+    isPlaying: false,
+    isViewMuted: false,
+    isAllPaused: false,
+    primaryTrackId: null,
+    primaryTitle: null,
+    primaryArtist: null,
+    primaryCoverDataUrl: null,
+    currentTime: 0,
+    duration: 0,
+  });
+  const [audioMiniCollapsed, setAudioMiniCollapsed] = useState(false);
+  const audioControllerRef = useRef<AudioControllerHandle | null>(null);
 
   // Shared Global Systems: Polymorphic DetailSheet, UniversalContextMenu, TimestampsModal
   const [detailTarget, setDetailTarget] = useState<DetailSheetTarget | null>(
@@ -363,6 +400,9 @@ const KansoShell: React.FC = () => {
     if (view === "library") {
       setHasVisitedLibrary(true);
     }
+    if (view === "audio") {
+      setHasVisitedAudio(true);
+    }
     if (view !== "library") {
       setLibraryZenMode(false);
     }
@@ -411,10 +451,20 @@ const KansoShell: React.FC = () => {
     [],
   );
 
+  const handleAudioPlaybackChange = useCallback(
+    (summary: AudioPlaybackSummary) => {
+      setAudioPlayback(summary);
+    },
+    [],
+  );
+
   const showStreamerAudioControls =
     hasVisitedStreamer &&
     streamerPlayback.activeCount > 0 &&
     (streamerPlayback.isPlaying || streamerPlayback.isAllPaused);
+
+  const showAudioStudioControls =
+    hasVisitedAudio && audioPlayback.activeCount > 0;
 
   const todayKey = getTodayKey();
 
@@ -451,6 +501,7 @@ const KansoShell: React.FC = () => {
     const listsCount = activeListItems.length;
     const libraryCount = workspace.books.length;
     const streamerCount = workspace.streamerState.activeStreamIds.length;
+    const audioCount = (workspace.audioTracks ?? []).length;
 
     return {
       focus: activeFocus,
@@ -462,6 +513,7 @@ const KansoShell: React.FC = () => {
       lists: listsCount,
       library: libraryCount,
       streamer: streamerCount,
+      audio: audioCount,
     };
   }, [
     workspace.entries,
@@ -470,6 +522,7 @@ const KansoShell: React.FC = () => {
     workspace.listItems,
     workspace.books.length,
     workspace.streamerState.activeStreamIds.length,
+    workspace.audioTracks,
     todayKey,
   ]);
 
@@ -495,6 +548,7 @@ const KansoShell: React.FC = () => {
 
   const isFixedHeightView =
     activeView === "streamer" ||
+    activeView === "audio" ||
     activeView === "library" ||
     activeView === "lists" ||
     activeView === "timeline" ||
@@ -562,8 +616,21 @@ const KansoShell: React.FC = () => {
                   const count = navCounts[item.id];
                   const isStreamerRowWithControls =
                     item.id === "streamer" && showStreamerAudioControls;
+                  const isAudioRowWithControls =
+                    item.id === "audio" && showAudioStudioControls;
 
-                  if (isStreamerRowWithControls) {
+                  if (isStreamerRowWithControls || isAudioRowWithControls) {
+                    const isAudioRow = isAudioRowWithControls;
+                    const rowPaused = isAudioRow
+                      ? audioPlayback.isAllPaused
+                      : streamerPlayback.isAllPaused;
+                    const rowMuted = isAudioRow
+                      ? audioPlayback.isViewMuted
+                      : streamerPlayback.isViewMuted;
+                    const rowPlaying = isAudioRow
+                      ? audioPlayback.isPlaying
+                      : streamerPlayback.isPlaying;
+
                     return (
                       <div
                         key={item.id}
@@ -591,26 +658,38 @@ const KansoShell: React.FC = () => {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              streamerControllerRef.current?.togglePauseAll();
+                              if (isAudioRow) {
+                                audioControllerRef.current?.togglePauseAll();
+                              } else {
+                                streamerControllerRef.current?.togglePauseAll();
+                              }
                             }}
                             className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)]"
                             style={{
-                              color: streamerPlayback.isAllPaused
+                              color: rowPaused
                                 ? "var(--accent)"
                                 : "var(--text-secondary)",
                             }}
                             title={
-                              streamerPlayback.isAllPaused
-                                ? "Resume all streams"
-                                : "Pause all streams"
+                              isAudioRow
+                                ? rowPaused
+                                  ? "Resume audio"
+                                  : "Pause audio"
+                                : rowPaused
+                                  ? "Resume all streams"
+                                  : "Pause all streams"
                             }
                             aria-label={
-                              streamerPlayback.isAllPaused
-                                ? "Resume all streams"
-                                : "Pause all streams"
+                              isAudioRow
+                                ? rowPaused
+                                  ? "Resume audio"
+                                  : "Pause audio"
+                                : rowPaused
+                                  ? "Resume all streams"
+                                  : "Pause all streams"
                             }
                           >
-                            {streamerPlayback.isAllPaused ? (
+                            {rowPaused ? (
                               <Play className="w-3.5 h-3.5" />
                             ) : (
                               <Pause className="w-3.5 h-3.5" />
@@ -621,28 +700,40 @@ const KansoShell: React.FC = () => {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              streamerControllerRef.current?.toggleViewMute();
+                              if (isAudioRow) {
+                                audioControllerRef.current?.toggleViewMute();
+                              } else {
+                                streamerControllerRef.current?.toggleViewMute();
+                              }
                             }}
                             className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)]"
                             style={{
-                              color: streamerPlayback.isViewMuted
+                              color: rowMuted
                                 ? "var(--danger)"
-                                : streamerPlayback.isPlaying
+                                : rowPlaying
                                   ? "var(--accent)"
                                   : "var(--text-secondary)",
                             }}
                             title={
-                              streamerPlayback.isViewMuted
-                                ? "Unmute Streamer"
-                                : "Temporarily mute Streamer"
+                              isAudioRow
+                                ? rowMuted
+                                  ? "Unmute Audio"
+                                  : "Mute Audio"
+                                : rowMuted
+                                  ? "Unmute Streamer"
+                                  : "Temporarily mute Streamer"
                             }
                             aria-label={
-                              streamerPlayback.isViewMuted
-                                ? "Unmute Streamer"
-                                : "Temporarily mute Streamer"
+                              isAudioRow
+                                ? rowMuted
+                                  ? "Unmute Audio"
+                                  : "Mute Audio"
+                                : rowMuted
+                                  ? "Unmute Streamer"
+                                  : "Temporarily mute Streamer"
                             }
                           >
-                            {streamerPlayback.isViewMuted ? (
+                            {rowMuted ? (
                               <VolumeX className="w-3.5 h-3.5" />
                             ) : (
                               <Volume2 className="w-3.5 h-3.5" />
@@ -1013,6 +1104,22 @@ const KansoShell: React.FC = () => {
             />
           </div>
         )}
+        {hasVisitedAudio && (
+          <div
+            className={
+              activeView === "audio"
+                ? "flex-1 min-h-0 h-full w-full flex flex-col lg:block"
+                : "fixed -left-[9999px] top-0 w-[1024px] h-[600px] opacity-0 pointer-events-none select-none overflow-hidden"
+            }
+            aria-hidden={activeView !== "audio"}
+          >
+            <AudioView
+              ref={audioControllerRef}
+              isActiveView={activeView === "audio"}
+              onPlaybackStateChange={handleAudioPlaybackChange}
+            />
+          </div>
+        )}
       </main>
 
       {/* Mobile Bottom Thumb-Zone Navigation (hidden cleanly while typing on soft keyboard) */}
@@ -1059,8 +1166,9 @@ const KansoShell: React.FC = () => {
               color:
                 moreSheetOpen ||
                 isMoreViewActive ||
-                (showStreamerAudioControls && streamerPlayback.isPlaying)
-                  ? streamerPlayback.isViewMuted &&
+                (showStreamerAudioControls && streamerPlayback.isPlaying) ||
+                (showAudioStudioControls && audioPlayback.isPlaying)
+                  ? (streamerPlayback.isViewMuted || audioPlayback.isViewMuted) &&
                     !moreSheetOpen &&
                     !isMoreViewActive
                     ? "var(--danger)"
@@ -1070,10 +1178,13 @@ const KansoShell: React.FC = () => {
             aria-expanded={moreSheetOpen}
             aria-label="More views"
           >
-            {showStreamerAudioControls && activeView !== "streamer" ? (
-              streamerPlayback.isViewMuted ? (
+            {(showAudioStudioControls && activeView !== "audio") ||
+            (showStreamerAudioControls && activeView !== "streamer") ? (
+              (showAudioStudioControls && audioPlayback.isViewMuted) ||
+              (showStreamerAudioControls && streamerPlayback.isViewMuted) ? (
                 <VolumeX className="w-4.5 h-4.5" />
-              ) : streamerPlayback.isAllPaused ? (
+              ) : (showAudioStudioControls && !audioPlayback.isPlaying) ||
+                (showStreamerAudioControls && streamerPlayback.isAllPaused) ? (
                 <Pause className="w-4.5 h-4.5" />
               ) : (
                 <Volume2 className="w-4.5 h-4.5" />
@@ -1139,8 +1250,18 @@ const KansoShell: React.FC = () => {
                 const count = navCounts[item.id];
                 const isStreamerCardWithControls =
                   item.id === "streamer" && showStreamerAudioControls;
+                const isAudioCardWithControls =
+                  item.id === "audio" && showAudioStudioControls;
 
-                if (isStreamerCardWithControls) {
+                if (isStreamerCardWithControls || isAudioCardWithControls) {
+                  const isAudioCard = isAudioCardWithControls;
+                  const cardPaused = isAudioCard
+                    ? audioPlayback.isAllPaused
+                    : streamerPlayback.isAllPaused;
+                  const cardMuted = isAudioCard
+                    ? audioPlayback.isViewMuted
+                    : streamerPlayback.isViewMuted;
+
                   return (
                     <div
                       key={item.id}
@@ -1166,24 +1287,32 @@ const KansoShell: React.FC = () => {
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() =>
-                              streamerControllerRef.current?.togglePauseAll()
-                            }
+                            onClick={() => {
+                              if (isAudioCard) {
+                                audioControllerRef.current?.togglePauseAll();
+                              } else {
+                                streamerControllerRef.current?.togglePauseAll();
+                              }
+                            }}
                             className="h-8 w-8 flex items-center justify-center rounded-lg border transition-colors"
                             style={{
                               backgroundColor: "var(--bg-surface-subtle)",
                               borderColor: "var(--border-subtle)",
-                              color: streamerPlayback.isAllPaused
+                              color: cardPaused
                                 ? "var(--accent)"
                                 : "var(--text-secondary)",
                             }}
                             aria-label={
-                              streamerPlayback.isAllPaused
-                                ? "Resume all streams"
-                                : "Pause all streams"
+                              isAudioCard
+                                ? cardPaused
+                                  ? "Resume audio"
+                                  : "Pause audio"
+                                : cardPaused
+                                  ? "Resume all streams"
+                                  : "Pause all streams"
                             }
                           >
-                            {streamerPlayback.isAllPaused ? (
+                            {cardPaused ? (
                               <Play className="w-3.5 h-3.5" />
                             ) : (
                               <Pause className="w-3.5 h-3.5" />
@@ -1191,26 +1320,34 @@ const KansoShell: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() =>
-                              streamerControllerRef.current?.toggleViewMute()
-                            }
+                            onClick={() => {
+                              if (isAudioCard) {
+                                audioControllerRef.current?.toggleViewMute();
+                              } else {
+                                streamerControllerRef.current?.toggleViewMute();
+                              }
+                            }}
                             className="h-8 w-8 flex items-center justify-center rounded-lg border transition-colors"
                             style={{
                               backgroundColor: "var(--bg-surface-subtle)",
-                              borderColor: streamerPlayback.isViewMuted
+                              borderColor: cardMuted
                                 ? "var(--danger)"
                                 : "var(--border-subtle)",
-                              color: streamerPlayback.isViewMuted
+                              color: cardMuted
                                 ? "var(--danger)"
                                 : "var(--accent)",
                             }}
                             aria-label={
-                              streamerPlayback.isViewMuted
-                                ? "Unmute Streamer"
-                                : "Temporarily mute Streamer"
+                              isAudioCard
+                                ? cardMuted
+                                  ? "Unmute Audio"
+                                  : "Mute Audio"
+                                : cardMuted
+                                  ? "Unmute Streamer"
+                                  : "Temporarily mute Streamer"
                             }
                           >
-                            {streamerPlayback.isViewMuted ? (
+                            {cardMuted ? (
                               <VolumeX className="w-3.5 h-3.5" />
                             ) : (
                               <Volume2 className="w-3.5 h-3.5" />
@@ -1254,9 +1391,9 @@ const KansoShell: React.FC = () => {
                           className="text-[11px] mt-0.5 line-clamp-1"
                           style={{ color: "var(--text-muted)" }}
                         >
-                          {streamerPlayback.isViewMuted
+                          {cardMuted
                             ? "Muted in background"
-                            : streamerPlayback.isAllPaused
+                            : cardPaused
                               ? "Paused in background"
                               : "Playing in background"}
                         </div>
@@ -1463,6 +1600,162 @@ const KansoShell: React.FC = () => {
         initialFocus={timestampsState?.focus ?? null}
         onClose={() => setTimestampsState(null)}
       />
+
+      {/* Slim Global Background Audio Mini-Player outside Audio view */}
+      {activeView !== "audio" &&
+        hasVisitedAudio &&
+        audioPlayback.activeCount > 0 &&
+        !isMobileKeyboardOpen && (
+          <div
+            role="region"
+            aria-label="Background Audio Mini-Player"
+            className={`fixed bottom-[4.5rem] lg:bottom-4 right-3 z-40 rounded-xl border transition-all ${
+              audioMiniCollapsed
+                ? "w-auto max-w-[calc(100vw-1.5rem)]"
+                : "left-3 sm:left-auto sm:w-[390px]"
+            }`}
+            style={{
+              backgroundColor: "var(--bg-elevated)",
+              borderColor: "var(--border-strong)",
+              boxShadow: "var(--shadow-popover)",
+            }}
+          >
+            <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+              <button
+                type="button"
+                onClick={() => navigateToView("audio")}
+                className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer"
+                title="Open Audio Studio"
+              >
+                {audioPlayback.primaryCoverDataUrl ? (
+                  <img
+                    src={audioPlayback.primaryCoverDataUrl}
+                    alt={audioPlayback.primaryTitle || "Audio"}
+                    className="w-8 h-8 rounded-lg object-cover shrink-0 border border-[var(--border-subtle)]"
+                  />
+                ) : (
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border"
+                    style={{
+                      backgroundColor: "var(--accent-soft)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--accent)",
+                    }}
+                  >
+                    <Headphones className="w-4 h-4" />
+                  </div>
+                )}
+
+                {!audioMiniCollapsed && (
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-semibold truncate text-[var(--text-primary)]">
+                      {audioPlayback.primaryTitle || "Kanso Audio"}
+                      {audioPlayback.activeCount > 1
+                        ? ` (+${audioPlayback.activeCount - 1})`
+                        : ""}
+                    </div>
+                    <div className="text-[11px] truncate text-[var(--text-muted)] font-mono tabular-nums">
+                      {audioPlayback.primaryArtist || "Audio Studio"} ·{" "}
+                      {formatAudioDuration(audioPlayback.currentTime)}
+                      {audioPlayback.duration > 0
+                        ? ` / ${formatAudioDuration(audioPlayback.duration)}`
+                        : ""}
+                    </div>
+                  </div>
+                )}
+              </button>
+
+              <div className="flex items-center gap-0.5 shrink-0">
+                {!audioMiniCollapsed && (
+                  <button
+                    type="button"
+                    onClick={() => audioControllerRef.current?.prevTrack()}
+                    className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] text-[var(--text-secondary)] cursor-pointer"
+                    aria-label="Previous audio track"
+                    title="Previous track"
+                  >
+                    <SkipBack className="w-3.5 h-3.5" />
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => audioControllerRef.current?.togglePauseAll()}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg cursor-pointer"
+                  style={{
+                    backgroundColor: "var(--accent)",
+                    color: "var(--accent-fg)",
+                  }}
+                  aria-label={
+                    audioPlayback.isAllPaused ? "Play audio" : "Pause audio"
+                  }
+                  title={audioPlayback.isAllPaused ? "Play" : "Pause"}
+                >
+                  {audioPlayback.isAllPaused ? (
+                    <Play className="w-3.5 h-3.5 ml-0.5" />
+                  ) : (
+                    <Pause className="w-3.5 h-3.5" />
+                  )}
+                </button>
+
+                {!audioMiniCollapsed && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => audioControllerRef.current?.nextTrack()}
+                      className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] text-[var(--text-secondary)] cursor-pointer"
+                      aria-label="Next audio track"
+                      title="Next track"
+                    >
+                      <SkipForward className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        audioControllerRef.current?.toggleViewMute()
+                      }
+                      className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                      style={{
+                        color: audioPlayback.isViewMuted
+                          ? "var(--danger)"
+                          : "var(--text-secondary)",
+                      }}
+                      aria-label={
+                        audioPlayback.isViewMuted ? "Unmute audio" : "Mute audio"
+                      }
+                      title={audioPlayback.isViewMuted ? "Unmute" : "Mute"}
+                    >
+                      {audioPlayback.isViewMuted ? (
+                        <VolumeX className="w-3.5 h-3.5" />
+                      ) : (
+                        <Volume2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setAudioMiniCollapsed((c) => !c)}
+                  className="h-8 w-7 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] cursor-pointer"
+                  aria-label={
+                    audioMiniCollapsed
+                      ? "Expand audio mini-player"
+                      : "Collapse audio mini-player"
+                  }
+                  title={audioMiniCollapsed ? "Expand" : "Minimize"}
+                >
+                  {audioMiniCollapsed ? (
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       {/* Themes, Settings & GitHub Gist Sync Modal */}
       <SettingsSyncModal

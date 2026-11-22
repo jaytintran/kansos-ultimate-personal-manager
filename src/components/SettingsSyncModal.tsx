@@ -11,6 +11,7 @@ import {
   EyeOff,
   FileText,
   HardDrive,
+  Headphones,
   ListTodo,
   MonitorPlay,
   Moon,
@@ -25,10 +26,18 @@ import {
   X,
 } from "lucide-react";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { DEFAULT_AUDIO_STATE } from "../data/seedData";
 import { pruneMissingBookVoicePreferences } from "../hooks/useVoicePreferences";
+import { exportAudioBackupZip } from "../lib/audioBackup";
+import { findOrphanedMissingAudioIds } from "../lib/audioFileLoader";
 import { exportLibraryBackupZip } from "../lib/backup";
 import { findOrphanedMissingBookIds } from "../lib/bookFileLoader";
-import { libraryDb, type BookFileAuditEntry } from "../lib/db";
+import {
+  audioDb,
+  libraryDb,
+  type AudioFileAuditEntry,
+  type BookFileAuditEntry,
+} from "../lib/db";
 import { formatFileSize } from "../lib/formatters";
 import {
   ColorMode,
@@ -40,8 +49,11 @@ import {
 import {
   getAndroidImportMode,
   getAndroidLinkedFolders,
+  getAudioAndroidImportMode,
+  getAudioAndroidLinkedFolders,
   isAndroidCapacitor,
   setAndroidImportMode,
+  setAudioAndroidImportMode,
   type AndroidImportStorageMode,
 } from "../utils/androidSaf";
 import {
@@ -114,6 +126,7 @@ const STARTUP_VIEW_OPTIONS: { id: ViewId; label: string }[] = [
   { id: "lists", label: "Lists" },
   { id: "library", label: "Library" },
   { id: "streamer", label: "Streamer" },
+  { id: "audio", label: "Audio" },
   { id: "achievements", label: "Achievements" },
 ];
 
@@ -139,6 +152,9 @@ const LOCAL_STORAGE_KEY_LABELS: Record<string, string> = {
   kanso_library_voice_prefs_v1: "Audiobook Voice Preferences",
   kanso_android_import_mode_v1: "Android Library Import Mode",
   kanso_android_linked_folders_v1: "Android Linked Device Folders",
+  kanso_audio_studio_prefs_v1: "Audio Studio Preferences",
+  kanso_audio_android_import_mode_v1: "Android Audio Import Mode",
+  kanso_audio_android_linked_folders_v1: "Android Linked Audio Folders",
 };
 
 function measureJsonBytes(value: unknown): number {
@@ -178,6 +194,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     purgeWorkspaceSection,
     deleteBook,
     deleteBooks,
+    deleteAudioTracks,
     clearWorkspaceData,
     restoreSampleData,
     pushToast,
@@ -195,10 +212,17 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     string[]
   >([]);
   const [cleaningMissingBooks, setCleaningMissingBooks] = useState(false);
+  const [orphanedMissingAudioIds, setOrphanedMissingAudioIds] = useState<
+    string[]
+  >([]);
+  const [cleaningMissingAudio, setCleaningMissingAudio] = useState(false);
 
   // Storage Tab State
   const [storageLoading, setStorageLoading] = useState(false);
   const [auditEntries, setAuditEntries] = useState<BookFileAuditEntry[]>([]);
+  const [audioAuditEntries, setAudioAuditEntries] = useState<
+    AudioFileAuditEntry[]
+  >([]);
   const [quota, setQuota] = useState<QuotaInfo>({
     usage: null,
     quota: null,
@@ -215,14 +239,23 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
   const [androidLinkedFolderCount, setAndroidLinkedFolderCount] = useState<number>(
     () => (isAndroidCapacitor() ? getAndroidLinkedFolders().length : 0),
   );
+  const [androidAudioImportMode, setAndroidAudioImportModeState] =
+    useState<AndroidImportStorageMode>(() =>
+      isAndroidCapacitor() ? getAudioAndroidImportMode() : "ask",
+    );
+  const [androidAudioLinkedFolderCount, setAndroidAudioLinkedFolderCount] =
+    useState<number>(() =>
+      isAndroidCapacitor() ? getAudioAndroidLinkedFolders().length : 0,
+    );
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshStorageAudit = useCallback(async () => {
     setStorageLoading(true);
     try {
-      const [entries, estimate, persisted] = await Promise.all([
+      const [entries, audioEntries, estimate, persisted] = await Promise.all([
         libraryDb.auditStorageFiles(),
+        audioDb.auditAudioFiles(),
         typeof navigator !== "undefined" && navigator.storage?.estimate
           ? navigator.storage.estimate().catch(() => null)
           : Promise.resolve(null),
@@ -231,6 +264,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
           : Promise.resolve(null),
       ]);
       setAuditEntries(entries);
+      setAudioAuditEntries(audioEntries);
       setQuota({
         usage: typeof estimate?.usage === "number" ? estimate.usage : null,
         quota: typeof estimate?.quota === "number" ? estimate.quota : null,
@@ -270,6 +304,10 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
       if (isAndroidApp) {
         setAndroidImportModeState(getAndroidImportMode());
         setAndroidLinkedFolderCount(getAndroidLinkedFolders().length);
+        setAndroidAudioImportModeState(getAudioAndroidImportMode());
+        setAndroidAudioLinkedFolderCount(
+          getAudioAndroidLinkedFolders().length,
+        );
       }
     }
   }, [open, initialTab, isAndroidApp]);
@@ -290,10 +328,17 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
       .catch(() => {
         if (!cancelled) setOrphanedMissingBookIds([]);
       });
+    void findOrphanedMissingAudioIds(workspace.audioTracks ?? [])
+      .then((ids) => {
+        if (!cancelled) setOrphanedMissingAudioIds(Array.from(ids));
+      })
+      .catch(() => {
+        if (!cancelled) setOrphanedMissingAudioIds([]);
+      });
     return () => {
       cancelled = true;
     };
-  }, [open, workspace.books]);
+  }, [open, workspace.books, workspace.audioTracks]);
 
   useEffect(() => {
     if (!open) return;
@@ -324,6 +369,26 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
   const totalIndexedDbBytes = useMemo(
     () => auditEntries.reduce((acc, e) => acc + e.byteLength, 0),
     [auditEntries],
+  );
+
+  const audioTrackMap = useMemo(
+    () => new Map((workspace.audioTracks ?? []).map((t) => [t.id, t])),
+    [workspace.audioTracks],
+  );
+
+  const audioOrphanBlobs = useMemo(
+    () => audioAuditEntries.filter((entry) => !audioTrackMap.has(entry.trackId)),
+    [audioAuditEntries, audioTrackMap],
+  );
+
+  const audioOrphanBytes = useMemo(
+    () => audioOrphanBlobs.reduce((acc, e) => acc + e.byteLength, 0),
+    [audioOrphanBlobs],
+  );
+
+  const totalAudioIndexedDbBytes = useMemo(
+    () => audioAuditEntries.reduce((acc, e) => acc + e.byteLength, 0),
+    [audioAuditEntries],
   );
 
   const totalLocalStorageBytes = useMemo(
@@ -388,6 +453,16 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
         measureJsonBytes(workspace.libraryViewFolders) +
         measureJsonBytes(workspace.bookBookmarks) +
         measureJsonBytes(workspace.bookHighlights),
+      audioMetaCount:
+        (workspace.audioTracks?.length ?? 0) +
+        (workspace.audioPlaylists?.length ?? 0) +
+        (workspace.audioMixPresets?.length ?? 0),
+      audioMetaBytes:
+        measureJsonBytes(workspace.audioTracks) +
+        measureJsonBytes(workspace.audioFolders) +
+        measureJsonBytes(workspace.audioPlaylists) +
+        measureJsonBytes(workspace.audioMixPresets) +
+        measureJsonBytes(workspace.audioState),
     };
   }, [workspace]);
 
@@ -522,7 +597,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
   const handleClearAllBookFiles = async () => {
     setStorageBusyKey("clear-all-blobs");
     try {
-      await libraryDb.clearAllData();
+      await libraryDb.clearBookFiles();
       pruneMissingBookVoicePreferences(new Set());
       pushToast("Cleared all stored ebook binary files from IndexedDB", "success");
       await refreshStorageAudit();
@@ -531,6 +606,99 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     } finally {
       setStorageBusyKey(null);
       setConfirmActionKey(null);
+    }
+  };
+
+  const handleCleanAudioOrphans = async () => {
+    if (audioOrphanBlobs.length === 0) return;
+    setStorageBusyKey("clean-audio-orphans");
+    try {
+      await audioDb.deleteOrphanAudioFiles(
+        audioOrphanBlobs.map((o) => o.trackId),
+      );
+      pushToast(
+        `Cleaned ${audioOrphanBlobs.length} orphaned audio ${audioOrphanBlobs.length === 1 ? "file" : "files"} (${formatFileSize(audioOrphanBytes)})`,
+        "success",
+      );
+      await refreshStorageAudit();
+    } catch {
+      pushToast("Failed to clean orphaned audio files", "error");
+    } finally {
+      setStorageBusyKey(null);
+      setConfirmActionKey(null);
+    }
+  };
+
+  const handleDeleteStoredAudioOrBlob = async (trackId: string) => {
+    setStorageBusyKey(`audioblob-${trackId}`);
+    try {
+      if (audioTrackMap.has(trackId)) {
+        await deleteAudioTracks([trackId]);
+      } else {
+        await audioDb.deleteAudioFile(trackId);
+        pushToast("Removed orphaned audio file from IndexedDB", "success");
+      }
+      await refreshStorageAudit();
+    } catch {
+      pushToast("Failed to delete stored audio file", "error");
+    } finally {
+      setStorageBusyKey(null);
+      setConfirmActionKey(null);
+    }
+  };
+
+  const handleClearAllAudioFiles = async () => {
+    setStorageBusyKey("clear-all-audio-blobs");
+    try {
+      await audioDb.clearAllAudioFiles();
+      pushToast("Cleared all stored audio binary files from IndexedDB", "success");
+      await refreshStorageAudit();
+    } catch {
+      pushToast("Failed to clear audio files from IndexedDB", "error");
+    } finally {
+      setStorageBusyKey(null);
+      setConfirmActionKey(null);
+    }
+  };
+
+  const handleExportInAppAudioZip = async () => {
+    const inAppCount = audioAuditEntries.filter((entry) => {
+      const tr = audioTrackMap.get(entry.trackId);
+      return tr && tr.storageMode !== "android-uri";
+    }).length;
+    if (inAppCount === 0) {
+      pushToast("No in-app audio files found in IndexedDB to export", "neutral");
+      return;
+    }
+    setStorageBusyKey("export-audio-zip");
+    try {
+      const blob = await exportAudioBackupZip({
+        tracks: workspace.audioTracks ?? [],
+        folders: workspace.audioFolders ?? [],
+        playlists: workspace.audioPlaylists ?? [],
+        presets: workspace.audioMixPresets ?? [],
+        inAppOnly: true,
+      });
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `kanso-audio-inapp-backup-${dateStr}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      pushToast(
+        `Exported ${inAppCount} in-app audio ${inAppCount === 1 ? "track" : "tracks"} & metadata ZIP`,
+        "success",
+      );
+    } catch (err) {
+      pushToast(
+        err instanceof Error ? err.message : "Failed to export Audio ZIP",
+        "error",
+      );
+    } finally {
+      setStorageBusyKey(null);
     }
   };
 
@@ -592,6 +760,24 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
       pushToast("Failed to clean up missing book cards", "error");
     } finally {
       setCleaningMissingBooks(false);
+    }
+  };
+
+  const handleCleanUpMissingAudioCards = async () => {
+    if (orphanedMissingAudioIds.length === 0 || cleaningMissingAudio) return;
+    setCleaningMissingAudio(true);
+    try {
+      const count = orphanedMissingAudioIds.length;
+      await deleteAudioTracks(orphanedMissingAudioIds);
+      setOrphanedMissingAudioIds([]);
+      pushToast(
+        `Cleaned up ${count} missing audio ${count === 1 ? "track" : "tracks"}`,
+        "success",
+      );
+    } catch {
+      pushToast("Failed to clean up missing audio cards", "error");
+    } finally {
+      setCleaningMissingAudio(false);
     }
   };
 
@@ -1007,16 +1193,16 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                     className="font-semibold"
                     style={{ color: "var(--text-primary)" }}
                   >
-                    Library stays local per device:
+                    Library &amp; Audio stay local per device:
                   </span>{" "}
-                  Library books, annotations, and book-linked notes are excluded
-                  from Gist sync because e-book binaries and Android storage
-                  links live locally on each device. Pulling from Gist leaves
-                  your local Library untouched. Use{" "}
+                  Library books, annotations, book-linked notes, and Audio tracks
+                  &amp; mixes are excluded from Gist sync because binaries and
+                  Android storage links live locally on each device. Pulling from
+                  Gist leaves your local Library &amp; Audio untouched. Use{" "}
                   <span className="font-medium" style={{ color: "var(--text-primary)" }}>
-                    Storage → Export Library ZIP
+                    Storage → Export Library / Audio ZIP
                   </span>{" "}
-                  to transfer in-app books between devices.
+                  to transfer in-app files between devices.
                 </div>
               </div>
 
@@ -1569,66 +1755,127 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                 </button>
               </div>
 
-              {/* Android Capacitor-only Library File Storage Preference */}
+              {/* Android Capacitor-only Library & Audio File Storage Preferences */}
               {isAndroidApp && (
-                <div
-                  className="flex flex-col gap-3 pt-4 border-t"
-                  style={{ borderColor: "var(--border-subtle)" }}
-                >
-                  <div>
-                    <div className="text-sm font-semibold">
-                      Android E-Book Storage Mode
+                <>
+                  <div
+                    className="flex flex-col gap-3 pt-4 border-t"
+                    style={{ borderColor: "var(--border-subtle)" }}
+                  >
+                    <div>
+                      <div className="text-sm font-semibold">
+                        Android E-Book Storage Mode
+                      </div>
+                      <div
+                        className="text-xs mt-0.5"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Choose whether imported e-books read directly from device
+                        storage (0 B in app) or copy into app storage.
+                        {androidLinkedFolderCount > 0
+                          ? ` · ${androidLinkedFolderCount} linked folder${androidLinkedFolderCount === 1 ? "" : "s"}`
+                          : ""}
+                      </div>
                     </div>
                     <div
-                      className="text-xs mt-0.5"
-                      style={{ color: "var(--text-muted)" }}
+                      className="inline-flex flex-wrap items-center gap-1 p-1 rounded-lg border self-start"
+                      style={{
+                        backgroundColor: "var(--bg-surface-subtle)",
+                        borderColor: "var(--border-subtle)",
+                      }}
                     >
-                      Choose whether imported e-books read directly from device
-                      storage (0 B in app) or copy into app storage.
-                      {androidLinkedFolderCount > 0
-                        ? ` · ${androidLinkedFolderCount} linked folder${androidLinkedFolderCount === 1 ? "" : "s"}`
-                        : ""}
+                      {(
+                        [
+                          { id: "ask", label: "Ask every time" },
+                          { id: "always-link", label: "Always Link" },
+                          { id: "always-copy", label: "Always Copy" },
+                        ] as const
+                      ).map((opt) => {
+                        const active = androidImportMode === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setAndroidImportMode(opt.id);
+                              setAndroidImportModeState(opt.id);
+                            }}
+                            className="px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer"
+                            style={{
+                              backgroundColor: active
+                                ? "var(--bg-surface)"
+                                : "transparent",
+                              color: active
+                                ? "var(--text-primary)"
+                                : "var(--text-muted)",
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
+
                   <div
-                    className="inline-flex flex-wrap items-center gap-1 p-1 rounded-lg border self-start"
-                    style={{
-                      backgroundColor: "var(--bg-surface-subtle)",
-                      borderColor: "var(--border-subtle)",
-                    }}
+                    className="flex flex-col gap-3 pt-4 border-t"
+                    style={{ borderColor: "var(--border-subtle)" }}
                   >
-                    {(
-                      [
-                        { id: "ask", label: "Ask every time" },
-                        { id: "always-link", label: "Always Link" },
-                        { id: "always-copy", label: "Always Copy" },
-                      ] as const
-                    ).map((opt) => {
-                      const active = androidImportMode === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => {
-                            setAndroidImportMode(opt.id);
-                            setAndroidImportModeState(opt.id);
-                          }}
-                          className="px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer"
-                          style={{
-                            backgroundColor: active
-                              ? "var(--bg-surface)"
-                              : "transparent",
-                            color: active
-                              ? "var(--text-primary)"
-                              : "var(--text-muted)",
-                          }}
-                        >
-                          {opt.label}
-                        </button>
-                      );
-                    })}
+                    <div>
+                      <div className="text-sm font-semibold">
+                        Android Audio Storage Mode
+                      </div>
+                      <div
+                        className="text-xs mt-0.5"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Choose whether imported audio files stream directly from
+                        device storage or copy into app storage.
+                        {androidAudioLinkedFolderCount > 0
+                          ? ` · ${androidAudioLinkedFolderCount} linked folder${androidAudioLinkedFolderCount === 1 ? "" : "s"}`
+                          : ""}
+                      </div>
+                    </div>
+                    <div
+                      className="inline-flex flex-wrap items-center gap-1 p-1 rounded-lg border self-start"
+                      style={{
+                        backgroundColor: "var(--bg-surface-subtle)",
+                        borderColor: "var(--border-subtle)",
+                      }}
+                    >
+                      {(
+                        [
+                          { id: "ask", label: "Ask every time" },
+                          { id: "always-link", label: "Always Link" },
+                          { id: "always-copy", label: "Always Copy" },
+                        ] as const
+                      ).map((opt) => {
+                        const active = androidAudioImportMode === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setAudioAndroidImportMode(opt.id);
+                              setAndroidAudioImportModeState(opt.id);
+                            }}
+                            className="px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer"
+                            style={{
+                              backgroundColor: active
+                                ? "var(--bg-surface)"
+                                : "transparent",
+                              color: active
+                                ? "var(--text-primary)"
+                                : "var(--text-muted)",
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
+                </>
               )}
 
               {/* Sample Data & Reset */}
@@ -1698,6 +1945,61 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                         : orphanedMissingBookIds.length > 0
                           ? `Clean Up Missing Cards (${orphanedMissingBookIds.length})`
                           : "No Missing Cards"}
+                    </span>
+                  </button>
+                </div>
+
+                {/* One-click Cleanup for Missing Audio Track Cards */}
+                <div
+                  className="p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor:
+                      orphanedMissingAudioIds.length > 0
+                        ? "var(--accent)"
+                        : "var(--border-subtle)",
+                  }}
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold">
+                      Missing Audio Track Cards
+                    </div>
+                    <div
+                      className="text-[11px] mt-0.5"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {orphanedMissingAudioIds.length > 0
+                        ? `${orphanedMissingAudioIds.length} ${orphanedMissingAudioIds.length === 1 ? "audio track has" : "audio tracks have"} no readable file or device link.`
+                        : "All local Audio track cards have valid files or device links."}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={
+                      orphanedMissingAudioIds.length === 0 ||
+                      cleaningMissingAudio
+                    }
+                    onClick={() => void handleCleanUpMissingAudioCards()}
+                    className="h-8 px-3 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 shrink-0 disabled:opacity-45 cursor-pointer"
+                    style={{
+                      backgroundColor: "var(--bg-surface-subtle)",
+                      borderColor:
+                        orphanedMissingAudioIds.length > 0
+                          ? "var(--danger)"
+                          : "var(--border-subtle)",
+                      color:
+                        orphanedMissingAudioIds.length > 0
+                          ? "var(--danger)"
+                          : "var(--text-muted)",
+                    }}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>
+                      {cleaningMissingAudio
+                        ? "Cleaning…"
+                        : orphanedMissingAudioIds.length > 0
+                          ? `Clean Up Audio (${orphanedMissingAudioIds.length})`
+                          : "No Missing Audio"}
                     </span>
                   </button>
                 </div>
@@ -1821,7 +2123,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   <div
                     className="p-3 rounded-xl border space-y-1"
                     style={{
@@ -1842,7 +2144,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                       className="text-[10px] font-mono tabular-nums"
                       style={{ color: "var(--text-muted)" }}
                     >
-                      {Math.round(lsBudgetPct)}% of ~5 MB localStorage
+                      {Math.round(lsBudgetPct)}% of ~5 MB LS
                     </div>
                   </div>
 
@@ -1882,13 +2184,40 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                       className="text-[11px] font-medium"
                       style={{ color: "var(--text-muted)" }}
                     >
+                      IndexedDB Audio
+                    </div>
+                    <div className="text-sm font-mono tabular-nums font-bold">
+                      {formatFileSize(totalAudioIndexedDbBytes)}
+                    </div>
+                    <div
+                      className="text-[10px] font-mono tabular-nums"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {audioAuditEntries.length} stored{" "}
+                      {audioAuditEntries.length === 1 ? "track" : "tracks"}
+                    </div>
+                  </div>
+
+                  <div
+                    className="p-3 rounded-xl border space-y-1"
+                    style={{
+                      backgroundColor: "var(--bg-surface-subtle)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    <div
+                      className="text-[11px] font-medium"
+                      style={{ color: "var(--text-muted)" }}
+                    >
                       Origin Quota
                     </div>
                     <div className="text-sm font-mono tabular-nums font-bold">
                       {quota.usage !== null
                         ? formatFileSize(quota.usage)
                         : formatFileSize(
-                            totalLocalStorageBytes + totalIndexedDbBytes,
+                            totalLocalStorageBytes +
+                              totalIndexedDbBytes +
+                              totalAudioIndexedDbBytes,
                           )}
                     </div>
                     <div
@@ -2232,7 +2561,8 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                     {domainMetrics.libraryMetaCount > 0 &&
                       renderConfirmButton("purge-library-all", "Clear", () => {
                         void (async () => {
-                          await libraryDb.clearAllData();
+                          await libraryDb.clearBookFiles();
+                          await libraryDb.replaceAllAnnotations([], []);
                           pruneMissingBookVoicePreferences(new Set());
                           purgeWorkspaceSection(
                             "Cleared Library books, annotations & files",
@@ -2244,6 +2574,58 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                               libraryViewFolders: [],
                               bookBookmarks: [],
                               bookHighlights: [],
+                            }),
+                          );
+                          setConfirmActionKey(null);
+                          await refreshStorageAudit();
+                        })();
+                      })}
+                  </div>
+
+                  {/* Audio Metadata */}
+                  <div
+                    className="p-3.5 flex items-center justify-between gap-2.5"
+                    style={{ borderColor: "var(--border-subtle)" }}
+                  >
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <Headphones
+                        className="w-4 h-4 shrink-0 mt-0.5"
+                        style={{ color: "var(--text-secondary)" }}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold">
+                          Audio Tracks, Playlists &amp; Mix Presets
+                        </div>
+                        <div
+                          className="text-[11px] font-mono tabular-nums mt-0.5"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          {workspace.audioTracks?.length ?? 0} tracks ·{" "}
+                          {workspace.audioPlaylists?.length ?? 0} playlists ·{" "}
+                          {workspace.audioMixPresets?.length ?? 0} presets ·{" "}
+                          {formatFileSize(domainMetrics.audioMetaBytes)}
+                        </div>
+                      </div>
+                    </div>
+                    {domainMetrics.audioMetaCount > 0 &&
+                      renderConfirmButton("purge-audio-all", "Clear", () => {
+                        void (async () => {
+                          await audioDb.clearAllAudioFiles();
+                          purgeWorkspaceSection(
+                            "Cleared Audio tracks, playlists, presets & files",
+                            (prev) => ({
+                              ...prev,
+                              audioTracks: [],
+                              audioFolders: [],
+                              audioPlaylists: [],
+                              audioMixPresets: [],
+                              audioState: {
+                                ...(prev.audioState ?? DEFAULT_AUDIO_STATE),
+                                activeSlots: [],
+                                primaryTrackId: null,
+                                queueTrackIds: [],
+                                activePresetId: null,
+                              },
                             }),
                           );
                           setConfirmActionKey(null);
@@ -2389,6 +2771,153 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                               () =>
                                 void handleDeleteStoredBookOrBlob(entry.bookId),
                               storageBusyKey === `blob-${entry.bookId}`,
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+
+              {/* IndexedDB Audio Binary Files */}
+              <div className="space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold">
+                      Stored Audio Files (IndexedDB)
+                    </div>
+                    <div
+                      className="text-xs"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      Offline MP3, M4A, FLAC, WAV, OGG, OPUS &amp; AAC tracks
+                      stored locally on this device.
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={
+                        audioAuditEntries.length === 0 ||
+                        storageBusyKey !== null
+                      }
+                      onClick={() => void handleExportInAppAudioZip()}
+                      className="h-7 px-2.5 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-subtle)] disabled:opacity-45 cursor-pointer"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>
+                        {storageBusyKey === "export-audio-zip"
+                          ? "Exporting…"
+                          : "Export Audio ZIP"}
+                      </span>
+                    </button>
+                    {audioAuditEntries.length > 0 &&
+                      renderConfirmButton(
+                        "clear-all-audio-blobs",
+                        "Clear All Files",
+                        () => void handleClearAllAudioFiles(),
+                        storageBusyKey !== null,
+                      )}
+                  </div>
+                </div>
+
+                {audioOrphanBlobs.length > 0 && (
+                  <div
+                    className="p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2"
+                    style={{
+                      backgroundColor: "var(--bg-surface-subtle)",
+                      borderColor: "var(--accent)",
+                    }}
+                  >
+                    <div className="flex items-center gap-2 text-xs">
+                      <AlertTriangle
+                        className="w-4 h-4 shrink-0"
+                        style={{ color: "var(--accent)" }}
+                      />
+                      <span>
+                        <strong>{audioOrphanBlobs.length}</strong> orphaned audio{" "}
+                        {audioOrphanBlobs.length === 1 ? "file" : "files"} (
+                        {formatFileSize(audioOrphanBytes)}) not linked to any
+                        track.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={storageBusyKey !== null}
+                      onClick={() => void handleCleanAudioOrphans()}
+                      className="h-7 px-2.5 rounded-lg text-[11px] font-semibold disabled:opacity-50"
+                      style={{
+                        backgroundColor: "var(--accent)",
+                        color: "var(--accent-fg)",
+                      }}
+                    >
+                      {storageBusyKey === "clean-audio-orphans"
+                        ? "Cleaning..."
+                        : "Clean Orphans"}
+                    </button>
+                  </div>
+                )}
+
+                {audioAuditEntries.length === 0 ? (
+                  <div
+                    className="p-4 rounded-xl border text-center text-xs"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    No audio binary files stored in IndexedDB.
+                  </div>
+                ) : (
+                  <div
+                    className="rounded-xl border divide-y max-h-56 overflow-y-auto"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    {audioAuditEntries
+                      .slice()
+                      .sort((a, b) => b.byteLength - a.byteLength)
+                      .map((entry) => {
+                        const tr = audioTrackMap.get(entry.trackId);
+                        const isOrphan = !tr;
+                        return (
+                          <div
+                            key={entry.trackId}
+                            className="px-3.5 py-2.5 flex items-center justify-between gap-3"
+                            style={{ borderColor: "var(--border-subtle)" }}
+                          >
+                            <div className="min-w-0">
+                              <div className="text-xs font-semibold truncate">
+                                {tr
+                                  ? tr.title
+                                  : `Orphaned audio blob (${entry.trackId})`}
+                              </div>
+                              <div
+                                className="text-[11px] font-mono tabular-nums truncate"
+                                style={{ color: "var(--text-muted)" }}
+                              >
+                                {formatFileSize(entry.byteLength)}
+                                {tr
+                                  ? ` · ${tr.format.toUpperCase()} · ${tr.fileName}`
+                                  : " · Unlinked"}
+                              </div>
+                            </div>
+                            {renderConfirmButton(
+                              `audioblob-${entry.trackId}`,
+                              isOrphan ? "Delete Blob" : "Delete Track",
+                              () =>
+                                void handleDeleteStoredAudioOrBlob(
+                                  entry.trackId,
+                                ),
+                              storageBusyKey === `audioblob-${entry.trackId}`,
                             )}
                           </div>
                         );

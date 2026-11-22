@@ -17,8 +17,18 @@ export interface AndroidLinkedFolder {
   lastFoundCount?: number;
 }
 
+export type AndroidMediaControlAction =
+  | "play"
+  | "pause"
+  | "next"
+  | "previous"
+  | "stop";
+
 interface KansoSafPluginInterface {
-  pickDocuments(options?: { allowMultiple?: boolean }): Promise<{
+  pickDocuments(options?: {
+    allowMultiple?: boolean;
+    mediaType?: "ebook" | "audio";
+  }): Promise<{
     cancelled: boolean;
     files: AndroidSafPickedFile[];
   }>;
@@ -27,7 +37,10 @@ interface KansoSafPluginInterface {
     uri?: string;
     name?: string;
   }>;
-  scanDirectory(options: { treeUri: string }): Promise<{
+  scanDirectory(options: {
+    treeUri: string;
+    mediaType?: "ebook" | "audio";
+  }): Promise<{
     files: AndroidSafPickedFile[];
   }>;
   checkUris(options: { uris: string[] }): Promise<{
@@ -48,10 +61,12 @@ interface KansoSafPluginInterface {
     playing: boolean;
     title?: string;
     subtitle?: string;
+    keepServiceAlive?: boolean;
+    showTrackControls?: boolean;
   }): Promise<void>;
   addListener(
     eventName: "mediaControlAction",
-    listenerFunc: (event: { action: "pause" | "stop" }) => void,
+    listenerFunc: (event: { action: AndroidMediaControlAction }) => void,
   ): Promise<{ remove: () => Promise<void> }>;
 }
 
@@ -59,6 +74,8 @@ const KansoSaf = registerPlugin<KansoSafPluginInterface>("KansoSaf");
 
 const ANDROID_IMPORT_MODE_KEY = "kanso_android_import_mode_v1";
 const ANDROID_LINKED_FOLDERS_KEY = "kanso_android_linked_folders_v1";
+const AUDIO_ANDROID_IMPORT_MODE_KEY = "kanso_audio_android_import_mode_v1";
+const AUDIO_ANDROID_LINKED_FOLDERS_KEY = "kanso_audio_android_linked_folders_v1";
 
 /**
  * Returns true ONLY inside the native Android Capacitor runtime.
@@ -152,7 +169,7 @@ export async function pickAndroidBookDocuments(
   if (!isAndroidCapacitor()) {
     return { cancelled: true, files: [] };
   }
-  return KansoSaf.pickDocuments({ allowMultiple });
+  return KansoSaf.pickDocuments({ allowMultiple, mediaType: "ebook" });
 }
 
 export async function pickAndroidBookFolder(): Promise<{
@@ -170,8 +187,123 @@ export async function scanAndroidBookFolder(
   treeUri: string,
 ): Promise<AndroidSafPickedFile[]> {
   if (!isAndroidCapacitor()) return [];
-  const res = await KansoSaf.scanDirectory({ treeUri });
+  const res = await KansoSaf.scanDirectory({ treeUri, mediaType: "ebook" });
   return Array.isArray(res?.files) ? res.files : [];
+}
+
+export function getAudioAndroidImportMode(): AndroidImportStorageMode {
+  if (typeof localStorage === "undefined") return "ask";
+  try {
+    const raw = localStorage.getItem(AUDIO_ANDROID_IMPORT_MODE_KEY);
+    if (raw === "always-link" || raw === "always-copy" || raw === "ask") {
+      return raw;
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+  return "ask";
+}
+
+export function setAudioAndroidImportMode(
+  mode: AndroidImportStorageMode,
+): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(AUDIO_ANDROID_IMPORT_MODE_KEY, mode);
+    window.dispatchEvent(
+      new CustomEvent("kanso:audio-android-import-mode-changed", {
+        detail: mode,
+      }),
+    );
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function getAudioAndroidLinkedFolders(): AndroidLinkedFolder[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(AUDIO_ANDROID_LINKED_FOLDERS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (f): f is AndroidLinkedFolder =>
+        Boolean(f) && typeof f.uri === "string" && typeof f.name === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function saveAudioAndroidLinkedFolders(
+  folders: AndroidLinkedFolder[],
+): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(
+      AUDIO_ANDROID_LINKED_FOLDERS_KEY,
+      JSON.stringify(folders),
+    );
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function addOrUpdateAudioAndroidLinkedFolder(
+  folder: AndroidLinkedFolder,
+): AndroidLinkedFolder[] {
+  const existing = getAudioAndroidLinkedFolders();
+  const idx = existing.findIndex((f) => f.uri === folder.uri);
+  const next =
+    idx >= 0
+      ? existing.map((f, i) => (i === idx ? { ...f, ...folder } : f))
+      : [folder, ...existing];
+  saveAudioAndroidLinkedFolders(next);
+  return next;
+}
+
+export function removeAudioAndroidLinkedFolder(
+  uri: string,
+): AndroidLinkedFolder[] {
+  const next = getAudioAndroidLinkedFolders().filter((f) => f.uri !== uri);
+  saveAudioAndroidLinkedFolders(next);
+  void releaseAndroidUri(uri);
+  return next;
+}
+
+export async function pickAndroidAudioDocuments(
+  allowMultiple = true,
+): Promise<{ cancelled: boolean; files: AndroidSafPickedFile[] }> {
+  if (!isAndroidCapacitor()) {
+    return { cancelled: true, files: [] };
+  }
+  return KansoSaf.pickDocuments({ allowMultiple, mediaType: "audio" });
+}
+
+export async function pickAndroidAudioFolder(): Promise<{
+  cancelled: boolean;
+  uri?: string;
+  name?: string;
+}> {
+  if (!isAndroidCapacitor()) {
+    return { cancelled: true };
+  }
+  return KansoSaf.pickDirectory();
+}
+
+export async function scanAndroidAudioFolder(
+  treeUri: string,
+): Promise<AndroidSafPickedFile[]> {
+  if (!isAndroidCapacitor()) return [];
+  const res = await KansoSaf.scanDirectory({ treeUri, mediaType: "audio" });
+  return Array.isArray(res?.files) ? res.files : [];
+}
+
+export async function checkAndroidAudioUris(
+  uris: string[],
+): Promise<Record<string, boolean>> {
+  return checkAndroidBookUris(uris);
 }
 
 export async function checkAndroidBookUris(
@@ -211,6 +343,8 @@ export async function syncAndroidBackgroundAudio(state: {
   playing: boolean;
   title?: string;
   subtitle?: string;
+  keepServiceAlive?: boolean;
+  showTrackControls?: boolean;
 }): Promise<void> {
   if (!isAndroidCapacitor()) return;
   try {
@@ -218,6 +352,8 @@ export async function syncAndroidBackgroundAudio(state: {
       playing: state.playing,
       title: state.title,
       subtitle: state.subtitle,
+      keepServiceAlive: state.keepServiceAlive,
+      showTrackControls: state.showTrackControls,
     });
   } catch {
     // Ignore when running on older native builds without foreground media service support
@@ -225,7 +361,7 @@ export async function syncAndroidBackgroundAudio(state: {
 }
 
 export function subscribeAndroidMediaControls(
-  handler: (action: "pause" | "stop") => void,
+  handler: (action: AndroidMediaControlAction) => void,
 ): () => void {
   if (!isAndroidCapacitor()) {
     return () => {};
@@ -234,8 +370,15 @@ export function subscribeAndroidMediaControls(
   let removeHandle: (() => Promise<void>) | null = null;
 
   void KansoSaf.addListener("mediaControlAction", (event) => {
-    if (event?.action === "pause" || event?.action === "stop") {
-      handler(event.action);
+    const act = event?.action;
+    if (
+      act === "play" ||
+      act === "pause" ||
+      act === "next" ||
+      act === "previous" ||
+      act === "stop"
+    ) {
+      handler(act);
     }
   })
     .then((handle) => {

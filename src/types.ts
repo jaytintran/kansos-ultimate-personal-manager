@@ -7,7 +7,8 @@ export type ViewId =
   | "events"
   | "lists"
   | "library"
-  | "streamer";
+  | "streamer"
+  | "audio";
 
 export type ThemeId = "paper" | "neon" | "cyberpunk" | "nordic" | "emerald";
 export type ColorMode = "light" | "dark";
@@ -235,6 +236,36 @@ export interface EpubReaderPrefs {
 }
 
 // ==========================================================================
+// Audio (Offline Multi-Track Mixer + Local Audio Shelf)
+// ==========================================================================
+
+import type {
+  AudioEqPreset,
+  AudioFolderRecord,
+  AudioFormat,
+  AudioMixPreset,
+  AudioMixSlot,
+  AudioPlaylistRecord,
+  AudioRepeatMode,
+  AudioStorageMode,
+  AudioStudioState,
+  AudioTrackRecord,
+} from "./types/audio";
+
+export type {
+  AudioEqPreset,
+  AudioFolderRecord,
+  AudioFormat,
+  AudioMixPreset,
+  AudioMixSlot,
+  AudioPlaylistRecord,
+  AudioRepeatMode,
+  AudioStorageMode,
+  AudioStudioState,
+  AudioTrackRecord,
+};
+
+// ==========================================================================
 // Streamer (Multi-YouTube Grid + Saved URLs Manager + Presets)
 // ==========================================================================
 
@@ -372,6 +403,11 @@ export interface KansoWorkspace {
   streamFolders?: StreamFolder[];
   streamPresets: StreamPreset[];
   streamerState: StreamerState;
+  audioTracks?: AudioTrackRecord[];
+  audioFolders?: AudioFolderRecord[];
+  audioPlaylists?: AudioPlaylistRecord[];
+  audioMixPresets?: AudioMixPreset[];
+  audioState?: AudioStudioState;
   settings: WorkspaceSettings;
   viewPreferences?: Record<string, string>;
 }

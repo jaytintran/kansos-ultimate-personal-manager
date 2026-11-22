@@ -1,4 +1,5 @@
 import {
+  AudioStudioState,
   BookBookmark,
   BookHighlight,
   BookRecord,
@@ -19,6 +20,18 @@ import {
   StreamerState,
 } from '../types';
 import { addDaysToKey, buildDateAtTime, getTodayKey } from '../utils/date';
+
+export const DEFAULT_AUDIO_STATE: AudioStudioState = {
+  activeSlots: [],
+  primaryTrackId: null,
+  queueTrackIds: [],
+  masterVolume: 100,
+  eqPreset: 'flat',
+  shuffle: false,
+  repeatMode: 'off',
+  activePresetId: null,
+  mixerExpanded: false,
+};
 
 export const DEFAULT_STREAMER_STATE: StreamerState = {
   activeStreamIds: [],
@@ -56,6 +69,11 @@ export function createEmptyWorkspace(): KansoWorkspace {
     streamFolders: [],
     streamPresets: [],
     streamerState: { ...DEFAULT_STREAMER_STATE },
+    audioTracks: [],
+    audioFolders: [],
+    audioPlaylists: [],
+    audioMixPresets: [],
+    audioState: { ...DEFAULT_AUDIO_STATE },
     settings: {
       theme: 'paper',
       colorMode: 'light',
@@ -1265,6 +1283,11 @@ export function createSeedWorkspace(): KansoWorkspace {
       spotlightStreamId: 'str-lofi',
       activePresetId: 'preset-focus',
     },
+    audioTracks: [],
+    audioFolders: [],
+    audioPlaylists: [],
+    audioMixPresets: [],
+    audioState: { ...DEFAULT_AUDIO_STATE },
     settings: {
       theme: 'paper',
       colorMode: 'light',

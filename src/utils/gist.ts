@@ -25,6 +25,7 @@ export interface GistPullPreview {
     scratchpads: number;
     customTabs: number;
     books: number;
+    audioTracks: number;
     streams: number;
   };
 }
@@ -62,8 +63,8 @@ export async function pushWorkspaceToGist(
 
   const filename = (config.filename || "kanso-workspace.json").trim();
 
-  // Library is device-local: exclude books, library folders/categories/shelves,
-  // bookmarks, highlights, and book-linked notes from Gist sync.
+  // Library and Audio are device-local: exclude books, library folders/categories/shelves,
+  // bookmarks, highlights, book-linked notes, and all Audio files/tracks/mixes from Gist sync.
   const payload: KansoWorkspace = {
     ...workspace,
     entries: workspace.entries.filter((entry) => !isBookLinkedNote(entry)),
@@ -73,6 +74,11 @@ export async function pushWorkspaceToGist(
     libraryViewFolders: [],
     bookBookmarks: [],
     bookHighlights: [],
+    audioTracks: [],
+    audioFolders: [],
+    audioPlaylists: [],
+    audioMixPresets: [],
+    audioState: undefined,
     viewPreferences: collectSyncedViewPreferences(),
     updatedAt: new Date().toISOString(),
   };
@@ -235,6 +241,7 @@ export async function pullWorkspaceFromGist(
         ? parsed.customTabs.length
         : 0,
       books: 0,
+      audioTracks: 0,
       streams: Array.isArray(parsed.streams) ? parsed.streams.length : 0,
     },
   };
