@@ -12,6 +12,7 @@ import {
   FileText,
   HardDrive,
   Headphones,
+  Languages,
   Layers,
   ListTodo,
   MonitorPlay,
@@ -493,8 +494,22 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
         measureJsonBytes(workspace.financeCategories) +
         measureJsonBytes(workspace.financeTransactions) +
         measureJsonBytes(workspace.financeSubscriptions),
+      languagesCount:
+        (workspace.languages?.length ?? 0) +
+        (workspace.languageItems?.length ?? 0) +
+        (workspace.languageDecks?.length ?? 0),
+      languagesBytes:
+        measureJsonBytes(workspace.languages) +
+        measureJsonBytes(workspace.languageDecks) +
+        measureJsonBytes(workspace.languageItems) +
+        measureJsonBytes(workspace.languageDailyStats),
     };
   }, [workspace]);
+
+  const resolvedNav = useMemo(
+    () => resolveNavigationConfig(workspace.settings.navigation),
+    [workspace.settings.navigation],
+  );
 
   if (!open) return null;
 
@@ -861,10 +876,6 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
 
   const showNavCounts = workspace.settings.showNavCounts ?? true;
   const defaultView = workspace.settings.defaultView ?? "focus";
-  const resolvedNav = useMemo(
-    () => resolveNavigationConfig(workspace.settings.navigation),
-    [workspace.settings.navigation],
-  );
   const defaultTimelineType = workspace.settings.defaultTimelineType ?? "task";
   const defaultNoteTimelineSync =
     workspace.settings.defaultNoteTimelineSync ?? false;
@@ -1440,6 +1451,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                       {pullPreview.summary.listItems} items) ·{" "}
                       {pullPreview.summary.contacts} contacts ·{" "}
                       {pullPreview.summary.financeTransactions} transactions ·{" "}
+                      {pullPreview.summary.languageItems} language items ·{" "}
                       {pullPreview.summary.scratchpads} pads ·{" "}
                       {pullPreview.summary.customTabs} tabs
                     </div>
@@ -2761,6 +2773,45 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                             financeAccounts: [],
                             financeTransactions: [],
                             financeSubscriptions: [],
+                          }),
+                        );
+                        setConfirmActionKey(null);
+                      })}
+                  </div>
+
+                  {/* Languages */}
+                  <div className="px-3.5 py-2.5 flex items-center justify-between gap-3">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <Languages
+                        className="w-4 h-4 shrink-0 mt-0.5"
+                        style={{ color: "var(--text-secondary)" }}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold">
+                          Languages Studio, Decks &amp; SRS Progress
+                        </div>
+                        <div
+                          className="text-[11px] font-mono tabular-nums mt-0.5"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          {workspace.languages?.length ?? 0} languages ·{" "}
+                          {workspace.languageItems?.length ?? 0} items ·{" "}
+                          {workspace.languageDecks?.length ?? 0} decks ·{" "}
+                          {formatFileSize(domainMetrics.languagesBytes)}
+                        </div>
+                      </div>
+                    </div>
+                    {domainMetrics.languagesCount > 0 &&
+                      renderConfirmButton("purge-languages", "Clear", () => {
+                        purgeWorkspaceSection(
+                          "Cleared Languages profiles, decks & items",
+                          (prev) => ({
+                            ...prev,
+                            languages: [],
+                            languageDecks: [],
+                            languageItems: [],
+                            languageDailyStats: [],
+                            languageActiveId: null,
                           }),
                         );
                         setConfirmActionKey(null);

@@ -14,6 +14,7 @@ export const SYNCED_VIEW_PREFERENCE_KEYS = [
   "kanso_audio_studio_prefs_v1",
   "kanso_contacts_prefs_v1",
   "kanso_finance_prefs_v1",
+  "kanso_languages_prefs_v1",
 ] as const;
 
 const VOICE_PREFS_KEY = "kanso_library_voice_prefs_v1";

@@ -29,6 +29,7 @@ export interface GistPullPreview {
     streams: number;
     contacts: number;
     financeTransactions: number;
+    languageItems: number;
   };
 }
 
@@ -248,6 +249,9 @@ export async function pullWorkspaceFromGist(
       contacts: Array.isArray(parsed.contacts) ? parsed.contacts.length : 0,
       financeTransactions: Array.isArray(parsed.financeTransactions)
         ? parsed.financeTransactions.length
+        : 0,
+      languageItems: Array.isArray(parsed.languageItems)
+        ? parsed.languageItems.length
         : 0,
     },
   };

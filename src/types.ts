@@ -10,7 +10,8 @@ export type ViewId =
   | "streamer"
   | "audio"
   | "contacts"
-  | "finance";
+  | "finance"
+  | "languages";
 
 export type ThemeId = "paper" | "neon" | "cyberpunk" | "nordic" | "emerald";
 export type ColorMode = "light" | "dark";
@@ -419,6 +420,21 @@ import type {
   FinanceTransactionType,
 } from "./types/finance";
 
+import type {
+  LanguageCefrLevel,
+  LanguageDailyStat,
+  LanguageDeck,
+  LanguageExample,
+  LanguageItem,
+  LanguageItemType,
+  LanguageMasteryStage,
+  LanguagePreset,
+  LanguageProfile,
+  LanguageRegister,
+  LanguageSrsRating,
+  LanguageSrsState,
+} from "./types/languages";
+
 export type {
   ContactAddress,
   ContactCircle,
@@ -437,6 +453,18 @@ export type {
   FinanceSubscription,
   FinanceTransaction,
   FinanceTransactionType,
+  LanguageCefrLevel,
+  LanguageDailyStat,
+  LanguageDeck,
+  LanguageExample,
+  LanguageItem,
+  LanguageItemType,
+  LanguageMasteryStage,
+  LanguagePreset,
+  LanguageProfile,
+  LanguageRegister,
+  LanguageSrsRating,
+  LanguageSrsState,
 };
 
 export interface KansoWorkspace {
@@ -472,6 +500,11 @@ export interface KansoWorkspace {
   financeTransactions?: FinanceTransaction[];
   financeSubscriptions?: FinanceSubscription[];
   financeSettings?: FinanceSettings;
+  languages?: LanguageProfile[];
+  languageDecks?: LanguageDeck[];
+  languageItems?: LanguageItem[];
+  languageDailyStats?: LanguageDailyStat[];
+  languageActiveId?: string | null;
   settings: WorkspaceSettings;
   viewPreferences?: Record<string, string>;
 }

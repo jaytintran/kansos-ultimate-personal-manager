@@ -60,6 +60,7 @@ import { EventsView } from "./views/EventsView";
 import { FinanceView } from "./views/FinanceView";
 import { FocusView } from "./views/FocusView";
 import { HabitsView } from "./views/HabitsView";
+import { LanguagesView } from "./views/LanguagesView";
 import { LibraryView } from "./views/LibraryView";
 import { ListsView } from "./views/ListsView";
 import { NotesView } from "./views/NotesView";
@@ -443,6 +444,7 @@ const KansoShell: React.FC = () => {
     const audioCount = (workspace.audioTracks ?? []).length;
     const contactsCount = (workspace.contacts ?? []).length;
     const financeCount = (workspace.financeTransactions ?? []).length;
+    const languagesCount = (workspace.languageItems ?? []).length;
 
     return {
       focus: activeFocus,
@@ -457,6 +459,7 @@ const KansoShell: React.FC = () => {
       audio: audioCount,
       contacts: contactsCount,
       finance: financeCount,
+      languages: languagesCount,
     };
   }, [
     workspace.entries,
@@ -468,6 +471,7 @@ const KansoShell: React.FC = () => {
     workspace.audioTracks,
     workspace.contacts,
     workspace.financeTransactions,
+    workspace.languageItems,
     todayKey,
   ]);
 
@@ -1361,6 +1365,7 @@ const KansoShell: React.FC = () => {
         )}
         {activeView === "contacts" && <ContactsView />}
         {activeView === "finance" && <FinanceView />}
+        {activeView === "languages" && <LanguagesView />}
         {hasVisitedLibrary && (
           <div
             className={

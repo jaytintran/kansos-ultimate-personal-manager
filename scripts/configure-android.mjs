@@ -1267,7 +1267,9 @@ public class KansoSafPlugin extends Plugin {
                 }
 
                 // Clean up older versions for this URI before streaming fresh copy
-                File[] stale = cacheDir.listFiles((dir, name) -> name.startsWith(uriHash + "_") && !name.equals(targetFile.getName()));
+                final String stalePrefix = uriHash + "_";
+                final String targetFileName = targetFile.getName();
+                File[] stale = cacheDir.listFiles((dir, name) -> name.startsWith(stalePrefix) && !name.equals(targetFileName));
                 if (stale != null) {
                     for (File oldFile : stale) {
                         oldFile.delete();

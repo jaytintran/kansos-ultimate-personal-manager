@@ -44,6 +44,11 @@ import {
   Habit,
   HabitLog,
   KansoWorkspace,
+  LanguageDailyStat,
+  LanguageDeck,
+  LanguageItem,
+  LanguageProfile,
+  LanguageSrsRating,
   LibraryCategory,
   LibraryFolder,
   LibraryViewFolder,
@@ -67,6 +72,7 @@ import { getContactDisplayName, getDeterministicAvatarColor, getNextOccurrenceIn
 import { audioDb, contactPhotoDb, libraryDb } from "../lib/db";
 import { advanceSubscriptionDueDate } from "../lib/financeUtils";
 import { compressCoverDataUrl } from "../lib/formatters";
+import { applySm2Review, createInitialSrsState } from "../lib/languageUtils";
 import { normalizeLibraryWorkspaceData } from "../lib/migrateLibrary";
 import { sanitizeNavigationSettings } from "../lib/viewNavigation";
 import {
@@ -102,6 +108,7 @@ const VIEW_PREFERENCE_STORAGE_KEYS = [
   "kanso_audio_studio_prefs_v1",
   "kanso_contacts_prefs_v1",
   "kanso_finance_prefs_v1",
+  "kanso_languages_prefs_v1",
 ] as const;
 
 const DEFAULT_GIST_CONFIG: GistSyncConfig = {
@@ -321,6 +328,7 @@ function normalizeParsedWorkspace(
     Array.isArray(parsed.financeAccounts) ||
     Array.isArray(parsed.financeTransactions) ||
     Array.isArray(parsed.financeSubscriptions);
+  const hasLanguagesField = Array.isArray(parsed.languages);
   return purgeWorkspace({
     ...empty,
     ...parsed,
@@ -407,6 +415,30 @@ function normalizeParsedWorkspace(
       ...DEFAULT_FINANCE_SETTINGS,
       ...(parsed.financeSettings || {}),
     },
+    languages: hasLanguagesField
+      ? parsed.languages!
+      : (seed.languages ?? []),
+    languageDecks: Array.isArray(parsed.languageDecks)
+      ? parsed.languageDecks
+      : hasLanguagesField
+        ? []
+        : (seed.languageDecks ?? []),
+    languageItems: Array.isArray(parsed.languageItems)
+      ? parsed.languageItems
+      : hasLanguagesField
+        ? []
+        : (seed.languageItems ?? []),
+    languageDailyStats: Array.isArray(parsed.languageDailyStats)
+      ? parsed.languageDailyStats
+      : hasLanguagesField
+        ? []
+        : (seed.languageDailyStats ?? []),
+    languageActiveId:
+      typeof parsed.languageActiveId === "string" || parsed.languageActiveId === null
+        ? parsed.languageActiveId
+        : hasLanguagesField
+          ? (parsed.languages![0]?.id ?? null)
+          : (seed.languageActiveId ?? seed.languages?.[0]?.id ?? null),
     settings: {
       ...empty.settings,
       ...parsed.settings,
@@ -760,6 +792,33 @@ interface WorkspaceContextValue {
   skipFinanceSubscriptionCycle: (id: string) => void;
   runDueFinanceSubscriptions: () => number;
   updateFinanceSettings: (patch: Partial<FinanceSettings>) => void;
+
+  // Languages (Standalone Absorption Studio)
+  setActiveLanguageId: (languageId: string | null) => void;
+  addLanguageProfile: (
+    draft: Omit<LanguageProfile, "id" | "createdAt" | "updatedAt">,
+  ) => LanguageProfile;
+  updateLanguageProfile: (id: string, patch: Partial<LanguageProfile>) => void;
+  deleteLanguageProfile: (id: string) => void;
+  addLanguageDeck: (
+    draft: Omit<LanguageDeck, "id" | "createdAt">,
+  ) => LanguageDeck;
+  updateLanguageDeck: (id: string, patch: Partial<LanguageDeck>) => void;
+  deleteLanguageDeck: (id: string) => void;
+  addLanguageItem: (
+    draft: Omit<LanguageItem, "id" | "srs" | "createdAt" | "updatedAt"> & {
+      srs?: LanguageItem["srs"];
+    },
+  ) => LanguageItem;
+  updateLanguageItem: (id: string, patch: Partial<LanguageItem>) => void;
+  deleteLanguageItem: (id: string) => void;
+  reviewLanguageItem: (id: string, rating: LanguageSrsRating) => void;
+  importLanguageItems: (
+    languageId: string,
+    drafts: Array<
+      Omit<LanguageItem, "id" | "languageId" | "srs" | "createdAt" | "updatedAt">
+    >,
+  ) => number;
 
   // Settings, Sync & Reset
   gistSyncBusy: "push" | "pull" | null;
@@ -4334,6 +4393,289 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace],
   );
 
+  // ==========================================================================
+  // Languages (Standalone Absorption Studio)
+  // ==========================================================================
+
+  const setActiveLanguageId = useCallback(
+    (languageId: string | null) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        languageActiveId: languageId,
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const addLanguageProfile = useCallback(
+    (
+      draft: Omit<LanguageProfile, "id" | "createdAt" | "updatedAt">,
+    ): LanguageProfile => {
+      const now = new Date().toISOString();
+      const profile: LanguageProfile = {
+        ...draft,
+        id: uid("lang"),
+        createdAt: now,
+        updatedAt: now,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        languages: [...(prev.languages ?? []), profile],
+        languageActiveId: profile.id,
+      }));
+      return profile;
+    },
+    [mutateWorkspace],
+  );
+
+  const updateLanguageProfile = useCallback(
+    (id: string, patch: Partial<LanguageProfile>) => {
+      const now = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        languages: (prev.languages ?? []).map((lang) =>
+          lang.id === id ? { ...lang, ...patch, updatedAt: now } : lang,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteLanguageProfile = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => {
+        const nextLanguages = (prev.languages ?? []).filter((l) => l.id !== id);
+        const nextActiveId =
+          prev.languageActiveId === id
+            ? (nextLanguages[0]?.id ?? null)
+            : prev.languageActiveId;
+        return {
+          ...prev,
+          languages: nextLanguages,
+          languageDecks: (prev.languageDecks ?? []).filter(
+            (d) => d.languageId !== id,
+          ),
+          languageItems: (prev.languageItems ?? []).filter(
+            (item) => item.languageId !== id,
+          ),
+          languageDailyStats: (prev.languageDailyStats ?? []).filter(
+            (s) => s.languageId !== id,
+          ),
+          languageActiveId: nextActiveId,
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const addLanguageDeck = useCallback(
+    (draft: Omit<LanguageDeck, "id" | "createdAt">): LanguageDeck => {
+      const deck: LanguageDeck = {
+        ...draft,
+        id: uid("ldeck"),
+        createdAt: new Date().toISOString(),
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        languageDecks: [...(prev.languageDecks ?? []), deck],
+      }));
+      return deck;
+    },
+    [mutateWorkspace],
+  );
+
+  const updateLanguageDeck = useCallback(
+    (id: string, patch: Partial<LanguageDeck>) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        languageDecks: (prev.languageDecks ?? []).map((d) =>
+          d.id === id ? { ...d, ...patch } : d,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteLanguageDeck = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        languageDecks: (prev.languageDecks ?? []).filter((d) => d.id !== id),
+        languageItems: (prev.languageItems ?? []).map((item) => ({
+          ...item,
+          deckIds: item.deckIds.filter((did) => did !== id),
+        })),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const addLanguageItem = useCallback(
+    (
+      draft: Omit<LanguageItem, "id" | "srs" | "createdAt" | "updatedAt"> & {
+        srs?: LanguageItem["srs"];
+      },
+    ): LanguageItem => {
+      const now = new Date().toISOString();
+      const todayKey = getTodayKey();
+      const item: LanguageItem = {
+        ...draft,
+        id: uid("litem"),
+        srs: draft.srs ?? createInitialSrsState(todayKey),
+        createdAt: now,
+        updatedAt: now,
+      };
+      mutateWorkspace((prev) => {
+        const stats = [...(prev.languageDailyStats ?? [])];
+        const idx = stats.findIndex(
+          (s) => s.dateKey === todayKey && s.languageId === item.languageId,
+        );
+        if (idx >= 0) {
+          stats[idx] = {
+            ...stats[idx],
+            capturedCount: stats[idx].capturedCount + 1,
+          };
+        } else {
+          stats.push({
+            dateKey: todayKey,
+            languageId: item.languageId,
+            reviewedCount: 0,
+            capturedCount: 1,
+          });
+        }
+        return {
+          ...prev,
+          languageItems: [item, ...(prev.languageItems ?? [])],
+          languageDailyStats: stats,
+        };
+      });
+      return item;
+    },
+    [mutateWorkspace],
+  );
+
+  const updateLanguageItem = useCallback(
+    (id: string, patch: Partial<LanguageItem>) => {
+      const now = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        languageItems: (prev.languageItems ?? []).map((item) =>
+          item.id === id ? { ...item, ...patch, updatedAt: now } : item,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteLanguageItem = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        languageItems: (prev.languageItems ?? []).filter(
+          (item) => item.id !== id,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const reviewLanguageItem = useCallback(
+    (id: string, rating: LanguageSrsRating) => {
+      const now = new Date().toISOString();
+      const todayKey = getTodayKey();
+      mutateWorkspace((prev) => {
+        const existing = prev.languageItems ?? [];
+        const target = existing.find((it) => it.id === id);
+        if (!target) return prev;
+
+        const nextSrs = applySm2Review(
+          target.srs ?? createInitialSrsState(todayKey),
+          rating,
+          todayKey,
+        );
+
+        const nextItems = existing.map((it) =>
+          it.id === id ? { ...it, srs: nextSrs, updatedAt: now } : it,
+        );
+
+        const stats = [...(prev.languageDailyStats ?? [])];
+        const statIdx = stats.findIndex(
+          (s) => s.dateKey === todayKey && s.languageId === target.languageId,
+        );
+        if (statIdx >= 0) {
+          stats[statIdx] = {
+            ...stats[statIdx],
+            reviewedCount: stats[statIdx].reviewedCount + 1,
+          };
+        } else {
+          stats.push({
+            dateKey: todayKey,
+            languageId: target.languageId,
+            reviewedCount: 1,
+            capturedCount: 0,
+          });
+        }
+
+        return {
+          ...prev,
+          languageItems: nextItems,
+          languageDailyStats: stats,
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const importLanguageItems = useCallback(
+    (
+      languageId: string,
+      drafts: Array<
+        Omit<
+          LanguageItem,
+          "id" | "languageId" | "srs" | "createdAt" | "updatedAt"
+        >
+      >,
+    ): number => {
+      if (drafts.length === 0) return 0;
+      const now = new Date().toISOString();
+      const todayKey = getTodayKey();
+      const additions: LanguageItem[] = drafts.map((d) => ({
+        ...d,
+        id: uid("litem"),
+        languageId,
+        srs: createInitialSrsState(todayKey),
+        createdAt: now,
+        updatedAt: now,
+      }));
+      mutateWorkspace((prev) => {
+        const stats = [...(prev.languageDailyStats ?? [])];
+        const idx = stats.findIndex(
+          (s) => s.dateKey === todayKey && s.languageId === languageId,
+        );
+        if (idx >= 0) {
+          stats[idx] = {
+            ...stats[idx],
+            capturedCount: stats[idx].capturedCount + additions.length,
+          };
+        } else {
+          stats.push({
+            dateKey: todayKey,
+            languageId,
+            reviewedCount: 0,
+            capturedCount: additions.length,
+          });
+        }
+        return {
+          ...prev,
+          languageItems: [...additions, ...(prev.languageItems ?? [])],
+          languageDailyStats: stats,
+        };
+      });
+      return additions.length;
+    },
+    [mutateWorkspace],
+  );
+
   // Settings & Workspace lifecycle
   const updateSettings = useCallback(
     (patch: Partial<WorkspaceSettings>) => {
@@ -4547,6 +4889,25 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
             ...DEFAULT_FINANCE_SETTINGS,
             ...(cleanNext.financeSettings || {}),
           },
+          languages: Array.isArray(cleanNext.languages)
+            ? cleanNext.languages
+            : [],
+          languageDecks: Array.isArray(cleanNext.languageDecks)
+            ? cleanNext.languageDecks
+            : [],
+          languageItems: Array.isArray(cleanNext.languageItems)
+            ? cleanNext.languageItems
+            : [],
+          languageDailyStats: Array.isArray(cleanNext.languageDailyStats)
+            ? cleanNext.languageDailyStats
+            : [],
+          languageActiveId:
+            typeof cleanNext.languageActiveId === "string" ||
+            cleanNext.languageActiveId === null
+              ? cleanNext.languageActiveId
+              : (Array.isArray(cleanNext.languages)
+                  ? cleanNext.languages[0]?.id ?? null
+                  : null),
           settings: {
             ...empty.settings,
             ...(cleanNext.settings || {}),
@@ -4830,6 +5191,18 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         skipFinanceSubscriptionCycle,
         runDueFinanceSubscriptions,
         updateFinanceSettings,
+        setActiveLanguageId,
+        addLanguageProfile,
+        updateLanguageProfile,
+        deleteLanguageProfile,
+        addLanguageDeck,
+        updateLanguageDeck,
+        deleteLanguageDeck,
+        addLanguageItem,
+        updateLanguageItem,
+        deleteLanguageItem,
+        reviewLanguageItem,
+        importLanguageItems,
         gistSyncBusy,
         quickPushGist,
         quickPullGist,

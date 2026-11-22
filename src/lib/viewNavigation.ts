@@ -6,6 +6,7 @@ import {
   GitCommitVertical,
   Grid2x2Check,
   Headphones,
+  Languages,
   ListTodo,
   MonitorPlay,
   Target,
@@ -98,6 +99,12 @@ export const KANSO_VIEW_REGISTRY: ViewRegistryItem[] = [
     description: "Multi-currency money & bills",
     icon: Wallet,
   },
+  {
+    id: "languages",
+    label: "Languages",
+    description: "Grammar, vocab & SRS studio",
+    icon: Languages,
+  },
 ];
 
 export const VIEW_META_MAP: Record<ViewId, ViewRegistryItem> =
@@ -112,7 +119,7 @@ export const DEFAULT_DESKTOP_VIEW_GROUPS: ViewId[][] = [
   ["focus", "timeline", "habits", "achievements"],
   ["notes", "events", "lists"],
   ["library", "streamer", "audio"],
-  ["contacts", "finance"],
+  ["contacts", "finance", "languages"],
 ];
 
 export const DEFAULT_MOBILE_PRIMARY_VIEWS: ViewId[] = [
@@ -127,6 +134,7 @@ export const DEFAULT_MOBILE_MORE_VIEWS: ViewId[] = [
   "events",
   "contacts",
   "finance",
+  "languages",
   "library",
   "streamer",
   "audio",
