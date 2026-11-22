@@ -10,6 +10,9 @@ import {
   createEmptyWorkspace,
   createSeedWorkspace,
   DEFAULT_AUDIO_STATE,
+  DEFAULT_CONTACT_CIRCLES,
+  DEFAULT_FINANCE_CATEGORIES,
+  DEFAULT_FINANCE_SETTINGS,
   DEFAULT_STREAMER_STATE,
 } from "../data/seedData";
 import {
@@ -24,11 +27,18 @@ import {
   BookHighlight,
   BookNoteLink,
   BookRecord,
+  ContactCircle,
+  ContactRecord,
   CustomFocusTab,
   Entry,
   EntrySource,
   EntryType,
   EventAttendance,
+  FinanceAccount,
+  FinanceCategory,
+  FinanceSettings,
+  FinanceSubscription,
+  FinanceTransaction,
   FocusBucket,
   GistSyncConfig,
   Habit,
@@ -53,7 +63,9 @@ import {
   WorkspaceSettings,
 } from "../types";
 import { pruneBookVoicePreferences, pruneMissingBookVoicePreferences } from "../hooks/useVoicePreferences";
-import { audioDb, libraryDb } from "../lib/db";
+import { getContactDisplayName, getDeterministicAvatarColor, getNextOccurrenceInfo } from "../lib/contactUtils";
+import { audioDb, contactPhotoDb, libraryDb } from "../lib/db";
+import { advanceSubscriptionDueDate } from "../lib/financeUtils";
 import { compressCoverDataUrl } from "../lib/formatters";
 import { normalizeLibraryWorkspaceData } from "../lib/migrateLibrary";
 import {
@@ -87,6 +99,8 @@ const VIEW_PREFERENCE_STORAGE_KEYS = [
   "kanso_library_voice_prefs_v1",
   "kanso_streamer_vault_sort_v1",
   "kanso_audio_studio_prefs_v1",
+  "kanso_contacts_prefs_v1",
+  "kanso_finance_prefs_v1",
 ] as const;
 
 const DEFAULT_GIST_CONFIG: GistSyncConfig = {
@@ -301,6 +315,11 @@ function normalizeParsedWorkspace(
         bookBookmarks: seed.bookBookmarks ?? [],
         bookHighlights: seed.bookHighlights ?? [],
       };
+  const hasContactsField = Array.isArray(parsed.contacts);
+  const hasFinanceField =
+    Array.isArray(parsed.financeAccounts) ||
+    Array.isArray(parsed.financeTransactions) ||
+    Array.isArray(parsed.financeSubscriptions);
   return purgeWorkspace({
     ...empty,
     ...parsed,
@@ -359,6 +378,34 @@ function normalizeParsedWorkspace(
         ),
       ),
     ),
+    contacts: hasContactsField
+      ? parsed.contacts!
+      : (seed.contacts ?? []),
+    contactCircles: Array.isArray(parsed.contactCircles)
+      ? parsed.contactCircles
+      : DEFAULT_CONTACT_CIRCLES.map((c) => ({ ...c })),
+    financeAccounts: Array.isArray(parsed.financeAccounts)
+      ? parsed.financeAccounts
+      : hasFinanceField
+        ? []
+        : (seed.financeAccounts ?? []),
+    financeCategories: Array.isArray(parsed.financeCategories)
+      ? parsed.financeCategories
+      : DEFAULT_FINANCE_CATEGORIES.map((c) => ({ ...c })),
+    financeTransactions: Array.isArray(parsed.financeTransactions)
+      ? parsed.financeTransactions
+      : hasFinanceField
+        ? []
+        : (seed.financeTransactions ?? []),
+    financeSubscriptions: Array.isArray(parsed.financeSubscriptions)
+      ? parsed.financeSubscriptions
+      : hasFinanceField
+        ? []
+        : (seed.financeSubscriptions ?? []),
+    financeSettings: {
+      ...DEFAULT_FINANCE_SETTINGS,
+      ...(parsed.financeSettings || {}),
+    },
     settings: {
       ...empty.settings,
       ...parsed.settings,
@@ -667,6 +714,50 @@ interface WorkspaceContextValue {
   deleteAudioMixPreset: (presetId: string) => void;
   recordAudioPlay: (trackId: string) => void;
   setAudioEqPreset: (eqPreset: AudioEqPreset) => void;
+
+  // Contacts CRM
+  addContact: (draft?: Partial<ContactRecord>) => ContactRecord;
+  updateContact: (id: string, patch: Partial<ContactRecord>) => void;
+  deleteContact: (id: string) => void;
+  importContacts: (incoming: Partial<ContactRecord>[]) => number;
+  addContactCircle: (name: string, color: string, description?: string) => ContactCircle;
+  updateContactCircle: (id: string, patch: Partial<ContactCircle>) => void;
+  deleteContactCircle: (id: string) => void;
+
+  // Personal Finance (Strictly Standalone)
+  addFinanceAccount: (
+    draft: Omit<FinanceAccount, "id" | "createdAt" | "updatedAt">,
+  ) => FinanceAccount;
+  updateFinanceAccount: (id: string, patch: Partial<FinanceAccount>) => void;
+  deleteFinanceAccount: (id: string) => void;
+  addFinanceCategory: (
+    draft: Omit<FinanceCategory, "id" | "createdAt" | "updatedAt">,
+  ) => FinanceCategory;
+  updateFinanceCategory: (id: string, patch: Partial<FinanceCategory>) => void;
+  deleteFinanceCategory: (id: string) => void;
+  addFinanceTransaction: (
+    draft: Omit<FinanceTransaction, "id" | "createdAt" | "updatedAt">,
+  ) => FinanceTransaction;
+  updateFinanceTransaction: (
+    id: string,
+    patch: Partial<FinanceTransaction>,
+  ) => void;
+  deleteFinanceTransaction: (id: string) => void;
+  importFinanceTransactions: (
+    drafts: Omit<FinanceTransaction, "id" | "createdAt" | "updatedAt">[],
+  ) => number;
+  addFinanceSubscription: (
+    draft: Omit<FinanceSubscription, "id" | "createdAt" | "updatedAt">,
+  ) => FinanceSubscription;
+  updateFinanceSubscription: (
+    id: string,
+    patch: Partial<FinanceSubscription>,
+  ) => void;
+  deleteFinanceSubscription: (id: string) => void;
+  logFinanceSubscriptionNow: (id: string, dateKey?: string) => void;
+  skipFinanceSubscriptionCycle: (id: string) => void;
+  runDueFinanceSubscriptions: () => number;
+  updateFinanceSettings: (patch: Partial<FinanceSettings>) => void;
 
   // Settings, Sync & Reset
   gistSyncBusy: "push" | "pull" | null;
@@ -3616,6 +3707,631 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace],
   );
 
+  // =========================================================================
+  // Contacts CRM & Birthday Timeline Sync
+  // =========================================================================
+
+  const applyBirthdayEntrySync = (
+    entries: Entry[],
+    contact: ContactRecord,
+  ): Entry[] => {
+    const linkedId = `bday-${contact.id}`;
+    const filtered = entries.filter((e) => e.id !== linkedId);
+    if (!contact.syncBirthdayToTimeline || !contact.birthday) {
+      return filtered;
+    }
+    const info = getNextOccurrenceInfo(contact.birthday);
+    if (!info) return filtered;
+    const displayName = getContactDisplayName(contact);
+    const existing = entries.find((e) => e.id === linkedId);
+    const ageText =
+      info.turningAge !== null ? ` (Turns ${info.turningAge})` : "";
+    const nowIso = new Date().toISOString();
+    const syncedEntry: Entry = {
+      id: linkedId,
+      type: "event",
+      title: `${displayName}'s Birthday${ageText}`,
+      content: `<p>Synced from Contacts (${displayName}).</p>`,
+      createdAt: existing?.createdAt || nowIso,
+      updatedAt: nowIso,
+      scheduledAt: buildDateAtTime(info.nextDateKey, 9, 0),
+      completedAt: null,
+      endAt: buildDateAtTime(info.nextDateKey, 10, 0),
+      completed: false,
+      focusBucket: null,
+      source: "timeline",
+      eventCategory: "personal",
+      attendance: existing?.attendance ?? null,
+      tags: ["birthday", "contacts"],
+      sourceEntryId: contact.id,
+    };
+    return [syncedEntry, ...filtered];
+  };
+
+  const addContact = useCallback(
+    (draft: Partial<ContactRecord> = {}): ContactRecord => {
+      const id = draft.id || uid("cnt");
+      const nowIso = new Date().toISOString();
+      const firstName = draft.firstName ?? "";
+      const lastName = draft.lastName ?? "";
+      const seedName = `${firstName} ${lastName} ${draft.company || ""} ${id}`.trim();
+      const created: ContactRecord = {
+        id,
+        firstName,
+        lastName,
+        nickname: draft.nickname,
+        company: draft.company,
+        jobTitle: draft.jobTitle,
+        circleIds: Array.isArray(draft.circleIds) ? draft.circleIds : [],
+        closeness: draft.closeness ?? "regular",
+        tags: Array.isArray(draft.tags) ? draft.tags : [],
+        favorite: Boolean(draft.favorite),
+        phones: Array.isArray(draft.phones) ? draft.phones : [],
+        emails: Array.isArray(draft.emails) ? draft.emails : [],
+        socialHandles: Array.isArray(draft.socialHandles) ? draft.socialHandles : [],
+        addresses: Array.isArray(draft.addresses) ? draft.addresses : [],
+        customFields: Array.isArray(draft.customFields) ? draft.customFields : [],
+        relationships: Array.isArray(draft.relationships) ? draft.relationships : [],
+        birthday: draft.birthday ?? null,
+        anniversary: draft.anniversary ?? null,
+        syncBirthdayToTimeline: Boolean(draft.syncBirthdayToTimeline),
+        lastContactedAt: draft.lastContactedAt ?? null,
+        bioHtml: draft.bioHtml ?? "",
+        avatarColor: draft.avatarColor || getDeterministicAvatarColor(seedName),
+        hasLocalPhoto: Boolean(draft.hasLocalPhoto),
+        createdAt: draft.createdAt || nowIso,
+        updatedAt: nowIso,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        contacts: [created, ...(prev.contacts ?? [])],
+        entries: applyBirthdayEntrySync(prev.entries, created),
+      }));
+      return created;
+    },
+    [mutateWorkspace],
+  );
+
+  const updateContact = useCallback(
+    (id: string, patch: Partial<ContactRecord>) => {
+      mutateWorkspace((prev) => {
+        let updatedRecord: ContactRecord | null = null;
+        const nextContacts = (prev.contacts ?? []).map((c) => {
+          if (c.id !== id) return c;
+          updatedRecord = {
+            ...c,
+            ...patch,
+            updatedAt: new Date().toISOString(),
+          };
+          return updatedRecord;
+        });
+        const nextEntries = updatedRecord
+          ? applyBirthdayEntrySync(prev.entries, updatedRecord)
+          : prev.entries;
+        return {
+          ...prev,
+          contacts: nextContacts,
+          entries: nextEntries,
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteContact = useCallback(
+    (id: string) => {
+      void contactPhotoDb.deletePhoto(id);
+      mutateWorkspace((prev) => ({
+        ...prev,
+        contacts: (prev.contacts ?? [])
+          .filter((c) => c.id !== id)
+          .map((c) => ({
+            ...c,
+            relationships: c.relationships.filter((r) => r.targetContactId !== id),
+          })),
+        entries: prev.entries.filter((e) => e.id !== `bday-${id}`),
+      }));
+      pushToast("Contact deleted");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const importContacts = useCallback(
+    (incoming: Partial<ContactRecord>[]): number => {
+      if (incoming.length === 0) return 0;
+      const nowIso = new Date().toISOString();
+      let addedCount = 0;
+      mutateWorkspace((prev) => {
+        const existing = prev.contacts ?? [];
+        const existingKeys = new Set(
+          existing.map((c) =>
+            `${getContactDisplayName(c).toLowerCase()}|${c.emails[0]?.value?.toLowerCase() || ""}|${c.phones[0]?.value || ""}`,
+          ),
+        );
+        const additions: ContactRecord[] = [];
+        for (const item of incoming) {
+          const id = uid("cnt");
+          const candidate: ContactRecord = {
+            id,
+            firstName: item.firstName ?? "",
+            lastName: item.lastName ?? "",
+            nickname: item.nickname,
+            company: item.company,
+            jobTitle: item.jobTitle,
+            circleIds: Array.isArray(item.circleIds) ? item.circleIds : [],
+            closeness: item.closeness ?? "regular",
+            tags: Array.isArray(item.tags) ? item.tags : [],
+            favorite: Boolean(item.favorite),
+            phones: Array.isArray(item.phones) ? item.phones : [],
+            emails: Array.isArray(item.emails) ? item.emails : [],
+            socialHandles: Array.isArray(item.socialHandles) ? item.socialHandles : [],
+            addresses: Array.isArray(item.addresses) ? item.addresses : [],
+            customFields: Array.isArray(item.customFields) ? item.customFields : [],
+            relationships: Array.isArray(item.relationships) ? item.relationships : [],
+            birthday: item.birthday ?? null,
+            anniversary: item.anniversary ?? null,
+            syncBirthdayToTimeline: false,
+            lastContactedAt: item.lastContactedAt ?? null,
+            bioHtml: item.bioHtml ?? "",
+            avatarColor:
+              item.avatarColor ||
+              getDeterministicAvatarColor(
+                `${item.firstName || ""} ${item.lastName || ""} ${id}`,
+              ),
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          };
+          const dedupKey = `${getContactDisplayName(candidate).toLowerCase()}|${candidate.emails[0]?.value?.toLowerCase() || ""}|${candidate.phones[0]?.value || ""}`;
+          if (!existingKeys.has(dedupKey)) {
+            existingKeys.add(dedupKey);
+            additions.push(candidate);
+          }
+        }
+        addedCount = additions.length;
+        return {
+          ...prev,
+          contacts: [...additions, ...existing],
+        };
+      });
+      return addedCount;
+    },
+    [mutateWorkspace],
+  );
+
+  const addContactCircle = useCallback(
+    (name: string, color: string, description?: string): ContactCircle => {
+      const nowIso = new Date().toISOString();
+      const circle: ContactCircle = {
+        id: uid("cir"),
+        name: name.trim() || "Circle",
+        color,
+        description,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        contactCircles: [...(prev.contactCircles ?? []), circle],
+      }));
+      return circle;
+    },
+    [mutateWorkspace],
+  );
+
+  const updateContactCircle = useCallback(
+    (id: string, patch: Partial<ContactCircle>) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        contactCircles: (prev.contactCircles ?? []).map((c) =>
+          c.id === id
+            ? { ...c, ...patch, updatedAt: new Date().toISOString() }
+            : c,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteContactCircle = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        contactCircles: (prev.contactCircles ?? []).filter((c) => c.id !== id),
+        contacts: (prev.contacts ?? []).map((c) => ({
+          ...c,
+          circleIds: c.circleIds.filter((cid) => cid !== id),
+        })),
+      }));
+      pushToast("Circle removed");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  // =========================================================================
+  // Personal Finance Tracker (Strictly Standalone)
+  // =========================================================================
+
+  const addFinanceAccount = useCallback(
+    (
+      draft: Omit<FinanceAccount, "id" | "createdAt" | "updatedAt">,
+    ): FinanceAccount => {
+      const nowIso = new Date().toISOString();
+      const account: FinanceAccount = {
+        ...draft,
+        id: uid("facc"),
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeAccounts: [...(prev.financeAccounts ?? []), account],
+      }));
+      return account;
+    },
+    [mutateWorkspace],
+  );
+
+  const updateFinanceAccount = useCallback(
+    (id: string, patch: Partial<FinanceAccount>) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeAccounts: (prev.financeAccounts ?? []).map((a) =>
+          a.id === id
+            ? { ...a, ...patch, updatedAt: new Date().toISOString() }
+            : a,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteFinanceAccount = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeAccounts: (prev.financeAccounts ?? []).filter((a) => a.id !== id),
+        financeTransactions: (prev.financeTransactions ?? []).filter(
+          (tx) => tx.accountId !== id && tx.toAccountId !== id,
+        ),
+        financeSubscriptions: (prev.financeSubscriptions ?? []).filter(
+          (s) => s.accountId !== id,
+        ),
+      }));
+      pushToast("Account deleted");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const addFinanceCategory = useCallback(
+    (
+      draft: Omit<FinanceCategory, "id" | "createdAt" | "updatedAt">,
+    ): FinanceCategory => {
+      const nowIso = new Date().toISOString();
+      const cat: FinanceCategory = {
+        ...draft,
+        id: uid("fcat"),
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeCategories: [...(prev.financeCategories ?? []), cat],
+      }));
+      return cat;
+    },
+    [mutateWorkspace],
+  );
+
+  const updateFinanceCategory = useCallback(
+    (id: string, patch: Partial<FinanceCategory>) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeCategories: (prev.financeCategories ?? []).map((c) =>
+          c.id === id
+            ? { ...c, ...patch, updatedAt: new Date().toISOString() }
+            : c,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteFinanceCategory = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeCategories: (prev.financeCategories ?? []).filter(
+          (c) => c.id !== id,
+        ),
+        financeTransactions: (prev.financeTransactions ?? []).map((tx) =>
+          tx.categoryId === id ? { ...tx, categoryId: null } : tx,
+        ),
+      }));
+      pushToast("Category deleted");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const addFinanceTransaction = useCallback(
+    (
+      draft: Omit<FinanceTransaction, "id" | "createdAt" | "updatedAt">,
+    ): FinanceTransaction => {
+      const nowIso = new Date().toISOString();
+      const tx: FinanceTransaction = {
+        ...draft,
+        id: uid("ftx"),
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeTransactions: [tx, ...(prev.financeTransactions ?? [])],
+      }));
+      return tx;
+    },
+    [mutateWorkspace],
+  );
+
+  const updateFinanceTransaction = useCallback(
+    (id: string, patch: Partial<FinanceTransaction>) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeTransactions: (prev.financeTransactions ?? []).map((tx) =>
+          tx.id === id
+            ? { ...tx, ...patch, updatedAt: new Date().toISOString() }
+            : tx,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteFinanceTransaction = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeTransactions: (prev.financeTransactions ?? []).filter(
+          (tx) => tx.id !== id,
+        ),
+      }));
+      pushToast("Transaction deleted");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const importFinanceTransactions = useCallback(
+    (
+      drafts: Omit<FinanceTransaction, "id" | "createdAt" | "updatedAt">[],
+    ): number => {
+      if (drafts.length === 0) return 0;
+      const nowIso = new Date().toISOString();
+      let inserted = 0;
+      mutateWorkspace((prev) => {
+        const existing = prev.financeTransactions ?? [];
+        const sigs = new Set(
+          existing.map(
+            (tx) =>
+              `${tx.dateKey}|${tx.type}|${tx.amount}|${tx.currency}|${tx.accountId}|${(tx.merchant || "").toLowerCase()}`,
+          ),
+        );
+        const additions: FinanceTransaction[] = [];
+        for (const d of drafts) {
+          const sig = `${d.dateKey}|${d.type}|${d.amount}|${d.currency}|${d.accountId}|${(d.merchant || "").toLowerCase()}`;
+          if (!sigs.has(sig)) {
+            sigs.add(sig);
+            additions.push({
+              ...d,
+              id: uid("ftx"),
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            });
+          }
+        }
+        inserted = additions.length;
+        return {
+          ...prev,
+          financeTransactions: [...additions, ...existing],
+        };
+      });
+      return inserted;
+    },
+    [mutateWorkspace],
+  );
+
+  const addFinanceSubscription = useCallback(
+    (
+      draft: Omit<FinanceSubscription, "id" | "createdAt" | "updatedAt">,
+    ): FinanceSubscription => {
+      const nowIso = new Date().toISOString();
+      const sub: FinanceSubscription = {
+        ...draft,
+        id: uid("fsub"),
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeSubscriptions: [sub, ...(prev.financeSubscriptions ?? [])],
+      }));
+      return sub;
+    },
+    [mutateWorkspace],
+  );
+
+  const updateFinanceSubscription = useCallback(
+    (id: string, patch: Partial<FinanceSubscription>) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeSubscriptions: (prev.financeSubscriptions ?? []).map((s) =>
+          s.id === id
+            ? { ...s, ...patch, updatedAt: new Date().toISOString() }
+            : s,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteFinanceSubscription = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeSubscriptions: (prev.financeSubscriptions ?? []).filter(
+          (s) => s.id !== id,
+        ),
+      }));
+      pushToast("Subscription removed");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const logFinanceSubscriptionNow = useCallback(
+    (id: string, dateKey?: string) => {
+      const nowIso = new Date().toISOString();
+      const effectiveDate = dateKey || getTodayKey();
+      let loggedName = "";
+      mutateWorkspace((prev) => {
+        const sub = (prev.financeSubscriptions ?? []).find((s) => s.id === id);
+        if (!sub) return prev;
+        loggedName = sub.name;
+        const tx: FinanceTransaction = {
+          id: uid("ftx"),
+          type: "expense",
+          amount: sub.amount,
+          currency: sub.currency,
+          accountId: sub.accountId,
+          categoryId: sub.categoryId,
+          merchant: sub.name,
+          note: `Subscription renewal (${sub.billingCycle})`,
+          dateKey: effectiveDate,
+          timeHHMM: "09:00",
+          subscriptionId: sub.id,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        };
+        const nextDue = advanceSubscriptionDueDate(
+          sub.nextDueDate <= effectiveDate ? sub.nextDueDate : effectiveDate,
+          sub.billingCycle,
+        );
+        return {
+          ...prev,
+          financeTransactions: [tx, ...(prev.financeTransactions ?? [])],
+          financeSubscriptions: (prev.financeSubscriptions ?? []).map((s) =>
+            s.id === id
+              ? {
+                  ...s,
+                  lastLoggedDate: effectiveDate,
+                  nextDueDate: nextDue > effectiveDate ? nextDue : advanceSubscriptionDueDate(effectiveDate, sub.billingCycle),
+                  updatedAt: nowIso,
+                }
+              : s,
+          ),
+        };
+      });
+      if (loggedName) pushToast(`Logged "${loggedName}" renewal`, "success");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const skipFinanceSubscriptionCycle = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeSubscriptions: (prev.financeSubscriptions ?? []).map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                nextDueDate: advanceSubscriptionDueDate(
+                  s.nextDueDate,
+                  s.billingCycle,
+                ),
+                updatedAt: new Date().toISOString(),
+              }
+            : s,
+        ),
+      }));
+      pushToast("Skipped to next billing cycle");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const runDueFinanceSubscriptions = useCallback((): number => {
+    const today = getTodayKey();
+    const nowIso = new Date().toISOString();
+    let count = 0;
+    mutateWorkspace((prev) => {
+      const subs = prev.financeSubscriptions ?? [];
+      const existingTxs = prev.financeTransactions ?? [];
+      const newTxs: FinanceTransaction[] = [];
+      let changed = false;
+
+      const updatedSubs = subs.map((sub) => {
+        if (!sub.active || !sub.autoLog || sub.nextDueDate > today) {
+          return sub;
+        }
+        let cursorDue = sub.nextDueDate;
+        let guard = 0;
+        let lastLogged = sub.lastLoggedDate ?? null;
+        while (cursorDue <= today && guard < 12) {
+          guard++;
+          const alreadyLogged = existingTxs.some(
+            (tx) => tx.subscriptionId === sub.id && tx.dateKey === cursorDue,
+          ) || newTxs.some((tx) => tx.subscriptionId === sub.id && tx.dateKey === cursorDue);
+          if (!alreadyLogged) {
+            newTxs.push({
+              id: uid("ftx"),
+              type: "expense",
+              amount: sub.amount,
+              currency: sub.currency,
+              accountId: sub.accountId,
+              categoryId: sub.categoryId,
+              merchant: sub.name,
+              note: `Auto-logged subscription (${sub.billingCycle})`,
+              dateKey: cursorDue,
+              timeHHMM: "09:00",
+              subscriptionId: sub.id,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            });
+            count++;
+            lastLogged = cursorDue;
+          }
+          cursorDue = advanceSubscriptionDueDate(cursorDue, sub.billingCycle);
+          changed = true;
+        }
+        return changed
+          ? {
+              ...sub,
+              nextDueDate: cursorDue,
+              lastLoggedDate: lastLogged,
+              updatedAt: nowIso,
+            }
+          : sub;
+      });
+
+      if (!changed && newTxs.length === 0) return prev;
+      return {
+        ...prev,
+        financeTransactions: [...newTxs, ...existingTxs],
+        financeSubscriptions: updatedSubs,
+      };
+    });
+    return count;
+  }, [mutateWorkspace]);
+
+  const updateFinanceSettings = useCallback(
+    (patch: Partial<FinanceSettings>) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        financeSettings: {
+          ...(prev.financeSettings ?? DEFAULT_FINANCE_SETTINGS),
+          ...patch,
+        },
+      }));
+    },
+    [mutateWorkspace],
+  );
+
   // Settings & Workspace lifecycle
   const updateSettings = useCallback(
     (patch: Partial<WorkspaceSettings>) => {
@@ -3795,6 +4511,26 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
             ? cleanNext.streamPresets
             : [],
           streamerState: preservedStreamerState,
+          contacts: Array.isArray(cleanNext.contacts) ? cleanNext.contacts : [],
+          contactCircles: Array.isArray(cleanNext.contactCircles)
+            ? cleanNext.contactCircles
+            : DEFAULT_CONTACT_CIRCLES.map((c) => ({ ...c })),
+          financeAccounts: Array.isArray(cleanNext.financeAccounts)
+            ? cleanNext.financeAccounts
+            : [],
+          financeCategories: Array.isArray(cleanNext.financeCategories)
+            ? cleanNext.financeCategories
+            : DEFAULT_FINANCE_CATEGORIES.map((c) => ({ ...c })),
+          financeTransactions: Array.isArray(cleanNext.financeTransactions)
+            ? cleanNext.financeTransactions
+            : [],
+          financeSubscriptions: Array.isArray(cleanNext.financeSubscriptions)
+            ? cleanNext.financeSubscriptions
+            : [],
+          financeSettings: {
+            ...DEFAULT_FINANCE_SETTINGS,
+            ...(cleanNext.financeSettings || {}),
+          },
           settings: {
             ...empty.settings,
             ...(cleanNext.settings || {}),
@@ -4051,6 +4787,30 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         deleteAudioMixPreset,
         recordAudioPlay,
         setAudioEqPreset,
+        addContact,
+        updateContact,
+        deleteContact,
+        importContacts,
+        addContactCircle,
+        updateContactCircle,
+        deleteContactCircle,
+        addFinanceAccount,
+        updateFinanceAccount,
+        deleteFinanceAccount,
+        addFinanceCategory,
+        updateFinanceCategory,
+        deleteFinanceCategory,
+        addFinanceTransaction,
+        updateFinanceTransaction,
+        deleteFinanceTransaction,
+        importFinanceTransactions,
+        addFinanceSubscription,
+        updateFinanceSubscription,
+        deleteFinanceSubscription,
+        logFinanceSubscriptionNow,
+        skipFinanceSubscriptionCycle,
+        runDueFinanceSubscriptions,
+        updateFinanceSettings,
         gistSyncBusy,
         quickPushGist,
         quickPullGist,

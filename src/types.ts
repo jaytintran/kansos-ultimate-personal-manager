@@ -8,7 +8,9 @@ export type ViewId =
   | "lists"
   | "library"
   | "streamer"
-  | "audio";
+  | "audio"
+  | "contacts"
+  | "finance";
 
 export type ThemeId = "paper" | "neon" | "cyberpunk" | "nordic" | "emerald";
 export type ColorMode = "light" | "dark";
@@ -382,6 +384,53 @@ export interface GistSyncConfig {
   lastDirection: "push" | "pull" | "full" | null;
 }
 
+// ==========================================================================
+// Contacts (Personal CRM) & Finance (Standalone Personal Financial Tracker)
+// ==========================================================================
+
+import type {
+  ContactAddress,
+  ContactCircle,
+  ContactClosenessTier,
+  ContactCustomField,
+  ContactLabeledValue,
+  ContactRecord,
+  ContactRelationshipLink,
+} from "./types/contacts";
+
+import type {
+  FinanceAccount,
+  FinanceAccountType,
+  FinanceBillingCycle,
+  FinanceCategory,
+  FinanceCategoryKind,
+  FinanceCurrency,
+  FinanceSettings,
+  FinanceSubscription,
+  FinanceTransaction,
+  FinanceTransactionType,
+} from "./types/finance";
+
+export type {
+  ContactAddress,
+  ContactCircle,
+  ContactClosenessTier,
+  ContactCustomField,
+  ContactLabeledValue,
+  ContactRecord,
+  ContactRelationshipLink,
+  FinanceAccount,
+  FinanceAccountType,
+  FinanceBillingCycle,
+  FinanceCategory,
+  FinanceCategoryKind,
+  FinanceCurrency,
+  FinanceSettings,
+  FinanceSubscription,
+  FinanceTransaction,
+  FinanceTransactionType,
+};
+
 export interface KansoWorkspace {
   version: number;
   updatedAt: string;
@@ -408,6 +457,13 @@ export interface KansoWorkspace {
   audioPlaylists?: AudioPlaylistRecord[];
   audioMixPresets?: AudioMixPreset[];
   audioState?: AudioStudioState;
+  contacts?: ContactRecord[];
+  contactCircles?: ContactCircle[];
+  financeAccounts?: FinanceAccount[];
+  financeCategories?: FinanceCategory[];
+  financeTransactions?: FinanceTransaction[];
+  financeSubscriptions?: FinanceSubscription[];
+  financeSettings?: FinanceSettings;
   settings: WorkspaceSettings;
   viewPreferences?: Record<string, string>;
 }

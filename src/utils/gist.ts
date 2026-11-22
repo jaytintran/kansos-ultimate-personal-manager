@@ -27,6 +27,8 @@ export interface GistPullPreview {
     books: number;
     audioTracks: number;
     streams: number;
+    contacts: number;
+    financeTransactions: number;
   };
 }
 
@@ -243,6 +245,10 @@ export async function pullWorkspaceFromGist(
       books: 0,
       audioTracks: 0,
       streams: Array.isArray(parsed.streams) ? parsed.streams.length : 0,
+      contacts: Array.isArray(parsed.contacts) ? parsed.contacts.length : 0,
+      financeTransactions: Array.isArray(parsed.financeTransactions)
+        ? parsed.financeTransactions.length
+        : 0,
     },
   };
 }

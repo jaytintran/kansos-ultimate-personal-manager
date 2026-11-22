@@ -26,8 +26,10 @@ import {
   Sun,
   Target,
   Trophy,
+  Users,
   Volume2,
   VolumeX,
+  Wallet,
   X,
 } from "lucide-react";
 import { DetailSheet } from "./components/DetailSheet";
@@ -60,7 +62,9 @@ import {
   AudioPlaybackSummary,
   AudioView,
 } from "./views/AudioView";
+import { ContactsView } from "./views/ContactsView";
 import { EventsView } from "./views/EventsView";
+import { FinanceView } from "./views/FinanceView";
 import { FocusView } from "./views/FocusView";
 import { HabitsView } from "./views/HabitsView";
 import { LibraryView } from "./views/LibraryView";
@@ -150,6 +154,20 @@ const DESKTOP_NAV_GROUPS: NavItemDef[][] = [
       icon: Headphones,
     },
   ],
+  [
+    {
+      id: "contacts",
+      label: "Contacts",
+      description: "Personal CRM & relationships",
+      icon: Users,
+    },
+    {
+      id: "finance",
+      label: "Finance",
+      description: "Multi-currency money & bills",
+      icon: Wallet,
+    },
+  ],
 ];
 
 const ALL_NAV_ITEMS: NavItemDef[] = DESKTOP_NAV_GROUPS.flat();
@@ -158,6 +176,8 @@ const MOBILE_PRIMARY_IDS: ViewId[] = ["focus", "timeline", "habits", "notes"];
 const MOBILE_MORE_IDS: ViewId[] = [
   "lists",
   "events",
+  "contacts",
+  "finance",
   "library",
   "streamer",
   "audio",
@@ -522,6 +542,8 @@ const KansoShell: React.FC = () => {
     const libraryCount = workspace.books.length;
     const streamerCount = workspace.streamerState.activeStreamIds.length;
     const audioCount = (workspace.audioTracks ?? []).length;
+    const contactsCount = (workspace.contacts ?? []).length;
+    const financeCount = (workspace.financeTransactions ?? []).length;
 
     return {
       focus: activeFocus,
@@ -534,6 +556,8 @@ const KansoShell: React.FC = () => {
       library: libraryCount,
       streamer: streamerCount,
       audio: audioCount,
+      contacts: contactsCount,
+      finance: financeCount,
     };
   }, [
     workspace.entries,
@@ -543,6 +567,8 @@ const KansoShell: React.FC = () => {
     workspace.books.length,
     workspace.streamerState.activeStreamIds.length,
     workspace.audioTracks,
+    workspace.contacts,
+    workspace.financeTransactions,
     todayKey,
   ]);
 
@@ -607,7 +633,9 @@ const KansoShell: React.FC = () => {
     activeView === "library" ||
     activeView === "lists" ||
     activeView === "timeline" ||
-    activeView === "achievements";
+    activeView === "achievements" ||
+    activeView === "contacts" ||
+    activeView === "finance";
 
   return (
     <div
@@ -1431,6 +1459,8 @@ const KansoShell: React.FC = () => {
             onOpenContextMenu={handleOpenContextMenu}
           />
         )}
+        {activeView === "contacts" && <ContactsView />}
+        {activeView === "finance" && <FinanceView />}
         {hasVisitedLibrary && (
           <div
             className={

@@ -3,8 +3,15 @@ import {
   BookBookmark,
   BookHighlight,
   BookRecord,
+  ContactCircle,
+  ContactRecord,
   CustomFocusTab,
   Entry,
+  FinanceAccount,
+  FinanceCategory,
+  FinanceSettings,
+  FinanceSubscription,
+  FinanceTransaction,
   Habit,
   HabitLog,
   KansoWorkspace,
@@ -19,7 +26,7 @@ import {
   StreamPreset,
   StreamerState,
 } from '../types';
-import { addDaysToKey, buildDateAtTime, getTodayKey } from '../utils/date';
+import { addDaysToKey, buildDateAtTime, getTodayKey, pad2, parseLocalDateKey } from '../utils/date';
 
 export const DEFAULT_AUDIO_STATE: AudioStudioState = {
   activeSlots: [],
@@ -45,6 +52,55 @@ export const DEFAULT_STREAMER_STATE: StreamerState = {
   customCols: 2,
   spotlightStreamId: null,
   activePresetId: null,
+};
+
+export const DEFAULT_CONTACT_CIRCLES: ContactCircle[] = [
+  {
+    id: 'cir-family',
+    name: 'Family',
+    color: '#be185d',
+    description: 'Immediate & extended family',
+    createdAt: '2025-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'cir-friends',
+    name: 'Close Friends',
+    color: '#b45309',
+    description: 'Trusted personal friends',
+    createdAt: '2025-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'cir-work',
+    name: 'Work & Collaborators',
+    color: '#3b6998',
+    description: 'Teammates, mentors & peers',
+    createdAt: '2025-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'cir-community',
+    name: 'Community',
+    color: '#047857',
+    description: 'Neighbors, studio & local network',
+    createdAt: '2025-01-01T00:00:00.000Z',
+  },
+];
+
+export const DEFAULT_FINANCE_CATEGORIES: FinanceCategory[] = [
+  { id: 'fcat-food', name: 'Food & Dining', kind: 'expense', icon: 'Utensils', color: '#b45309', createdAt: '2025-01-01T00:00:00.000Z' },
+  { id: 'fcat-groceries', name: 'Groceries', kind: 'expense', icon: 'ShoppingBag', color: '#047857', createdAt: '2025-01-01T00:00:00.000Z' },
+  { id: 'fcat-transport', name: 'Transport', kind: 'expense', icon: 'Car', color: '#3b6998', createdAt: '2025-01-01T00:00:00.000Z' },
+  { id: 'fcat-housing', name: 'Housing & Utilities', kind: 'expense', icon: 'Home', color: '#4f46e5', createdAt: '2025-01-01T00:00:00.000Z' },
+  { id: 'fcat-subs', name: 'Subscriptions', kind: 'expense', icon: 'Repeat', color: '#be185d', createdAt: '2025-01-01T00:00:00.000Z' },
+  { id: 'fcat-health', name: 'Health & Fitness', kind: 'expense', icon: 'HeartPulse', color: '#0f766e', createdAt: '2025-01-01T00:00:00.000Z' },
+  { id: 'fcat-leisure', name: 'Leisure & Craft', kind: 'expense', icon: 'Sparkles', color: '#7c3aed', createdAt: '2025-01-01T00:00:00.000Z' },
+  { id: 'fcat-salary', name: 'Salary', kind: 'income', icon: 'Briefcase', color: '#047857', createdAt: '2025-01-01T00:00:00.000Z' },
+  { id: 'fcat-freelance', name: 'Freelance', kind: 'income', icon: 'Laptop', color: '#3b6998', createdAt: '2025-01-01T00:00:00.000Z' },
+  { id: 'fcat-returns', name: 'Interest & Refunds', kind: 'income', icon: 'TrendingUp', color: '#b45309', createdAt: '2025-01-01T00:00:00.000Z' },
+];
+
+export const DEFAULT_FINANCE_SETTINGS: FinanceSettings = {
+  activeCurrency: 'USD',
+  autoLogSubscriptionsOnLoad: true,
 };
 
 export function createEmptyWorkspace(): KansoWorkspace {
@@ -74,6 +130,13 @@ export function createEmptyWorkspace(): KansoWorkspace {
     audioPlaylists: [],
     audioMixPresets: [],
     audioState: { ...DEFAULT_AUDIO_STATE },
+    contacts: [],
+    contactCircles: DEFAULT_CONTACT_CIRCLES.map((c) => ({ ...c })),
+    financeAccounts: [],
+    financeCategories: DEFAULT_FINANCE_CATEGORIES.map((c) => ({ ...c })),
+    financeTransactions: [],
+    financeSubscriptions: [],
+    financeSettings: { ...DEFAULT_FINANCE_SETTINGS },
     settings: {
       theme: 'paper',
       colorMode: 'light',
@@ -1288,6 +1351,7 @@ export function createSeedWorkspace(): KansoWorkspace {
     audioPlaylists: [],
     audioMixPresets: [],
     audioState: { ...DEFAULT_AUDIO_STATE },
+    ...buildSeedContactsAndFinance(today, yesterday, tomorrow),
     settings: {
       theme: 'paper',
       colorMode: 'light',
@@ -1300,5 +1364,459 @@ export function createSeedWorkspace(): KansoWorkspace {
         lineHeight: 1.7,
       },
     },
+  };
+}
+
+function buildSeedContactsAndFinance(
+  today: string,
+  yesterday: string,
+  tomorrow: string,
+): {
+  contacts: ContactRecord[];
+  contactCircles: ContactCircle[];
+  financeAccounts: FinanceAccount[];
+  financeCategories: FinanceCategory[];
+  financeTransactions: FinanceTransaction[];
+  financeSubscriptions: FinanceSubscription[];
+  financeSettings: FinanceSettings;
+} {
+  const inFiveDays = parseLocalDateKey(addDaysToKey(today, 5));
+  const inTwelveDays = parseLocalDateKey(addDaysToKey(today, 12));
+  const bdaySoon = `1994-${pad2(inFiveDays.getMonth() + 1)}-${pad2(inFiveDays.getDate())}`;
+  const bdayLater = `1991-${pad2(inTwelveDays.getMonth() + 1)}-${pad2(inTwelveDays.getDate())}`;
+
+  const contactCircles = DEFAULT_CONTACT_CIRCLES.map((c) => ({ ...c }));
+  const contacts: ContactRecord[] = [
+    {
+      id: 'cnt-elena',
+      firstName: 'Elena',
+      lastName: 'Vance',
+      nickname: 'El',
+      company: 'Atelier North',
+      jobTitle: 'Staff Product Designer',
+      circleIds: ['cir-work', 'cir-friends'],
+      closeness: 'inner',
+      tags: ['design', 'mentor', 'coffee'],
+      favorite: true,
+      phones: [
+        { id: 'ph-el-1', label: 'Mobile', value: '+1 (415) 555-0148', isPrimary: true },
+      ],
+      emails: [
+        { id: 'em-el-1', label: 'Work', value: 'elena@ateliernorth.studio', isPrimary: true },
+        { id: 'em-el-2', label: 'Personal', value: 'elena.vance@fastmail.com' },
+      ],
+      socialHandles: [
+        { id: 'sh-el-1', label: 'GitHub', value: 'github.com/elenavance' },
+        { id: 'sh-el-2', label: 'X', value: '@elenavance' },
+      ],
+      addresses: [
+        {
+          id: 'ad-el-1',
+          label: 'Studio',
+          street: '548 Market St Suite 410',
+          city: 'San Francisco',
+          region: 'CA',
+          postalCode: '94104',
+          country: 'USA',
+          isPrimary: true,
+        },
+      ],
+      customFields: [
+        { id: 'cf-el-1', key: 'Coffee Order', value: 'Oat Cortado, no sugar' },
+        { id: 'cf-el-2', key: 'Time Zone', value: 'PST (UTC-8)' },
+      ],
+      relationships: [
+        { id: 'rel-el-1', targetContactId: 'cnt-marcus', targetName: 'Marcus Chen', relation: 'Design Partner' },
+      ],
+      birthday: bdaySoon,
+      anniversary: null,
+      syncBirthdayToTimeline: false,
+      lastContactedAt: addDaysToKey(today, -3),
+      bioHtml:
+        '<p>Co-led the editorial grid critique. Loves mechanical watches, Kyoto ceramics, and long-form essays on software craft.</p>',
+      avatarColor: '#be185d',
+      createdAt: buildDateAtTime(addDaysToKey(today, -30), 10, 0),
+      updatedAt: buildDateAtTime(addDaysToKey(today, -3), 16, 0),
+    },
+    {
+      id: 'cnt-kenji',
+      firstName: 'Kenji',
+      lastName: 'Takahashi',
+      company: 'Koto Film Lab',
+      jobTitle: 'Founder & Photographer',
+      circleIds: ['cir-friends'],
+      closeness: 'inner',
+      tags: ['photography', 'kyoto', 'ramen'],
+      favorite: true,
+      phones: [
+        { id: 'ph-kj-1', label: 'Mobile', value: '+81 90-5550-0192', isPrimary: true },
+      ],
+      emails: [
+        { id: 'em-kj-1', label: 'Personal', value: 'kenji@kotofilmlab.jp', isPrimary: true },
+      ],
+      socialHandles: [
+        { id: 'sh-kj-1', label: 'Instagram', value: '@kenji.frames' },
+      ],
+      addresses: [
+        {
+          id: 'ad-kj-1',
+          label: 'Home',
+          street: '214 University Ave',
+          city: 'Palo Alto',
+          region: 'CA',
+          postalCode: '94301',
+          country: 'USA',
+          isPrimary: true,
+        },
+      ],
+      customFields: [
+        { id: 'cf-kj-1', key: 'Camera', value: 'Leica M6 · Portra 400' },
+      ],
+      relationships: [],
+      birthday: '1993-08-19',
+      anniversary: null,
+      syncBirthdayToTimeline: false,
+      lastContactedAt: today,
+      bioHtml: '<p>Met in Kyoto during autumn foliage season. Always up for late-night ramen and analog darkroom prints.</p>',
+      avatarColor: '#b45309',
+      createdAt: buildDateAtTime(addDaysToKey(today, -45), 11, 0),
+      updatedAt: buildDateAtTime(today, 12, 0),
+    },
+    {
+      id: 'cnt-marcus',
+      firstName: 'Marcus',
+      lastName: 'Chen',
+      company: 'Atelier North',
+      jobTitle: 'Principal Systems Engineer',
+      circleIds: ['cir-work'],
+      closeness: 'close',
+      tags: ['engineering', 'local-first', 'cycling'],
+      favorite: false,
+      phones: [
+        { id: 'ph-mc-1', label: 'Work', value: '+1 (415) 555-0177', isPrimary: true },
+      ],
+      emails: [
+        { id: 'em-mc-1', label: 'Work', value: 'marcus@ateliernorth.studio', isPrimary: true },
+      ],
+      socialHandles: [
+        { id: 'sh-mc-1', label: 'GitHub', value: 'github.com/mchen-sys' },
+      ],
+      addresses: [],
+      customFields: [
+        { id: 'cf-mc-1', key: 'Bike Route', value: 'Hawk Hill Loop' },
+      ],
+      relationships: [
+        { id: 'rel-mc-1', targetContactId: 'cnt-elena', targetName: 'Elena Vance', relation: 'Design Partner' },
+      ],
+      birthday: bdayLater,
+      anniversary: null,
+      syncBirthdayToTimeline: false,
+      lastContactedAt: addDaysToKey(today, -7),
+      bioHtml: '<p>Built CRDT sync prototypes together. Reliable sounding board for architecture decisions.</p>',
+      avatarColor: '#3b6998',
+      createdAt: buildDateAtTime(addDaysToKey(today, -20), 9, 0),
+      updatedAt: buildDateAtTime(addDaysToKey(today, -7), 15, 0),
+    },
+    {
+      id: 'cnt-linh',
+      firstName: 'Linh',
+      lastName: 'Nguyen',
+      nickname: 'Chị Linh',
+      company: 'Saigon Roastery',
+      jobTitle: 'Green Bean Buyer',
+      circleIds: ['cir-family', 'cir-community'],
+      closeness: 'inner',
+      tags: ['family', 'coffee', 'saigon'],
+      favorite: true,
+      phones: [
+        { id: 'ph-ln-1', label: 'Mobile', value: '+84 90 555 0123', isPrimary: true },
+      ],
+      emails: [
+        { id: 'em-ln-1', label: 'Personal', value: 'linh.nguyen@saigonroast.vn', isPrimary: true },
+      ],
+      socialHandles: [
+        { id: 'sh-ln-1', label: 'Telegram', value: '@linhroastery' },
+      ],
+      addresses: [
+        {
+          id: 'ad-ln-1',
+          label: 'Roastery',
+          street: '42 Nguyen Hue',
+          city: 'Ho Chi Minh City',
+          country: 'Vietnam',
+          isPrimary: true,
+        },
+      ],
+      customFields: [
+        { id: 'cf-ln-1', key: 'Favorite Roast', value: 'Cau Dat Washed Arabica' },
+      ],
+      relationships: [],
+      birthday: '1990-11-04',
+      anniversary: '2019-06-15',
+      syncBirthdayToTimeline: false,
+      lastContactedAt: addDaysToKey(today, -14),
+      bioHtml: '<p>Cousin in Saigon who ships single-origin Vietnamese Arabica every harvest.</p>',
+      avatarColor: '#047857',
+      createdAt: buildDateAtTime(addDaysToKey(today, -60), 8, 0),
+      updatedAt: buildDateAtTime(addDaysToKey(today, -14), 18, 0),
+    },
+  ];
+
+  const financeCategories = DEFAULT_FINANCE_CATEGORIES.map((c) => ({ ...c }));
+  const financeAccounts: FinanceAccount[] = [
+    {
+      id: 'facc-usd-bank',
+      name: 'Mercury Checking',
+      type: 'bank',
+      currency: 'USD',
+      initialBalance: 4200,
+      color: '#3b6998',
+      icon: 'Landmark',
+      createdAt: buildDateAtTime(addDaysToKey(today, -40), 9, 0),
+      updatedAt: buildDateAtTime(today, 9, 0),
+    },
+    {
+      id: 'facc-usd-card',
+      name: 'Sapphire Card',
+      type: 'card',
+      currency: 'USD',
+      initialBalance: 0,
+      color: '#4f46e5',
+      icon: 'CreditCard',
+      createdAt: buildDateAtTime(addDaysToKey(today, -40), 9, 0),
+      updatedAt: buildDateAtTime(today, 9, 0),
+    },
+    {
+      id: 'facc-vnd-bank',
+      name: 'Vietcombank',
+      type: 'bank',
+      currency: 'VND',
+      initialBalance: 18500000,
+      color: '#047857',
+      icon: 'Landmark',
+      createdAt: buildDateAtTime(addDaysToKey(today, -40), 9, 0),
+      updatedAt: buildDateAtTime(today, 9, 0),
+    },
+    {
+      id: 'facc-vnd-cash',
+      name: 'VND Cash Wallet',
+      type: 'cash',
+      currency: 'VND',
+      initialBalance: 1400000,
+      color: '#b45309',
+      icon: 'Banknote',
+      createdAt: buildDateAtTime(addDaysToKey(today, -40), 9, 0),
+      updatedAt: buildDateAtTime(today, 9, 0),
+    },
+    {
+      id: 'facc-eur-bank',
+      name: 'N26 Euro Vault',
+      type: 'bank',
+      currency: 'EUR',
+      initialBalance: 2650,
+      color: '#0f766e',
+      icon: 'Wallet',
+      createdAt: buildDateAtTime(addDaysToKey(today, -40), 9, 0),
+      updatedAt: buildDateAtTime(today, 9, 0),
+    },
+  ];
+
+  const financeTransactions: FinanceTransaction[] = [
+    // USD transactions
+    {
+      id: 'ftx-usd-1',
+      type: 'income',
+      amount: 3400,
+      currency: 'USD',
+      accountId: 'facc-usd-bank',
+      categoryId: 'fcat-salary',
+      merchant: 'Studio Payroll',
+      note: 'Bi-weekly deposit',
+      dateKey: addDaysToKey(today, -6),
+      timeHHMM: '09:00',
+      createdAt: buildDateAtTime(addDaysToKey(today, -6), 9, 0),
+      updatedAt: buildDateAtTime(addDaysToKey(today, -6), 9, 0),
+    },
+    {
+      id: 'ftx-usd-2',
+      type: 'expense',
+      amount: 1250,
+      currency: 'USD',
+      accountId: 'facc-usd-bank',
+      categoryId: 'fcat-housing',
+      merchant: 'Oakwood Apartments',
+      note: 'Monthly studio rent',
+      dateKey: addDaysToKey(today, -5),
+      timeHHMM: '10:15',
+      createdAt: buildDateAtTime(addDaysToKey(today, -5), 10, 15),
+      updatedAt: buildDateAtTime(addDaysToKey(today, -5), 10, 15),
+    },
+    {
+      id: 'ftx-usd-3',
+      type: 'expense',
+      amount: 74.8,
+      currency: 'USD',
+      accountId: 'facc-usd-card',
+      categoryId: 'fcat-groceries',
+      merchant: 'Trader Joe’s',
+      note: 'Weekly produce, coffee beans, oat milk',
+      dateKey: addDaysToKey(today, -2),
+      timeHHMM: '17:40',
+      createdAt: buildDateAtTime(addDaysToKey(today, -2), 17, 40),
+      updatedAt: buildDateAtTime(addDaysToKey(today, -2), 17, 40),
+    },
+    {
+      id: 'ftx-usd-4',
+      type: 'expense',
+      amount: 32.5,
+      currency: 'USD',
+      accountId: 'facc-usd-card',
+      categoryId: 'fcat-food',
+      merchant: 'Ramen Nagi',
+      note: 'Dinner with Kenji',
+      dateKey: yesterday,
+      timeHHMM: '19:30',
+      createdAt: buildDateAtTime(yesterday, 19, 30),
+      updatedAt: buildDateAtTime(yesterday, 19, 30),
+    },
+    {
+      id: 'ftx-usd-5',
+      type: 'expense',
+      amount: 6.4,
+      currency: 'USD',
+      accountId: 'facc-usd-card',
+      categoryId: 'fcat-food',
+      merchant: 'Sightglass Coffee',
+      note: 'Morning pour-over V60',
+      dateKey: today,
+      timeHHMM: '08:25',
+      createdAt: buildDateAtTime(today, 8, 25),
+      updatedAt: buildDateAtTime(today, 8, 25),
+    },
+    // VND transactions
+    {
+      id: 'ftx-vnd-1',
+      type: 'income',
+      amount: 24000000,
+      currency: 'VND',
+      accountId: 'facc-vnd-bank',
+      categoryId: 'fcat-freelance',
+      merchant: 'Design System Retainer',
+      note: 'Q4 client milestone',
+      dateKey: addDaysToKey(today, -4),
+      timeHHMM: '14:00',
+      createdAt: buildDateAtTime(addDaysToKey(today, -4), 14, 0),
+      updatedAt: buildDateAtTime(addDaysToKey(today, -4), 14, 0),
+    },
+    {
+      id: 'ftx-vnd-2',
+      type: 'expense',
+      amount: 65000,
+      currency: 'VND',
+      accountId: 'facc-vnd-cash',
+      categoryId: 'fcat-food',
+      merchant: 'Cà Phê Sữa Đá & Bánh Mì',
+      dateKey: today,
+      timeHHMM: '07:45',
+      createdAt: buildDateAtTime(today, 7, 45),
+      updatedAt: buildDateAtTime(today, 7, 45),
+    },
+    {
+      id: 'ftx-vnd-3',
+      type: 'expense',
+      amount: 420000,
+      currency: 'VND',
+      accountId: 'facc-vnd-bank',
+      categoryId: 'fcat-groceries',
+      merchant: 'Annam Gourmet',
+      dateKey: yesterday,
+      timeHHMM: '18:10',
+      createdAt: buildDateAtTime(yesterday, 18, 10),
+      updatedAt: buildDateAtTime(yesterday, 18, 10),
+    },
+    // EUR transactions
+    {
+      id: 'ftx-eur-1',
+      type: 'income',
+      amount: 850,
+      currency: 'EUR',
+      accountId: 'facc-eur-bank',
+      categoryId: 'fcat-freelance',
+      merchant: 'Berlin Studio Workshop',
+      dateKey: addDaysToKey(today, -3),
+      timeHHMM: '11:20',
+      createdAt: buildDateAtTime(addDaysToKey(today, -3), 11, 20),
+      updatedAt: buildDateAtTime(addDaysToKey(today, -3), 11, 20),
+    },
+    {
+      id: 'ftx-eur-2',
+      type: 'expense',
+      amount: 49,
+      currency: 'EUR',
+      accountId: 'facc-eur-bank',
+      categoryId: 'fcat-transport',
+      merchant: 'Deutschlandticket',
+      note: 'Monthly transit pass',
+      dateKey: addDaysToKey(today, -2),
+      timeHHMM: '09:10',
+      createdAt: buildDateAtTime(addDaysToKey(today, -2), 9, 10),
+      updatedAt: buildDateAtTime(addDaysToKey(today, -2), 9, 10),
+    },
+  ];
+
+  const financeSubscriptions: FinanceSubscription[] = [
+    {
+      id: 'fsub-1',
+      name: 'iCloud+ 2TB',
+      amount: 9.99,
+      currency: 'USD',
+      accountId: 'facc-usd-card',
+      categoryId: 'fcat-subs',
+      billingCycle: 'monthly',
+      nextDueDate: addDaysToKey(today, 4),
+      autoLog: true,
+      active: true,
+      notes: 'Family photo & backup storage',
+      createdAt: buildDateAtTime(addDaysToKey(today, -30), 9, 0),
+      updatedAt: buildDateAtTime(today, 9, 0),
+    },
+    {
+      id: 'fsub-2',
+      name: 'Spotify Duo',
+      amount: 79000,
+      currency: 'VND',
+      accountId: 'facc-vnd-bank',
+      categoryId: 'fcat-subs',
+      billingCycle: 'monthly',
+      nextDueDate: tomorrow,
+      autoLog: true,
+      active: true,
+      createdAt: buildDateAtTime(addDaysToKey(today, -30), 9, 0),
+      updatedAt: buildDateAtTime(today, 9, 0),
+    },
+    {
+      id: 'fsub-3',
+      name: 'Linear Workspace',
+      amount: 16,
+      currency: 'EUR',
+      accountId: 'facc-eur-bank',
+      categoryId: 'fcat-subs',
+      billingCycle: 'monthly',
+      nextDueDate: addDaysToKey(today, 9),
+      autoLog: false,
+      active: true,
+      createdAt: buildDateAtTime(addDaysToKey(today, -30), 9, 0),
+      updatedAt: buildDateAtTime(today, 9, 0),
+    },
+  ];
+
+  return {
+    contacts,
+    contactCircles,
+    financeAccounts,
+    financeCategories,
+    financeTransactions,
+    financeSubscriptions,
+    financeSettings: { ...DEFAULT_FINANCE_SETTINGS },
   };
 }

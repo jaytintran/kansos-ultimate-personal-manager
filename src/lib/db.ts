@@ -5,9 +5,10 @@ import {
 } from "../utils/ebookStorage";
 
 const DB_NAME = "kanso_library_studio_v2";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const FILES_STORE = "book_files";
 const AUDIO_FILES_STORE = "audio_files";
+const CONTACT_PHOTOS_STORE = "contact_photos";
 const BOOKMARKS_STORE = "bookmarks";
 const HIGHLIGHTS_STORE = "highlights";
 const WORKSPACE_STORE = "workspace_state";
@@ -85,6 +86,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(AUDIO_FILES_STORE)) {
         db.createObjectStore(AUDIO_FILES_STORE, { keyPath: "trackId" });
+      }
+      if (!db.objectStoreNames.contains(CONTACT_PHOTOS_STORE)) {
+        db.createObjectStore(CONTACT_PHOTOS_STORE, { keyPath: "contactId" });
       }
       if (!db.objectStoreNames.contains(BOOKMARKS_STORE)) {
         const bmStore = db.createObjectStore(BOOKMARKS_STORE, {
@@ -629,6 +633,7 @@ export const libraryDb = {
         [
           FILES_STORE,
           AUDIO_FILES_STORE,
+          CONTACT_PHOTOS_STORE,
           BOOKMARKS_STORE,
           HIGHLIGHTS_STORE,
           WORKSPACE_STORE,
@@ -638,6 +643,9 @@ export const libraryDb = {
       tx.objectStore(FILES_STORE).clear();
       if (db.objectStoreNames.contains(AUDIO_FILES_STORE)) {
         tx.objectStore(AUDIO_FILES_STORE).clear();
+      }
+      if (db.objectStoreNames.contains(CONTACT_PHOTOS_STORE)) {
+        tx.objectStore(CONTACT_PHOTOS_STORE).clear();
       }
       tx.objectStore(BOOKMARKS_STORE).clear();
       tx.objectStore(HIGHLIGHTS_STORE).clear();
@@ -871,5 +879,168 @@ export const audioDb = {
         reject(tx.error);
       };
     });
+  },
+};
+
+export interface StoredContactPhoto {
+  contactId: string;
+  dataUrl: string;
+  updatedAt: number;
+}
+
+export const CONTACT_PHOTO_CHANGE_EVENT = "kanso:contact-photo-changed";
+
+function notifyContactPhotoChanged(contactId?: string): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(CONTACT_PHOTO_CHANGE_EVENT, { detail: { contactId } }),
+    );
+  }
+}
+
+export const contactPhotoDb = {
+  async savePhoto(contactId: string, dataUrl: string): Promise<void> {
+    if (typeof indexedDB === "undefined") return;
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(CONTACT_PHOTOS_STORE, "readwrite");
+      const record: StoredContactPhoto = {
+        contactId,
+        dataUrl,
+        updatedAt: Date.now(),
+      };
+      tx.objectStore(CONTACT_PHOTOS_STORE).put(record);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error || new Error("Failed to save contact photo"));
+      };
+    });
+    notifyContactPhotoChanged(contactId);
+  },
+
+  async getPhoto(contactId: string): Promise<string | null> {
+    if (typeof indexedDB === "undefined") return null;
+    const db = await openDb();
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(CONTACT_PHOTOS_STORE, "readonly");
+        const req = tx.objectStore(CONTACT_PHOTOS_STORE).get(contactId);
+        req.onsuccess = () => {
+          db.close();
+          const res = req.result as StoredContactPhoto | undefined;
+          resolve(res?.dataUrl ?? null);
+        };
+        req.onerror = () => {
+          db.close();
+          resolve(null);
+        };
+      } catch {
+        db.close();
+        resolve(null);
+      }
+    });
+  },
+
+  async deletePhoto(contactId: string): Promise<void> {
+    if (typeof indexedDB === "undefined") return;
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(CONTACT_PHOTOS_STORE, "readwrite");
+      tx.objectStore(CONTACT_PHOTOS_STORE).delete(contactId);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+    notifyContactPhotoChanged(contactId);
+  },
+
+  async listAllPhotos(): Promise<Record<string, string>> {
+    if (typeof indexedDB === "undefined") return {};
+    const db = await openDb();
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(CONTACT_PHOTOS_STORE, "readonly");
+        const req = tx.objectStore(CONTACT_PHOTOS_STORE).getAll();
+        req.onsuccess = () => {
+          db.close();
+          const map: Record<string, string> = {};
+          for (const rec of (req.result as StoredContactPhoto[]) || []) {
+            if (rec?.contactId && rec?.dataUrl) {
+              map[rec.contactId] = rec.dataUrl;
+            }
+          }
+          resolve(map);
+        };
+        req.onerror = () => {
+          db.close();
+          resolve({});
+        };
+      } catch {
+        db.close();
+        resolve({});
+      }
+    });
+  },
+
+  async prunePhotos(validContactIds: Set<string>): Promise<void> {
+    if (typeof indexedDB === "undefined") return;
+    const db = await openDb();
+    await new Promise<void>((resolve) => {
+      try {
+        const tx = db.transaction(CONTACT_PHOTOS_STORE, "readwrite");
+        const store = tx.objectStore(CONTACT_PHOTOS_STORE);
+        const keysReq = store.getAllKeys();
+        keysReq.onsuccess = () => {
+          for (const key of keysReq.result || []) {
+            if (!validContactIds.has(String(key))) {
+              store.delete(key);
+            }
+          }
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          resolve();
+        };
+      } catch {
+        db.close();
+        resolve();
+      }
+    });
+  },
+
+  async clearAllPhotos(): Promise<void> {
+    if (typeof indexedDB === "undefined") return;
+    const db = await openDb();
+    await new Promise<void>((resolve) => {
+      try {
+        const tx = db.transaction(CONTACT_PHOTOS_STORE, "readwrite");
+        tx.objectStore(CONTACT_PHOTOS_STORE).clear();
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          resolve();
+        };
+      } catch {
+        db.close();
+        resolve();
+      }
+    });
+    notifyContactPhotoChanged();
   },
 };

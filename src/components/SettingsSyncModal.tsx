@@ -23,6 +23,8 @@ import {
   Sun,
   Trash2,
   Upload,
+  Users,
+  Wallet,
   X,
 } from "lucide-react";
 import { useWorkspace } from "../context/WorkspaceContext";
@@ -127,6 +129,8 @@ const STARTUP_VIEW_OPTIONS: { id: ViewId; label: string }[] = [
   { id: "library", label: "Library" },
   { id: "streamer", label: "Streamer" },
   { id: "audio", label: "Audio" },
+  { id: "contacts", label: "Contacts" },
+  { id: "finance", label: "Finance" },
   { id: "achievements", label: "Achievements" },
 ];
 
@@ -155,6 +159,8 @@ const LOCAL_STORAGE_KEY_LABELS: Record<string, string> = {
   kanso_audio_studio_prefs_v1: "Audio Studio Preferences",
   kanso_audio_android_import_mode_v1: "Android Audio Import Mode",
   kanso_audio_android_linked_folders_v1: "Android Linked Audio Folders",
+  kanso_contacts_prefs_v1: "Contacts View Preferences",
+  kanso_finance_prefs_v1: "Finance View Preferences",
   kanso_desktop_sidebar_collapsed_v1: "Desktop Sidebar Rail State",
 };
 
@@ -464,6 +470,21 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
         measureJsonBytes(workspace.audioPlaylists) +
         measureJsonBytes(workspace.audioMixPresets) +
         measureJsonBytes(workspace.audioState),
+      contactsCount:
+        (workspace.contacts?.length ?? 0) +
+        (workspace.contactCircles?.length ?? 0),
+      contactsBytes:
+        measureJsonBytes(workspace.contacts) +
+        measureJsonBytes(workspace.contactCircles),
+      financeCount:
+        (workspace.financeTransactions?.length ?? 0) +
+        (workspace.financeSubscriptions?.length ?? 0) +
+        (workspace.financeAccounts?.length ?? 0),
+      financeBytes:
+        measureJsonBytes(workspace.financeAccounts) +
+        measureJsonBytes(workspace.financeCategories) +
+        measureJsonBytes(workspace.financeTransactions) +
+        measureJsonBytes(workspace.financeSubscriptions),
     };
   }, [workspace]);
 
@@ -1392,6 +1413,8 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                       {pullPreview.summary.habits} habits ·{" "}
                       {pullPreview.summary.lists} lists (
                       {pullPreview.summary.listItems} items) ·{" "}
+                      {pullPreview.summary.contacts} contacts ·{" "}
+                      {pullPreview.summary.financeTransactions} transactions ·{" "}
                       {pullPreview.summary.scratchpads} pads ·{" "}
                       {pullPreview.summary.customTabs} tabs
                     </div>
@@ -2632,6 +2655,86 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                           setConfirmActionKey(null);
                           await refreshStorageAudit();
                         })();
+                      })}
+                  </div>
+
+                  {/* Contacts */}
+                  <div
+                    className="p-3.5 flex items-center justify-between gap-2.5"
+                    style={{ borderColor: "var(--border-subtle)" }}
+                  >
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <Users
+                        className="w-4 h-4 shrink-0 mt-0.5"
+                        style={{ color: "var(--text-secondary)" }}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold">
+                          Contacts &amp; Relationship Circles
+                        </div>
+                        <div
+                          className="text-[11px] font-mono tabular-nums mt-0.5"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          {workspace.contacts?.length ?? 0} contacts ·{" "}
+                          {workspace.contactCircles?.length ?? 0} circles ·{" "}
+                          {formatFileSize(domainMetrics.contactsBytes)}
+                        </div>
+                      </div>
+                    </div>
+                    {domainMetrics.contactsCount > 0 &&
+                      renderConfirmButton("purge-contacts", "Clear", () => {
+                        purgeWorkspaceSection(
+                          "Cleared Contacts & relationship circles",
+                          (prev) => ({
+                            ...prev,
+                            contacts: [],
+                            entries: prev.entries.filter(
+                              (e) => !e.id.startsWith("bday-"),
+                            ),
+                          }),
+                        );
+                        setConfirmActionKey(null);
+                      })}
+                  </div>
+
+                  {/* Finance */}
+                  <div
+                    className="p-3.5 flex items-center justify-between gap-2.5"
+                    style={{ borderColor: "var(--border-subtle)" }}
+                  >
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <Wallet
+                        className="w-4 h-4 shrink-0 mt-0.5"
+                        style={{ color: "var(--text-secondary)" }}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold">
+                          Finance Ledger, Accounts &amp; Subscriptions
+                        </div>
+                        <div
+                          className="text-[11px] font-mono tabular-nums mt-0.5"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          {workspace.financeTransactions?.length ?? 0} tx ·{" "}
+                          {workspace.financeSubscriptions?.length ?? 0} subs ·{" "}
+                          {workspace.financeAccounts?.length ?? 0} accounts ·{" "}
+                          {formatFileSize(domainMetrics.financeBytes)}
+                        </div>
+                      </div>
+                    </div>
+                    {domainMetrics.financeCount > 0 &&
+                      renderConfirmButton("purge-finance", "Clear", () => {
+                        purgeWorkspaceSection(
+                          "Cleared Finance transactions, accounts & subscriptions",
+                          (prev) => ({
+                            ...prev,
+                            financeAccounts: [],
+                            financeTransactions: [],
+                            financeSubscriptions: [],
+                          }),
+                        );
+                        setConfirmActionKey(null);
                       })}
                   </div>
                 </div>
