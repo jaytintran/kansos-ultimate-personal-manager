@@ -556,6 +556,10 @@ export const AudioView = React.forwardRef<AudioControllerHandle, AudioViewProps>
           active instanceof HTMLTextAreaElement ||
           (active instanceof HTMLElement && active.isContentEditable);
         if (e.key === "Escape") {
+          if (displayPopoverOpen) {
+            setDisplayPopoverOpen(false);
+            return;
+          }
           if (contextMenu) {
             setContextMenu(null);
             return;
@@ -576,6 +580,7 @@ export const AudioView = React.forwardRef<AudioControllerHandle, AudioViewProps>
       return () => window.removeEventListener("keydown", handleKeyDown);
     }, [
       isActiveView,
+      displayPopoverOpen,
       contextMenu,
       selectedIds.size,
       audioState.activeSlots.length,
@@ -1862,7 +1867,7 @@ export const AudioView = React.forwardRef<AudioControllerHandle, AudioViewProps>
         {/* Center Main Column + Bottom Player Deck */}
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
           {/* Top Shelf Header */}
-          <header className="shrink-0 px-4 sm:px-5 lg:px-8 pt-3.5 pb-3 border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)] space-y-2.5">
+          <header className="relative z-20 shrink-0 px-4 sm:px-5 lg:px-8 pt-3.5 pb-3 border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)] space-y-2.5">
             <div className="flex items-center justify-between gap-2.5">
               <div className="flex items-center gap-2 min-w-0">
                 <button
@@ -2071,6 +2076,7 @@ export const AudioView = React.forwardRef<AudioControllerHandle, AudioViewProps>
                 <button
                   type="button"
                   onClick={() => setDisplayPopoverOpen((v) => !v)}
+                  aria-expanded={displayPopoverOpen}
                   className={`h-9 px-2.5 rounded-md border text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                     displayPopoverOpen || hasActiveFilters
                       ? "border-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]"
@@ -2079,49 +2085,58 @@ export const AudioView = React.forwardRef<AudioControllerHandle, AudioViewProps>
                 >
                   <SlidersHorizontal className="w-3.5 h-3.5" />
                   <span>Options</span>
+                  <ChevronDown className="w-3 h-3 opacity-70" />
                 </button>
 
                 {displayPopoverOpen && (
-                  <AudioOptionsPopover
-                    formatFilter={formatFilter}
-                    groupBy={prefs.groupBy}
-                    coverSize={prefs.coverSize}
-                    cardDetails={prefs.cardDetails}
-                    allTags={allTags}
-                    selectedTags={selectedTags}
-                    playlists={playlists}
-                    activeFilter={activeFilter}
-                    totalBytes={totalBytes}
-                    isExportingBackup={isExportingBackup}
-                    isParsingBackup={isParsingBackup}
-                    onFormatFilterChange={setFormatFilter}
-                    onGroupByChange={(groupBy) => updateUiPrefs({ groupBy })}
-                    onCoverSizeChange={(coverSize) =>
-                      updateUiPrefs({ coverSize })
-                    }
-                    onCardDetailsChange={updateCardDetails}
-                    onToggleTag={(tag) =>
-                      setSelectedTags((prev) =>
-                        prev.includes(tag)
-                          ? prev.filter((t) => t !== tag)
-                          : [...prev, tag],
-                      )
-                    }
-                    onClearTags={() => setSelectedTags([])}
-                    onSelectPlaylist={(id) =>
-                      setActiveFilter({ kind: "playlist", id })
-                    }
-                    onCreatePlaylist={(name) => {
-                      addAudioPlaylist(name);
-                    }}
-                    onDeletePlaylist={deleteAudioPlaylist}
-                    onExportBackup={() => void handleExportBackup()}
-                    onSelectImportBackupFile={(file) =>
-                      void handleSelectImportBackupFile(file)
-                    }
-                    onOpenStorageManager={() => setStorageManagerOpen(true)}
-                    onClose={() => setDisplayPopoverOpen(false)}
-                  />
+                  <>
+                    <div
+                      className="fixed inset-0 z-30"
+                      onClick={() => setDisplayPopoverOpen(false)}
+                    />
+                    <div className="absolute right-0 top-10 z-40">
+                      <AudioOptionsPopover
+                        formatFilter={formatFilter}
+                        groupBy={prefs.groupBy}
+                        coverSize={prefs.coverSize}
+                        cardDetails={prefs.cardDetails}
+                        allTags={allTags}
+                        selectedTags={selectedTags}
+                        playlists={playlists}
+                        activeFilter={activeFilter}
+                        totalBytes={totalBytes}
+                        isExportingBackup={isExportingBackup}
+                        isParsingBackup={isParsingBackup}
+                        onFormatFilterChange={setFormatFilter}
+                        onGroupByChange={(groupBy) => updateUiPrefs({ groupBy })}
+                        onCoverSizeChange={(coverSize) =>
+                          updateUiPrefs({ coverSize })
+                        }
+                        onCardDetailsChange={updateCardDetails}
+                        onToggleTag={(tag) =>
+                          setSelectedTags((prev) =>
+                            prev.includes(tag)
+                              ? prev.filter((t) => t !== tag)
+                              : [...prev, tag],
+                          )
+                        }
+                        onClearTags={() => setSelectedTags([])}
+                        onSelectPlaylist={(id) =>
+                          setActiveFilter({ kind: "playlist", id })
+                        }
+                        onCreatePlaylist={(name) => {
+                          addAudioPlaylist(name);
+                        }}
+                        onDeletePlaylist={deleteAudioPlaylist}
+                        onExportBackup={() => void handleExportBackup()}
+                        onSelectImportBackupFile={(file) =>
+                          void handleSelectImportBackupFile(file)
+                        }
+                        onOpenStorageManager={() => setStorageManagerOpen(true)}
+                        onClose={() => setDisplayPopoverOpen(false)}
+                      />
+                    </div>
+                  </>
                 )}
               </div>
 

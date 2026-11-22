@@ -155,6 +155,7 @@ const LOCAL_STORAGE_KEY_LABELS: Record<string, string> = {
   kanso_audio_studio_prefs_v1: "Audio Studio Preferences",
   kanso_audio_android_import_mode_v1: "Android Audio Import Mode",
   kanso_audio_android_linked_folders_v1: "Android Linked Audio Folders",
+  kanso_desktop_sidebar_collapsed_v1: "Desktop Sidebar Rail State",
 };
 
 function measureJsonBytes(value: unknown): number {

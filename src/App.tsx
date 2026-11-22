@@ -15,6 +15,8 @@ import {
   MonitorPlay,
   Moon,
   MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pause,
   Play,
   RefreshCw,
@@ -192,6 +194,14 @@ function isTextEditableElement(el: Element | null): boolean {
   return el instanceof HTMLElement && el.isContentEditable;
 }
 
+const DESKTOP_SIDEBAR_COLLAPSED_KEY = "kanso_desktop_sidebar_collapsed_v1";
+
+interface RailTooltipState {
+  label: string;
+  sublabel?: string;
+  top: number;
+}
+
 const KansoShell: React.FC = () => {
   const {
     workspace,
@@ -262,6 +272,16 @@ const KansoShell: React.FC = () => {
   const [bookJumpRequest, setBookJumpRequest] =
     useState<BookJumpRequest | null>(null);
   const [isMobileKeyboardOpen, setIsMobileKeyboardOpen] = useState(false);
+  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState<boolean>(
+    () => {
+      try {
+        return localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSED_KEY) === "1";
+      } catch {
+        return false;
+      }
+    },
+  );
+  const [railTooltip, setRailTooltip] = useState<RailTooltipState | null>(null);
   const bookJumpNonceRef = useRef(0);
   const mainRef = useRef<HTMLElement>(null);
 
@@ -532,7 +552,42 @@ const KansoShell: React.FC = () => {
     });
   };
 
+  const toggleDesktopSidebar = useCallback(() => {
+    setRailTooltip(null);
+    setDesktopSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(DESKTOP_SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        // Ignore storage write errors in restricted browsing contexts
+      }
+      return next;
+    });
+  }, []);
+
+  const showRailTooltip = useCallback(
+    (
+      e: React.MouseEvent<HTMLElement> | React.FocusEvent<HTMLElement>,
+      label: string,
+      sublabel?: string,
+    ) => {
+      if (!desktopSidebarCollapsed) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      setRailTooltip({
+        label,
+        sublabel,
+        top: rect.top + rect.height / 2,
+      });
+    },
+    [desktopSidebarCollapsed],
+  );
+
+  const hideRailTooltip = useCallback(() => {
+    setRailTooltip(null);
+  }, []);
+
   const openModal = (tab: SettingsModalTab) => {
+    setRailTooltip(null);
     setMoreSheetOpen(false);
     setSettingsInitialTab(tab);
     setSettingsOpen(true);
@@ -562,47 +617,98 @@ const KansoShell: React.FC = () => {
         color: "var(--text-primary)",
       }}
     >
-      {/* Desktop Sidebar Navigation */}
+      {/* Desktop Sidebar Navigation (Collapsible 240px ↔ 68px Icon Rail) */}
       {!(activeView === "library" && libraryZenMode) && (
         <aside
-          className="hidden lg:flex lg:flex-col lg:w-60 lg:shrink-0 lg:sticky lg:top-0 lg:h-dvh border-r px-3.5 py-5"
+          className={`hidden lg:flex lg:flex-col lg:shrink-0 lg:sticky lg:top-0 lg:h-dvh border-r transition-[width,padding] duration-200 ease-out ${
+            desktopSidebarCollapsed ? "lg:w-[68px] px-2 py-4" : "lg:w-60 px-3.5 py-5"
+          }`}
           style={{
             backgroundColor: "var(--bg-surface)",
             borderColor: "var(--border-subtle)",
           }}
         >
-          <div className="px-2.5 pb-5 flex items-center justify-between">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <KansoLogo size={24} />
-              <span className="font-display text-lg font-bold tracking-tight whitespace-nowrap">
-                Kanso
-              </span>
+          {desktopSidebarCollapsed ? (
+            <div className="flex flex-col items-center gap-2 pb-3.5 shrink-0">
+              <div
+                className="h-9 w-9 flex items-center justify-center rounded-xl"
+                title="Kanso"
+              >
+                <KansoLogo size={24} />
+              </div>
+              <button
+                type="button"
+                onClick={toggleDesktopSidebar}
+                onMouseEnter={(e) =>
+                  showRailTooltip(e, "Expand sidebar", "Show labels")
+                }
+                onFocus={(e) =>
+                  showRailTooltip(e, "Expand sidebar", "Show labels")
+                }
+                onMouseLeave={hideRailTooltip}
+                onBlur={hideRailTooltip}
+                className="w-10 h-8 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-subtle)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] cursor-pointer"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+                aria-label="Expand sidebar"
+              >
+                <PanelLeftOpen className="w-4 h-4" />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={toggleColorMode}
-              className="h-8 w-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)]"
-              style={{ color: "var(--text-secondary)" }}
-              title={`Switch to ${workspace.settings.colorMode === "dark" ? "light" : "dark"} mode`}
-              aria-label="Toggle light or dark mode"
-            >
-              {workspace.settings.colorMode === "dark" ? (
-                <Sun className="w-4 h-4" />
-              ) : (
-                <Moon className="w-4 h-4" />
-              )}
-            </button>
-          </div>
+          ) : (
+            <div className="px-2.5 pb-5 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <KansoLogo size={24} />
+                <span className="font-display text-lg font-bold tracking-tight whitespace-nowrap">
+                  Kanso
+                </span>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={toggleColorMode}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{ color: "var(--text-secondary)" }}
+                  title={`Switch to ${workspace.settings.colorMode === "dark" ? "light" : "dark"} mode`}
+                  aria-label="Toggle light or dark mode"
+                >
+                  {workspace.settings.colorMode === "dark" ? (
+                    <Sun className="w-4 h-4" />
+                  ) : (
+                    <Moon className="w-4 h-4" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleDesktopSidebar}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{ color: "var(--text-secondary)" }}
+                  title="Collapse sidebar to icon rail"
+                  aria-label="Collapse sidebar to icon rail"
+                >
+                  <PanelLeftClose className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
 
           <nav
-            className="flex-1 overflow-y-auto space-y-3"
+            onScroll={desktopSidebarCollapsed ? hideRailTooltip : undefined}
+            className={`flex-1 overflow-y-auto overflow-x-hidden ${
+              desktopSidebarCollapsed ? "space-y-2.5" : "space-y-3"
+            }`}
             aria-label="Main workspace navigation"
           >
             {DESKTOP_NAV_GROUPS.map((group, groupIdx) => (
               <div
                 key={groupIdx}
                 className={
-                  groupIdx > 0 ? "pt-3 border-t space-y-1" : "space-y-1"
+                  groupIdx > 0
+                    ? `${desktopSidebarCollapsed ? "pt-2.5" : "pt-3"} border-t space-y-1`
+                    : "space-y-1"
                 }
                 style={
                   groupIdx > 0
@@ -618,6 +724,109 @@ const KansoShell: React.FC = () => {
                     item.id === "streamer" && showStreamerAudioControls;
                   const isAudioRowWithControls =
                     item.id === "audio" && showAudioStudioControls;
+
+                  if (desktopSidebarCollapsed) {
+                    const hasMediaState =
+                      isStreamerRowWithControls || isAudioRowWithControls;
+                    const mediaMuted = isAudioRowWithControls
+                      ? audioPlayback.isViewMuted
+                      : streamerPlayback.isViewMuted;
+                    const mediaPaused = isAudioRowWithControls
+                      ? audioPlayback.isAllPaused
+                      : streamerPlayback.isAllPaused;
+                    const mediaPlaying = isAudioRowWithControls
+                      ? audioPlayback.isPlaying
+                      : streamerPlayback.isPlaying;
+                    const mediaActiveCount = isAudioRowWithControls
+                      ? audioPlayback.activeCount
+                      : streamerPlayback.activeCount;
+
+                    const mediaStatusLabel = hasMediaState
+                      ? mediaMuted
+                        ? `Muted · ${mediaActiveCount} active`
+                        : mediaPlaying
+                          ? `Playing · ${mediaActiveCount} active`
+                          : mediaPaused
+                            ? `Paused · ${mediaActiveCount} active`
+                            : `${mediaActiveCount} active`
+                      : undefined;
+
+                    const tooltipSublabel = mediaStatusLabel
+                      ? showNavCounts && count > 0
+                        ? `${mediaStatusLabel} · ${count}`
+                        : mediaStatusLabel
+                      : showNavCounts
+                        ? `${count} ${count === 1 ? "item" : "items"}`
+                        : undefined;
+
+                    const formattedBadge = count > 99 ? "99+" : String(count);
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => navigateToView(item.id)}
+                        onMouseEnter={(e) =>
+                          showRailTooltip(e, item.label, tooltipSublabel)
+                        }
+                        onFocus={(e) =>
+                          showRailTooltip(e, item.label, tooltipSublabel)
+                        }
+                        onMouseLeave={hideRailTooltip}
+                        onBlur={hideRailTooltip}
+                        aria-label={
+                          tooltipSublabel
+                            ? `${item.label} (${tooltipSublabel})`
+                            : item.label
+                        }
+                        aria-current={active ? "page" : undefined}
+                        className="relative mx-auto w-11 h-11 flex items-center justify-center rounded-xl transition-colors hover:bg-[var(--bg-surface-subtle)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] cursor-pointer"
+                        style={{
+                          backgroundColor: active
+                            ? "var(--accent-soft)"
+                            : "transparent",
+                          color: active
+                            ? "var(--accent)"
+                            : "var(--text-secondary)",
+                        }}
+                      >
+                        <Icon className="w-[18px] h-[18px] shrink-0" />
+
+                        {showNavCounts && count > 0 && (
+                          <span
+                            className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-full text-[9px] font-mono font-semibold tabular-nums leading-none flex items-center justify-center border pointer-events-none"
+                            style={{
+                              backgroundColor: active
+                                ? "var(--accent)"
+                                : "var(--bg-surface-subtle)",
+                              color: active
+                                ? "var(--accent-fg)"
+                                : "var(--text-primary)",
+                              borderColor: active
+                                ? "var(--bg-surface)"
+                                : "var(--border-strong)",
+                            }}
+                          >
+                            {formattedBadge}
+                          </span>
+                        )}
+
+                        {hasMediaState && (
+                          <span
+                            aria-hidden="true"
+                            className="absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full ring-2 ring-[var(--bg-surface)] pointer-events-none"
+                            style={{
+                              backgroundColor: mediaMuted
+                                ? "var(--danger)"
+                                : mediaPlaying
+                                  ? "var(--accent)"
+                                  : "var(--warning)",
+                            }}
+                          />
+                        )}
+                      </button>
+                    );
+                  }
 
                   if (isStreamerRowWithControls || isAudioRowWithControls) {
                     const isAudioRow = isAudioRowWithControls;
@@ -647,7 +856,7 @@ const KansoShell: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => navigateToView(item.id)}
-                          className="flex items-center gap-2.5 min-w-0 flex-1 py-0.5 text-left whitespace-nowrap"
+                          className="flex items-center gap-2.5 min-w-0 flex-1 py-0.5 text-left whitespace-nowrap cursor-pointer"
                         >
                           <Icon className="w-4 h-4 shrink-0" />
                           <span className="truncate">{item.label}</span>
@@ -664,7 +873,7 @@ const KansoShell: React.FC = () => {
                                 streamerControllerRef.current?.togglePauseAll();
                               }
                             }}
-                            className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)]"
+                            className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
                             style={{
                               color: rowPaused
                                 ? "var(--accent)"
@@ -706,7 +915,7 @@ const KansoShell: React.FC = () => {
                                 streamerControllerRef.current?.toggleViewMute();
                               }
                             }}
-                            className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)]"
+                            className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
                             style={{
                               color: rowMuted
                                 ? "var(--danger)"
@@ -762,7 +971,7 @@ const KansoShell: React.FC = () => {
                       key={item.id}
                       type="button"
                       onClick={() => navigateToView(item.id)}
-                      className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors"
+                      className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer"
                       style={{
                         backgroundColor: active
                           ? "var(--accent-soft)"
@@ -795,131 +1004,285 @@ const KansoShell: React.FC = () => {
             ))}
           </nav>
 
-          {/* Bottom Utility Dock (Option 1: Top Sync Bar + Bottom Wide Settings) */}
-          <div
-            className="pt-3.5 mt-3 border-t space-y-2 shrink-0"
-            style={{ borderColor: "var(--border-subtle)" }}
-          >
-            {/* Top Row: Gist Sync Bar */}
-            {isGistConfigured ? (
-              <div
-                className="flex items-center justify-between gap-1 p-1 rounded-xl border"
-                style={{
-                  backgroundColor: "var(--bg-surface-subtle)",
-                  borderColor: "var(--border-subtle)",
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => openModal("sync")}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium min-w-0 flex-1 text-left transition-colors hover:bg-[var(--bg-surface-hover)]"
-                  style={{ color: "var(--text-secondary)" }}
-                  title={
-                    gistConfig.lastSyncedAt
-                      ? `Last ${gistConfig.lastDirection || "sync"}: ${new Date(gistConfig.lastSyncedAt).toLocaleString()}`
-                      : "Configure GitHub Gist Sync"
-                  }
-                >
-                  <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">Gist Sync</span>
-                </button>
-
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    disabled={gistSyncBusy !== null || !hasGistToken}
-                    onClick={() => void quickPushGist()}
-                    className="h-7 w-7 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface)] disabled:opacity-40"
-                    style={{
-                      backgroundColor: "var(--bg-surface)",
-                      borderColor: "var(--border-subtle)",
-                      color: "var(--text-primary)",
-                    }}
-                    title={
-                      hasGistToken
-                        ? "Quick Push to GitHub Gist"
-                        : "Add GitHub token in Gist Sync to push"
-                    }
-                    aria-label="Quick Push to GitHub Gist"
-                  >
-                    {gistSyncBusy === "push" ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <CloudUpload className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={gistSyncBusy !== null || !hasGistId}
-                    onClick={() => void quickPullGist()}
-                    className="h-7 w-7 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface)] disabled:opacity-40"
-                    style={{
-                      backgroundColor: "var(--bg-surface)",
-                      borderColor: "var(--border-subtle)",
-                      color: "var(--text-primary)",
-                    }}
-                    title={
-                      hasGistId
-                        ? "Instant Pull from GitHub Gist"
-                        : "Push once or add Gist ID to pull"
-                    }
-                    aria-label="Instant Pull from GitHub Gist"
-                  >
-                    {gistSyncBusy === "pull" ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <CloudDownload className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                </div>
-              </div>
-            ) : (
+          {/* Bottom Utility Dock */}
+          {desktopSidebarCollapsed ? (
+            <div
+              className="pt-3 mt-2.5 border-t flex flex-col items-center gap-1.5 shrink-0"
+              style={{ borderColor: "var(--border-subtle)" }}
+            >
               <button
                 type="button"
                 onClick={() => openModal("sync")}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)]"
+                onMouseEnter={(e) =>
+                  showRailTooltip(
+                    e,
+                    "Gist Sync",
+                    gistSyncBusy
+                      ? gistSyncBusy === "push"
+                        ? "Pushing..."
+                        : "Pulling..."
+                      : isGistConfigured
+                        ? gistConfig.lastSyncedAt
+                          ? `Synced ${new Date(gistConfig.lastSyncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                          : "Configured"
+                        : "Setup",
+                  )
+                }
+                onFocus={(e) =>
+                  showRailTooltip(
+                    e,
+                    "Gist Sync",
+                    isGistConfigured ? "Configured" : "Setup",
+                  )
+                }
+                onMouseLeave={hideRailTooltip}
+                onBlur={hideRailTooltip}
+                className="relative w-11 h-10 flex items-center justify-center rounded-xl border transition-colors hover:bg-[var(--bg-surface-subtle)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] cursor-pointer"
                 style={{
+                  backgroundColor: "var(--bg-surface-subtle)",
                   borderColor: "var(--border-subtle)",
                   color: "var(--text-secondary)",
                 }}
+                aria-label="Open GitHub Gist Sync"
+              >
+                {gistSyncBusy !== null ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => openModal("appearance")}
+                onMouseEnter={(e) =>
+                  showRailTooltip(
+                    e,
+                    "Settings",
+                    `${workspace.settings.theme} · ${workspace.settings.xActiveLimit}`,
+                  )
+                }
+                onFocus={(e) =>
+                  showRailTooltip(
+                    e,
+                    "Settings",
+                    `${workspace.settings.theme} · ${workspace.settings.xActiveLimit}`,
+                  )
+                }
+                onMouseLeave={hideRailTooltip}
+                onBlur={hideRailTooltip}
+                className="w-11 h-10 flex items-center justify-center rounded-xl border transition-colors hover:bg-[var(--bg-surface-subtle)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] cursor-pointer"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--accent)",
+                }}
+                aria-label="Open Settings"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleColorMode}
+                onMouseEnter={(e) =>
+                  showRailTooltip(
+                    e,
+                    workspace.settings.colorMode === "dark"
+                      ? "Light Mode"
+                      : "Dark Mode",
+                    "Switch theme",
+                  )
+                }
+                onFocus={(e) =>
+                  showRailTooltip(
+                    e,
+                    workspace.settings.colorMode === "dark"
+                      ? "Light Mode"
+                      : "Dark Mode",
+                    "Switch theme",
+                  )
+                }
+                onMouseLeave={hideRailTooltip}
+                onBlur={hideRailTooltip}
+                className="w-11 h-10 flex items-center justify-center rounded-xl border transition-colors hover:bg-[var(--bg-surface-subtle)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] cursor-pointer"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+                aria-label="Toggle light or dark mode"
+              >
+                {workspace.settings.colorMode === "dark" ? (
+                  <Sun className="w-4 h-4" />
+                ) : (
+                  <Moon className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          ) : (
+            <div
+              className="pt-3.5 mt-3 border-t space-y-2 shrink-0"
+              style={{ borderColor: "var(--border-subtle)" }}
+            >
+              {/* Top Row: Gist Sync Bar */}
+              {isGistConfigured ? (
+                <div
+                  className="flex items-center justify-between gap-1 p-1 rounded-xl border"
+                  style={{
+                    backgroundColor: "var(--bg-surface-subtle)",
+                    borderColor: "var(--border-subtle)",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => openModal("sync")}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium min-w-0 flex-1 text-left transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{ color: "var(--text-secondary)" }}
+                    title={
+                      gistConfig.lastSyncedAt
+                        ? `Last ${gistConfig.lastDirection || "sync"}: ${new Date(gistConfig.lastSyncedAt).toLocaleString()}`
+                        : "Configure GitHub Gist Sync"
+                    }
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">Gist Sync</span>
+                  </button>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      disabled={gistSyncBusy !== null || !hasGistToken}
+                      onClick={() => void quickPushGist()}
+                      className="h-7 w-7 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface)] disabled:opacity-40 cursor-pointer"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
+                      title={
+                        hasGistToken
+                          ? "Quick Push to GitHub Gist"
+                          : "Add GitHub token in Gist Sync to push"
+                      }
+                      aria-label="Quick Push to GitHub Gist"
+                    >
+                      {gistSyncBusy === "push" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <CloudUpload className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={gistSyncBusy !== null || !hasGistId}
+                      onClick={() => void quickPullGist()}
+                      className="h-7 w-7 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface)] disabled:opacity-40 cursor-pointer"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
+                      title={
+                        hasGistId
+                          ? "Instant Pull from GitHub Gist"
+                          : "Push once or add Gist ID to pull"
+                      }
+                      aria-label="Instant Pull from GitHub Gist"
+                    >
+                      {gistSyncBusy === "pull" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <CloudDownload className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openModal("sync")}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-medium transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Gist Sync</span>
+                  </span>
+                  <span style={{ color: "var(--text-muted)" }}>Setup</span>
+                </button>
+              )}
+
+              {/* Bottom Row: Wide Settings Button */}
+              <button
+                type="button"
+                onClick={() => openModal("appearance")}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-semibold transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-primary)",
+                }}
               >
                 <span className="flex items-center gap-2">
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Gist Sync</span>
+                  <Settings
+                    className="w-3.5 h-3.5"
+                    style={{ color: "var(--accent)" }}
+                  />
+                  <span>Settings</span>
                 </span>
-                <span style={{ color: "var(--text-muted)" }}>Setup</span>
+                <span
+                  className="text-[11px] font-normal capitalize"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {workspace.settings.theme} · {workspace.settings.xActiveLimit}
+                </span>
               </button>
-            )}
-
-            {/* Bottom Row: Wide Settings Button */}
-            <button
-              type="button"
-              onClick={() => openModal("appearance")}
-              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-semibold transition-colors hover:bg-[var(--bg-surface-subtle)]"
-              style={{
-                backgroundColor: "var(--bg-surface)",
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-primary)",
-              }}
-            >
-              <span className="flex items-center gap-2">
-                <Settings
-                  className="w-3.5 h-3.5"
-                  style={{ color: "var(--accent)" }}
-                />
-                <span>Settings</span>
-              </span>
-              <span
-                className="text-[11px] font-normal capitalize"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {workspace.settings.theme} · {workspace.settings.xActiveLimit}
-              </span>
-            </button>
-          </div>
+            </div>
+          )}
         </aside>
       )}
+
+      {/* Floating Desktop Rail Tooltip Overlay (unclipped outside <nav> scroll bounds) */}
+      {desktopSidebarCollapsed &&
+        railTooltip &&
+        !settingsOpen &&
+        !(activeView === "library" && libraryZenMode) && (
+          <div
+            role="tooltip"
+            className="hidden lg:flex items-center gap-2 fixed left-[76px] -translate-y-1/2 z-50 pointer-events-none px-3 py-1.5 rounded-xl border whitespace-nowrap"
+            style={{
+              top: `${railTooltip.top}px`,
+              backgroundColor: "var(--bg-elevated)",
+              borderColor: "var(--border-strong)",
+              color: "var(--text-primary)",
+              boxShadow: "var(--shadow-popover)",
+            }}
+          >
+            <span className="text-xs font-semibold">{railTooltip.label}</span>
+            {railTooltip.sublabel && (
+              <>
+                <span
+                  aria-hidden="true"
+                  className="text-[11px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  ·
+                </span>
+                <span
+                  className="text-[11px] font-mono tabular-nums"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {railTooltip.sublabel}
+                </span>
+              </>
+            )}
+          </div>
+        )}
 
       {/* Mobile Compact Top Bar */}
       <header
