@@ -42,6 +42,7 @@ export async function exportLibraryBackupZip(params: {
   viewFolders: ViewFolderRecord[];
   bookmarks: BookmarkRecord[];
   highlights: HighlightRecord[];
+  inAppOnly?: boolean;
 }): Promise<Blob> {
   const zip = new JSZip();
   const exportedAt = Date.now();
@@ -51,10 +52,27 @@ export async function exportLibraryBackupZip(params: {
     fileName: string;
   }> = [];
 
-  for (const book of params.books) {
+  let candidateBooks = params.books;
+  let idbBookIds: Set<string> | null = null;
+  if (params.inAppOnly) {
+    const audit = await libraryDb.auditStorageFiles().catch(() => []);
+    idbBookIds = new Set(audit.map((a) => a.bookId));
+    candidateBooks = params.books.filter(
+      (b) => b.storageMode !== "android-uri" && idbBookIds!.has(b.id),
+    );
+  }
+
+  const exportedBookIds = new Set<string>();
+
+  for (const book of candidateBooks) {
     let data: ArrayBuffer | null = null;
     try {
-      data = await resolveBookFileBuffer(book);
+      if (params.inAppOnly) {
+        const stored = await libraryDb.getBookFile(book.id);
+        data = stored?.data ?? null;
+      } else {
+        data = await resolveBookFileBuffer(book);
+      }
     } catch {
       data = null;
     }
@@ -63,18 +81,38 @@ export async function exportLibraryBackupZip(params: {
     const archivePath = `files/${book.id}.${safeExt}`;
     zip.file(archivePath, data);
     fileEntries.push({ bookId: book.id, archivePath, fileName: book.fileName });
+    exportedBookIds.add(book.id);
   }
+
+  const exportedBooks = params.inAppOnly
+    ? candidateBooks.filter((b) => exportedBookIds.has(b.id))
+    : params.books;
+
+  const exportedBookmarks = params.inAppOnly
+    ? params.bookmarks.filter((bm) => exportedBookIds.has(bm.bookId))
+    : params.bookmarks;
+
+  const exportedHighlights = params.inAppOnly
+    ? params.highlights.filter((hl) => exportedBookIds.has(hl.bookId))
+    : params.highlights;
+
+  const exportedViewFolders = params.inAppOnly
+    ? params.viewFolders.map((vf) => ({
+        ...vf,
+        bookIds: vf.bookIds.filter((bid) => exportedBookIds.has(bid)),
+      }))
+    : params.viewFolders;
 
   const manifest = {
     version: 1,
     app: "kanso-library",
     exportedAt,
-    books: params.books,
+    books: exportedBooks,
     folders: params.folders,
     categories: params.categories,
-    viewFolders: params.viewFolders,
-    bookmarks: params.bookmarks,
-    highlights: params.highlights,
+    viewFolders: exportedViewFolders,
+    bookmarks: exportedBookmarks,
+    highlights: exportedHighlights,
     fileEntries,
   };
 

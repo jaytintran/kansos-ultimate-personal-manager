@@ -103,7 +103,7 @@ export const MobileBookActionSheet: React.FC<MobileBookActionSheetProps> = ({
           {isMissing && (
             <p className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-[var(--warning)]">
               <AlertTriangle className="w-3 h-3 shrink-0" />
-              <span>File missing on this device</span>
+              <span>Linked device file unavailable</span>
             </p>
           )}
         </div>

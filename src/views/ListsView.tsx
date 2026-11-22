@@ -43,6 +43,7 @@ import {
   getEntryDayKey,
   toLocalDateKey,
 } from "../utils/date";
+import { VIEW_PREFERENCE_SYNC_EVENT } from "../utils/viewPreferences";
 
 type ListsSubTab = "items" | "notes" | "events";
 type ContextPaneTab = "notes" | "events";
@@ -253,6 +254,30 @@ export const ListsView: React.FC<ListsViewProps> = ({
       // Ignore
     }
   }, [prefs]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      try {
+        const raw = localStorage.getItem(PREFS_KEY);
+        if (raw) {
+          setPrefs({
+            viewMode: "stacked",
+            groupBy: "status",
+            thenBy: "none",
+            sortBy: "custom",
+            splitOpen: true,
+            ...JSON.parse(raw),
+          });
+        }
+      } catch {
+        // Ignore
+      }
+    };
+    window.addEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    return () => {
+      window.removeEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    };
+  }, []);
 
   useEffect(() => {
     if (!activeLists.some((l) => l.id === selectedListId)) {

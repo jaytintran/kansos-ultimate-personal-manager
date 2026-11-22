@@ -373,6 +373,7 @@ export interface KansoWorkspace {
   streamPresets: StreamPreset[];
   streamerState: StreamerState;
   settings: WorkspaceSettings;
+  viewPreferences?: Record<string, string>;
 }
 
 export interface ToastMessage {

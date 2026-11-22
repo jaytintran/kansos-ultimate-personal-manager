@@ -26,6 +26,8 @@ import {
 } from "lucide-react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { pruneMissingBookVoicePreferences } from "../hooks/useVoicePreferences";
+import { exportLibraryBackupZip } from "../lib/backup";
+import { findOrphanedMissingBookIds } from "../lib/bookFileLoader";
 import { libraryDb, type BookFileAuditEntry } from "../lib/db";
 import { formatFileSize } from "../lib/formatters";
 import {
@@ -132,6 +134,7 @@ const LOCAL_STORAGE_KEY_LABELS: Record<string, string> = {
   kanso_notes_view_mode_v1: "Notes Layout Mode",
   kanso_lists_prefs_v1: "Lists View Preferences",
   kanso_events_filters_v1: "Events Filter State",
+  kanso_streamer_vault_sort_v1: "Streamer Vault Sort Order",
   kanso_library_studio_prefs_v1: "Library & Reader Preferences",
   kanso_library_voice_prefs_v1: "Audiobook Voice Preferences",
   kanso_android_import_mode_v1: "Android Library Import Mode",
@@ -174,6 +177,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     replaceWorkspace,
     purgeWorkspaceSection,
     deleteBook,
+    deleteBooks,
     clearWorkspaceData,
     restoreSampleData,
     pushToast,
@@ -187,6 +191,10 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
   const [syncError, setSyncError] = useState<string | null>(null);
   const [pullPreview, setPullPreview] = useState<GistPullPreview | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [orphanedMissingBookIds, setOrphanedMissingBookIds] = useState<
+    string[]
+  >([]);
+  const [cleaningMissingBooks, setCleaningMissingBooks] = useState(false);
 
   // Storage Tab State
   const [storageLoading, setStorageLoading] = useState(false);
@@ -271,6 +279,21 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
       void refreshStorageAudit();
     }
   }, [open, tab, refreshStorageAudit]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void findOrphanedMissingBookIds(workspace.books)
+      .then((ids) => {
+        if (!cancelled) setOrphanedMissingBookIds(Array.from(ids));
+      })
+      .catch(() => {
+        if (!cancelled) setOrphanedMissingBookIds([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, workspace.books]);
 
   useEffect(() => {
     if (!open) return;
@@ -412,7 +435,8 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     if (!pullPreview) return;
     replaceWorkspace(
       pullPreview.workspace,
-      "Replaced local workspace from GitHub Gist",
+      "Replaced local workspace from GitHub Gist (Library preserved)",
+      { preserveLocalLibrary: true },
     );
     updateGistConfig({
       lastSyncedAt: new Date().toISOString(),
@@ -507,6 +531,67 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     } finally {
       setStorageBusyKey(null);
       setConfirmActionKey(null);
+    }
+  };
+
+  const handleExportInAppLibraryZip = async () => {
+    const inAppCount = auditEntries.filter((entry) => {
+      const book = bookMap.get(entry.bookId);
+      return book && book.storageMode !== "android-uri";
+    }).length;
+    if (inAppCount === 0) {
+      pushToast("No in-app ebook files found in IndexedDB to export", "neutral");
+      return;
+    }
+    setStorageBusyKey("export-library-zip");
+    try {
+      const blob = await exportLibraryBackupZip({
+        books: workspace.books,
+        folders: workspace.libraryFolders ?? [],
+        categories: workspace.libraryCategories ?? [],
+        viewFolders: workspace.libraryViewFolders ?? [],
+        bookmarks: workspace.bookBookmarks ?? [],
+        highlights: workspace.bookHighlights ?? [],
+        inAppOnly: true,
+      });
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `kanso-library-inapp-backup-${dateStr}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      pushToast(
+        `Exported ${inAppCount} in-app ${inAppCount === 1 ? "book" : "books"} & metadata ZIP`,
+        "success",
+      );
+    } catch (err) {
+      pushToast(
+        err instanceof Error ? err.message : "Failed to export Library ZIP",
+        "error",
+      );
+    } finally {
+      setStorageBusyKey(null);
+    }
+  };
+
+  const handleCleanUpMissingBookCards = async () => {
+    if (orphanedMissingBookIds.length === 0 || cleaningMissingBooks) return;
+    setCleaningMissingBooks(true);
+    try {
+      const count = orphanedMissingBookIds.length;
+      await deleteBooks(orphanedMissingBookIds, "keep");
+      setOrphanedMissingBookIds([]);
+      pushToast(
+        `Cleaned up ${count} old missing book ${count === 1 ? "card" : "cards"}`,
+        "success",
+      );
+    } catch {
+      pushToast("Failed to clean up missing book cards", "error");
+    } finally {
+      setCleaningMissingBooks(false);
     }
   };
 
@@ -900,12 +985,40 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
               >
                 Kanso runs 100% offline. Connect a GitHub Personal Access Token
                 with the <span className="font-mono">gist</span> scope to push
-                and pull your workspace snapshot (replace-only on pull). Book
-                metadata, covers, notes, highlights, Streamer Vault &amp;
-                presets sync across devices, while binary e-book files, active
-                Streamer grid layout, and Reader typography/voice settings stay
-                per-device.
+                and pull your workspace snapshot across devices (replace-only on
+                pull). Tasks, Focus, Habits, Lists, Events, Notes, Streamer Vault
+                &amp; presets, and all App &amp; View settings sync seamlessly.
               </p>
+
+              <div
+                className="p-3 rounded-xl border flex items-start gap-2.5 text-xs leading-relaxed"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <BookOpen
+                  className="w-4 h-4 shrink-0 mt-0.5"
+                  style={{ color: "var(--accent)" }}
+                />
+                <div>
+                  <span
+                    className="font-semibold"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    Library stays local per device:
+                  </span>{" "}
+                  Library books, annotations, and book-linked notes are excluded
+                  from Gist sync because e-book binaries and Android storage
+                  links live locally on each device. Pulling from Gist leaves
+                  your local Library untouched. Use{" "}
+                  <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+                    Storage → Export Library ZIP
+                  </span>{" "}
+                  to transfer in-app books between devices.
+                </div>
+              </div>
 
               <div className="space-y-3">
                 <div className="space-y-1">
@@ -1534,6 +1647,61 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                   </div>
                 </div>
 
+                {/* One-click Cleanup for Old Missing Book Cards */}
+                <div
+                  className="p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor:
+                      orphanedMissingBookIds.length > 0
+                        ? "var(--accent)"
+                        : "var(--border-subtle)",
+                  }}
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold">
+                      Old Missing Book Cards
+                    </div>
+                    <div
+                      className="text-[11px] mt-0.5"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {orphanedMissingBookIds.length > 0
+                        ? `${orphanedMissingBookIds.length} ${orphanedMissingBookIds.length === 1 ? "book card has" : "book cards have"} no local file on this device (from earlier cross-device sync).`
+                        : "All local Library book cards have valid files or device links."}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={
+                      orphanedMissingBookIds.length === 0 ||
+                      cleaningMissingBooks
+                    }
+                    onClick={() => void handleCleanUpMissingBookCards()}
+                    className="h-8 px-3 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 shrink-0 disabled:opacity-45 cursor-pointer"
+                    style={{
+                      backgroundColor: "var(--bg-surface-subtle)",
+                      borderColor:
+                        orphanedMissingBookIds.length > 0
+                          ? "var(--danger)"
+                          : "var(--border-subtle)",
+                      color:
+                        orphanedMissingBookIds.length > 0
+                          ? "var(--danger)"
+                          : "var(--text-muted)",
+                    }}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>
+                      {cleaningMissingBooks
+                        ? "Cleaning…"
+                        : orphanedMissingBookIds.length > 0
+                          ? `Clean Up Missing Cards (${orphanedMissingBookIds.length})`
+                          : "No Missing Cards"}
+                    </span>
+                  </button>
+                </div>
+
                 <div className="flex flex-wrap items-center gap-2.5">
                   {!confirmClear ? (
                     <button
@@ -2101,13 +2269,35 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                       this device.
                     </div>
                   </div>
-                  {auditEntries.length > 0 &&
-                    renderConfirmButton(
-                      "clear-all-blobs",
-                      "Clear All Files",
-                      () => void handleClearAllBookFiles(),
-                      storageBusyKey !== null,
-                    )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={
+                        auditEntries.length === 0 || storageBusyKey !== null
+                      }
+                      onClick={() => void handleExportInAppLibraryZip()}
+                      className="h-7 px-2.5 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-subtle)] disabled:opacity-45 cursor-pointer"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>
+                        {storageBusyKey === "export-library-zip"
+                          ? "Exporting…"
+                          : "Export Library ZIP"}
+                      </span>
+                    </button>
+                    {auditEntries.length > 0 &&
+                      renderConfirmButton(
+                        "clear-all-blobs",
+                        "Clear All Files",
+                        () => void handleClearAllBookFiles(),
+                        storageBusyKey !== null,
+                      )}
+                  </div>
                 </div>
 
                 {orphanBlobs.length > 0 && (

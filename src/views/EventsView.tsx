@@ -24,6 +24,7 @@ import {
   getTodayKey,
   parseLocalDateKey,
 } from "../utils/date";
+import { VIEW_PREFERENCE_SYNC_EVENT } from "../utils/viewPreferences";
 
 type EventCatFilter = "all" | "official" | "personal";
 type EventTimeframeFilter = "all" | "upcoming" | "today" | "past";
@@ -87,6 +88,29 @@ export const EventsView: React.FC<EventsViewProps> = ({
       // Ignore
     }
   }, [filters]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      try {
+        const raw = localStorage.getItem(FILTER_STORAGE_KEY);
+        if (raw) {
+          setFilters({
+            category: "all",
+            timeframe: "all",
+            sort: "date-asc",
+            viewMode: "grid",
+            ...JSON.parse(raw),
+          });
+        }
+      } catch {
+        // Ignore
+      }
+    };
+    window.addEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    return () => {
+      window.removeEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    };
+  }, []);
 
   const allEvents = useMemo(
     () => workspace.entries.filter((e) => e.type === "event"),

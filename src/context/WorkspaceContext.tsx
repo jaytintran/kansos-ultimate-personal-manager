@@ -57,9 +57,14 @@ import {
   toLocalDateKey,
 } from "../utils/date";
 import { releaseAndroidUri } from "../utils/androidSaf";
-import { pullWorkspaceFromGist, pushWorkspaceToGist } from "../utils/gist";
+import {
+  isBookLinkedNote,
+  pullWorkspaceFromGist,
+  pushWorkspaceToGist,
+} from "../utils/gist";
 import { syncNativeStatusBar } from "../utils/nativeStatusBar";
 import { parseNlpInput } from "../utils/nlp";
+import { applySyncedViewPreferences } from "../utils/viewPreferences";
 
 const STORAGE_WORKSPACE_KEY = "kanso_workspace_v1";
 const STORAGE_GIST_KEY = "kanso_gist_config_v1";
@@ -513,7 +518,11 @@ interface WorkspaceContextValue {
   quickPullGist: () => Promise<boolean>;
   updateSettings: (patch: Partial<WorkspaceSettings>) => void;
   updateGistConfig: (patch: Partial<GistSyncConfig>) => void;
-  replaceWorkspace: (next: KansoWorkspace, toastMessage?: string) => void;
+  replaceWorkspace: (
+    next: KansoWorkspace,
+    toastMessage?: string,
+    options?: { preserveLocalLibrary?: boolean },
+  ) => void;
   purgeWorkspaceSection: (
     toastMessage: string,
     updater: (prev: KansoWorkspace) => KansoWorkspace,
@@ -2861,121 +2870,172 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   const replaceWorkspace = useCallback(
-    (next: KansoWorkspace, toastMessage?: string) => {
+    (
+      next: KansoWorkspace,
+      toastMessage?: string,
+      options?: { preserveLocalLibrary?: boolean },
+    ) => {
       hasUserMutatedRef.current = true;
+      const preserveLocalLibrary = options?.preserveLocalLibrary ?? false;
       const empty = createEmptyWorkspace();
-      const normalizedLib = normalizeLibraryWorkspaceData({
-        books: next.books,
-        libraryFolders: next.libraryFolders,
-        libraryCategories: next.libraryCategories,
-        libraryViewFolders: next.libraryViewFolders,
-        bookBookmarks: next.bookBookmarks,
-        bookHighlights: next.bookHighlights,
-      });
+      const { viewPreferences: incomingViewPrefs, ...cleanNext } = next;
 
-      const nextStreams = Array.isArray(next.streams) ? next.streams : [];
+      const normalizedLib = preserveLocalLibrary
+        ? null
+        : normalizeLibraryWorkspaceData({
+            books: cleanNext.books,
+            libraryFolders: cleanNext.libraryFolders,
+            libraryCategories: cleanNext.libraryCategories,
+            libraryViewFolders: cleanNext.libraryViewFolders,
+            bookBookmarks: cleanNext.bookBookmarks,
+            bookHighlights: cleanNext.bookHighlights,
+          });
+
+      const nextStreams = Array.isArray(cleanNext.streams)
+        ? cleanNext.streams
+        : [];
       const validPulledStreamIds = new Set(nextStreams.map((s) => s.id));
 
       setWorkspace((prev) => {
-        // Map local device-only book storage bindings by ID and SHA-256 hash
-        const localBindingById = new Map<
-          string,
-          { storageMode: BookRecord["storageMode"]; externalUri?: string }
-        >();
-        const localBindingByHash = new Map<
-          string,
-          { storageMode: BookRecord["storageMode"]; externalUri?: string }
-        >();
-        for (const localBook of prev.books) {
-          if (localBook.storageMode === "android-uri" && localBook.externalUri) {
-            const binding = {
-              storageMode: localBook.storageMode,
-              externalUri: localBook.externalUri,
-            };
-            localBindingById.set(localBook.id, binding);
-            if (localBook.fileHash) {
-              localBindingByHash.set(localBook.fileHash, binding);
-            }
-          }
-        }
-
-        // Pull metadata & covers from remote; strip any foreign device URIs and re-attach local ones
-        const mergedBooks = normalizedLib.books.map((remoteBook) => {
-          const {
-            externalUri: _foreignUri,
-            storageMode: _foreignMode,
-            ...cleanRemote
-          } = remoteBook;
-          const localBinding =
-            localBindingById.get(remoteBook.id) ??
-            (remoteBook.fileHash
-              ? localBindingByHash.get(remoteBook.fileHash)
-              : undefined);
-          return localBinding ? { ...cleanRemote, ...localBinding } : cleanRemote;
-        });
-
-        // Keep local active Streamer grid & reader prefs per-device while syncing Vault items & Presets
         const preservedStreamerState = normalizeStreamerState(
           prev.streamerState,
           validPulledStreamIds,
         );
 
+        const nextEntriesRaw = migrateEntries(
+          Array.isArray(cleanNext.entries) ? cleanNext.entries : [],
+        );
+
+        let finalEntries: Entry[];
+        let finalBooks: BookRecord[];
+        let finalLibraryFolders: LibraryFolder[];
+        let finalLibraryCategories: LibraryCategory[];
+        let finalLibraryViewFolders: LibraryViewFolder[];
+        let finalBookBookmarks: BookBookmark[];
+        let finalBookHighlights: BookHighlight[];
+
+        if (preserveLocalLibrary) {
+          // Leave the local device's Library and book-linked notes completely untouched
+          const localBookNotes = prev.entries.filter(isBookLinkedNote);
+          const remoteNonBookEntries = nextEntriesRaw.filter(
+            (e) => !isBookLinkedNote(e),
+          );
+          finalEntries = [...localBookNotes, ...remoteNonBookEntries];
+          finalBooks = prev.books;
+          finalLibraryFolders = prev.libraryFolders ?? [];
+          finalLibraryCategories = prev.libraryCategories ?? [];
+          finalLibraryViewFolders = prev.libraryViewFolders ?? [];
+          finalBookBookmarks = prev.bookBookmarks ?? [];
+          finalBookHighlights = prev.bookHighlights ?? [];
+        } else {
+          const lib = normalizedLib!;
+          const localBindingById = new Map<
+            string,
+            { storageMode: BookRecord["storageMode"]; externalUri?: string }
+          >();
+          const localBindingByHash = new Map<
+            string,
+            { storageMode: BookRecord["storageMode"]; externalUri?: string }
+          >();
+          for (const localBook of prev.books) {
+            if (localBook.storageMode === "android-uri" && localBook.externalUri) {
+              const binding = {
+                storageMode: localBook.storageMode,
+                externalUri: localBook.externalUri,
+              };
+              localBindingById.set(localBook.id, binding);
+              if (localBook.fileHash) {
+                localBindingByHash.set(localBook.fileHash, binding);
+              }
+            }
+          }
+
+          finalEntries = nextEntriesRaw;
+          finalBooks = lib.books.map((remoteBook) => {
+            const {
+              externalUri: _foreignUri,
+              storageMode: _foreignMode,
+              ...cleanRemote
+            } = remoteBook;
+            const localBinding =
+              localBindingById.get(remoteBook.id) ??
+              (remoteBook.fileHash
+                ? localBindingByHash.get(remoteBook.fileHash)
+                : undefined);
+            return localBinding ? { ...cleanRemote, ...localBinding } : cleanRemote;
+          });
+          finalLibraryFolders = lib.libraryFolders;
+          finalLibraryCategories = lib.libraryCategories;
+          finalLibraryViewFolders = lib.libraryViewFolders;
+          finalBookBookmarks = lib.bookBookmarks;
+          finalBookHighlights = lib.bookHighlights;
+        }
+
         return purgeWorkspace({
           ...empty,
-          ...next,
+          ...cleanNext,
           version: 3,
-          entries: migrateEntries(
-            Array.isArray(next.entries) ? next.entries : [],
-          ),
-          scratchpads: Array.isArray(next.scratchpads) ? next.scratchpads : [],
-          customTabs: Array.isArray(next.customTabs) ? next.customTabs : [],
-          habitLogs: Array.isArray(next.habitLogs) ? next.habitLogs : [],
-          noteNotebooks: Array.isArray(next.noteNotebooks)
-            ? next.noteNotebooks
+          entries: finalEntries,
+          scratchpads: Array.isArray(cleanNext.scratchpads)
+            ? cleanNext.scratchpads
             : [],
-          books: mergedBooks,
-          libraryFolders: normalizedLib.libraryFolders,
-          libraryCategories: normalizedLib.libraryCategories,
-          libraryViewFolders: normalizedLib.libraryViewFolders,
-          bookBookmarks: normalizedLib.bookBookmarks,
-          bookHighlights: normalizedLib.bookHighlights,
+          customTabs: Array.isArray(cleanNext.customTabs)
+            ? cleanNext.customTabs
+            : [],
+          habitLogs: Array.isArray(cleanNext.habitLogs)
+            ? cleanNext.habitLogs
+            : [],
+          noteNotebooks: Array.isArray(cleanNext.noteNotebooks)
+            ? cleanNext.noteNotebooks
+            : [],
+          books: finalBooks,
+          libraryFolders: finalLibraryFolders,
+          libraryCategories: finalLibraryCategories,
+          libraryViewFolders: finalLibraryViewFolders,
+          bookBookmarks: finalBookBookmarks,
+          bookHighlights: finalBookHighlights,
           streams: nextStreams,
-          streamFolders: Array.isArray(next.streamFolders)
-            ? next.streamFolders
+          streamFolders: Array.isArray(cleanNext.streamFolders)
+            ? cleanNext.streamFolders
             : [],
-          streamPresets: Array.isArray(next.streamPresets)
-            ? next.streamPresets
+          streamPresets: Array.isArray(cleanNext.streamPresets)
+            ? cleanNext.streamPresets
             : [],
           streamerState: preservedStreamerState,
           settings: {
             ...empty.settings,
-            ...(next.settings || {}),
+            ...(cleanNext.settings || {}),
             timelineDisplayMode:
-              next.settings?.timelineDisplayMode || "default",
+              cleanNext.settings?.timelineDisplayMode || "default",
             epubPrefs: {
               ...empty.settings.epubPrefs!,
-              ...(prev.settings?.epubPrefs || {}),
+              ...(cleanNext.settings?.epubPrefs || {}),
             },
           },
         });
       });
 
-      const validBookIds = new Set(normalizedLib.books.map((b) => b.id));
-      pruneMissingBookVoicePreferences(validBookIds);
+      // Apply synced view preferences to localStorage and notify active views
+      applySyncedViewPreferences(incomingViewPrefs);
 
-      void (async () => {
-        try {
-          await Promise.all([
-            libraryDb.replaceAllAnnotations(
-              normalizedLib.bookBookmarks,
-              normalizedLib.bookHighlights,
-            ),
-            libraryDb.pruneBookFiles(validBookIds),
-          ]);
-        } catch {
-          // Ignore
-        }
-      })();
+      if (!preserveLocalLibrary && normalizedLib) {
+        const validBookIds = new Set(normalizedLib.books.map((b) => b.id));
+        pruneMissingBookVoicePreferences(validBookIds);
+
+        void (async () => {
+          try {
+            await Promise.all([
+              libraryDb.replaceAllAnnotations(
+                normalizedLib.bookBookmarks,
+                normalizedLib.bookHighlights,
+              ),
+              libraryDb.pruneBookFiles(validBookIds),
+            ]);
+          } catch {
+            // Ignore
+          }
+        })();
+      }
 
       if (toastMessage) pushToast(toastMessage, "success");
     },
@@ -3029,6 +3089,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       replaceWorkspace(
         preview.workspace,
         "Pulled workspace from GitHub Gist",
+        { preserveLocalLibrary: true },
       );
       updateGistConfig({
         lastSyncedAt: new Date().toISOString(),

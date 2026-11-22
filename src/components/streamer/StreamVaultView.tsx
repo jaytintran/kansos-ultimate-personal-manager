@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { StreamFolder, StreamItem } from '../../types';
+import { VIEW_PREFERENCE_SYNC_EVENT } from '../../utils/viewPreferences';
 import { StreamEditorDrawer } from './StreamEditorDrawer';
 import {
   getDescendantFolderIds,
@@ -132,6 +133,30 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       // Ignore storage errors
     }
   }, [sortBy]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      try {
+        const saved = localStorage.getItem(VAULT_SORT_PREFS_KEY);
+        if (
+          saved === 'custom' ||
+          saved === 'recent' ||
+          saved === 'listens' ||
+          saved === 'rating' ||
+          saved === 'title' ||
+          saved === 'channel'
+        ) {
+          setSortBy(saved);
+        }
+      } catch {
+        // Ignore
+      }
+    };
+    window.addEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    return () => {
+      window.removeEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    };
+  }, []);
 
   useEffect(() => {
     window.addEventListener('dragend', clearDragState);

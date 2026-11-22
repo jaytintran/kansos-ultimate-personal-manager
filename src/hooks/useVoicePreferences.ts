@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BookVoiceOverride, NarratorTone } from "../types/library";
+import { VIEW_PREFERENCE_SYNC_EVENT } from "../utils/viewPreferences";
 
 export interface NarratorToneOption {
   id: NarratorTone;
@@ -141,6 +142,16 @@ export function useVoicePreferences(bookId: string) {
       // Ignore quota errors
     }
   }, [stored]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      setStored(loadVoicePrefs());
+    };
+    window.addEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    return () => {
+      window.removeEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    };
+  }, []);
 
   const hasBookOverride = Boolean(stored.perBook[bookId]);
 

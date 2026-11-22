@@ -227,8 +227,8 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
             <div className="mt-3 w-full rounded-md border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-left text-[11px] text-[var(--warning)] flex items-start gap-2">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
               <span>
-                Book file missing on this device. Relink a local file to read
-                while keeping all notes and progress.
+                Linked Android file could not be read. Relink from device
+                storage to keep reading with your notes and progress intact.
               </span>
             </div>
           )}

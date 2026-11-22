@@ -20,6 +20,7 @@ import {
   getTodayKey,
   isHabitScheduledOnDay,
 } from "../utils/date";
+import { VIEW_PREFERENCE_SYNC_EVENT } from "../utils/viewPreferences";
 
 type HabitsViewMode = "matrix" | "cards";
 type HabitsRange = "7d" | "14d" | "1m";
@@ -132,6 +133,23 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
     setMatrixOffset(0);
     setCardOffsets({});
   }, [range]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      try {
+        const nextMode = localStorage.getItem(VIEW_MODE_KEY) as HabitsViewMode | null;
+        setViewMode(nextMode === "cards" ? "cards" : "matrix");
+        const nextRange = localStorage.getItem(RANGE_KEY) as HabitsRange | null;
+        setRange(nextRange === "14d" || nextRange === "1m" ? nextRange : "7d");
+      } catch {
+        // Ignore
+      }
+    };
+    window.addEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    return () => {
+      window.removeEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    };
+  }, []);
 
   const activeHabits = useMemo(() => workspace.habits, [workspace.habits]);
 

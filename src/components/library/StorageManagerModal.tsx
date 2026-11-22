@@ -205,6 +205,21 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
     return linked;
   }, [books, readableUriSet]);
 
+  const isAndroidApp = useMemo(() => isAndroidCapacitor(), []);
+
+  const missingAndroidLinkIds = useMemo(() => {
+    if (isAuditing || !isAndroidApp) return new Set<string>();
+    const missing = new Set<string>();
+    for (const book of books) {
+      if (book.storageMode !== "android-uri") continue;
+      if (linkedReadableBookIds.has(book.id)) continue;
+      if (!auditByBookId.has(book.id)) {
+        missing.add(book.id);
+      }
+    }
+    return missing;
+  }, [books, auditByBookId, isAuditing, isAndroidApp, linkedReadableBookIds]);
+
   const missingBookIds = useMemo(() => {
     if (isAuditing) return new Set<string>();
     const missing = new Set<string>();
@@ -515,8 +530,13 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
                     <strong className="font-mono-tabular">
                       {missingBookIds.size}
                     </strong>{" "}
-                    {missingBookIds.size === 1 ? "book is" : "books are"}{" "}
-                    missing file data
+                    {missingAndroidLinkIds.size === missingBookIds.size
+                      ? missingBookIds.size === 1
+                        ? "linked book is unreachable"
+                        : "linked books are unreachable"
+                      : missingBookIds.size === 1
+                        ? "book has no local file on this device"
+                        : "books have no local file on this device"}
                   </span>
                   <button
                     type="button"
@@ -527,7 +547,7 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
                     }
                     className="text-[11px] font-medium underline cursor-pointer whitespace-nowrap"
                   >
-                    {issueFilter === "missing" ? "Show All" : "Show Missing"}
+                    {issueFilter === "missing" ? "Show All" : "Show Affected"}
                   </button>
                 </div>
               )}
@@ -704,6 +724,7 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
                     : 0;
                 const duplicateInfo = duplicatePartnerMap.get(book.id);
                 const isLinkedReadable = linkedReadableBookIds.has(book.id);
+                const isBrokenAndroidLink = missingAndroidLinkIds.has(book.id);
                 const isMissing = missingBookIds.has(book.id);
                 const isReplacing = replacingBookId === book.id;
                 const isConfirmingDelete = confirmDeleteId === book.id;
@@ -777,12 +798,17 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
                                 Linked on device storage ({formatFileSize(book.fileSize)})
                               </span>
                             )}
-                            {isMissing && (
+                            {isBrokenAndroidLink ? (
                               <span className="inline-flex items-center gap-1 text-[var(--danger)] font-medium">
                                 <AlertTriangle className="w-3 h-3 shrink-0" />
-                                File missing on this device — relink to restore
+                                Linked Android file unavailable — relink to restore
                               </span>
-                            )}
+                            ) : isMissing ? (
+                              <span className="inline-flex items-center gap-1 text-[var(--danger)] font-medium">
+                                <AlertTriangle className="w-3 h-3 shrink-0" />
+                                No local file on this device (0 B)
+                              </span>
+                            ) : null}
                             {duplicateInfo && (
                               <span className="inline-flex items-center gap-1 text-[var(--accent)]">
                                 <AlertTriangle className="w-3 h-3 shrink-0" />
@@ -820,10 +846,14 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
                           type="button"
                           disabled={Boolean(replacingBookId || deletingBookId)}
                           onClick={() => handleTriggerReplace(book)}
-                          title="Relink or replace stored file while preserving metadata and notes"
+                          title={
+                            isBrokenAndroidLink
+                              ? "Relink broken Android device file while preserving metadata and notes"
+                              : "Replace stored file while preserving metadata and notes"
+                          }
                           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md border border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] hover:border-[var(--accent)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
                         >
-                          {isMissing ? (
+                          {isBrokenAndroidLink ? (
                             <Link2 className="w-3 h-3 text-[var(--accent)] shrink-0" />
                           ) : (
                             <FileUp className="w-3 h-3 text-[var(--accent)] shrink-0" />
@@ -831,7 +861,7 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
                           <span>
                             {isReplacing
                               ? "Replacing…"
-                              : isMissing
+                              : isBrokenAndroidLink
                                 ? "Relink File"
                                 : "Replace File"}
                           </span>

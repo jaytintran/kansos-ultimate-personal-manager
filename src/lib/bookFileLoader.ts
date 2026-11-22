@@ -63,11 +63,51 @@ export async function resolveBookFileBuffer(
 }
 
 /**
- * Audits which books currently have an accessible binary file on this device
- * (either in IndexedDB `book_files` or via a readable Android SAF URI).
- * Returns the Set of book IDs that are missing/unlinked.
+ * Audits broken Android SAF book links (`storageMode === "android-uri"`) on Android.
+ * Relink UI is scoped strictly to broken Android SAF links now that Library is device-local.
  */
 export async function findMissingBookIds(
+  books: BookRecord[],
+): Promise<Set<string>> {
+  const missing = new Set<string>();
+  if (books.length === 0 || !isAndroidCapacitor()) return missing;
+
+  const androidBooks = books.filter(
+    (b) =>
+      b.storageMode === "android-uri" &&
+      !b.isBuiltInSample &&
+      b.id !== "book-sample-pdf" &&
+      b.id !== "book-sample-epub",
+  );
+  if (androidBooks.length === 0) return missing;
+
+  const auditEntries = await libraryDb.auditStorageFiles().catch(() => []);
+  const idbIds = new Set(auditEntries.map((e) => e.bookId));
+
+  const androidUrisToCheck = androidBooks
+    .map((b) => b.externalUri)
+    .filter((uri): uri is string => Boolean(uri));
+
+  const uriStatusMap =
+    androidUrisToCheck.length > 0
+      ? await checkAndroidBookUris(androidUrisToCheck)
+      : {};
+
+  for (const book of androidBooks) {
+    if (idbIds.has(book.id)) continue;
+    if (book.externalUri && uriStatusMap[book.externalUri] === true) continue;
+    missing.add(book.id);
+  }
+
+  return missing;
+}
+
+/**
+ * Finds all non-sample book cards in the workspace whose local binary file is
+ * missing on this device (neither stored in IndexedDB nor backed by a readable
+ * Android SAF URI). Used for one-click cleanup of legacy Gist-synced ghost cards.
+ */
+export async function findOrphanedMissingBookIds(
   books: BookRecord[],
 ): Promise<Set<string>> {
   const missing = new Set<string>();

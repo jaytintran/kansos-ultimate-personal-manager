@@ -1,4 +1,9 @@
-import { GistSyncConfig, KansoWorkspace } from "../types";
+import { Entry, GistSyncConfig, KansoWorkspace } from "../types";
+import { collectSyncedViewPreferences } from "./viewPreferences";
+
+export function isBookLinkedNote(entry: Entry): boolean {
+  return entry.type === "note" && Boolean(entry.bookLink);
+}
 
 export interface GistPushResult {
   gistId: string;
@@ -56,20 +61,19 @@ export async function pushWorkspaceToGist(
   }
 
   const filename = (config.filename || "kanso-workspace.json").trim();
-  const sanitizedBooks = Array.isArray(workspace.books)
-    ? workspace.books.map((book) => {
-        const {
-          externalUri: _externalUri,
-          storageMode: _storageMode,
-          ...rest
-        } = book;
-        return rest;
-      })
-    : [];
 
+  // Library is device-local: exclude books, library folders/categories/shelves,
+  // bookmarks, highlights, and book-linked notes from Gist sync.
   const payload: KansoWorkspace = {
     ...workspace,
-    books: sanitizedBooks,
+    entries: workspace.entries.filter((entry) => !isBookLinkedNote(entry)),
+    books: [],
+    libraryFolders: [],
+    libraryCategories: [],
+    libraryViewFolders: [],
+    bookBookmarks: [],
+    bookHighlights: [],
+    viewPreferences: collectSyncedViewPreferences(),
     updatedAt: new Date().toISOString(),
   };
 
@@ -220,7 +224,7 @@ export async function pullWorkspaceFromGist(
       json.updated_at || parsed.updatedAt || new Date().toISOString(),
     workspace: parsed,
     summary: {
-      entries: parsed.entries.length,
+      entries: parsed.entries.filter((e) => !isBookLinkedNote(e)).length,
       habits: parsed.habits.length,
       lists: parsed.lists.length,
       listItems: parsed.listItems.length,
@@ -230,14 +234,18 @@ export async function pullWorkspaceFromGist(
       customTabs: Array.isArray(parsed.customTabs)
         ? parsed.customTabs.length
         : 0,
-      books: Array.isArray(parsed.books) ? parsed.books.length : 0,
+      books: 0,
       streams: Array.isArray(parsed.streams) ? parsed.streams.length : 0,
     },
   };
 }
 
 export function downloadWorkspaceJson(workspace: KansoWorkspace): void {
-  const blob = new Blob([JSON.stringify(workspace, null, 2)], {
+  const payload: KansoWorkspace = {
+    ...workspace,
+    viewPreferences: collectSyncedViewPreferences(),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: "application/json",
   });
   const url = URL.createObjectURL(blob);

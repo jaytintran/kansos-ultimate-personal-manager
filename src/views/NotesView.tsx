@@ -33,6 +33,7 @@ import {
   formatCompactDayHeading,
   toLocalDateKey,
 } from "../utils/date";
+import { VIEW_PREFERENCE_SYNC_EVENT } from "../utils/viewPreferences";
 
 type NoteSort = "custom" | "pinned" | "updated" | "created" | "title";
 type NotesViewMode = "grid" | "list";
@@ -185,6 +186,23 @@ export const NotesView: React.FC<NotesViewProps> = ({
       // Ignore
     }
   }, [viewMode]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      try {
+        const savedSort = localStorage.getItem(SORT_STORAGE_KEY) as NoteSort | null;
+        setSortBy(savedSort || "pinned");
+        const savedView = localStorage.getItem(VIEW_MODE_STORAGE_KEY) as NotesViewMode | null;
+        setViewMode(savedView === "list" ? "list" : "grid");
+      } catch {
+        // Ignore
+      }
+    };
+    window.addEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    return () => {
+      window.removeEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    };
+  }, []);
 
   // Reset to 'all' if the selected notebook is deleted
   useEffect(() => {

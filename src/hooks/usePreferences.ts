@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { VIEW_PREFERENCE_SYNC_EVENT } from "../utils/viewPreferences";
 import type {
   CardDetailOptions,
   CoverSize,
@@ -129,6 +130,16 @@ export function useLibraryPreferences() {
       // Ignore storage quota errors
     }
   }, [prefs]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      setPrefs(loadPrefs());
+    };
+    window.addEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    return () => {
+      window.removeEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
+    };
+  }, []);
 
   const updateUiPrefs = useCallback(
     (patch: Partial<LibraryStudioUiPreferences>) => {
