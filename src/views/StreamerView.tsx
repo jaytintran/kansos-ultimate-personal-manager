@@ -167,12 +167,19 @@ export const StreamerView = forwardRef<
   const intentionalPauseUntilRef = useRef<number>(0);
   const lastBackgroundAtRef = useRef<number>(0);
   const preBackgroundPlayingRef = useRef<Set<string>>(new Set());
+  const playingIntentsRef = useRef<Set<string>>(new Set());
   const backgroundRecoveryCountsRef = useRef<Record<string, number>>({});
+  const backgroundRecoveryTimersRef = useRef<Record<string, number>>({});
 
   const markIntentionalPause = useCallback(() => {
-    intentionalPauseUntilRef.current = Date.now() + 1800;
+    intentionalPauseUntilRef.current = Date.now() + 2000;
     preBackgroundPlayingRef.current.clear();
+    playingIntentsRef.current.clear();
     backgroundRecoveryCountsRef.current = {};
+    for (const timer of Object.values(backgroundRecoveryTimersRef.current)) {
+      window.clearTimeout(timer);
+    }
+    backgroundRecoveryTimersRef.current = {};
   }, []);
 
   // Drag-and-drop reorder state (keyed by slotId so playing YouTube iframes stay stable)
@@ -371,15 +378,26 @@ export const StreamerView = forwardRef<
       }
     }
 
+    for (const key of Array.from(playingIntentsRef.current)) {
+      if (!activeSlotIdSet.has(key)) {
+        playingIntentsRef.current.delete(key);
+        if (backgroundRecoveryTimersRef.current[key]) {
+          window.clearTimeout(backgroundRecoveryTimersRef.current[key]);
+          delete backgroundRecoveryTimersRef.current[key];
+        }
+      }
+    }
+
     if (activeSlots.length === 0) {
       setViewMuted(false);
       setAllPaused(false);
       setSleepRemainingSeconds(null);
       pausedSlotIdsRef.current = [];
+      playingIntentsRef.current.clear();
     }
   }, [activeSlotIdSet, activeSlots.length]);
 
-  // Clean up handshake timers on unmount
+  // Clean up handshake & recovery timers on unmount
   useEffect(() => {
     return () => {
       for (const timers of Object.values(handshakeTimersRef.current)) {
@@ -388,6 +406,10 @@ export const StreamerView = forwardRef<
         }
       }
       handshakeTimersRef.current = {};
+      for (const timer of Object.values(backgroundRecoveryTimersRef.current)) {
+        window.clearTimeout(timer);
+      }
+      backgroundRecoveryTimersRef.current = {};
     };
   }, []);
 
@@ -442,7 +464,7 @@ export const StreamerView = forwardRef<
       if (allPausedRef.current || Date.now() <= intentionalPauseUntilRef.current) {
         return;
       }
-      const playingSet = new Set<string>();
+      const playingSet = new Set<string>(playingIntentsRef.current);
       for (const sl of activeSlotsRef.current) {
         const st = playerStatesRef.current[sl.slotId];
         if (st === 1 || st === 3) {
@@ -467,9 +489,11 @@ export const StreamerView = forwardRef<
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("blur", recordBackgroundTransition);
+    window.addEventListener("pagehide", recordBackgroundTransition);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("blur", recordBackgroundTransition);
+      window.removeEventListener("pagehide", recordBackgroundTransition);
     };
   }, []);
 
@@ -507,35 +531,71 @@ export const StreamerView = forwardRef<
         );
         const iframe = iframeRefs.current[matchedSlotId] || null;
 
-        // Recover if Android WebView window visibility transition emitted a brief unintended pause
+        // Recover if Android WebView window transition emitted an unsolicited pause while backgrounded/unfocused
+        const isBackgroundedOrTransitioning =
+          document.hidden ||
+          !document.hasFocus() ||
+          Date.now() - lastBackgroundAtRef.current < 4000;
+
         if (
           nextState === 2 &&
           isAndroidCapacitor() &&
           !allPausedRef.current &&
           Date.now() > intentionalPauseUntilRef.current &&
-          Date.now() - lastBackgroundAtRef.current < 2500 &&
-          preBackgroundPlayingRef.current.has(matchedSlotId)
+          isBackgroundedOrTransitioning &&
+          (preBackgroundPlayingRef.current.has(matchedSlotId) ||
+            playingIntentsRef.current.has(matchedSlotId))
         ) {
           const retries = backgroundRecoveryCountsRef.current[matchedSlotId] || 0;
-          if (retries < 2 && slot && iframe) {
+          if (retries < 6 && slot && iframe) {
             backgroundRecoveryCountsRef.current[matchedSlotId] = retries + 1;
             sendYouTubeCommand(iframe, "playVideo", [], matchedSlotId);
             applySlotAudio(slot, iframe, sleepFadeRef.current);
+            if (backgroundRecoveryTimersRef.current[matchedSlotId]) {
+              window.clearTimeout(
+                backgroundRecoveryTimersRef.current[matchedSlotId],
+              );
+            }
+            backgroundRecoveryTimersRef.current[matchedSlotId] =
+              window.setTimeout(() => {
+                delete backgroundRecoveryTimersRef.current[matchedSlotId!];
+                if (
+                  !allPausedRef.current &&
+                  Date.now() > intentionalPauseUntilRef.current &&
+                  playingIntentsRef.current.has(matchedSlotId!)
+                ) {
+                  const latestIframe =
+                    iframeRefs.current[matchedSlotId!] || null;
+                  const latestSlot = activeSlotsRef.current.find(
+                    (sl) => sl.slotId === matchedSlotId,
+                  );
+                  if (latestIframe && latestSlot) {
+                    sendYouTubeCommand(
+                      latestIframe,
+                      "playVideo",
+                      [],
+                      matchedSlotId!,
+                    );
+                    applySlotAudio(
+                      latestSlot,
+                      latestIframe,
+                      sleepFadeRef.current,
+                    );
+                  }
+                }
+              }, 220);
             return;
           }
         }
 
-        setPlayerStates((prev) =>
-          prev[matchedSlotId!] === nextState
-            ? prev
-            : { ...prev, [matchedSlotId!]: nextState },
-        );
-
         if (nextState === 1 || nextState === 3) {
+          playingIntentsRef.current.add(matchedSlotId);
           setAllPaused(false);
           if (slot && iframe) {
             applySlotAudio(slot, iframe, sleepFadeRef.current);
           }
+        } else if (nextState === 2) {
+          playingIntentsRef.current.delete(matchedSlotId);
         } else if (nextState === 0 && slot) {
           // Video ended: increment loop counter & either loop or auto-pause at target
           const nextCount = (completedLoopsRef.current[matchedSlotId] || 0) + 1;
@@ -545,16 +605,24 @@ export const StreamerView = forwardRef<
           }));
 
           if (slot.loopMode === "infinite" || nextCount < slot.loopCount) {
+            playingIntentsRef.current.add(matchedSlotId);
             setLoopDoneMap((prev) => ({ ...prev, [matchedSlotId!]: false }));
             sendYouTubeCommand(iframe, "seekTo", [0, true], slot.slotId);
             sendYouTubeCommand(iframe, "playVideo", [], slot.slotId);
             applySlotAudio(slot, iframe, sleepFadeRef.current);
           } else {
+            playingIntentsRef.current.delete(matchedSlotId);
             markIntentionalPause();
             setLoopDoneMap((prev) => ({ ...prev, [matchedSlotId!]: true }));
             sendYouTubeCommand(iframe, "pauseVideo", [], slot.slotId);
           }
         }
+
+        setPlayerStates((prev) =>
+          prev[matchedSlotId!] === nextState
+            ? prev
+            : { ...prev, [matchedSlotId!]: nextState },
+        );
       }
     };
 
@@ -576,23 +644,16 @@ export const StreamerView = forwardRef<
       registerYouTubeListener(iframe, slotId);
       applySlotAudio(slot, iframe, sleepFadeRef.current);
 
-      const t1 = window.setTimeout(() => {
-        const el = iframeRefs.current[slotId] || iframe;
-        registerYouTubeListener(el, slotId);
-        const latestSlot =
-          activeSlotsRef.current.find((sl) => sl.slotId === slotId) || slot;
-        applySlotAudio(latestSlot, el, sleepFadeRef.current);
-      }, 500);
-
-      const t2 = window.setTimeout(() => {
-        const el = iframeRefs.current[slotId] || iframe;
-        registerYouTubeListener(el, slotId);
-        const latestSlot =
-          activeSlotsRef.current.find((sl) => sl.slotId === slotId) || slot;
-        applySlotAudio(latestSlot, el, sleepFadeRef.current);
-      }, 1500);
-
-      handshakeTimersRef.current[slotId] = [t1, t2];
+      const delays = [450, 1100, 2000, 3200, 4800, 6800, 9000, 12000];
+      handshakeTimersRef.current[slotId] = delays.map((delayMs) =>
+        window.setTimeout(() => {
+          const el = iframeRefs.current[slotId] || iframe;
+          registerYouTubeListener(el, slotId);
+          const latestSlot =
+            activeSlotsRef.current.find((sl) => sl.slotId === slotId) || slot;
+          applySlotAudio(latestSlot, el, sleepFadeRef.current);
+        }, delayMs),
+      );
     },
     [applySlotAudio],
   );
@@ -843,6 +904,7 @@ export const StreamerView = forwardRef<
           : activeSlots.map((sl) => sl.slotId);
 
       for (const slotId of targets) {
+        playingIntentsRef.current.add(slotId);
         const slot = activeSlots.find((sl) => sl.slotId === slotId);
         const iframe = iframeRefs.current[slotId] || null;
         sendYouTubeCommand(iframe, "playVideo", [], slotId);
@@ -871,6 +933,7 @@ export const StreamerView = forwardRef<
   const handleSyncAll = useCallback(() => {
     if (activeSlots.length === 0) return;
     for (const slot of activeSlots) {
+      playingIntentsRef.current.add(slot.slotId);
       const iframe = iframeRefs.current[slot.slotId] || null;
       sendYouTubeCommand(iframe, "seekTo", [0, true], slot.slotId);
       sendYouTubeCommand(iframe, "playVideo", [], slot.slotId);
