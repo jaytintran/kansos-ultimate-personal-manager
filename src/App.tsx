@@ -144,6 +144,36 @@ const MOBILE_MORE_IDS: ViewId[] = [
   "achievements",
 ];
 
+const NON_KEYBOARD_INPUT_TYPES = new Set([
+  "button",
+  "checkbox",
+  "color",
+  "date",
+  "datetime-local",
+  "file",
+  "hidden",
+  "image",
+  "month",
+  "radio",
+  "range",
+  "reset",
+  "submit",
+  "time",
+  "week",
+]);
+
+function isTextEditableElement(el: Element | null): boolean {
+  if (!el) return false;
+  if (el instanceof HTMLTextAreaElement) {
+    return !el.readOnly && !el.disabled;
+  }
+  if (el instanceof HTMLInputElement) {
+    if (el.readOnly || el.disabled) return false;
+    return !NON_KEYBOARD_INPUT_TYPES.has((el.type || "text").toLowerCase());
+  }
+  return el instanceof HTMLElement && el.isContentEditable;
+}
+
 const KansoShell: React.FC = () => {
   const {
     workspace,
@@ -194,6 +224,7 @@ const KansoShell: React.FC = () => {
     useState<SettingsModalTab>("appearance");
   const [bookJumpRequest, setBookJumpRequest] =
     useState<BookJumpRequest | null>(null);
+  const [isMobileKeyboardOpen, setIsMobileKeyboardOpen] = useState(false);
   const bookJumpNonceRef = useRef(0);
   const mainRef = useRef<HTMLElement>(null);
 
@@ -202,6 +233,110 @@ const KansoShell: React.FC = () => {
       mainRef.current.scrollTop = 0;
     }
   }, [activeView]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let usingNativeIme = false;
+    let focusTimer: number | null = null;
+    const baseline = {
+      width: window.visualViewport?.width ?? window.innerWidth,
+      height: window.visualViewport?.height ?? window.innerHeight,
+    };
+
+    const clearFocusTimer = () => {
+      if (focusTimer !== null) {
+        window.clearTimeout(focusTimer);
+        focusTimer = null;
+      }
+    };
+
+    const updateFallbackKeyboardState = () => {
+      if (usingNativeIme) return;
+      if (window.innerWidth >= 1024) {
+        setIsMobileKeyboardOpen(false);
+        return;
+      }
+
+      const vv = window.visualViewport;
+      const currentWidth = vv?.width ?? window.innerWidth;
+      const currentHeight = vv?.height ?? window.innerHeight;
+
+      // Reset baseline on orientation/horizontal layout change; otherwise keep max height seen
+      if (Math.abs(currentWidth - baseline.width) > 40) {
+        baseline.width = currentWidth;
+        baseline.height = currentHeight;
+        setIsMobileKeyboardOpen(false);
+        return;
+      }
+      if (currentHeight > baseline.height) {
+        baseline.height = currentHeight;
+      }
+
+      const heightDrop = baseline.height - currentHeight;
+      const editableFocused = isTextEditableElement(document.activeElement);
+
+      if (heightDrop > 130 && editableFocused) {
+        setIsMobileKeyboardOpen(true);
+      } else if (heightDrop <= 100) {
+        setIsMobileKeyboardOpen(false);
+      }
+    };
+
+    const handleNativeImeChange = (event: Event) => {
+      usingNativeIme = true;
+      clearFocusTimer();
+      const detail = (event as CustomEvent<{ open?: boolean }>).detail;
+      const open = Boolean(detail?.open) && window.innerWidth < 1024;
+      setIsMobileKeyboardOpen(open);
+    };
+
+    const handleFocusIn = () => {
+      if (usingNativeIme) return;
+      clearFocusTimer();
+      focusTimer = window.setTimeout(updateFallbackKeyboardState, 100);
+    };
+
+    const handleFocusOut = () => {
+      if (usingNativeIme) return;
+      clearFocusTimer();
+      focusTimer = window.setTimeout(() => {
+        if (!isTextEditableElement(document.activeElement)) {
+          setIsMobileKeyboardOpen(false);
+        } else {
+          updateFallbackKeyboardState();
+        }
+      }, 120);
+    };
+
+    const handleWindowResize = () => {
+      if (window.innerWidth >= 1024) {
+        setIsMobileKeyboardOpen(false);
+        return;
+      }
+      if (!usingNativeIme) {
+        updateFallbackKeyboardState();
+      }
+    };
+
+    window.addEventListener("kanso:ime-change", handleNativeImeChange);
+    window.addEventListener("resize", handleWindowResize);
+    window.visualViewport?.addEventListener("resize", updateFallbackKeyboardState);
+    document.addEventListener("focusin", handleFocusIn);
+    document.addEventListener("focusout", handleFocusOut);
+
+    return () => {
+      clearFocusTimer();
+      window.removeEventListener("kanso:ime-change", handleNativeImeChange);
+      window.removeEventListener("resize", handleWindowResize);
+      window.visualViewport?.removeEventListener(
+        "resize",
+        updateFallbackKeyboardState,
+      );
+      document.removeEventListener("focusin", handleFocusIn);
+      document.removeEventListener("focusout", handleFocusOut);
+    };
+  }, []);
 
   const handleOpenContextMenu = useCallback(
     (record: ContextMenuRecord, e: React.MouseEvent) => {
@@ -880,15 +1015,16 @@ const KansoShell: React.FC = () => {
         )}
       </main>
 
-      {/* Mobile Bottom Thumb-Zone Navigation (Focus, Timeline, Habits, Achievements, More) */}
-      <nav
-        className="lg:hidden shrink-0 z-30 border-t pb-safe"
-        style={{
-          backgroundColor: "var(--bg-surface)",
-          borderColor: "var(--border-subtle)",
-        }}
-        aria-label="Mobile workspace navigation"
-      >
+      {/* Mobile Bottom Thumb-Zone Navigation (hidden cleanly while typing on soft keyboard) */}
+      {!isMobileKeyboardOpen && (
+        <nav
+          className="lg:hidden shrink-0 z-30 border-t pb-safe"
+          style={{
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
+          }}
+          aria-label="Mobile workspace navigation"
+        >
         <div className="h-15 grid grid-cols-5 items-center px-1 px-safe">
           {MOBILE_PRIMARY_IDS.map((id) => {
             const item = ALL_NAV_ITEMS.find((n) => n.id === id)!;
@@ -950,7 +1086,8 @@ const KansoShell: React.FC = () => {
             </span>
           </button>
         </div>
-      </nav>
+        </nav>
+      )}
 
       {/* Mobile "More" Slide-Up Bottom Sheet */}
       {moreSheetOpen && (

@@ -1088,6 +1088,7 @@ public class MainActivity extends BridgeActivity {
     public static final String CHROME_COLOR_KEY = "chrome_bg_color";
     public static final String CHROME_DARK_KEY = "chrome_is_dark";
     public static volatile boolean backgroundAudioActive = false;
+    private boolean lastImeVisible = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -1106,14 +1107,31 @@ public class MainActivity extends BridgeActivity {
                     WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
                 );
                 Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
-                int bottomInset = Math.max(bars.bottom, ime.bottom);
-                v.setPadding(bars.left, bars.top, bars.right, bottomInset);
-                return WindowInsetsCompat.CONSUMED;
+                boolean imeVisible = windowInsets.isVisible(WindowInsetsCompat.Type.ime()) && ime.bottom > 0;
+                if (imeVisible != lastImeVisible) {
+                    lastImeVisible = imeVisible;
+                    dispatchImeChangeToWebView(imeVisible);
+                }
+                v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+                return new WindowInsetsCompat.Builder(windowInsets)
+                    .setInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout(), Insets.NONE)
+                    .setInsets(WindowInsetsCompat.Type.ime(), Insets.NONE)
+                    .setVisible(WindowInsetsCompat.Type.ime(), false)
+                    .build();
             });
             ViewCompat.requestApplyInsets(contentView);
         }
 
         configureWebViewForMedia();
+    }
+
+    private void dispatchImeChangeToWebView(boolean open) {
+        if (this.bridge == null || this.bridge.getWebView() == null) {
+            return;
+        }
+        final WebView webView = this.bridge.getWebView();
+        final String js = "window.dispatchEvent(new CustomEvent('kanso:ime-change', { detail: { open: " + open + " } }));";
+        webView.post(() -> webView.evaluateJavascript(js, null));
     }
 
     @Override
