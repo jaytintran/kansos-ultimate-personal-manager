@@ -1,6 +1,19 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+@layer base {
+  html,
+  body {
+    overscroll-behavior: none;
+    overscroll-behavior-y: none;
+  }
+
+  [class*="overflow-y-auto"],
+  [class*="overflow-auto"] {
+    overscroll-behavior: none;
+  }
+}
+
 /* ==========================================================================
    Kanso Theme Engine — 5 Distinct Themes x Light & Dark Modes (10 Palettes)
    Strict 60-30-10 color distribution & WCAG AA legibility across all modes.

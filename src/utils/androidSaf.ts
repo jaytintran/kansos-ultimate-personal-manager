@@ -43,6 +43,7 @@ interface KansoSafPluginInterface {
     totalSize: number;
   }>;
   releaseUri(options: { uri: string }): Promise<void>;
+  setSystemChrome(options: { color: string; isDark: boolean }): Promise<void>;
 }
 
 const KansoSaf = registerPlugin<KansoSafPluginInterface>("KansoSaf");
@@ -182,6 +183,18 @@ export async function releaseAndroidUri(uri: string): Promise<void> {
     await KansoSaf.releaseUri({ uri });
   } catch {
     // Ignore errors when releasing permissions
+  }
+}
+
+export async function applyAndroidSystemChrome(
+  color: string,
+  isDark: boolean,
+): Promise<void> {
+  if (!isAndroidCapacitor()) return;
+  try {
+    await KansoSaf.setSystemChrome({ color, isDark });
+  } catch {
+    // Ignore when running on older native builds without setSystemChrome
   }
 }
 

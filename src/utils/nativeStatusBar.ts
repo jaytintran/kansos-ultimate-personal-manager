@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { ColorMode, ThemeId } from '../types';
+import { applyAndroidSystemChrome } from './androidSaf';
 
 /**
  * Exact surface hex colors matching Kanso's 5 themes x Light/Dark modes (--bg-surface)
@@ -66,4 +67,6 @@ export async function syncNativeStatusBar(
   } catch {
     // Ignore if StatusBar plugin is unavailable on the current platform
   }
+
+  await applyAndroidSystemChrome(bgColor, colorMode === 'dark');
 }

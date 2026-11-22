@@ -39,7 +39,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-[2px] overscroll-none"
       onClick={onClose}
     >
       <div
@@ -47,7 +47,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
         aria-modal="true"
         aria-label={ariaLabel}
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-2xl ${maxHeightClass} rounded-t-2xl border-t border-x border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl flex flex-col overflow-hidden pb-safe animate-folio-sheet-up`}
+        className={`w-full max-w-2xl ${maxHeightClass} rounded-t-2xl border-t border-x border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl flex flex-col overflow-hidden overscroll-none pb-safe animate-folio-sheet-up`}
       >
         <div className="pt-2.5 pb-1 flex justify-center shrink-0">
           <div className="w-10 h-1 rounded-full bg-[var(--border-strong)]" />
@@ -79,7 +79,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
           </div>
         )}
 
-        <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-none">{children}</div>
 
         {footer && (
           <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] shrink-0">

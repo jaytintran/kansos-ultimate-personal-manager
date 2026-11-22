@@ -739,7 +739,7 @@ export const StudyPane: React.FC<StudyPaneProps> = ({
 
       {/* Mobile Slide-Up Study Notes Bottom Sheet (<lg) */}
       <div
-        className="lg:hidden fixed inset-0 z-50 flex items-end bg-black/50 backdrop-blur-[2px]"
+        className="lg:hidden fixed inset-0 z-50 flex items-end bg-black/50 backdrop-blur-[2px] overscroll-none"
         onClick={onClose}
       >
         <aside
@@ -747,7 +747,7 @@ export const StudyPane: React.FC<StudyPaneProps> = ({
           aria-modal="true"
           aria-label="Study notes and highlights"
           onClick={(e) => e.stopPropagation()}
-          className="w-full h-[84dvh] max-h-[84dvh] rounded-t-2xl border-t border-x border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl flex flex-col overflow-hidden pb-safe animate-folio-sheet-up"
+          className="w-full h-[84dvh] max-h-[84dvh] rounded-t-2xl border-t border-x border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl flex flex-col overflow-hidden overscroll-none pb-safe animate-folio-sheet-up"
         >
           <div className="pt-2.5 pb-1 flex justify-center shrink-0">
             <div className="w-10 h-1 rounded-full bg-[var(--border-strong)]" />

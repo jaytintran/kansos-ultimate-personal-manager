@@ -2205,7 +2205,7 @@ export const ReflowableViewport: React.FC<ReflowableViewportProps> = ({
           onClick={handleCanvasClick}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
-          className="flex-1 overflow-y-auto folio-reading-desk relative"
+          className="flex-1 overflow-y-auto overscroll-none folio-reading-desk relative"
         >
           <div
             className={`mx-auto px-2.5 sm:px-8 space-y-5 sm:space-y-6 ${scrollTopPad} ${scrollBottomPad}`}

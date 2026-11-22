@@ -1427,7 +1427,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     <div
       data-reader-surface={prefs.theme === "kanso" ? undefined : prefs.theme}
       onMouseMove={handlePointerMove}
-      className="h-full flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] relative overflow-hidden"
+      className="h-full flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] relative overflow-hidden overscroll-none"
     >
       {/* Top Chrome: Docked in flex flow when pinned, retractable fixed overlay when unpinned */}
       <div
@@ -1457,11 +1457,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           }}
         />
 
-        <header
-          className={`h-12 px-2 sm:px-4 lg:px-5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/96 backdrop-blur-xs flex items-center justify-between gap-1.5 sm:gap-3 ${
-            openBooks.length === 0 ? "pt-safe lg:pt-0" : ""
-          }`}
-        >
+        <header className="h-12 px-2 sm:px-4 lg:px-5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/96 backdrop-blur-xs flex items-center justify-between gap-1.5 sm:gap-3">
           {/* Left: Contents & Search */}
           <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
             <button

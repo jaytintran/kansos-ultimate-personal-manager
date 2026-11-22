@@ -509,6 +509,31 @@ public class KansoSafPlugin extends Plugin {
         }
         call.resolve();
     }
+
+    @PluginMethod
+    public void setSystemChrome(PluginCall call) {
+        String colorHex = call.getString("color", "#FFFFFF");
+        boolean isDark = Boolean.TRUE.equals(call.getBoolean("isDark", false));
+        android.app.Activity activity = getActivity();
+        if (activity == null) {
+            call.resolve();
+            return;
+        }
+        int parsedColor;
+        try {
+            parsedColor = android.graphics.Color.parseColor(colorHex);
+        } catch (IllegalArgumentException e) {
+            parsedColor = android.graphics.Color.WHITE;
+        }
+        final int finalColor = parsedColor;
+        activity.getSharedPreferences(MainActivity.CHROME_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putInt(MainActivity.CHROME_COLOR_KEY, finalColor)
+            .putBoolean(MainActivity.CHROME_DARK_KEY, isDark)
+            .apply();
+        activity.runOnUiThread(() -> MainActivity.applySystemChrome(activity, finalColor, isDark));
+        call.resolve();
+    }
 }
 `;
 
@@ -516,20 +541,55 @@ fs.mkdirSync(javaPackageDir, { recursive: true });
 fs.writeFileSync(safPluginPath, safPluginSource, 'utf8');
 console.log('[Kanso Android] Generated KansoSafPlugin.java for SAF direct file & folder linking.');
 
-// 3. Patch MainActivity.java for KansoSafPlugin registration, YouTube embeds & background audio
+// 3. Patch MainActivity.java for KansoSafPlugin registration, cutout-safe solid status bar insets,
+//    zero WebView stretch overscroll, YouTube embeds & background audio
 const mainActivitySource = `package com.kanso.workspace;
 
+import android.app.Activity;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.os.Bundle;
+import android.view.View;
+import android.view.Window;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+
+    public static final String CHROME_PREFS_NAME = "kanso_chrome_prefs";
+    public static final String CHROME_COLOR_KEY = "chrome_bg_color";
+    public static final String CHROME_DARK_KEY = "chrome_is_dark";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(KansoSafPlugin.class);
         super.onCreate(savedInstanceState);
+
+        SharedPreferences prefs = getSharedPreferences(CHROME_PREFS_NAME, Context.MODE_PRIVATE);
+        int initialColor = prefs.getInt(CHROME_COLOR_KEY, Color.WHITE);
+        boolean initialDark = prefs.getBoolean(CHROME_DARK_KEY, false);
+        applySystemChrome(this, initialColor, initialDark);
+
+        View contentView = findViewById(android.R.id.content);
+        if (contentView != null) {
+            ViewCompat.setOnApplyWindowInsetsListener(contentView, (v, windowInsets) -> {
+                Insets bars = windowInsets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
+                );
+                Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
+                int bottomInset = Math.max(bars.bottom, ime.bottom);
+                v.setPadding(bars.left, bars.top, bars.right, bottomInset);
+                return WindowInsetsCompat.CONSUMED;
+            });
+            ViewCompat.requestApplyInsets(contentView);
+        }
+
         configureWebViewForMedia();
     }
 
@@ -537,6 +597,16 @@ public class MainActivity extends BridgeActivity {
     public void onStart() {
         super.onStart();
         configureWebViewForMedia();
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        configureWebViewForMedia();
+        View contentView = findViewById(android.R.id.content);
+        if (contentView != null) {
+            ViewCompat.requestApplyInsets(contentView);
+        }
     }
 
     @Override
@@ -551,11 +621,37 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    public static void applySystemChrome(Activity activity, int colorInt, boolean isDark) {
+        if (activity == null) return;
+        Window window = activity.getWindow();
+        if (window != null) {
+            window.setStatusBarColor(colorInt);
+            window.setNavigationBarColor(colorInt);
+            View decor = window.getDecorView();
+            if (decor != null) {
+                decor.setBackgroundColor(colorInt);
+                WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(window, decor);
+                controller.setAppearanceLightStatusBars(!isDark);
+                controller.setAppearanceLightNavigationBars(!isDark);
+            }
+        }
+        View contentView = activity.findViewById(android.R.id.content);
+        if (contentView != null) {
+            contentView.setBackgroundColor(colorInt);
+            ViewCompat.requestApplyInsets(contentView);
+        }
+    }
+
     private void configureWebViewForMedia() {
         if (this.bridge == null || this.bridge.getWebView() == null) {
             return;
         }
-        WebSettings settings = this.bridge.getWebView().getSettings();
+        WebView webView = this.bridge.getWebView();
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        webView.setVerticalFadingEdgeEnabled(false);
+        webView.setHorizontalFadingEdgeEnabled(false);
+
+        WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
@@ -565,7 +661,7 @@ public class MainActivity extends BridgeActivity {
 `;
 
 fs.writeFileSync(mainActivityPath, mainActivitySource, 'utf8');
-console.log('[Kanso Android] Configured MainActivity.java with KansoSafPlugin & media playback.');
+console.log('[Kanso Android] Configured MainActivity.java with KansoSafPlugin, cutout-safe insets, no-bounce WebView & media playback.');
 
 // 4. Install Kanso Android Launcher & Adaptive Icons
 const iconsSourceDir = path.join(projectRoot, 'resources/android-icons');

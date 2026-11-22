@@ -620,7 +620,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center sm:p-4 overscroll-none"
       role="dialog"
       aria-modal="true"
       aria-label="Kanso Settings, Sync, and Storage"
@@ -632,7 +632,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
       />
 
       <div
-        className="relative z-10 w-full h-dvh sm:h-auto sm:max-w-2xl sm:max-h-[88dvh] rounded-none sm:rounded-2xl border-0 sm:border overflow-hidden flex flex-col pt-safe pb-safe sm:pt-0 sm:pb-0"
+        className="relative z-10 w-full h-dvh sm:h-auto sm:max-w-2xl sm:max-h-[88dvh] rounded-none sm:rounded-2xl border-0 sm:border overflow-hidden overscroll-none flex flex-col pt-safe pb-safe sm:pt-0 sm:pb-0"
         style={{
           backgroundColor: "var(--bg-elevated)",
           borderColor: "var(--border-subtle)",
@@ -721,7 +721,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
         </div>
 
         {/* Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
+        <div className="flex-1 overflow-y-auto overscroll-none p-4 sm:p-5 space-y-5">
           {/* ================= THEME TAB ================= */}
           {tab === "appearance" && (
             <>

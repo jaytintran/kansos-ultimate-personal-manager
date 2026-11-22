@@ -1056,11 +1056,11 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
       {/* Mobile / narrow viewport slide-over sidebar */}
       {isOpenMobile && (
         <div
-          className="fixed inset-0 z-50 lg:hidden flex bg-black/50 backdrop-blur-[1px]"
+          className="fixed inset-0 z-50 lg:hidden flex bg-black/50 backdrop-blur-[1px] overscroll-none"
           onClick={onCloseMobile}
         >
           <div
-            className="h-full bg-[var(--bg-sidebar)] pt-safe pb-safe flex"
+            className="h-full bg-[var(--bg-sidebar)] pt-safe pb-safe flex overscroll-none"
             onClick={(e) => e.stopPropagation()}
           >
             {sidebarContent(false)}

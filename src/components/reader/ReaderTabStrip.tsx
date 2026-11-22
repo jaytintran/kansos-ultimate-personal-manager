@@ -25,7 +25,7 @@ export const ReaderTabStrip: React.FC<ReaderTabStripProps> = ({
     <div
       role="tablist"
       aria-label="Open books"
-      className="pt-safe lg:pt-0 border-b border-[var(--border-subtle)] bg-[var(--bg-sidebar)] select-none shrink-0"
+      className="border-b border-[var(--border-subtle)] bg-[var(--bg-sidebar)] select-none shrink-0"
     >
       <div className="h-10 lg:h-9 px-2 flex items-end gap-1 overflow-x-auto no-scrollbar">
         {/* Persistent Library Tab */}

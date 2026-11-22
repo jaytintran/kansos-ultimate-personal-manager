@@ -1265,7 +1265,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
 
   return (
     <div
-      className="h-[calc(100dvh-7.25rem)] lg:h-dvh flex flex-col overflow-hidden"
+      className="h-full flex-1 min-h-0 lg:h-dvh flex flex-col overflow-hidden overscroll-none"
       style={{ backgroundColor: "var(--bg-canvas)" }}
     >
       {/* ================= PINNED TOP CHROME ================= */}
@@ -1716,7 +1716,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
       ) : (
         <div className="flex-1 min-h-0 flex overflow-hidden">
           {/* LEFT PRIMARY PANE (Independently Scrolling) */}
-          <section className="flex-1 min-w-0 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
+          <section className="flex-1 min-w-0 overflow-y-auto overscroll-none px-4 sm:px-6 py-4 space-y-4">
             {/* TRACKED ITEMS */}
             {(splitVisible || subTab === "items") && (
               <>

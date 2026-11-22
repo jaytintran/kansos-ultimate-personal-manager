@@ -994,7 +994,7 @@ export const StreamerView = forwardRef<
   );
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-3rem-3.75rem-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] lg:h-dvh min-h-[520px] overflow-hidden">
+    <div className="flex flex-col h-full flex-1 min-h-0 lg:h-dvh lg:min-h-[520px] overflow-hidden overscroll-none">
       {/* Bar 1: Compact Header */}
       <StreamerTopBar
         subView={subView}
@@ -1057,7 +1057,7 @@ export const StreamerView = forwardRef<
         >
           {/* Scrollable Stack Grid / Compact Mixer / Mini Tiles */}
           <div
-            className={`flex-1 min-w-0 overflow-y-auto ${
+            className={`flex-1 min-w-0 overflow-y-auto overscroll-none ${
               sizingMode === "canvas" ? "overflow-x-auto" : "overflow-x-hidden"
             } p-3.5 sm:p-5`}
             style={{ backgroundColor: "var(--bg-canvas)" }}

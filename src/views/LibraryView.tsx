@@ -2411,7 +2411,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   // If a book tab is active, render the full Reader Studio viewport
   if (activeBook) {
     return (
-      <div className="h-[calc(100dvh-6.75rem)] lg:h-dvh w-full overflow-hidden">
+      <div className="h-full flex-1 min-h-0 lg:h-dvh w-full overflow-hidden overscroll-none">
         <ReaderView
           book={activeBook}
           openBooks={openBooks}
@@ -2471,7 +2471,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   return (
     <div
-      className="h-[calc(100dvh-6.75rem)] lg:h-dvh flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] overflow-hidden relative"
+      className="h-full flex-1 min-h-0 lg:h-dvh flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] overflow-hidden overscroll-none relative"
       onDragEnter={(e) => {
         if (isPureExternalFileDrag(e.dataTransfer)) {
           e.preventDefault();
@@ -3071,7 +3071,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           )}
 
           {/* Main Scrollable Content Area */}
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-none">
             {activeFilter.kind === "smart" &&
             activeFilter.id === "highlights" ? (
               <HighlightsHubView
@@ -3096,7 +3096,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 isImporting={isImporting}
               />
             ) : (
-              <div className="p-4 sm:p-6 lg:p-7 pb-28 space-y-7 max-w-[1600px] mx-auto">
+              <div className="p-4 sm:p-6 lg:p-7 pb-14 space-y-7 max-w-[1600px] mx-auto">
                 {/* Continue Reading Editorial Shelf (All Books top-level) */}
                 {activeFilter.kind === "smart" &&
                   activeFilter.id === "all" &&

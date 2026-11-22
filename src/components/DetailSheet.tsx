@@ -1731,7 +1731,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-stretch lg:items-center justify-center lg:p-6"
+      className="fixed inset-0 z-[60] flex items-stretch lg:items-center justify-center lg:p-6 overscroll-none"
       role="dialog"
       aria-modal="true"
       aria-label={`${isCreateMode ? "Create" : "Edit"} ${modeLabel[target.mode]}`}
@@ -1751,7 +1751,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
 
       {/* Shell: Full-screen page on Mobile (<lg) | Wide 2-Column Modal on Desktop (lg+) */}
       <div
-        className="relative z-10 w-full h-dvh lg:max-w-5xl lg:h-[84dvh] lg:rounded-2xl lg:border flex flex-col overflow-hidden"
+        className="relative z-10 w-full h-dvh lg:max-w-5xl lg:h-[84dvh] lg:rounded-2xl lg:border flex flex-col overflow-hidden overscroll-none"
         style={{
           backgroundColor: "var(--bg-canvas)",
           borderColor: "var(--border-strong)",
@@ -1917,7 +1917,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
         {/* Main Body: Single column on Mobile | Wide 2-Column Split on Desktop */}
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
           {/* LEFT PRIMARY WRITING / ANALYTICS CANVAS */}
-          <main className="flex-1 min-w-0 overflow-y-auto px-5 sm:px-8 lg:px-10 py-6 lg:py-8">
+          <main className="flex-1 min-w-0 overflow-y-auto overscroll-none px-5 sm:px-8 lg:px-10 py-6 lg:py-8">
             <div className="max-w-2xl mx-auto lg:mx-0 lg:max-w-none space-y-5">
               {/* Borderless Auto-Growing Display Title */}
               <textarea

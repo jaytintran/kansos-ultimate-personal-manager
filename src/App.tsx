@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Calendar,
@@ -195,6 +195,13 @@ const KansoShell: React.FC = () => {
   const [bookJumpRequest, setBookJumpRequest] =
     useState<BookJumpRequest | null>(null);
   const bookJumpNonceRef = useRef(0);
+  const mainRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0;
+    }
+  }, [activeView]);
 
   const handleOpenContextMenu = useCallback(
     (record: ContextMenuRecord, e: React.MouseEvent) => {
@@ -351,15 +358,14 @@ const KansoShell: React.FC = () => {
   const isMoreViewActive = MOBILE_MORE_IDS.includes(activeView);
   const activeViewDef = ALL_NAV_ITEMS.find((item) => item.id === activeView);
 
-  const isEdgeToEdgeView =
+  const isFixedHeightView =
     activeView === "streamer" ||
     activeView === "library" ||
-    activeView === "lists" ||
-    activeView === "notes";
+    activeView === "lists";
 
   return (
     <div
-      className="min-h-dvh flex flex-col lg:flex-row"
+      className="h-dvh overflow-hidden overscroll-none flex flex-col lg:h-auto lg:min-h-dvh lg:overflow-visible lg:flex-row"
       style={{
         backgroundColor: "var(--bg-canvas)",
         color: "var(--text-primary)",
@@ -687,15 +693,15 @@ const KansoShell: React.FC = () => {
         </aside>
       )}
 
-      {/* Mobile Compact Sticky Top Bar */}
+      {/* Mobile Compact Top Bar */}
       <header
-        className="lg:hidden sticky top-0 z-30 py-1 px-3 border-b backdrop-blur-md"
+        className="lg:hidden shrink-0 z-30 pt-safe px-3 border-b"
         style={{
           backgroundColor: "var(--bg-surface)",
           borderColor: "var(--border-subtle)",
         }}
       >
-        <div className="h-12 px-4 px-safe flex items-center justify-between">
+        <div className="h-12 px-1 px-safe flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <KansoLogo size={22} />
             <span className="font-display text-base font-bold tracking-tight whitespace-nowrap">
@@ -786,8 +792,11 @@ const KansoShell: React.FC = () => {
 
       {/* Main Content Viewport */}
       <main
-        className={`flex-1 min-w-0 ${
-          isEdgeToEdgeView ? "pb-15 lg:pb-0" : "pb-20 lg:pb-8"
+        ref={mainRef}
+        className={`flex-1 min-w-0 min-h-0 overscroll-none ${
+          isFixedHeightView
+            ? "flex flex-col overflow-hidden lg:block lg:overflow-visible lg:pb-0"
+            : "overflow-y-auto lg:overflow-visible lg:pb-8"
         }`}
       >
         {activeView === "focus" && (
@@ -835,7 +844,7 @@ const KansoShell: React.FC = () => {
           <div
             className={
               activeView === "library"
-                ? "block"
+                ? "flex-1 min-h-0 h-full w-full flex flex-col lg:block"
                 : "fixed -left-[9999px] top-0 w-[1024px] h-[600px] opacity-0 pointer-events-none select-none overflow-hidden"
             }
             aria-hidden={activeView !== "library"}
@@ -855,7 +864,7 @@ const KansoShell: React.FC = () => {
           <div
             className={
               activeView === "streamer"
-                ? "block"
+                ? "flex-1 min-h-0 h-full w-full flex flex-col lg:block"
                 : "fixed -left-[9999px] top-0 w-[1024px] h-[600px] opacity-0 pointer-events-none select-none overflow-hidden"
             }
             aria-hidden={activeView !== "streamer"}
@@ -871,7 +880,7 @@ const KansoShell: React.FC = () => {
 
       {/* Mobile Bottom Thumb-Zone Navigation (Focus, Timeline, Habits, Achievements, More) */}
       <nav
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-30 border-t pb-safe"
+        className="lg:hidden shrink-0 z-30 border-t pb-safe"
         style={{
           backgroundColor: "var(--bg-surface)",
           borderColor: "var(--border-subtle)",
@@ -955,7 +964,7 @@ const KansoShell: React.FC = () => {
             aria-hidden="true"
           />
           <div
-            className="relative z-10 w-full rounded-t-2xl border-t pb-[calc(5rem+env(safe-area-inset-bottom,0px))] pt-2.5 px-4 space-y-4"
+            className="relative z-10 w-full rounded-t-2xl border-t pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] pt-2.5 px-4 space-y-4 overscroll-none"
             style={{
               backgroundColor: "var(--bg-elevated)",
               borderColor: "var(--border-subtle)",

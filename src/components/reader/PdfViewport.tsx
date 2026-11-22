@@ -938,7 +938,7 @@ export const PdfViewport: React.FC<PdfViewportProps> = ({
         onClick={handleCanvasClick}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
-        className={`flex-1 overflow-auto px-3 sm:px-5 flex flex-col items-center gap-6 ${
+        className={`flex-1 overflow-auto overscroll-none px-3 sm:px-5 flex flex-col items-center gap-6 ${
           headerPinned ? "pt-8" : "pt-28"
         } ${bottomBarPinned ? "pb-12" : "pb-24"}`}
       >

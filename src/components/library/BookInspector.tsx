@@ -601,7 +601,7 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
 
       {/* Mobile Slide-Up Bottom Sheet Inspector (<md) */}
       <div
-        className="md:hidden fixed inset-0 z-50 flex items-end bg-black/50 backdrop-blur-[2px]"
+        className="md:hidden fixed inset-0 z-50 flex items-end bg-black/50 backdrop-blur-[2px] overscroll-none"
         onClick={onClose}
       >
         <aside
@@ -609,7 +609,7 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
           aria-modal="true"
           aria-label="Book details"
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-h-[88dvh] rounded-t-2xl border-t border-x border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl flex flex-col overflow-hidden pb-safe animate-folio-sheet-up"
+          className="w-full max-h-[88dvh] rounded-t-2xl border-t border-x border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl flex flex-col overflow-hidden overscroll-none pb-safe animate-folio-sheet-up"
         >
           <div className="pt-2.5 pb-1 flex justify-center shrink-0">
             <div className="w-10 h-1 rounded-full bg-[var(--border-strong)]" />

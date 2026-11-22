@@ -710,7 +710,7 @@ export const MobileOrganizeSheet: React.FC<MobileOrganizeSheetProps> = ({
           {/* Scrollable Body */}
           <div
             data-folio-vscroll="true"
-            className="flex-1 min-h-0 overflow-y-auto"
+            className="flex-1 min-h-0 overflow-y-auto overscroll-none"
           >
             {organizeBody}
           </div>

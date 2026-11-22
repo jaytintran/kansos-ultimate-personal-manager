@@ -108,8 +108,8 @@ export const ReaderScrubber: React.FC<ReaderScrubberProps> = ({
       : markers.filter((_, i) => i % Math.ceil(markers.length / 40) === 0);
 
   const positioningClass = isPinned
-    ? "relative z-30 shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-safe lg:pb-0"
-    : `absolute bottom-0 left-0 right-0 z-30 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/96 backdrop-blur-xs pb-safe lg:pb-0 transition-transform duration-180 ease-out ${
+    ? "relative z-30 shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+    : `absolute bottom-0 left-0 right-0 z-30 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/96 backdrop-blur-xs transition-transform duration-180 ease-out ${
         visible ? "translate-y-0" : "translate-y-full pointer-events-none"
       }`;
 
