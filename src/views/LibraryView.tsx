@@ -11,6 +11,7 @@ import {
   GripVertical,
   LayoutGrid,
   List,
+  PanelLeftOpen,
   PanelRight,
   Pencil,
   Plus,
@@ -61,7 +62,10 @@ import { ImportBackupModal } from "../components/library/ImportBackupModal";
 import { LibraryFolderModal } from "../components/library/LibraryFolderModal";
 import { LibraryOptionsPopover } from "../components/library/LibraryOptionsPopover";
 import { LibraryShelfStrip } from "../components/library/LibraryShelfStrip";
-import type { ActiveLibraryFilter } from "../components/library/LibrarySidebar";
+import {
+  LibrarySidebar,
+  type ActiveLibraryFilter,
+} from "../components/library/LibrarySidebar";
 import { MetadataDrawer } from "../components/library/MetadataDrawer";
 import { MobileBookActionSheet } from "../components/library/MobileBookActionSheet";
 import { MobileBookList } from "../components/library/MobileBookList";
@@ -187,6 +191,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     updateReaderPrefs,
     resetReaderPrefs,
     updateCardDetails,
+    toggleSidebarSection,
   } = useLibraryPreferences();
 
   const books = workspace.books;
@@ -2474,23 +2479,117 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         onCloseBookTab={handleCloseBookTab}
       />
 
-      {/* Main Library Studio Shell: Full-Width Shelf + Optional Split Inspector */}
+      {/* Main Library Studio Shell: Desktop Sidebar + Main Shelf + Optional Split Inspector */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
+        {/* Desktop Collapsible & Resizable Shelves Sidebar (hidden below lg; mobile keeps LibraryShelfStrip) */}
+        <LibrarySidebar
+          books={books}
+          folders={folders}
+          categories={categories}
+          allTags={allTags}
+          totalHighlightsCount={highlights.length}
+          activeFilter={activeFilter}
+          selectedTags={selectedTags}
+          collapsedSections={prefs.collapsedSections}
+          sidebarWidth={prefs.sidebarWidth}
+          isExportingBackup={isExportingBackup}
+          isParsingBackup={isParsingBackup}
+          onSidebarWidthChange={(sidebarWidth) =>
+            updateUiPrefs({ sidebarWidth })
+          }
+          onToggleSection={toggleSidebarSection}
+          onSelectFilter={(filter) => {
+            setDrilledViewFolderId(null);
+            setActiveFilter(filter);
+          }}
+          onToggleTag={(tag) =>
+            setSelectedTags((prev) =>
+              prev.includes(tag)
+                ? prev.filter((t) => t !== tag)
+                : [...prev, tag],
+            )
+          }
+          onClearTags={() => setSelectedTags([])}
+          onCreateFolder={(name, parentId, color) => {
+            void handleCreateFolder(name, parentId, color);
+          }}
+          onUpdateFolder={handleUpdateFolder}
+          onDeleteFolder={handleDeleteFolder}
+          onCreateCategory={(name) => {
+            void handleCreateCategory(name);
+          }}
+          onDeleteCategory={handleDeleteCategory}
+          onDropBooksToFolder={handleDropBooksToSidebarFolder}
+          onDropBooksToCategory={(bookIds, categoryId) => {
+            const set = new Set(bookIds);
+            updateLibraryState((prev) => ({
+              books: prev.books.map((b) =>
+                set.has(b.id) ? { ...b, categoryId } : b,
+              ),
+            }));
+            notify("Category updated", "success");
+          }}
+          onDropBooksToTag={(bookIds, tagName) => {
+            const set = new Set(bookIds);
+            updateLibraryState((prev) => ({
+              books: prev.books.map((b) =>
+                set.has(b.id) && !b.tags.includes(tagName)
+                  ? { ...b, tags: [...b.tags, tagName] }
+                  : b,
+              ),
+            }));
+            notify(`Tagged "${tagName}"`, "success");
+          }}
+          onDropBooksToFavorites={(bookIds) => {
+            const set = new Set(bookIds);
+            updateLibraryState((prev) => ({
+              books: prev.books.map((b) =>
+                set.has(b.id) ? { ...b, isFavorite: true } : b,
+              ),
+            }));
+            notify("Added to Favorites", "success");
+          }}
+          onExportBackup={() => void handleExportBackup()}
+          onSelectImportBackupFile={(file) => void handleSelectBackupFile(file)}
+          onOpenStorageManager={() => setStorageManagerOpen(true)}
+          isCollapsedDesktop={prefs.sidebarCollapsedDesktop}
+          onCollapseDesktop={() =>
+            updateUiPrefs({ sidebarCollapsedDesktop: true })
+          }
+          isOpenMobile={false}
+          onCloseMobile={() => {}}
+        />
+
         {/* Center Library Workspace */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           {/* Bar 1: Compact Unified Header (52px) */}
           <header className="h-[52px] px-4 sm:px-6 border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)] flex items-center justify-between gap-2 sm:gap-3 shrink-0">
-            {/* Left: Active View Title + Inline Count */}
-            <div className="flex items-baseline gap-2.5 min-w-0">
-              <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight text-[var(--text-primary)] truncate">
-                {drilledViewFolder ? drilledViewFolder.name : activeViewLabel}
-              </h1>
-              <span className="font-mono tabular-nums text-xs text-[var(--text-muted)] shrink-0">
-                {activeFilter.kind === "smart" &&
-                activeFilter.id === "highlights"
-                  ? highlights.length
-                  : visibleBooks.length}
-              </span>
+            {/* Left: Desktop Sidebar Reopen + Active View Title + Inline Count */}
+            <div className="flex items-center gap-2.5 min-w-0">
+              {prefs.sidebarCollapsedDesktop && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateUiPrefs({ sidebarCollapsedDesktop: false })
+                  }
+                  title="Show shelves sidebar"
+                  aria-label="Show shelves sidebar"
+                  className="hidden lg:inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
+                >
+                  <PanelLeftOpen className="w-4 h-4" />
+                </button>
+              )}
+              <div className="flex items-baseline gap-2.5 min-w-0">
+                <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight text-[var(--text-primary)] truncate">
+                  {drilledViewFolder ? drilledViewFolder.name : activeViewLabel}
+                </h1>
+                <span className="font-mono tabular-nums text-xs text-[var(--text-muted)] shrink-0">
+                  {activeFilter.kind === "smart" &&
+                  activeFilter.id === "highlights"
+                    ? highlights.length
+                    : visibleBooks.length}
+                </span>
+              </div>
             </div>
 
             {/* Right: Active Folder/Category Actions + Inspector + Primary Import CTA */}
@@ -2664,35 +2763,40 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             </div>
           </header>
 
-          {/* Horizontal Scrolling Shelf Strip (Smart Shelves + Folders + Categories) */}
-          <LibraryShelfStrip
-            books={books}
-            folders={folders}
-            categories={categories}
-            totalHighlightsCount={highlights.length}
-            activeFilter={activeFilter}
-            onSelectFilter={(filter) => setActiveFilter(filter)}
-            onRequestCreateFolder={() => setFolderModal({ mode: "create" })}
-            onDropBooksToFolder={handleDropBooksToSidebarFolder}
-            onDropBooksToCategory={(bookIds, categoryId) => {
-              const set = new Set(bookIds);
-              updateLibraryState((prev) => ({
-                books: prev.books.map((b) =>
-                  set.has(b.id) ? { ...b, categoryId } : b,
-                ),
-              }));
-              notify("Category updated", "success");
-            }}
-            onDropBooksToFavorites={(bookIds) => {
-              const set = new Set(bookIds);
-              updateLibraryState((prev) => ({
-                books: prev.books.map((b) =>
-                  set.has(b.id) ? { ...b, isFavorite: true } : b,
-                ),
-              }));
-              notify("Added to Favorites", "success");
-            }}
-          />
+          {/* Mobile Horizontal Scrolling Shelf Strip (hidden on lg+ where LibrarySidebar is used) */}
+          <div className="lg:hidden shrink-0">
+            <LibraryShelfStrip
+              books={books}
+              folders={folders}
+              categories={categories}
+              totalHighlightsCount={highlights.length}
+              activeFilter={activeFilter}
+              onSelectFilter={(filter) => {
+                setDrilledViewFolderId(null);
+                setActiveFilter(filter);
+              }}
+              onRequestCreateFolder={() => setFolderModal({ mode: "create" })}
+              onDropBooksToFolder={handleDropBooksToSidebarFolder}
+              onDropBooksToCategory={(bookIds, categoryId) => {
+                const set = new Set(bookIds);
+                updateLibraryState((prev) => ({
+                  books: prev.books.map((b) =>
+                    set.has(b.id) ? { ...b, categoryId } : b,
+                  ),
+                }));
+                notify("Category updated", "success");
+              }}
+              onDropBooksToFavorites={(bookIds) => {
+                const set = new Set(bookIds);
+                updateLibraryState((prev) => ({
+                  books: prev.books.map((b) =>
+                    set.has(b.id) ? { ...b, isFavorite: true } : b,
+                  ),
+                }));
+                notify("Added to Favorites", "success");
+              }}
+            />
+          </div>
 
           {/* Bar 2: Unified 32px Control Toolbar (Search · Sort · View · Options ▾ · Select) */}
           {!(

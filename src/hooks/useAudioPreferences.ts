@@ -3,6 +3,7 @@ import type {
   AudioCardDetailOptions,
   AudioCoverSize,
   AudioGroupByField,
+  AudioScrubberStyle,
   AudioSidebarSectionKey,
   AudioSortDirection,
   AudioSortField,
@@ -10,6 +11,16 @@ import type {
 import { VIEW_PREFERENCE_SYNC_EVENT } from "../utils/viewPreferences";
 
 export const AUDIO_PREFS_STORAGE_KEY = "kanso_audio_studio_prefs_v1";
+
+const VALID_SCRUBBER_STYLES: ReadonlySet<AudioScrubberStyle> = new Set([
+  "rail",
+  "youtube",
+  "bars",
+  "mirrored",
+  "ribbon",
+  "blocks",
+  "groove",
+]);
 
 export const DEFAULT_AUDIO_CARD_DETAILS: AudioCardDetailOptions = {
   artist: true,
@@ -32,6 +43,7 @@ export interface AudioStudioUiPreferences {
   sidebarCollapsedDesktop: boolean;
   collapsedSections: Record<AudioSidebarSectionKey, boolean>;
   visualizerMode: "spectrum" | "waveform";
+  scrubberStyle: AudioScrubberStyle;
 }
 
 const DEFAULT_AUDIO_UI_PREFS: AudioStudioUiPreferences = {
@@ -51,6 +63,7 @@ const DEFAULT_AUDIO_UI_PREFS: AudioStudioUiPreferences = {
     tags: true,
   },
   visualizerMode: "spectrum",
+  scrubberStyle: "youtube",
 };
 
 function loadAudioPrefs(): AudioStudioUiPreferences {
@@ -58,9 +71,14 @@ function loadAudioPrefs(): AudioStudioUiPreferences {
     const raw = localStorage.getItem(AUDIO_PREFS_STORAGE_KEY);
     if (!raw) return DEFAULT_AUDIO_UI_PREFS;
     const parsed = JSON.parse(raw) as Partial<AudioStudioUiPreferences>;
+    const scrubberStyle =
+      parsed.scrubberStyle && VALID_SCRUBBER_STYLES.has(parsed.scrubberStyle)
+        ? parsed.scrubberStyle
+        : DEFAULT_AUDIO_UI_PREFS.scrubberStyle;
     return {
       ...DEFAULT_AUDIO_UI_PREFS,
       ...parsed,
+      scrubberStyle,
       cardDetails: {
         ...DEFAULT_AUDIO_CARD_DETAILS,
         ...(parsed.cardDetails ?? {}),

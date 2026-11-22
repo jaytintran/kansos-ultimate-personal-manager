@@ -596,7 +596,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
       />
 
       {/* Rail Header */}
-      <div className="h-14 px-4 flex items-center justify-between border-b border-[var(--border-subtle)] shrink-0">
+      <div className="h-[52px] px-4 flex items-center justify-between border-b border-[var(--border-subtle)] shrink-0">
         <button
           type="button"
           onClick={() => selectAndClose({ kind: "smart", id: "all" })}

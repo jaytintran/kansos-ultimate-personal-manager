@@ -2460,6 +2460,10 @@ export const AudioView = React.forwardRef<AudioControllerHandle, AudioViewProps>
             onChangeVisualizerMode={(mode) =>
               updateUiPrefs({ visualizerMode: mode })
             }
+            scrubberStyle={prefs.scrubberStyle}
+            onChangeScrubberStyle={(scrubberStyle) =>
+              updateUiPrefs({ scrubberStyle })
+            }
             onTogglePlayPauseAll={mixer.togglePlayPauseAll}
             onTogglePlaySlot={mixer.togglePlaySlot}
             onToggleViewMute={mixer.toggleViewMute}

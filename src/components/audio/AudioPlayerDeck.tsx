@@ -2,6 +2,7 @@ import {
   Activity,
   AudioWaveform,
   BookmarkPlus,
+  Check,
   ChevronDown,
   ChevronUp,
   Clock,
@@ -23,7 +24,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { SlotRuntimeInfo } from "../../hooks/useAudioMixerEngine";
 import {
   AUDIO_EQ_PRESETS,
@@ -33,11 +34,17 @@ import type {
   AudioEqPreset,
   AudioMixSlot,
   AudioRepeatMode,
+  AudioScrubberStyle,
   AudioStudioState,
   AudioTrackRecord,
 } from "../../types/audio";
 import { isAndroidCapacitor } from "../../utils/androidSaf";
 import { AudioArtwork } from "./AudioArtwork";
+import {
+  AudioScrubber,
+  SCRUBBER_STYLE_OPTIONS,
+  ScrubberStylePreviewSvg,
+} from "./AudioScrubber";
 import { extractDraggedAudioIds, hasDraggedAudioPayload } from "./AudioSidebar";
 
 interface AudioPlayerDeckProps {
@@ -53,6 +60,8 @@ interface AudioPlayerDeckProps {
   analyserNode: AnalyserNode | null;
   visualizerMode: "spectrum" | "waveform";
   onChangeVisualizerMode: (mode: "spectrum" | "waveform") => void;
+  scrubberStyle: AudioScrubberStyle;
+  onChangeScrubberStyle: (style: AudioScrubberStyle) => void;
   onTogglePlayPauseAll: () => void;
   onTogglePlaySlot: (slotId: string) => void;
   onToggleViewMute: () => void;
@@ -80,49 +89,11 @@ interface AudioPlayerDeckProps {
 
 const SLEEP_PRESETS = [15, 30, 45, 60, 90];
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
-const FALLBACK_WAVEFORM_PEAKS = Array.from({ length: 52 }, (_, i) =>
-  Math.max(
-    0.22,
-    Math.min(0.92, 0.48 + 0.32 * Math.sin(i * 0.45) * Math.cos(i * 0.17)),
-  ),
-);
 
 function formatCountdown(secs: number): string {
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-interface WaveformPalette {
-  accentColor: string;
-  mutedColor: string;
-  troughColor: string;
-  softAccent: string;
-}
-
-function readWaveformPalette(): WaveformPalette {
-  if (typeof window === "undefined") {
-    return {
-      accentColor: "#b45309",
-      mutedColor: "#78716c",
-      troughColor: "#efede8",
-      softAccent: "rgba(180,83,9,0.2)",
-    };
-  }
-  const cs = getComputedStyle(document.documentElement);
-  return {
-    accentColor: cs.getPropertyValue("--accent").trim() || "#b45309",
-    mutedColor:
-      cs.getPropertyValue("--text-muted").trim() ||
-      cs.getPropertyValue("--border-strong").trim() ||
-      "#78716c",
-    troughColor:
-      cs.getPropertyValue("--bg-surface-subtle").trim() ||
-      cs.getPropertyValue("--bg-surface").trim() ||
-      "rgba(120,113,108,0.12)",
-    softAccent:
-      cs.getPropertyValue("--accent-soft").trim() || "rgba(180,83,9,0.2)",
-  };
 }
 
 export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
@@ -138,6 +109,8 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
   analyserNode,
   visualizerMode,
   onChangeVisualizerMode,
+  scrubberStyle,
+  onChangeScrubberStyle,
   onTogglePlayPauseAll,
   onTogglePlaySlot,
   onToggleViewMute,
@@ -160,7 +133,7 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
 }) => {
   const [panelTab, setPanelTab] = useState<"mixer" | "queue" | "dsp">("mixer");
   const [openPopover, setOpenPopover] = useState<
-    "sleep" | "eq" | "speed" | "save" | null
+    "sleep" | "eq" | "speed" | "save" | "scrubber" | "volume" | null
   >(null);
   const [customSleepMins, setCustomSleepMins] = useState("25");
   const [presetName, setPresetName] = useState("");
@@ -169,11 +142,7 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
   );
   const [draggedSlotIndex, setDraggedSlotIndex] = useState<number | null>(null);
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const popoverRootRef = useRef<HTMLDivElement | null>(null);
-  const draggingSeekRef = useRef(false);
-  const paletteRef = useRef<WaveformPalette>(readWaveformPalette());
-  const freqBufferRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   const [isMobileViewport, setIsMobileViewport] = useState<boolean>(() =>
     typeof window !== "undefined"
@@ -200,35 +169,6 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
   const duration = primaryRt?.duration ?? primaryTrack?.durationSeconds ?? 0;
   const primaryRate = primarySlot?.playbackRate ?? 1;
 
-  const drawStateRef = useRef({
-    peaks: FALLBACK_WAVEFORM_PEAKS,
-    currentTime,
-    duration,
-    isPlaying,
-    abLoopStart: primarySlot?.abLoopStart ?? null,
-    abLoopEnd: primarySlot?.abLoopEnd ?? null,
-    analyserNode,
-    useStaticWaveformOnly,
-  });
-
-  const normalizedPeaks =
-    primaryTrack?.waveformPeaks && primaryTrack.waveformPeaks.length > 0
-      ? primaryTrack.waveformPeaks.map((p) =>
-          Number.isFinite(p) ? Math.max(0.16, Math.min(0.95, p)) : 0.38,
-        )
-      : FALLBACK_WAVEFORM_PEAKS;
-
-  drawStateRef.current = {
-    peaks: normalizedPeaks,
-    currentTime,
-    duration,
-    isPlaying,
-    abLoopStart: primarySlot?.abLoopStart ?? null,
-    abLoopEnd: primarySlot?.abLoopEnd ?? null,
-    analyserNode,
-    useStaticWaveformOnly,
-  };
-
   useEffect(() => {
     if (!openPopover) return;
     const onDown = (e: MouseEvent) => {
@@ -239,190 +179,24 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
         setOpenPopover(null);
       }
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenPopover(null);
+    };
     window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [openPopover]);
 
-  const drawWaveformFrame = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-
-    const dpr = Math.min(3, window.devicePixelRatio || 1);
-    const cssWidth = Math.max(80, rect.width);
-    const cssHeight = Math.max(24, rect.height);
-    const pixelWidth = Math.max(1, Math.round(cssWidth * dpr));
-    const pixelHeight = Math.max(1, Math.round(cssHeight * dpr));
-
-    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
-      canvas.width = pixelWidth;
-      canvas.height = pixelHeight;
+  const handleMasterVolumeChange = (nextVol: number) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(nextVol)));
+    onUpdateAudioState({ masterVolume: clamped });
+    if (clamped > 0 && viewMuted) {
+      onToggleViewMute();
     }
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const scaleX = pixelWidth / cssWidth;
-    const scaleY = pixelHeight / cssHeight;
-    ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-    ctx.clearRect(0, 0, cssWidth, cssHeight);
-
-    const pal = paletteRef.current;
-    const st = drawStateRef.current;
-    const ratio =
-      st.duration > 0
-        ? Math.max(0, Math.min(1, st.currentTime / st.duration))
-        : 0;
-
-    // Subtle recessed trough background + baseline so scrubber is never invisible
-    ctx.globalAlpha = 0.72;
-    ctx.fillStyle = pal.troughColor;
-    ctx.fillRect(0, 2, cssWidth, Math.max(4, cssHeight - 4));
-
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = pal.mutedColor;
-    ctx.fillRect(0, Math.floor(cssHeight / 2), cssWidth, 1);
-
-    // A-B Loop Highlight Region
-    if (
-      st.duration > 0 &&
-      st.abLoopStart != null &&
-      st.abLoopEnd != null &&
-      st.abLoopEnd > st.abLoopStart
-    ) {
-      const xA = (st.abLoopStart / st.duration) * cssWidth;
-      const xB = (st.abLoopEnd / st.duration) * cssWidth;
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = pal.softAccent;
-      ctx.fillRect(xA, 0, Math.max(2, xB - xA), cssHeight);
-    }
-
-    const peaks = st.peaks;
-    const bars = peaks.length;
-    const barW = cssWidth / bars;
-    const gap = Math.max(1, barW * 0.28);
-
-    const liveSpectrum =
-      !st.useStaticWaveformOnly && st.analyserNode && st.isPlaying;
-    let freqData: Uint8Array<ArrayBuffer> | null = null;
-    if (liveSpectrum && st.analyserNode) {
-      if (
-        !freqBufferRef.current ||
-        freqBufferRef.current.length !== st.analyserNode.frequencyBinCount
-      ) {
-        freqBufferRef.current = new Uint8Array(
-          st.analyserNode.frequencyBinCount,
-        );
-      }
-      freqData = freqBufferRef.current;
-      st.analyserNode.getByteFrequencyData(freqData);
-    }
-
-    for (let i = 0; i < bars; i++) {
-      let amp = peaks[i];
-      if (freqData) {
-        const binIdx = Math.min(
-          freqData.length - 1,
-          Math.floor((i / bars) * freqData.length * 0.8),
-        );
-        const liveVal = Math.max(0.14, (freqData[binIdx] || 0) / 255);
-        amp = liveVal * 0.72 + peaks[i] * 0.28;
-      }
-      const barH = Math.max(3, amp * (cssHeight - 6));
-      const x = i * barW;
-      const barPosRatio = (i + 0.5) / bars;
-      const isPlayed = st.duration > 0 && ratio > 0 && barPosRatio <= ratio;
-      ctx.fillStyle = isPlayed ? pal.accentColor : pal.mutedColor;
-      ctx.globalAlpha = isPlayed ? 0.96 : 0.48;
-      ctx.fillRect(
-        x + gap / 2,
-        (cssHeight - barH) / 2,
-        Math.max(1.5, barW - gap),
-        barH,
-      );
-    }
-
-    // Playhead marker
-    if (st.duration > 0) {
-      const px = Math.max(1.5, Math.min(cssWidth - 2.5, ratio * cssWidth));
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = pal.accentColor;
-      ctx.fillRect(px - 1.25, 1, 2.5, Math.max(4, cssHeight - 2));
-    }
-  }, []);
-
-  // Cache CSS palette tokens and watch theme switches without querying getComputedStyle per frame
-  useEffect(() => {
-    paletteRef.current = readWaveformPalette();
-    drawWaveformFrame();
-
-    if (typeof MutationObserver === "undefined") return;
-    const observer = new MutationObserver(() => {
-      paletteRef.current = readWaveformPalette();
-      drawWaveformFrame();
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-theme", "class", "style"],
-    });
-    return () => observer.disconnect();
-  }, [drawWaveformFrame]);
-
-  // Redraw automatically when container resizes or device rotates
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    drawWaveformFrame();
-    if (typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => {
-      drawWaveformFrame();
-    });
-    ro.observe(canvas);
-    return () => ro.disconnect();
-  }, [drawWaveformFrame]);
-
-  // Redraw static waveform immediately on playback progress / track / loop changes
-  useEffect(() => {
-    drawWaveformFrame();
-  }, [
-    drawWaveformFrame,
-    primaryTrack?.id,
-    primaryTrack?.waveformPeaks,
-    primarySlot?.abLoopStart,
-    primarySlot?.abLoopEnd,
-    currentTime,
-    duration,
-    isPlaying,
-    useStaticWaveformOnly,
-  ]);
-
-  // Desktop-only 60fps spectrum RAF loop (disabled on mobile/Android for battery & FPS)
-  useEffect(() => {
-    if (useStaticWaveformOnly || !isPlaying || !analyserNode) return;
-    let rafId = 0;
-    const tick = () => {
-      drawWaveformFrame();
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-    };
-  }, [drawWaveformFrame, useStaticWaveformOnly, isPlaying, analyserNode]);
-
-  const seekFromCanvasPointer = useCallback(
-    (clientX: number) => {
-      if (!canvasRef.current || !primarySlot || duration <= 0) return;
-      const rect = canvasRef.current.getBoundingClientRect();
-      const ratio = Math.max(
-        0,
-        Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)),
-      );
-      onSeekSlot(primarySlot.slotId, ratio * duration);
-    },
-    [primarySlot, duration, onSeekSlot],
-  );
+  };
 
   const cycleRepeat = () => {
     const order: AudioRepeatMode[] = ["off", "all", "one"];
@@ -1022,36 +796,113 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
 
       {/* Persistent Bottom Transport Bar */}
       <div className="px-3 sm:px-6 py-2.5 flex flex-col gap-2">
-        {/* Interactive Canvas Waveform & Seek Strip */}
-        <div className="flex items-center gap-2.5">
+        {/* Interactive Multi-Style Scrubber + Style Picker & Live Spectrum Toggle */}
+        <div className="flex items-center gap-2 sm:gap-2.5">
           <span className="font-mono tabular-nums text-[11px] text-[var(--text-muted)] w-10 text-right shrink-0">
             {formatAudioDuration(currentTime)}
           </span>
-          <canvas
-            ref={canvasRef}
-            onPointerDown={(e) => {
-              if (!primarySlot || duration <= 0) return;
-              draggingSeekRef.current = true;
-              e.currentTarget.setPointerCapture(e.pointerId);
-              seekFromCanvasPointer(e.clientX);
+          <AudioScrubber
+            scrubberStyle={scrubberStyle}
+            currentTime={currentTime}
+            duration={duration}
+            peaks={primaryTrack?.waveformPeaks}
+            isPlaying={isPlaying}
+            disabled={!primarySlot}
+            abLoopStart={primarySlot?.abLoopStart ?? null}
+            abLoopEnd={primarySlot?.abLoopEnd ?? null}
+            analyserNode={analyserNode}
+            useStaticWaveformOnly={useStaticWaveformOnly}
+            trackId={primaryTrack?.id}
+            onSeek={(secs) => {
+              if (primarySlot) onSeekSlot(primarySlot.slotId, secs);
             }}
-            onPointerMove={(e) => {
-              if (draggingSeekRef.current) {
-                seekFromCanvasPointer(e.clientX);
-              }
-            }}
-            onPointerUp={() => {
-              draggingSeekRef.current = false;
-            }}
-            onPointerCancel={() => {
-              draggingSeekRef.current = false;
-            }}
-            className="flex-1 min-w-0 w-full h-8 sm:h-7 rounded-md cursor-pointer touch-none block"
-            aria-label="Audio seek waveform"
           />
           <span className="font-mono tabular-nums text-[11px] text-[var(--text-muted)] w-10 shrink-0">
             {formatAudioDuration(duration)}
           </span>
+
+          {/* Scrubber Bar Style Picker Popover (7 UI Options) */}
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() =>
+                setOpenPopover((p) => (p === "scrubber" ? null : "scrubber"))
+              }
+              title="Change progress bar style"
+              aria-label="Change progress bar style"
+              aria-expanded={openPopover === "scrubber"}
+              className={`h-7 px-1.5 rounded-md border inline-flex items-center gap-1 cursor-pointer transition-colors ${
+                openPopover === "scrubber"
+                  ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                  : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)]"
+              }`}
+            >
+              <ScrubberStylePreviewSvg
+                styleId={scrubberStyle}
+                active={openPopover === "scrubber"}
+              />
+              <ChevronDown className="w-3 h-3 opacity-75" />
+            </button>
+
+            {openPopover === "scrubber" && (
+              <div className="absolute right-0 bottom-full mb-2 w-64 p-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-xl z-50 space-y-0.5">
+                <div className="px-2 py-1 flex items-center justify-between border-b border-[var(--border-subtle)] mb-1">
+                  <span className="text-[11px] font-semibold text-[var(--text-primary)]">
+                    Scrubber Bar Style
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setOpenPopover(null)}
+                    aria-label="Close scrubber style menu"
+                    className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {SCRUBBER_STYLE_OPTIONS.map((opt) => {
+                  const selected = scrubberStyle === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        onChangeScrubberStyle(opt.id);
+                        setOpenPopover(null);
+                      }}
+                      className={`w-full px-2 py-1.5 rounded-lg flex items-center gap-2.5 text-left transition-colors cursor-pointer ${
+                        selected
+                          ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                          : "text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]"
+                      }`}
+                    >
+                      <span
+                        className={`p-1 rounded border shrink-0 ${
+                          selected
+                            ? "border-[var(--accent)]/40 bg-[var(--bg-surface)] text-[var(--accent)]"
+                            : "border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-secondary)]"
+                        }`}
+                      >
+                        <ScrubberStylePreviewSvg
+                          styleId={opt.id}
+                          active={selected}
+                        />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-medium leading-tight truncate">
+                          {opt.label}
+                        </span>
+                        <span className="block text-[10px] text-[var(--text-muted)] leading-tight truncate">
+                          {opt.description}
+                        </span>
+                      </span>
+                      {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {!isAndroidCapacitor() && (
             <button
               type="button"
@@ -1065,7 +916,12 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
                   ? "Switch to static waveform"
                   : "Switch to live spectrum visualizer"
               }
-              className="hidden lg:inline-flex p-1 rounded text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer shrink-0"
+              aria-label={
+                visualizerMode === "spectrum"
+                  ? "Switch to static waveform"
+                  : "Switch to live spectrum visualizer"
+              }
+              className="hidden lg:inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
             >
               {visualizerMode === "spectrum" ? (
                 <Activity className="w-3.5 h-3.5 text-[var(--accent)]" />
@@ -1340,17 +1196,20 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
               )}
             </div>
 
-            {/* Mute + Master Volume */}
-            <div className="h-8 px-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] inline-flex items-center gap-1.5">
+            {/* Desktop Mute + Longer Master Volume Slider */}
+            <div className="hidden md:inline-flex h-8 px-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] items-center gap-2">
               <button
                 type="button"
                 onClick={onToggleViewMute}
                 title={viewMuted ? "Unmute Audio View" : "Mute Audio View"}
+                aria-label={viewMuted ? "Unmute Audio View" : "Mute Audio View"}
                 className={`cursor-pointer ${
-                  viewMuted ? "text-[var(--danger)]" : "text-[var(--text-secondary)]"
+                  viewMuted
+                    ? "text-[var(--danger)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
               >
-                {viewMuted ? (
+                {viewMuted || audioState.masterVolume === 0 ? (
                   <VolumeX className="w-3.5 h-3.5" />
                 ) : (
                   <Volume2 className="w-3.5 h-3.5" />
@@ -1360,13 +1219,118 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
                 type="range"
                 min={0}
                 max={100}
-                value={audioState.masterVolume}
+                value={viewMuted ? 0 : audioState.masterVolume}
                 onChange={(e) =>
-                  onUpdateAudioState({ masterVolume: Number(e.target.value) })
+                  handleMasterVolumeChange(Number(e.target.value))
                 }
                 aria-label="Master audio volume"
-                className="hidden md:block w-16 accent-[var(--accent)] cursor-pointer"
+                className="w-28 lg:w-36 accent-[var(--accent)] cursor-pointer"
               />
+              <span className="font-mono tabular-nums text-[11px] text-[var(--text-muted)] w-8 text-right shrink-0">
+                {viewMuted ? "Mute" : `${audioState.masterVolume}%`}
+              </span>
+            </div>
+
+            {/* Mobile Volume Trigger + Mini Popover */}
+            <div className="relative md:hidden">
+              <button
+                type="button"
+                onClick={() =>
+                  setOpenPopover((p) => (p === "volume" ? null : "volume"))
+                }
+                aria-label="Master volume controls"
+                aria-expanded={openPopover === "volume"}
+                className={`h-8 px-2 rounded-lg border text-xs inline-flex items-center gap-1 cursor-pointer ${
+                  openPopover === "volume"
+                    ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                    : viewMuted
+                      ? "border-[var(--danger)]/50 bg-[var(--bg-surface)] text-[var(--danger)]"
+                      : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)]"
+                }`}
+              >
+                {viewMuted || audioState.masterVolume === 0 ? (
+                  <VolumeX className="w-3.5 h-3.5 shrink-0" />
+                ) : (
+                  <Volume2 className="w-3.5 h-3.5 shrink-0" />
+                )}
+                <span className="font-mono tabular-nums text-[11px]">
+                  {viewMuted ? "Mute" : `${audioState.masterVolume}%`}
+                </span>
+              </button>
+
+              {openPopover === "volume" && (
+                <div className="absolute right-0 bottom-full mb-2 w-60 p-3 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-xl space-y-2.5 z-50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[var(--text-primary)]">
+                      Master Volume
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono tabular-nums text-xs font-semibold text-[var(--accent)]">
+                        {viewMuted ? "Muted" : `${audioState.masterVolume}%`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setOpenPopover(null)}
+                        aria-label="Close volume popover"
+                        className="p-0.5 text-[var(--text-muted)] cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="min-h-[44px] flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={onToggleViewMute}
+                      aria-label={viewMuted ? "Unmute audio" : "Mute audio"}
+                      className={`h-9 w-9 rounded-lg border inline-flex items-center justify-center shrink-0 cursor-pointer ${
+                        viewMuted
+                          ? "border-[var(--danger)] bg-[var(--danger)]/10 text-[var(--danger)]"
+                          : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)]"
+                      }`}
+                    >
+                      {viewMuted || audioState.masterVolume === 0 ? (
+                        <VolumeX className="w-4 h-4" />
+                      ) : (
+                        <Volume2 className="w-4 h-4" />
+                      )}
+                    </button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={viewMuted ? 0 : audioState.masterVolume}
+                      onChange={(e) =>
+                        handleMasterVolumeChange(Number(e.target.value))
+                      }
+                      aria-label="Master audio volume slider"
+                      className="flex-1 h-2 accent-[var(--accent)] cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[25, 50, 75, 100].map((level) => {
+                      const isCurrent =
+                        !viewMuted && audioState.masterVolume === level;
+                      return (
+                        <button
+                          key={level}
+                          type="button"
+                          onClick={() => handleMasterVolumeChange(level)}
+                          className={`h-8 rounded-md border font-mono tabular-nums text-[11px] cursor-pointer ${
+                            isCurrent
+                              ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] font-semibold"
+                              : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                          }`}
+                        >
+                          {level}%
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Expand / Collapse Mixer & Queue Drawer */}

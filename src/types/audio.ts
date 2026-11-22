@@ -20,6 +20,15 @@ export type AudioEqPreset =
 
 export type AudioRepeatMode = "off" | "all" | "one";
 
+export type AudioScrubberStyle =
+  | "rail"
+  | "youtube"
+  | "bars"
+  | "mirrored"
+  | "ribbon"
+  | "blocks"
+  | "groove";
+
 export type AudioCoverSize = "compact" | "standard" | "large";
 
 export type AudioSmartView =
