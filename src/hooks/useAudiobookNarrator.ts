@@ -4,7 +4,7 @@ import type {
   BookVoiceOverride,
   NarratorTone,
   SleepTimerMode,
-} from "../../library";
+} from "../types/library";
 import { NARRATOR_TONES } from "./useVoicePreferences";
 
 export type NarrationStatus =

@@ -1,6 +1,6 @@
 import { BookOpen, Library, X } from "lucide-react";
 import React from "react";
-import type { BookRecord } from "../../../library";
+import type { BookRecord } from "../../types/library";
 
 interface ReaderTabStripProps {
   openBooks: BookRecord[];

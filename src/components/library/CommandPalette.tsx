@@ -20,7 +20,7 @@ import type {
   FolderRecord,
   HighlightRecord,
   ThemeMode,
-} from "../../../library";
+} from "../../types/library";
 import { BookCover } from "./BookCover";
 
 interface CommandPaletteProps {

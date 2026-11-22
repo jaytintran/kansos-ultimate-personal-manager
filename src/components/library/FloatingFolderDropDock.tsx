@@ -4,7 +4,7 @@ import {
   flattenFoldersHierarchy,
   getFolderColorHex,
 } from "../../lib/formatters";
-import type { FolderRecord, ViewFolderRecord } from "../../../library";
+import type { FolderRecord, ViewFolderRecord } from "../../types/library";
 
 interface FloatingFolderDropDockProps {
   visible: boolean;

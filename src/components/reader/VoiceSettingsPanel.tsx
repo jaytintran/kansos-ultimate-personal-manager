@@ -1,7 +1,7 @@
 import { Check, Play, RotateCcw, Search, Square, Volume2 } from "lucide-react";
 import React, { useMemo, useState } from "react";
 import { NARRATOR_TONES } from "../../hooks/useVoicePreferences";
-import type { BookVoiceOverride, NarratorTone } from "../../../library";
+import type { BookVoiceOverride, NarratorTone } from "../../types/library";
 
 interface VoiceSettingsPanelProps {
   settings: BookVoiceOverride & { skipNoise: boolean; tapToRead: boolean };

@@ -19,7 +19,7 @@ import type {
   CategoryRecord,
   FolderRecord,
   ViewFolderRecord,
-} from "../../../library";
+} from "../../types/library";
 import { BottomSheet } from "../ui/BottomSheet";
 
 export interface MobileOrganizePayload {

@@ -7,7 +7,7 @@ import type {
   FolderRecord,
   HighlightRecord,
   ViewFolderRecord,
-} from "../../library";
+} from "../types/library";
 
 interface LegacyBookBookmark {
   id: string;
@@ -56,6 +56,8 @@ interface LegacyBookShape {
   addedAt?: string | number;
   lastReadAt?: string | number | null;
   sortOrder?: number;
+  storageMode?: BookRecord["storageMode"];
+  externalUri?: string;
 }
 
 function toEpochMs(
@@ -282,6 +284,12 @@ export function normalizeLibraryWorkspaceData(raw: {
         typeof item.sortOrder === "number" && Number.isFinite(item.sortOrder)
           ? item.sortOrder
           : undefined,
+      ...(item.storageMode === "android-uri" || item.storageMode === "indexeddb"
+        ? { storageMode: item.storageMode }
+        : {}),
+      ...(typeof item.externalUri === "string" && item.externalUri.trim()
+        ? { externalUri: item.externalUri.trim() }
+        : {}),
     };
   });
 

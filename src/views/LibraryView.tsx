@@ -5,6 +5,8 @@ import {
   CheckSquare,
   ChevronDown,
   Command,
+  FileText,
+  FolderOpen,
   FolderPlus,
   GripVertical,
   LayoutGrid,
@@ -25,6 +27,8 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { AndroidFolderManagerModal } from "../components/library/AndroidFolderManagerModal";
+import { AndroidImportChoiceModal } from "../components/library/AndroidImportChoiceModal";
 import { AddBooksToFolderModal } from "../components/library/AddBooksToFolderModal";
 import {
   BookContextMenu,
@@ -77,6 +81,7 @@ import {
   parseLibraryBackupZip,
   type ParsedBackupArchive,
 } from "../lib/backup";
+import { findMissingBookIds } from "../lib/bookFileLoader";
 import { computeSha256Hex, libraryDb } from "../lib/db";
 import {
   getBookFolderIds,
@@ -86,7 +91,24 @@ import {
 import {
   detectBookFormat,
   extractBookImportMetadata,
+  extractBookImportMetadataFromBuffer,
 } from "../lib/parsers/importBook";
+import {
+  addOrUpdateAndroidLinkedFolder,
+  getAndroidImportMode,
+  getAndroidLinkedFolders,
+  isAndroidCapacitor,
+  pickAndroidBookDocuments,
+  pickAndroidBookFolder,
+  readAndroidUriAsArrayBuffer,
+  releaseAndroidUri,
+  removeAndroidLinkedFolder,
+  scanAndroidBookFolder,
+  setAndroidImportMode,
+  type AndroidImportStorageMode,
+  type AndroidLinkedFolder,
+  type AndroidSafPickedFile,
+} from "../utils/androidSaf";
 import type {
   BookJumpRequest,
   BookNoteLink,
@@ -103,7 +125,7 @@ import type {
   ReadingStatus,
   SortField,
   ViewFolderRecord,
-} from "../../library";
+} from "../types/library";
 
 export interface LibraryViewProps {
   zenMode?: boolean;
@@ -250,7 +272,40 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [pendingBackupArchive, setPendingBackupArchive] =
     useState<ParsedBackupArchive | null>(null);
 
+  // Missing-file audit & relink state (cross-device Gist sync + Android linked URIs)
+  const [missingBookIds, setMissingBookIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  // Android Capacitor-only SAF direct file access state
+  const isAndroidApp = useMemo(() => isAndroidCapacitor(), []);
+  const [androidImportMenuOpen, setAndroidImportMenuOpen] = useState(false);
+  const [androidImportMode, setAndroidImportModeState] =
+    useState<AndroidImportStorageMode>(() =>
+      isAndroidCapacitor() ? getAndroidImportMode() : "ask",
+    );
+  const [androidLinkedFolders, setAndroidLinkedFolders] = useState<
+    AndroidLinkedFolder[]
+  >(() => (isAndroidCapacitor() ? getAndroidLinkedFolders() : []));
+  const [androidFolderManagerOpen, setAndroidFolderManagerOpen] =
+    useState(false);
+  const [isScanningAndroidFolders, setIsScanningAndroidFolders] =
+    useState(false);
+  const [androidChoicePrompt, setAndroidChoicePrompt] = useState<{
+    fileCount: number;
+    totalBytes: number;
+    contextLabel?: string;
+  } | null>(null);
+  const androidChoiceResolverRef = useRef<
+    ((choice: "link" | "copy" | null) => void) | null
+  >(null);
+  const pendingDupAndroidRef = useRef<
+    Map<string, { uri: string; choice: "link" | "copy" }>
+  >(new Map());
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const relinkFileInputRef = useRef<HTMLInputElement>(null);
+  const relinkTargetBookRef = useRef<BookRecord | null>(null);
 
   const notify = useCallback(
     (
@@ -274,6 +329,34 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     setActiveBookId((curr) => (curr && !idSet.has(curr) ? null : curr));
     setInspectedBookId((curr) => (curr && !idSet.has(curr) ? null : curr));
   }, [books]);
+
+  const refreshMissingBookIds = useCallback(async () => {
+    try {
+      const missing = await findMissingBookIds(books);
+      setMissingBookIds(missing);
+    } catch {
+      // Non-fatal
+    }
+  }, [books]);
+
+  useEffect(() => {
+    void refreshMissingBookIds();
+  }, [refreshMissingBookIds]);
+
+  useEffect(() => {
+    if (!isAndroidApp) return;
+    const onModeChanged = (e: Event) => {
+      const next = (e as CustomEvent<AndroidImportStorageMode>).detail;
+      if (next) setAndroidImportModeState(next);
+    };
+    window.addEventListener("kanso:android-import-mode-changed", onModeChanged);
+    return () => {
+      window.removeEventListener(
+        "kanso:android-import-mode-changed",
+        onModeChanged,
+      );
+    };
+  }, [isAndroidApp]);
 
   // Exit Zen mode whenever returning from Reader back to Library grid
   useEffect(() => {
@@ -758,7 +841,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     [deleteBooks],
   );
 
-  // Import Pipeline with SHA-256 + Metadata Deduplication
+  // Import Pipeline with SHA-256 + Metadata Deduplication + Missing-book Auto-Relink
   const handleImportFiles = useCallback(
     async (fileList: FileList | File[]) => {
       const rawFiles = Array.from(fileList);
@@ -779,6 +862,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
       setIsImporting(true);
       const newlyAdded: BookRecord[] = [];
+      const relinkedUpdates = new Map<string, BookRecord>();
       const knownBooks: BookRecord[] = [...books];
       const duplicatesFound: PendingDuplicateItem[] = [];
 
@@ -787,6 +871,37 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           try {
             const { meta: metadata, buffer: arrayBuffer } =
               await extractBookImportMetadata(file);
+
+            // Auto-match missing books (e.g., Gist-synced) by SHA-256 hash
+            const missingHashMatch = knownBooks.find(
+              (b) =>
+                missingBookIds.has(b.id) &&
+                Boolean(b.fileHash) &&
+                b.fileHash === metadata.fileHash,
+            );
+            if (missingHashMatch) {
+              await libraryDb.saveBookFile(
+                missingHashMatch.id,
+                arrayBuffer,
+                metadata.fileHash,
+              );
+              const patched: BookRecord = {
+                ...missingHashMatch,
+                storageMode: "indexeddb",
+                externalUri: undefined,
+                format: metadata.format,
+                fileName: metadata.fileName,
+                fileSize: metadata.fileSize,
+                fileHash: metadata.fileHash,
+                totalUnits: metadata.totalUnits,
+                coverDataUrl:
+                  missingHashMatch.coverDataUrl ?? metadata.coverDataUrl,
+              };
+              relinkedUpdates.set(patched.id, patched);
+              const idx = knownBooks.findIndex((b) => b.id === patched.id);
+              if (idx >= 0) knownBooks[idx] = patched;
+              continue;
+            }
 
             // Detect duplicate against both existing books and earlier items in this batch
             const existingByFile = knownBooks.find(
@@ -834,6 +949,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               fileName: metadata.fileName,
               fileSize: metadata.fileSize,
               fileHash: metadata.fileHash,
+              storageMode: "indexeddb",
               title: metadata.title,
               subtitle: metadata.subtitle || undefined,
               author: metadata.author,
@@ -873,12 +989,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           }
         }
 
-        if (newlyAdded.length > 0) {
+        if (newlyAdded.length > 0 || relinkedUpdates.size > 0) {
           const addedIds = newlyAdded.map((b) => b.id);
           const drilledId = drilledViewFolder?.id ?? null;
           updateLibraryState((prev) => ({
-            books: [...newlyAdded, ...prev.books],
-            ...(drilledId
+            books: [
+              ...newlyAdded,
+              ...prev.books.map((b) => relinkedUpdates.get(b.id) ?? b),
+            ],
+            ...(drilledId && addedIds.length > 0
               ? {
                   libraryViewFolders: prev.libraryViewFolders.map((vf) =>
                     vf.id === drilledId
@@ -893,12 +1012,24 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 }
               : {}),
           }));
-          notify(
-            newlyAdded.length === 1
-              ? `Imported "${newlyAdded[0].title}"`
-              : `Imported ${newlyAdded.length} books`,
-            "success",
-          );
+          if (relinkedUpdates.size > 0 && newlyAdded.length === 0) {
+            notify(
+              relinkedUpdates.size === 1
+                ? `Relinked "${Array.from(relinkedUpdates.values())[0].title}"`
+                : `Relinked ${relinkedUpdates.size} missing books`,
+              "success",
+            );
+          } else if (newlyAdded.length > 0) {
+            notify(
+              newlyAdded.length === 1
+                ? `Imported "${newlyAdded[0].title}"`
+                : `Imported ${newlyAdded.length} books`,
+              "success",
+              relinkedUpdates.size > 0
+                ? `Also relinked ${relinkedUpdates.size} missing ${relinkedUpdates.size === 1 ? "book" : "books"}`
+                : undefined,
+            );
+          }
         }
 
         if (duplicatesFound.length > 0) {
@@ -906,15 +1037,567 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         }
       } finally {
         setIsImporting(false);
+        void refreshMissingBookIds();
       }
     },
     [
       books,
+      missingBookIds,
       activeFilter,
       selectedTags,
       drilledViewFolder,
       updateLibraryState,
       notify,
+      refreshMissingBookIds,
+    ],
+  );
+
+  // Android Capacitor SAF Helpers (never activated on web desktop/PWA)
+  const askAndroidStorageChoice = useCallback(
+    (
+      fileCount: number,
+      totalBytes: number,
+      contextLabel?: string,
+    ): Promise<"link" | "copy" | null> => {
+      if (androidImportMode === "always-link") return Promise.resolve("link");
+      if (androidImportMode === "always-copy") return Promise.resolve("copy");
+      return new Promise((resolve) => {
+        androidChoiceResolverRef.current = resolve;
+        setAndroidChoicePrompt({ fileCount, totalBytes, contextLabel });
+      });
+    },
+    [androidImportMode],
+  );
+
+  const handleResolveAndroidChoice = useCallback(
+    (
+      choice: "link" | "copy" | null,
+      rememberPreference?: AndroidImportStorageMode,
+    ) => {
+      if (rememberPreference) {
+        setAndroidImportMode(rememberPreference);
+        setAndroidImportModeState(rememberPreference);
+      }
+      const resolver = androidChoiceResolverRef.current;
+      androidChoiceResolverRef.current = null;
+      setAndroidChoicePrompt(null);
+      resolver?.(choice);
+    },
+    [],
+  );
+
+  const processAndroidPickedFiles = useCallback(
+    async (
+      pickedFiles: AndroidSafPickedFile[],
+      mode: "link" | "copy",
+      options?: { silent?: boolean; skipDuplicatesSilently?: boolean },
+    ): Promise<{ added: number; relinked: number }> => {
+      const supported = pickedFiles.filter(
+        (f) => detectBookFormat(f.name) !== null,
+      );
+      const unsupportedCount = pickedFiles.length - supported.length;
+      if (!options?.silent && unsupportedCount > 0) {
+        notify(
+          `Skipped ${unsupportedCount} unsupported file${unsupportedCount === 1 ? "" : "s"}`,
+          "error",
+          "Supports .epub, .pdf, and .mobi",
+        );
+      }
+      if (supported.length === 0) return { added: 0, relinked: 0 };
+
+      setIsImporting(true);
+      const newlyAdded: BookRecord[] = [];
+      const relinkedUpdates = new Map<string, BookRecord>();
+      const knownBooks: BookRecord[] = [...books];
+      const duplicatesFound: PendingDuplicateItem[] = [];
+
+      // Skip already-bound readable URIs immediately (important for folder re-scans)
+      const activeReadableUriSet = new Set(
+        knownBooks
+          .filter(
+            (b) =>
+              b.storageMode === "android-uri" &&
+              Boolean(b.externalUri) &&
+              !missingBookIds.has(b.id),
+          )
+          .map((b) => b.externalUri as string),
+      );
+
+      try {
+        for (const safFile of supported) {
+          if (
+            options?.skipDuplicatesSilently &&
+            activeReadableUriSet.has(safFile.uri)
+          ) {
+            continue;
+          }
+
+          try {
+            const buffer = await readAndroidUriAsArrayBuffer(
+              safFile.uri,
+              safFile.size,
+            );
+            const { meta: metadata } = await extractBookImportMetadataFromBuffer(
+              safFile.name,
+              safFile.size,
+              buffer,
+            );
+
+            // Auto-match missing book (e.g., Gist-synced or moved) by SHA-256 hash
+            const missingHashMatch = knownBooks.find(
+              (b) =>
+                missingBookIds.has(b.id) &&
+                Boolean(b.fileHash) &&
+                b.fileHash === metadata.fileHash,
+            );
+            if (missingHashMatch) {
+              if (mode === "copy") {
+                await libraryDb.saveBookFile(
+                  missingHashMatch.id,
+                  buffer,
+                  metadata.fileHash,
+                );
+              }
+              const patched: BookRecord = {
+                ...missingHashMatch,
+                storageMode: mode === "link" ? "android-uri" : "indexeddb",
+                externalUri: mode === "link" ? safFile.uri : undefined,
+                format: metadata.format,
+                fileName: metadata.fileName,
+                fileSize: metadata.fileSize,
+                fileHash: metadata.fileHash,
+                totalUnits: metadata.totalUnits,
+                coverDataUrl:
+                  missingHashMatch.coverDataUrl ?? metadata.coverDataUrl,
+              };
+              relinkedUpdates.set(patched.id, patched);
+              const idx = knownBooks.findIndex((b) => b.id === patched.id);
+              if (idx >= 0) knownBooks[idx] = patched;
+              if (mode === "link") activeReadableUriSet.add(safFile.uri);
+              continue;
+            }
+
+            const existingByFile = knownBooks.find(
+              (b) =>
+                (b.externalUri && b.externalUri === safFile.uri) ||
+                (b.fileHash && b.fileHash === metadata.fileHash) ||
+                (b.fileName.toLowerCase() === metadata.fileName.toLowerCase() &&
+                  b.fileSize === metadata.fileSize),
+            );
+            const existingByTitle = !existingByFile
+              ? knownBooks.find(
+                  (b) =>
+                    b.title.trim().toLowerCase() ===
+                      metadata.title.trim().toLowerCase() &&
+                    b.author.trim().toLowerCase() ===
+                      metadata.author.trim().toLowerCase(),
+                )
+              : undefined;
+
+            const existing = existingByFile ?? existingByTitle;
+            if (existing) {
+              if (options?.skipDuplicatesSilently) continue;
+              const dupId = makeId("dup");
+              const fileProxy = new File([buffer], safFile.name, {
+                type: safFile.mimeType || "application/octet-stream",
+              });
+              pendingDupAndroidRef.current.set(dupId, {
+                uri: safFile.uri,
+                choice: mode,
+              });
+              duplicatesFound.push({
+                id: dupId,
+                file: fileProxy,
+                arrayBuffer: buffer,
+                metadata,
+                existingBook: existing,
+                matchReason: existingByFile
+                  ? "Same file name & size"
+                  : "Same title & author",
+              });
+              continue;
+            }
+
+            const newId = makeId("book");
+            if (mode === "copy") {
+              await libraryDb.saveBookFile(newId, buffer, metadata.fileHash);
+            }
+
+            const targetFolderIds =
+              activeFilter.kind === "folder" ? [activeFilter.id] : [];
+            const targetCategoryId =
+              activeFilter.kind === "category" ? activeFilter.id : null;
+
+            const record: BookRecord = {
+              id: newId,
+              format: metadata.format,
+              fileName: metadata.fileName,
+              fileSize: metadata.fileSize,
+              fileHash: metadata.fileHash,
+              storageMode: mode === "link" ? "android-uri" : "indexeddb",
+              externalUri: mode === "link" ? safFile.uri : undefined,
+              title: metadata.title,
+              subtitle: metadata.subtitle || undefined,
+              author: metadata.author,
+              description: metadata.description || undefined,
+              publisher: metadata.publisher || undefined,
+              language: metadata.language || undefined,
+              year: metadata.year || undefined,
+              status: "unread",
+              isFavorite:
+                activeFilter.kind === "smart" &&
+                activeFilter.id === "favorites",
+              categoryId: targetCategoryId,
+              folderId: targetFolderIds[0] ?? null,
+              folderIds: targetFolderIds,
+              tags: [...selectedTags],
+              coverDataUrl: metadata.coverDataUrl,
+              coverPaletteIndex: hashPaletteIndex(metadata.title),
+              coverStyle: "editorial",
+              progress: 0,
+              totalUnits: metadata.totalUnits,
+              currentLocation: {
+                unitIndex: metadata.format === "pdf" ? 1 : 0,
+                scrollRatio: 0,
+              },
+              addedAt: Date.now(),
+              lastReadAt: null,
+            };
+
+            newlyAdded.push(record);
+            knownBooks.push(record);
+            if (mode === "link") activeReadableUriSet.add(safFile.uri);
+          } catch (err) {
+            if (!options?.silent) {
+              notify(
+                `Failed to import "${safFile.name}"`,
+                "error",
+                err instanceof Error ? err.message : undefined,
+              );
+            }
+          }
+        }
+
+        if (newlyAdded.length > 0 || relinkedUpdates.size > 0) {
+          const addedIds = newlyAdded.map((b) => b.id);
+          const drilledId = drilledViewFolder?.id ?? null;
+          updateLibraryState((prev) => ({
+            books: [
+              ...newlyAdded,
+              ...prev.books.map((b) => relinkedUpdates.get(b.id) ?? b),
+            ],
+            ...(drilledId && addedIds.length > 0
+              ? {
+                  libraryViewFolders: prev.libraryViewFolders.map((vf) =>
+                    vf.id === drilledId
+                      ? {
+                          ...vf,
+                          bookIds: Array.from(
+                            new Set([...vf.bookIds, ...addedIds]),
+                          ),
+                        }
+                      : vf,
+                  ),
+                }
+              : {}),
+          }));
+
+          if (!options?.silent) {
+            if (newlyAdded.length > 0) {
+              notify(
+                newlyAdded.length === 1
+                  ? `${mode === "link" ? "Linked" : "Imported"} "${newlyAdded[0].title}"`
+                  : `${mode === "link" ? "Linked" : "Imported"} ${newlyAdded.length} books`,
+                "success",
+                relinkedUpdates.size > 0
+                  ? `Also auto-relinked ${relinkedUpdates.size} missing book${relinkedUpdates.size === 1 ? "" : "s"}`
+                  : undefined,
+              );
+            } else if (relinkedUpdates.size > 0) {
+              notify(
+                relinkedUpdates.size === 1
+                  ? `Auto-relinked "${Array.from(relinkedUpdates.values())[0].title}"`
+                  : `Auto-relinked ${relinkedUpdates.size} missing books`,
+                "success",
+              );
+            }
+          }
+        }
+
+        if (duplicatesFound.length > 0) {
+          setPendingDuplicates(duplicatesFound);
+        }
+
+        return { added: newlyAdded.length, relinked: relinkedUpdates.size };
+      } finally {
+        setIsImporting(false);
+        void refreshMissingBookIds();
+      }
+    },
+    [
+      books,
+      missingBookIds,
+      activeFilter,
+      selectedTags,
+      drilledViewFolder,
+      updateLibraryState,
+      notify,
+      refreshMissingBookIds,
+    ],
+  );
+
+  const handleAndroidPickFiles = useCallback(async () => {
+    setAndroidImportMenuOpen(false);
+    try {
+      const picked = await pickAndroidBookDocuments(true);
+      if (picked.cancelled || picked.files.length === 0) return;
+
+      const supported = picked.files.filter(
+        (f) => detectBookFormat(f.name) !== null,
+      );
+      if (supported.length === 0) {
+        notify(
+          "No supported e-books selected",
+          "error",
+          "Supports .epub, .pdf, and .mobi",
+        );
+        return;
+      }
+
+      const totalBytes = supported.reduce((s, f) => s + (f.size || 0), 0);
+      const mode = await askAndroidStorageChoice(supported.length, totalBytes);
+      if (!mode) return;
+
+      await processAndroidPickedFiles(supported, mode);
+    } catch (err) {
+      notify(
+        "Could not open Android file picker",
+        "error",
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+  }, [askAndroidStorageChoice, notify, processAndroidPickedFiles]);
+
+  const scanSingleAndroidFolder = useCallback(
+    async (
+      folderUri: string,
+      folderName?: string,
+      silent = false,
+    ): Promise<{ added: number; relinked: number }> => {
+      setIsScanningAndroidFolders(true);
+      try {
+        const scanned = await scanAndroidBookFolder(folderUri);
+        const existingMeta = getAndroidLinkedFolders().find(
+          (f) => f.uri === folderUri,
+        );
+        const nextFolders = addOrUpdateAndroidLinkedFolder({
+          uri: folderUri,
+          name: folderName || existingMeta?.name || "Device Folder",
+          addedAt: existingMeta?.addedAt ?? Date.now(),
+          lastScannedAt: Date.now(),
+          lastFoundCount: scanned.length,
+        });
+        setAndroidLinkedFolders(nextFolders);
+
+        const mode: "link" | "copy" =
+          androidImportMode === "always-copy" ? "copy" : "link";
+        const result = await processAndroidPickedFiles(scanned, mode, {
+          silent,
+          skipDuplicatesSilently: true,
+        });
+        if (!silent && result.added === 0 && result.relinked === 0) {
+          notify(
+            `Scanned "${folderName || existingMeta?.name || "folder"}"`,
+            "info",
+            scanned.length === 0
+              ? "No EPUB, PDF, or MOBI files found"
+              : `${scanned.length} file${scanned.length === 1 ? "" : "s"} up to date`,
+          );
+        }
+        return result;
+      } catch (err) {
+        if (!silent) {
+          notify(
+            "Folder scan failed",
+            "error",
+            err instanceof Error ? err.message : undefined,
+          );
+        }
+        return { added: 0, relinked: 0 };
+      } finally {
+        setIsScanningAndroidFolders(false);
+      }
+    },
+    [androidImportMode, notify, processAndroidPickedFiles],
+  );
+
+  const handleAndroidLinkFolder = useCallback(async () => {
+    setAndroidImportMenuOpen(false);
+    try {
+      const picked = await pickAndroidBookFolder();
+      if (picked.cancelled || !picked.uri) return;
+      const folderName = picked.name || "Device Books";
+      const nextFolders = addOrUpdateAndroidLinkedFolder({
+        uri: picked.uri,
+        name: folderName,
+        addedAt: Date.now(),
+        lastScannedAt: null,
+      });
+      setAndroidLinkedFolders(nextFolders);
+      await scanSingleAndroidFolder(picked.uri, folderName, false);
+    } catch (err) {
+      notify(
+        "Could not link Android folder",
+        "error",
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+  }, [notify, scanSingleAndroidFolder]);
+
+  const handleScanAllAndroidFolders = useCallback(
+    async (silent = false) => {
+      const linked = getAndroidLinkedFolders();
+      if (linked.length === 0) return;
+      let totalAdded = 0;
+      let totalRelinked = 0;
+      for (const folder of linked) {
+        const res = await scanSingleAndroidFolder(
+          folder.uri,
+          folder.name,
+          true,
+        );
+        totalAdded += res.added;
+        totalRelinked += res.relinked;
+      }
+      if (!silent) {
+        if (totalAdded > 0 || totalRelinked > 0) {
+          notify(
+            `Folder scan complete (${totalAdded} linked, ${totalRelinked} relinked)`,
+            "success",
+          );
+        } else {
+          notify("All linked folders are up to date", "info");
+        }
+      }
+    },
+    [notify, scanSingleAndroidFolder],
+  );
+
+  // Silent Android linked-folder auto-scan once on mount if folders are already linked
+  const hasAutoScannedAndroidRef = useRef(false);
+  useEffect(() => {
+    if (!isAndroidApp || hasAutoScannedAndroidRef.current) return;
+    if (androidLinkedFolders.length === 0) return;
+    hasAutoScannedAndroidRef.current = true;
+    const timer = window.setTimeout(() => {
+      void handleScanAllAndroidFolders(true);
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [isAndroidApp, androidLinkedFolders.length, handleScanAllAndroidFolders]);
+
+  // Unified Import entry point (Web -> native file picker; Android Capacitor -> SAF menu)
+  const triggerLibraryImport = useCallback(() => {
+    if (isAndroidApp) {
+      setAndroidImportMenuOpen((v) => !v);
+      return;
+    }
+    fileInputRef.current?.click();
+  }, [isAndroidApp]);
+
+  // Manual Relink for missing/Gist-synced books or replacing linked files
+  const handleRelinkBook = useCallback(
+    async (book: BookRecord): Promise<boolean> => {
+      if (isAndroidApp) {
+        try {
+          const picked = await pickAndroidBookDocuments(false);
+          if (picked.cancelled || picked.files.length === 0) return false;
+          const safFile = picked.files[0];
+          if (!detectBookFormat(safFile.name)) {
+            notify(
+              "Unsupported file format",
+              "error",
+              "Choose an .epub, .pdf, or .mobi file",
+            );
+            return false;
+          }
+          const choice = await askAndroidStorageChoice(
+            1,
+            safFile.size,
+            `Relink "${book.title}"`,
+          );
+          if (!choice) return false;
+
+          setIsImporting(true);
+          try {
+            const buffer = await readAndroidUriAsArrayBuffer(
+              safFile.uri,
+              safFile.size,
+            );
+            const { meta: metadata } =
+              await extractBookImportMetadataFromBuffer(
+                safFile.name,
+                safFile.size,
+                buffer,
+              );
+
+            const previousUri = book.externalUri;
+            if (choice === "copy") {
+              await libraryDb.saveBookFile(book.id, buffer, metadata.fileHash);
+            }
+
+            const updated: BookRecord = {
+              ...book,
+              storageMode: choice === "link" ? "android-uri" : "indexeddb",
+              externalUri: choice === "link" ? safFile.uri : undefined,
+              format: metadata.format,
+              fileName: metadata.fileName,
+              fileSize: metadata.fileSize,
+              fileHash: metadata.fileHash,
+              totalUnits: metadata.totalUnits,
+              coverDataUrl: book.coverDataUrl ?? metadata.coverDataUrl,
+            };
+            handleUpdateBook(updated);
+
+            if (
+              previousUri &&
+              previousUri !== updated.externalUri &&
+              !books.some(
+                (other) => other.id !== book.id && other.externalUri === previousUri,
+              )
+            ) {
+              void releaseAndroidUri(previousUri);
+            }
+
+            await refreshMissingBookIds();
+            notify(
+              `${choice === "link" ? "Linked" : "Copied"} file for "${book.title}"`,
+              "success",
+            );
+            return true;
+          } finally {
+            setIsImporting(false);
+          }
+        } catch (err) {
+          notify(
+            `Could not relink "${book.title}"`,
+            "error",
+            err instanceof Error ? err.message : undefined,
+          );
+          return false;
+        }
+      }
+
+      relinkTargetBookRef.current = book;
+      relinkFileInputRef.current?.click();
+      return false;
+    },
+    [
+      isAndroidApp,
+      askAndroidStorageChoice,
+      books,
+      handleUpdateBook,
+      notify,
+      refreshMissingBookIds,
     ],
   );
 
@@ -926,16 +1609,25 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
       for (const item of pendingDuplicates) {
         const action = decisions[item.id] ?? "skip";
+        const androidInfo = pendingDupAndroidRef.current.get(item.id);
+        pendingDupAndroidRef.current.delete(item.id);
         if (action === "skip") continue;
 
+        const useAndroidUri =
+          isAndroidApp && androidInfo?.choice === "link" && androidInfo.uri;
+
         if (action === "replace") {
-          await libraryDb.saveBookFile(
-            item.existingBook.id,
-            item.arrayBuffer,
-            item.metadata.fileHash,
-          );
+          if (!useAndroidUri) {
+            await libraryDb.saveBookFile(
+              item.existingBook.id,
+              item.arrayBuffer,
+              item.metadata.fileHash,
+            );
+          }
           replacements.set(item.existingBook.id, {
             ...item.existingBook,
+            storageMode: useAndroidUri ? "android-uri" : "indexeddb",
+            externalUri: useAndroidUri ? androidInfo.uri : undefined,
             format: item.metadata.format,
             fileName: item.metadata.fileName,
             fileSize: item.metadata.fileSize,
@@ -946,13 +1638,17 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           });
         } else if (action === "keep-both") {
           const newId = makeId("book");
-          await libraryDb.saveBookFile(
-            newId,
-            item.arrayBuffer,
-            item.metadata.fileHash,
-          );
+          if (!useAndroidUri) {
+            await libraryDb.saveBookFile(
+              newId,
+              item.arrayBuffer,
+              item.metadata.fileHash,
+            );
+          }
           additions.push({
             id: newId,
+            storageMode: useAndroidUri ? "android-uri" : "indexeddb",
+            externalUri: useAndroidUri ? androidInfo.uri : undefined,
             format: item.metadata.format,
             fileName: item.metadata.fileName,
             fileSize: item.metadata.fileSize,
@@ -998,8 +1694,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         );
       }
       setPendingDuplicates([]);
+      void refreshMissingBookIds();
     },
-    [pendingDuplicates, updateLibraryState, notify],
+    [
+      pendingDuplicates,
+      isAndroidApp,
+      updateLibraryState,
+      notify,
+      refreshMissingBookIds,
+    ],
   );
 
   // Replace book binary file (from MetadataDrawer or StorageManagerModal) preserving metadata & notes
@@ -1020,8 +1723,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         await extractBookImportMetadata(file);
       await libraryDb.saveBookFile(bookId, arrayBuffer, metadata.fileHash);
 
+      const previousUri = target.externalUri;
       const updated: BookRecord = {
         ...target,
+        storageMode: "indexeddb",
+        externalUri: undefined,
         format: metadata.format,
         fileName: metadata.fileName,
         fileSize: metadata.fileSize,
@@ -1030,9 +1736,18 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         coverDataUrl: target.coverDataUrl ?? metadata.coverDataUrl,
       };
       handleUpdateBook(updated);
+      if (
+        previousUri &&
+        !books.some(
+          (other) => other.id !== target.id && other.externalUri === previousUri,
+        )
+      ) {
+        void releaseAndroidUri(previousUri);
+      }
+      await refreshMissingBookIds();
       notify(`Replaced file for "${target.title}"`, "success");
     },
-    [books, handleUpdateBook, notify],
+    [books, handleUpdateBook, notify, refreshMissingBookIds],
   );
 
   // Folders & Categories CRUD
@@ -1747,6 +2462,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           }}
           onNarrationStart={onMuteBackgroundStreamer}
           onAnnotationsChange={() => void syncLibraryAnnotationsFromDb()}
+          onRelinkBook={handleRelinkBook}
           onNotify={(title, tone) => notify(title, tone)}
         />
       </div>
@@ -1788,7 +2504,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         }
       }}
     >
-      {/* Hidden File Importer */}
+      {/* Hidden File Importer & Relinker */}
       <input
         ref={fileInputRef}
         type="file"
@@ -1797,6 +2513,20 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         onChange={(e) => {
           if (e.target.files) void handleImportFiles(e.target.files);
           e.target.value = "";
+        }}
+        className="hidden"
+      />
+      <input
+        ref={relinkFileInputRef}
+        type="file"
+        accept=".epub,.pdf,.mobi,.prc,.azw,application/epub+zip,application/pdf"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          const target = relinkTargetBookRef.current;
+          relinkTargetBookRef.current = null;
+          if (!file || !target) return;
+          await handleReplaceBookFile(target.id, file);
         }}
         className="hidden"
       />
@@ -1911,29 +2641,92 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               )}
 
               {/* Primary Import CTA */}
-              {/* Primary Import CTA */}
-              <button
-                type="button"
-                disabled={isImporting}
-                onClick={() => fileInputRef.current?.click()}
-                title={
-                  drilledViewFolder
-                    ? `Import Here "${drilledViewFolder.name}"`
-                    : activeFilter.kind === "folder"
-                      ? `Import Here "${activeViewLabel}"`
-                      : "Import Books"
-                }
-                className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:opacity-60 transition-colors cursor-pointer whitespace-nowrap"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>
-                  {isImporting
-                    ? "Importing…"
-                    : drilledViewFolder || activeFilter.kind === "folder"
-                      ? "Import Here"
-                      : "Import"}
-                </span>
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  disabled={isImporting}
+                  onClick={triggerLibraryImport}
+                  title={
+                    drilledViewFolder
+                      ? `Import Here "${drilledViewFolder.name}"`
+                      : activeFilter.kind === "folder"
+                        ? `Import Here "${activeViewLabel}"`
+                        : "Import Books"
+                  }
+                  className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:opacity-60 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>
+                    {isImporting
+                      ? "Importing…"
+                      : drilledViewFolder || activeFilter.kind === "folder"
+                        ? "Import Here"
+                        : "Import"}
+                  </span>
+                  {isAndroidApp && <ChevronDown className="w-3 h-3 opacity-80" />}
+                </button>
+
+                {isAndroidApp && androidImportMenuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-30"
+                      onClick={() => setAndroidImportMenuOpen(false)}
+                    />
+                    <div className="absolute right-0 top-10 z-40 w-64 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-xl p-1.5 space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => void handleAndroidPickFiles()}
+                        className="w-full min-h-[44px] px-3 py-2 rounded-lg text-left flex items-center gap-2.5 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                      >
+                        <FileText className="w-4 h-4 text-[var(--accent)] shrink-0" />
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-[var(--text-primary)]">
+                            Pick E-Book Files
+                          </div>
+                          <div className="text-[11px] text-[var(--text-muted)]">
+                            Link or copy EPUB, PDF, MOBI
+                          </div>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => void handleAndroidLinkFolder()}
+                        className="w-full min-h-[44px] px-3 py-2 rounded-lg text-left flex items-center gap-2.5 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                      >
+                        <FolderPlus className="w-4 h-4 text-[var(--accent)] shrink-0" />
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-[var(--text-primary)]">
+                            Link Device Folder
+                          </div>
+                          <div className="text-[11px] text-[var(--text-muted)]">
+                            Auto-scan folder without copying
+                          </div>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAndroidImportMenuOpen(false);
+                          setAndroidFolderManagerOpen(true);
+                        }}
+                        className="w-full min-h-[44px] px-3 py-2 rounded-lg text-left flex items-center justify-between gap-2 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5 min-w-0">
+                          <FolderOpen className="w-4 h-4 text-[var(--text-secondary)] shrink-0" />
+                          <span className="text-xs font-medium text-[var(--text-primary)] truncate">
+                            Linked Folders
+                          </span>
+                        </span>
+                        <span className="font-mono tabular-nums text-[11px] text-[var(--text-muted)]">
+                          {androidLinkedFolders.length}
+                        </span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </header>
 
@@ -2299,7 +3092,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             ) : books.length === 0 ? (
               <EmptyLibraryDropzone
                 onFilesSelected={(files) => void handleImportFiles(files)}
-                onBrowseClick={() => fileInputRef.current?.click()}
+                onBrowseClick={triggerLibraryImport}
                 isImporting={isImporting}
               />
             ) : (
@@ -2426,6 +3219,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                               sortField={prefs.sortField}
                               sortDirection={prefs.sortDirection}
                               isCustomSort={prefs.sortField === "custom"}
+                              missingBookIds={missingBookIds}
                               onReorderBooks={handleReorderBooks}
                               onSortChange={(field) => {
                                 if (prefs.sortField === field) {
@@ -2462,6 +3256,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                                 setInspectorOpen(true);
                               }}
                               onEditBook={(book) => setEditingBookId(book.id)}
+                              onRelinkBook={(book) => void handleRelinkBook(book)}
                               onToggleFavorite={handleToggleFavorite}
                               onContextMenuBook={(book, e) => {
                                 e.preventDefault();
@@ -2487,6 +3282,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                               inspectorOpen={inspectorOpen}
                               inspectedBookId={inspectedBookId}
                               isCustomSort={prefs.sortField === "custom"}
+                              missingBookIds={missingBookIds}
                               onReorderBooks={handleReorderBooks}
                               onOpenBook={(book) => handleOpenBook(book)}
                               onInspectBook={(book) => {
@@ -2494,6 +3290,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                                 setInspectorOpen(true);
                               }}
                               onEditBook={(book) => setEditingBookId(book.id)}
+                              onRelinkBook={(book) => void handleRelinkBook(book)}
                               onToggleFavorite={handleToggleFavorite}
                               onToggleSelect={handleToggleSelectBook}
                               onRemoveFromFolder={
@@ -2534,8 +3331,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                             selectedIds={selectedIds}
                             isSelectionMode={selectedIds.size > 0}
                             isCustomSort={prefs.sortField === "custom"}
+                            missingBookIds={missingBookIds}
                             onReorderBooks={handleReorderBooks}
                             onOpenBook={(book) => handleOpenBook(book)}
+                            onRelinkBook={(book) => void handleRelinkBook(book)}
                             onQuickAction={(book) => setMobileActionBook(book)}
                             onToggleSelect={handleToggleSelectBook}
                           />
@@ -2553,6 +3352,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         <BookInspector
           book={inspectedBook}
           isOpen={inspectorOpen}
+          isMissing={
+            inspectedBook ? missingBookIds.has(inspectedBook.id) : false
+          }
           folders={folders}
           categories={categories}
           highlights={
@@ -2569,6 +3371,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           onOpenBook={(book, unitIndex) => handleOpenBook(book, unitIndex)}
           onUpdateBook={handleUpdateBook}
           onEditMetadata={(book) => setEditingBookId(book.id)}
+          onRelinkBook={(book) => void handleRelinkBook(book)}
           onDeleteBook={(bookId) => {
             const target = books.find((b) => b.id === bookId);
             if (target) setBooksPendingDelete([target]);
@@ -2708,6 +3511,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       {editingBook && (
         <MetadataDrawer
           book={editingBook}
+          isMissing={missingBookIds.has(editingBook.id)}
           folders={folders}
           categories={categories}
           existingTags={existingTagNames}
@@ -2717,6 +3521,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             notify("Metadata saved", "success");
           }}
           onReplaceFile={handleReplaceBookFile}
+          onRelinkBook={(book) => void handleRelinkBook(book)}
           onDelete={(bookId) => {
             setEditingBookId(null);
             const target = books.find((b) => b.id === bookId);
@@ -2779,6 +3584,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         books={books}
         onClose={() => setStorageManagerOpen(false)}
         onReplaceFile={handleReplaceBookFile}
+        onRelinkBook={(book) => void handleRelinkBook(book)}
         onDeleteBooks={handleDeleteBooksConfirmed}
         onEditMetadata={(book) => {
           setStorageManagerOpen(false);
@@ -2786,7 +3592,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         }}
         onImportBooks={() => {
           setStorageManagerOpen(false);
-          fileInputRef.current?.click();
+          triggerLibraryImport();
         }}
         onNotify={notify}
       />
@@ -2822,7 +3628,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         onOpenHighlightsHub={() =>
           setActiveFilter({ kind: "smart", id: "highlights" })
         }
-        onImportBooks={() => fileInputRef.current?.click()}
+        onImportBooks={triggerLibraryImport}
         onOpenStorageManager={() => setStorageManagerOpen(true)}
         onToggleTheme={handleCycleReaderSurface}
         onToggleInspector={() => setInspectorOpen((v) => !v)}
@@ -2831,9 +3637,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       {/* Mobile Sheets */}
       <MobileBookActionSheet
         book={mobileActionBook}
+        isMissing={
+          mobileActionBook ? missingBookIds.has(mobileActionBook.id) : false
+        }
         activeDrilledFolderName={drilledViewFolder?.name ?? null}
         onClose={() => setMobileActionBook(null)}
         onReadBook={(book) => handleOpenBook(book)}
+        onRelinkBook={(book) => void handleRelinkBook(book)}
         onInspectBook={(book) => {
           setInspectedBookId(book.id);
           setInspectorOpen(true);
@@ -2930,6 +3740,35 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             }
           }}
         />
+      )}
+      {/* Android Capacitor-only Direct Storage Choice & Folder Manager */}
+      {isAndroidApp && (
+        <>
+          <AndroidImportChoiceModal
+            isOpen={Boolean(androidChoicePrompt)}
+            fileCount={androidChoicePrompt?.fileCount ?? 1}
+            totalBytes={androidChoicePrompt?.totalBytes ?? 0}
+            contextLabel={androidChoicePrompt?.contextLabel}
+            onChoose={(choice, rememberPreference) =>
+              handleResolveAndroidChoice(choice, rememberPreference)
+            }
+            onCancel={() => handleResolveAndroidChoice(null)}
+          />
+          <AndroidFolderManagerModal
+            isOpen={androidFolderManagerOpen}
+            folders={androidLinkedFolders}
+            isScanning={isScanningAndroidFolders}
+            onClose={() => setAndroidFolderManagerOpen(false)}
+            onAddFolder={() => void handleAndroidLinkFolder()}
+            onScanFolder={(uri) => void scanSingleAndroidFolder(uri, undefined, false)}
+            onScanAll={() => void handleScanAllAndroidFolders(false)}
+            onRemoveFolder={(uri) => {
+              const next = removeAndroidLinkedFolder(uri);
+              setAndroidLinkedFolders(next);
+              notify("Unlinked device folder", "info");
+            }}
+          />
+        </>
       )}
     </div>
   );

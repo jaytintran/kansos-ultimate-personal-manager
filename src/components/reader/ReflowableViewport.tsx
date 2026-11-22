@@ -38,7 +38,7 @@ import type {
   HighlightRecord,
   ParsedChapter,
   ReaderPreferences,
-} from "../../../library";
+} from "../../types/library";
 import { FootnotePopover, type FootnotePreviewState } from "./FootnotePopover";
 import { ImageLightbox, type LightboxImageState } from "./ImageLightbox";
 

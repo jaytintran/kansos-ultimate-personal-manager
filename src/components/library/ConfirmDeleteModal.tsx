@@ -1,7 +1,7 @@
 import { AlertTriangle, FileText, X } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import { formatFileSize } from "../../lib/formatters";
-import type { BookRecord } from "../../../library";
+import type { BookRecord } from "../../types/library";
 
 export type LinkedNotesDeleteBehavior = "keep" | "delete";
 

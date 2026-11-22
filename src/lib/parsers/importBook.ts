@@ -1,4 +1,4 @@
-import type { BookFormat, ImportMetadataResult } from "../../../library";
+import type { BookFormat, ImportMetadataResult } from "../../types/library";
 import { extractEpubImportMetadata } from "./epubParser";
 import { extractMobiImportMetadata } from "./mobiParser";
 import { extractPdfImportMetadata } from "./pdfParser";
@@ -16,6 +16,34 @@ export function detectBookFormat(fileName: string): BookFormat | null {
   return null;
 }
 
+export async function extractBookImportMetadataFromBuffer(
+  fileName: string,
+  fileSize: number,
+  buffer: ArrayBuffer,
+): Promise<{ meta: ImportMetadataResult; buffer: ArrayBuffer }> {
+  const format = detectBookFormat(fileName);
+  if (!format) {
+    throw new Error(
+      `Unsupported file "${fileName}". Please import EPUB, PDF, or MOBI files.`,
+    );
+  }
+  let meta: ImportMetadataResult;
+  if (format === "epub") {
+    meta = await extractEpubImportMetadata(buffer, fileName);
+  } else if (format === "pdf") {
+    meta = await extractPdfImportMetadata(buffer, fileName);
+  } else {
+    meta = await extractMobiImportMetadata(buffer, fileName);
+  }
+  return {
+    meta: {
+      ...meta,
+      fileSize: meta.fileSize || fileSize,
+    },
+    buffer,
+  };
+}
+
 export async function extractBookImportMetadata(
   file: File,
 ): Promise<{ meta: ImportMetadataResult; buffer: ArrayBuffer }> {
@@ -26,13 +54,5 @@ export async function extractBookImportMetadata(
     );
   }
   const buffer = await file.arrayBuffer();
-  let meta: ImportMetadataResult;
-  if (format === "epub") {
-    meta = await extractEpubImportMetadata(buffer, file.name);
-  } else if (format === "pdf") {
-    meta = await extractPdfImportMetadata(buffer, file.name);
-  } else {
-    meta = await extractMobiImportMetadata(buffer, file.name);
-  }
-  return { meta, buffer };
+  return extractBookImportMetadataFromBuffer(file.name, file.size, buffer);
 }

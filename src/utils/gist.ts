@@ -56,8 +56,20 @@ export async function pushWorkspaceToGist(
   }
 
   const filename = (config.filename || "kanso-workspace.json").trim();
+  const sanitizedBooks = Array.isArray(workspace.books)
+    ? workspace.books.map((book) => {
+        const {
+          externalUri: _externalUri,
+          storageMode: _storageMode,
+          ...rest
+        } = book;
+        return rest;
+      })
+    : [];
+
   const payload: KansoWorkspace = {
     ...workspace,
+    books: sanitizedBooks,
     updatedAt: new Date().toISOString(),
   };
 
@@ -164,15 +176,29 @@ export async function pullWorkspaceFromGist(
     string,
     { content?: string; raw_url?: string; truncated?: boolean }
   > = json.files || {};
-  const targetFile = files[filename] || Object.values(files)[0];
+  const fileEntries = Object.entries(files);
+  const targetFile =
+    files[filename] ||
+    (fileEntries.length === 1 ? fileEntries[0][1] : undefined);
 
   if (!targetFile) {
-    throw new Error("The target Gist does not contain any files.");
+    throw new Error(
+      `Could not find "${filename}" inside the target Gist (${fileEntries.length} file(s) found).`,
+    );
   }
 
   let content = targetFile.content || "";
   if (targetFile.truncated && targetFile.raw_url) {
-    const rawRes = await fetch(targetFile.raw_url);
+    const rawHeaders: HeadersInit = {};
+    if (config.token.trim()) {
+      rawHeaders.Authorization = `Bearer ${config.token.trim()}`;
+    }
+    const rawRes = await fetch(targetFile.raw_url, { headers: rawHeaders });
+    if (!rawRes.ok) {
+      throw new Error(
+        `Failed to download full Gist payload (${rawRes.status}).`,
+      );
+    }
     content = await rawRes.text();
   }
 

@@ -3,7 +3,7 @@ import type {
   ParsedChapter,
   ParsedReflowableBook,
   ParsedTocItem,
-} from "../../../library";
+} from "../../types/library";
 import { computeSha256Hex } from "../db";
 
 function cleanBaseName(fileName: string): string {

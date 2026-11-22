@@ -15,7 +15,7 @@ import type {
   BookRecord,
   HighlightColor,
   HighlightRecord,
-} from "../../../library";
+} from "../../types/library";
 import { BookCover } from "./BookCover";
 
 interface HighlightsHubViewProps {

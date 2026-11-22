@@ -5,6 +5,7 @@ import {
   Columns2,
   FileText,
   Headphones,
+  Link2,
   List,
   Maximize2,
   Minimize2,
@@ -25,6 +26,7 @@ import React, {
 } from "react";
 import { useAudiobookNarrator } from "../../hooks/useAudiobookNarrator";
 import { useVoicePreferences } from "../../hooks/useVoicePreferences";
+import { resolveBookFileBuffer } from "../../lib/bookFileLoader";
 import { libraryDb } from "../../lib/db";
 import type { NarrationSentence } from "../../lib/narrationText";
 import { parseEpubForReading } from "../../lib/parsers/epubParser";
@@ -52,7 +54,7 @@ import type {
   ParsedTocItem,
   ReaderPreferences,
   SearchMatch,
-} from "../../../library";
+} from "../../types/library";
 import { BottomSheet } from "../ui/BottomSheet";
 import { AudiobookExpandedView } from "./AudiobookExpandedView";
 import { AudiobookPlayerBar } from "./AudiobookPlayerBar";
@@ -103,6 +105,7 @@ interface ReaderViewProps {
   ) => void;
   onNarrationStart?: () => void;
   onAnnotationsChange?: () => void;
+  onRelinkBook?: (book: BookRecord) => Promise<boolean | void> | boolean | void;
   onNotify: (title: string, tone?: "info" | "success" | "error") => void;
 }
 
@@ -127,8 +130,11 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   onSendHighlightToNotes,
   onNarrationStart,
   onAnnotationsChange,
+  onRelinkBook,
   onNotify,
 }) => {
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const [isRelinking, setIsRelinking] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -284,8 +290,8 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       setLoading(true);
       setError(null);
       try {
-        const [fileBlob, savedBookmarks, savedHighlights] = await Promise.all([
-          libraryDb.getBookFile(book.id),
+        const [fileData, savedBookmarks, savedHighlights] = await Promise.all([
+          resolveBookFileBuffer(book),
           libraryDb.getBookmarksForBook(book.id),
           libraryDb.getHighlightsForBook(book.id),
         ]);
@@ -294,19 +300,13 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         setBookmarks(savedBookmarks);
         setHighlights(savedHighlights);
 
-        if (!fileBlob) {
-          throw new Error(
-            "The offline file for this book could not be found in local storage.",
-          );
-        }
-
         const pendingJump =
           jumpRequestRef.current?.bookId === book.id
             ? jumpRequestRef.current
             : null;
 
         if (book.format === "pdf") {
-          const doc = await loadPdfDocument(fileBlob.data);
+          const doc = await loadPdfDocument(fileData);
           if (!active) {
             await destroyPdfDocument(doc);
             return;
@@ -325,7 +325,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
             lastHandledJumpNonceRef.current = pendingJump.nonce;
           }
         } else if (book.format === "epub") {
-          const parsed = await parseEpubForReading(fileBlob.data);
+          const parsed = await parseEpubForReading(fileData);
           if (!active) {
             parsed.cleanupUrls.forEach((u) => URL.revokeObjectURL(u));
             return;
@@ -353,7 +353,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           }
         } else {
           const parsed = await parseMobiForReading(
-            fileBlob.data,
+            fileData,
             bookTitleRef.current,
           );
           if (!active) return;
@@ -397,7 +397,14 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       if (loadedPdf) void destroyPdfDocument(loadedPdf);
       cleanupUrls.forEach((u) => URL.revokeObjectURL(u));
     };
-  }, [book.id, book.format]);
+  }, [
+    book.id,
+    book.format,
+    book.externalUri,
+    book.storageMode,
+    book.fileHash,
+    reloadNonce,
+  ]);
 
   const isPdfReflow = book.format === "pdf" && prefs.pdfViewMode === "reflow";
 
@@ -1831,13 +1838,40 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
                 {error}
               </p>
-              <button
-                type="button"
-                onClick={onSelectLibrary}
-                className="mt-2 px-4 py-2 text-xs font-medium rounded-md bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] cursor-pointer"
-              >
-                Return to Library
-              </button>
+              <div className="pt-2 flex flex-wrap items-center justify-center gap-2">
+                {onRelinkBook && (
+                  <button
+                    type="button"
+                    disabled={isRelinking}
+                    onClick={async () => {
+                      setIsRelinking(true);
+                      try {
+                        const relinked = await onRelinkBook(book);
+                        if (relinked !== false) {
+                          setReloadNonce((n) => n + 1);
+                        }
+                      } finally {
+                        setIsRelinking(false);
+                      }
+                    }}
+                    className="min-h-[40px] px-4 py-2 text-xs font-semibold rounded-md bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Link2 className="w-3.5 h-3.5" />
+                    <span>{isRelinking ? "Linking…" : "Relink File"}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onSelectLibrary}
+                  className={`min-h-[40px] px-4 py-2 text-xs font-medium rounded-md cursor-pointer ${
+                    onRelinkBook
+                      ? "border border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]"
+                      : "bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]"
+                  }`}
+                >
+                  Return to Library
+                </button>
+              </div>
             </div>
           </div>
         ) : book.format === "pdf" && pdfDoc && isPdfReflow ? (

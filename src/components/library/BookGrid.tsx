@@ -1,7 +1,9 @@
 import {
+  AlertTriangle,
   Check,
   GripVertical,
   Info,
+  Link2,
   MoreHorizontal,
   Pencil,
   Star,
@@ -13,7 +15,7 @@ import type {
   CardDetailOptions,
   CategoryRecord,
   CoverSize,
-} from "../../../library";
+} from "../../types/library";
 import { BookCover } from "./BookCover";
 
 interface BookGridProps {
@@ -39,6 +41,8 @@ interface BookGridProps {
   onRemoveFromFolder?: (book: BookRecord) => void;
   onQuickAction?: (book: BookRecord) => void;
   onContextMenuBook?: (book: BookRecord, e: React.MouseEvent) => void;
+  missingBookIds?: Set<string>;
+  onRelinkBook?: (book: BookRecord) => void;
 }
 
 const GRID_COLUMNS_BY_SIZE: Record<CoverSize, string> = {
@@ -69,6 +73,8 @@ export const BookGrid: React.FC<BookGridProps> = ({
   onRemoveFromFolder,
   onQuickAction,
   onContextMenuBook,
+  missingBookIds,
+  onRelinkBook,
 }) => {
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
   const activeDragIdsRef = useRef<string[]>([]);
@@ -462,6 +468,24 @@ export const BookGrid: React.FC<BookGridProps> = ({
                   {book.tags.slice(0, 3).join(" · ")}
                   {book.tags.length > 3 ? ` +${book.tags.length - 3}` : ""}
                 </p>
+              )}
+
+              {missingBookIds?.has(book.id) && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRelinkBook?.(book);
+                  }}
+                  title="Local file is missing on this device — tap to relink"
+                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-[var(--warning)] hover:text-[var(--accent)] hover:underline cursor-pointer"
+                >
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  <span>Missing</span>
+                  <span aria-hidden="true">·</span>
+                  <Link2 className="w-3 h-3 shrink-0" />
+                  <span>Relink</span>
+                </button>
               )}
             </div>
           </article>

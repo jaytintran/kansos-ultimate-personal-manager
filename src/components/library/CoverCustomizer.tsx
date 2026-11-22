@@ -11,7 +11,7 @@ import {
   COVER_STYLES,
   compressCoverImageToDataUrl,
 } from "../../lib/formatters";
-import type { BookFormat, CoverStyle } from "../../../library";
+import type { BookFormat, CoverStyle } from "../../types/library";
 import { BookCover } from "./BookCover";
 
 interface CoverCustomizerProps {

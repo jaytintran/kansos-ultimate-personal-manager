@@ -40,7 +40,7 @@ import type {
   FolderRecord,
   SidebarSectionKey,
   SmartView,
-} from "../../../library";
+} from "../../types/library";
 
 export interface ActiveLibraryFilter {
   kind: "smart" | "folder" | "category";

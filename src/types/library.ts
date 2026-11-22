@@ -98,7 +98,13 @@ export interface BookRecord {
   addedAt: number; // epoch ms
   lastReadAt: number | null; // epoch ms
   sortOrder?: number; // user-defined custom sort order index
+  /** Device-local storage backend ('indexeddb' by default; 'android-uri' for SAF-linked Android files). Omitted from Gist sync. */
+  storageMode?: BookStorageMode;
+  /** Device-local Android SAF content:// URI when storageMode === 'android-uri'. Omitted from Gist sync. */
+  externalUri?: string;
 }
+
+export type BookStorageMode = 'indexeddb' | 'android-uri';
 
 export interface FolderRecord {
   id: string;

@@ -1,5 +1,5 @@
 import React from "react";
-import type { CardDetailOptions, CoverSize } from "../../../library";
+import type { CardDetailOptions, CoverSize } from "../../types/library";
 
 interface DisplayOptionsPopoverProps {
   coverSize: CoverSize;

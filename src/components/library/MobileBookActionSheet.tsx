@@ -1,23 +1,27 @@
 import {
+  AlertTriangle,
   BookOpen,
   CheckSquare,
   FolderInput,
   FolderMinus,
   Info,
+  Link2,
   Pencil,
   Star,
   Trash2,
 } from "lucide-react";
 import React, { useState } from "react";
-import type { BookRecord } from "../../../library";
+import type { BookRecord } from "../../types/library";
 import { BottomSheet } from "../ui/BottomSheet";
 import { BookCover } from "./BookCover";
 
 interface MobileBookActionSheetProps {
   book: BookRecord | null;
+  isMissing?: boolean;
   activeDrilledFolderName?: string | null;
   onClose: () => void;
   onReadBook: (book: BookRecord) => void;
+  onRelinkBook?: (book: BookRecord) => void;
   onInspectBook: (book: BookRecord) => void;
   onOrganizeBook: (book: BookRecord) => void;
   onToggleFavorite: (book: BookRecord) => void;
@@ -29,9 +33,11 @@ interface MobileBookActionSheetProps {
 
 export const MobileBookActionSheet: React.FC<MobileBookActionSheetProps> = ({
   book,
+  isMissing = false,
   activeDrilledFolderName,
   onClose,
   onReadBook,
+  onRelinkBook,
   onInspectBook,
   onOrganizeBook,
   onToggleFavorite,
@@ -90,23 +96,46 @@ export const MobileBookActionSheet: React.FC<MobileBookActionSheetProps> = ({
           </p>
           <p className="text-[11px] text-[var(--text-muted)] font-mono-tabular uppercase mt-0.5">
             {book.format} · {progressText}
+            {book.storageMode === "android-uri" && !isMissing
+              ? " · LINKED"
+              : ""}
           </p>
+          {isMissing && (
+            <p className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-[var(--warning)]">
+              <AlertTriangle className="w-3 h-3 shrink-0" />
+              <span>File missing on this device</span>
+            </p>
+          )}
         </div>
       </div>
 
       {/* Action Rows (48px minimum height for comfortable thumb tapping) */}
       <div className="py-1.5 px-2 space-y-0.5">
-        <button
-          type="button"
-          onClick={() => {
-            handleClose();
-            onReadBook(book);
-          }}
-          className="w-full min-h-[48px] px-3 rounded-lg flex items-center gap-3 text-sm font-medium text-[var(--accent)] active:bg-[var(--bg-surface-hover)] cursor-pointer"
-        >
-          <BookOpen className="w-4 h-4 shrink-0" />
-          <span>{book.progress > 0 ? "Continue Reading" : "Read Book"}</span>
-        </button>
+        {isMissing && onRelinkBook ? (
+          <button
+            type="button"
+            onClick={() => {
+              handleClose();
+              onRelinkBook(book);
+            }}
+            className="w-full min-h-[48px] px-3 rounded-lg flex items-center gap-3 text-sm font-medium text-[var(--accent)] active:bg-[var(--bg-surface-hover)] cursor-pointer"
+          >
+            <Link2 className="w-4 h-4 shrink-0" />
+            <span>Relink Book File</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              handleClose();
+              onReadBook(book);
+            }}
+            className="w-full min-h-[48px] px-3 rounded-lg flex items-center gap-3 text-sm font-medium text-[var(--accent)] active:bg-[var(--bg-surface-hover)] cursor-pointer"
+          >
+            <BookOpen className="w-4 h-4 shrink-0" />
+            <span>{book.progress > 0 ? "Continue Reading" : "Read Book"}</span>
+          </button>
+        )}
 
         <button
           type="button"

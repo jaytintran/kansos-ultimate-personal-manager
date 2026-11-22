@@ -1,5 +1,6 @@
-import { Check, FileUp, Folder, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, FileUp, Folder, Link2, Plus, Trash2, X } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { isAndroidCapacitor } from "../../utils/androidSaf";
 import {
   flattenFoldersHierarchy,
   formatFileSize,
@@ -16,17 +17,19 @@ import type {
   CoverStyle,
   FolderRecord,
   ReadingStatus,
-} from "../../../library";
+} from "../../types/library";
 import { BookCover } from "./BookCover";
 import { CoverCustomizer } from "./CoverCustomizer";
 
 interface MetadataDrawerProps {
   book: BookRecord;
+  isMissing?: boolean;
   folders: FolderRecord[];
   categories: CategoryRecord[];
   existingTags: string[];
   onSave: (updated: BookRecord) => void;
   onReplaceFile: (bookId: string, file: File) => Promise<void>;
+  onRelinkBook?: (book: BookRecord) => void;
   onDelete: (bookId: string) => void;
   onCreateFolder: (name: string) => Promise<FolderRecord>;
   onCreateCategory: (name: string) => Promise<CategoryRecord>;
@@ -35,11 +38,13 @@ interface MetadataDrawerProps {
 
 export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
   book,
+  isMissing = false,
   folders,
   categories,
   existingTags,
   onSave,
   onReplaceFile,
+  onRelinkBook,
   onDelete,
   onCreateFolder,
   onCreateCategory,
@@ -260,7 +265,16 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
                 <p className="font-mono-tabular text-[11px] text-[var(--text-muted)]">
                   {book.format.toUpperCase()} · {formatFileSize(book.fileSize)}{" "}
                   · Added {formatShortDate(book.addedAt)}
+                  {book.storageMode === "android-uri" && !isMissing
+                    ? " · Linked (0 B in app)"
+                    : ""}
                 </p>
+                {isMissing && (
+                  <p className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--warning)]">
+                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                    <span>File missing on this device</span>
+                  </p>
+                )}
                 <div className="pt-0.5">
                   <input
                     ref={replaceFileInputRef}
@@ -282,13 +296,27 @@ export const MetadataDrawer: React.FC<MetadataDrawerProps> = ({
                   <button
                     type="button"
                     disabled={isReplacingFile}
-                    onClick={() => replaceFileInputRef.current?.click()}
-                    title="Swap with a smaller EPUB or compressed PDF while preserving metadata, bookmarks, and highlights"
+                    onClick={() => {
+                      if (isAndroidCapacitor() && onRelinkBook) {
+                        onRelinkBook(book);
+                        return;
+                      }
+                      replaceFileInputRef.current?.click();
+                    }}
+                    title="Relink or replace the underlying e-book file while preserving metadata, bookmarks, and highlights"
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] hover:border-[var(--accent)] disabled:opacity-55 transition-colors cursor-pointer whitespace-nowrap"
                   >
-                    <FileUp className="w-3 h-3 text-[var(--accent)] shrink-0" />
+                    {isMissing ? (
+                      <Link2 className="w-3 h-3 text-[var(--accent)] shrink-0" />
+                    ) : (
+                      <FileUp className="w-3 h-3 text-[var(--accent)] shrink-0" />
+                    )}
                     <span>
-                      {isReplacingFile ? "Replacing File…" : "Replace File"}
+                      {isReplacingFile
+                        ? "Replacing File…"
+                        : isMissing
+                          ? "Relink File"
+                          : "Replace File"}
                     </span>
                   </button>
                 </div>

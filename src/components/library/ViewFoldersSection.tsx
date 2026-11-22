@@ -20,7 +20,7 @@ import type {
   ViewFolderCardLayout,
   ViewFolderDisplayMode,
   ViewFolderRecord,
-} from "../../../library";
+} from "../../types/library";
 import { BookCover } from "./BookCover";
 
 interface ViewFoldersSectionProps {

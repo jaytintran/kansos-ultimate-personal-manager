@@ -1,7 +1,7 @@
 import { AlertTriangle, X } from "lucide-react";
 import React, { useState } from "react";
 import { formatFileSize, formatShortDate } from "../../lib/formatters";
-import type { BookRecord, ImportMetadataResult } from "../../../library";
+import type { BookRecord, ImportMetadataResult } from "../../types/library";
 import { BookCover } from "./BookCover";
 
 export type DuplicateResolutionAction = "skip" | "replace" | "keep-both";

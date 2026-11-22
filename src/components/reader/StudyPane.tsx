@@ -17,7 +17,7 @@ import type {
   BookRecord,
   HighlightColor,
   HighlightRecord,
-} from "../../../library";
+} from "../../types/library";
 import { stripHtmlToText } from "../../utils/noteMarkdown";
 import { RichContent } from "../RichContent";
 import { TiptapEditor } from "../TiptapEditor";

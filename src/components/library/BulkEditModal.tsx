@@ -23,7 +23,7 @@ import type {
   FolderRecord,
   ReadingStatus,
   ViewFolderRecord,
-} from "../../../library";
+} from "../../types/library";
 
 export interface BulkEditPatch {
   addViewFolderIds: string[];

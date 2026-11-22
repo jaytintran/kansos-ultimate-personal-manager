@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import React, { useState } from "react";
 import type { NarrationStatus } from "../../hooks/useAudiobookNarrator";
-import type { BookVoiceOverride, SleepTimerMode } from "../../../library";
+import type { BookVoiceOverride, SleepTimerMode } from "../../types/library";
 
 interface AudiobookPlayerBarProps {
   status: NarrationStatus;

@@ -261,6 +261,31 @@ export const libraryDb = {
     return null;
   },
 
+  async hasBookFile(bookId: string): Promise<boolean> {
+    if (bookId === "book-sample-pdf" || bookId === "book-sample-epub") {
+      return true;
+    }
+    await migrateLegacyV1Once();
+    const db = await openDb();
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(FILES_STORE, "readonly");
+        const req = tx.objectStore(FILES_STORE).count(bookId);
+        req.onsuccess = () => {
+          db.close();
+          resolve((req.result || 0) > 0);
+        };
+        req.onerror = () => {
+          db.close();
+          resolve(false);
+        };
+      } catch {
+        db.close();
+        resolve(false);
+      }
+    });
+  },
+
   async deleteBookFile(bookId: string): Promise<void> {
     await migrateLegacyV1Once();
     const db = await openDb();
@@ -564,12 +589,13 @@ export const libraryDb = {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(
-        [FILES_STORE, BOOKMARKS_STORE, HIGHLIGHTS_STORE],
+        [FILES_STORE, BOOKMARKS_STORE, HIGHLIGHTS_STORE, WORKSPACE_STORE],
         "readwrite",
       );
       tx.objectStore(FILES_STORE).clear();
       tx.objectStore(BOOKMARKS_STORE).clear();
       tx.objectStore(HIGHLIGHTS_STORE).clear();
+      tx.objectStore(WORKSPACE_STORE).clear();
       tx.oncomplete = () => {
         db.close();
         resolve();

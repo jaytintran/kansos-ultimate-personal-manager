@@ -15,7 +15,7 @@ import type {
   BookmarkRecord,
   ParsedTocItem,
   SearchMatch,
-} from "../../../library";
+} from "../../types/library";
 
 export type ReaderDrawerTab = "toc" | "search" | "bookmarks";
 

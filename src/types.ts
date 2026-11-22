@@ -217,7 +217,7 @@ import type {
   HighlightRecord as LibraryHighlightRecord,
   ReadingStatus as LibraryReadingStatus,
   ViewFolderRecord as LibraryViewFolderRecord,
-} from "../library";
+} from "./types/library";
 
 export type BookFormat = LibraryBookFormat;
 export type BookReadingStatus = LibraryReadingStatus;

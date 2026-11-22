@@ -1,6 +1,6 @@
 import { Check, Search, X } from "lucide-react";
 import React, { useMemo, useState } from "react";
-import type { BookRecord, ViewFolderRecord } from "../../../library";
+import type { BookRecord, ViewFolderRecord } from "../../types/library";
 import { BookCover } from "./BookCover";
 
 interface AddBooksToFolderModalProps {

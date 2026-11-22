@@ -5,7 +5,7 @@ import type {
   ReaderPreferences,
   SearchMatch,
   ThemeMode,
-} from "../../library";
+} from "../types/library";
 
 export const WORDS_PER_MINUTE = 240;
 export const WORDS_PER_VIRTUAL_PAGE = 280;

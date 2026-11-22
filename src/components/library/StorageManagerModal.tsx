@@ -3,6 +3,7 @@ import {
   Check,
   FileUp,
   HardDrive,
+  Link2,
   Pencil,
   Search,
   Sparkles,
@@ -18,7 +19,8 @@ import React, {
 } from "react";
 import { libraryDb, type BookFileAuditEntry } from "../../lib/db";
 import { formatFileSize, formatShortDate } from "../../lib/formatters";
-import type { BookFormat, BookRecord } from "../../../library";
+import type { BookFormat, BookRecord } from "../../types/library";
+import { checkAndroidBookUris, isAndroidCapacitor } from "../../utils/androidSaf";
 import { BookCover } from "./BookCover";
 
 type StorageSortField = "sizeDesc" | "sizeAsc" | "title" | "addedAt" | "format";
@@ -29,6 +31,7 @@ interface StorageManagerModalProps {
   books: BookRecord[];
   onClose: () => void;
   onReplaceFile: (bookId: string, file: File) => Promise<void>;
+  onRelinkBook?: (book: BookRecord) => void;
   onDeleteBooks: (bookIds: string[]) => Promise<void>;
   onEditMetadata: (book: BookRecord) => void;
   onImportBooks: () => void;
@@ -50,12 +53,14 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
   books,
   onClose,
   onReplaceFile,
+  onRelinkBook,
   onDeleteBooks,
   onEditMetadata,
   onImportBooks,
   onNotify,
 }) => {
   const [auditEntries, setAuditEntries] = useState<BookFileAuditEntry[]>([]);
+  const [readableUriSet, setReadableUriSet] = useState<Set<string>>(new Set());
   const [isAuditing, setIsAuditing] = useState(false);
   const [quota, setQuota] = useState<QuotaState>({
     usage: null,
@@ -79,7 +84,17 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
   const runAudit = useCallback(async () => {
     setIsAuditing(true);
     try {
-      const [entries, estimate, persisted] = await Promise.all([
+      const androidUris = isAndroidCapacitor()
+        ? Array.from(
+            new Set(
+              books
+                .filter((b) => b.storageMode === "android-uri" && b.externalUri)
+                .map((b) => b.externalUri as string),
+            ),
+          )
+        : [];
+
+      const [entries, estimate, persisted, uriChecks] = await Promise.all([
         libraryDb.auditStorageFiles(),
         typeof navigator !== "undefined" && navigator.storage?.estimate
           ? navigator.storage.estimate().catch(() => null)
@@ -87,8 +102,18 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
         typeof navigator !== "undefined" && navigator.storage?.persisted
           ? navigator.storage.persisted().catch(() => null)
           : Promise.resolve(null),
+        androidUris.length > 0
+          ? checkAndroidBookUris(androidUris).catch(() => [])
+          : Promise.resolve([]),
       ]);
       setAuditEntries(entries);
+      setReadableUriSet(
+        new Set(
+          Object.entries(uriChecks)
+            .filter(([, readable]) => readable)
+            .map(([uri]) => uri),
+        ),
+      );
       setQuota({
         usage: typeof estimate?.usage === "number" ? estimate.usage : null,
         quota: typeof estimate?.quota === "number" ? estimate.quota : null,
@@ -99,7 +124,7 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
     } finally {
       setIsAuditing(false);
     }
-  }, []);
+  }, [books]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -165,26 +190,49 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
     return partnerMap;
   }, [books, auditByBookId]);
 
+  const linkedReadableBookIds = useMemo(() => {
+    const linked = new Set<string>();
+    if (!isAndroidCapacitor()) return linked;
+    for (const book of books) {
+      if (
+        book.storageMode === "android-uri" &&
+        book.externalUri &&
+        readableUriSet.has(book.externalUri)
+      ) {
+        linked.add(book.id);
+      }
+    }
+    return linked;
+  }, [books, readableUriSet]);
+
   const missingBookIds = useMemo(() => {
-    if (isAuditing || (auditEntries.length === 0 && books.length === 0))
-      return new Set<string>();
     if (isAuditing) return new Set<string>();
     const missing = new Set<string>();
     for (const book of books) {
+      if (
+        book.isBuiltInSample ||
+        book.id === "book-sample-pdf" ||
+        book.id === "book-sample-epub"
+      ) {
+        continue;
+      }
+      if (linkedReadableBookIds.has(book.id)) continue;
       if (!auditByBookId.has(book.id)) {
         missing.add(book.id);
       }
     }
     return missing;
-  }, [books, auditByBookId, isAuditing, auditEntries.length]);
+  }, [books, auditByBookId, isAuditing, linkedReadableBookIds]);
 
   const getBookBytes = useCallback(
     (book: BookRecord): number => {
+      if (linkedReadableBookIds.has(book.id)) return 0;
       const audited = auditByBookId.get(book.id);
       if (audited) return audited.byteLength;
+      if (missingBookIds.has(book.id)) return 0;
       return book.fileSize || 0;
     },
-    [auditByBookId],
+    [auditByBookId, linkedReadableBookIds, missingBookIds],
   );
 
   const formatStats = useMemo(() => {
@@ -253,8 +301,12 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleTriggerReplace = (bookId: string) => {
-    replaceTargetBookIdRef.current = bookId;
+  const handleTriggerReplace = (book: BookRecord) => {
+    if (isAndroidCapacitor() && onRelinkBook) {
+      onRelinkBook(book);
+      return;
+    }
+    replaceTargetBookIdRef.current = book.id;
     replaceInputRef.current?.click();
   };
 
@@ -350,7 +402,10 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
               </h2>
               <p className="mt-0.5 text-xs text-[var(--text-secondary)] font-mono-tabular">
                 {books.length} {books.length === 1 ? "book" : "books"} ·{" "}
-                {formatFileSize(formatStats.total)} in local archive
+                {formatFileSize(formatStats.total)} in app archive
+                {linkedReadableBookIds.size > 0
+                  ? ` · ${linkedReadableBookIds.size} linked on device`
+                  : ""}
               </p>
             </div>
           </div>
@@ -648,6 +703,7 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
                     ? Math.round((bytes / formatStats.total) * 100)
                     : 0;
                 const duplicateInfo = duplicatePartnerMap.get(book.id);
+                const isLinkedReadable = linkedReadableBookIds.has(book.id);
                 const isMissing = missingBookIds.has(book.id);
                 const isReplacing = replacingBookId === book.id;
                 const isConfirmingDelete = confirmDeleteId === book.id;
@@ -713,12 +769,18 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
                           </span>
                         </div>
 
-                        {(duplicateInfo || isMissing) && (
+                        {(duplicateInfo || isMissing || isLinkedReadable) && (
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] pt-0.5">
+                            {isLinkedReadable && (
+                              <span className="inline-flex items-center gap-1 text-[var(--accent)] font-medium">
+                                <Link2 className="w-3 h-3 shrink-0" />
+                                Linked on device storage ({formatFileSize(book.fileSize)})
+                              </span>
+                            )}
                             {isMissing && (
                               <span className="inline-flex items-center gap-1 text-[var(--danger)] font-medium">
                                 <AlertTriangle className="w-3 h-3 shrink-0" />
-                                File data missing — use Replace File to restore
+                                File missing on this device — relink to restore
                               </span>
                             )}
                             {duplicateInfo && (
@@ -736,13 +798,20 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
                     <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pl-11 sm:pl-0">
                       <div className="text-left sm:text-right min-w-[74px]">
                         <div className="text-xs font-mono-tabular font-semibold text-[var(--text-primary)]">
-                          {isMissing ? "0 B" : formatFileSize(bytes)}
+                          {isMissing || isLinkedReadable ? "0 B" : formatFileSize(bytes)}
                         </div>
-                        {formatStats.total > 0 && !isMissing && (
-                          <div className="text-[10px] font-mono-tabular text-[var(--text-muted)]">
-                            {sharePct < 1 && bytes > 0 ? "<1%" : `${sharePct}%`}{" "}
-                            of library
+                        {isLinkedReadable ? (
+                          <div className="text-[10px] font-mono-tabular text-[var(--accent)]">
+                            Linked · 0 B in app
                           </div>
+                        ) : (
+                          formatStats.total > 0 &&
+                          !isMissing && (
+                            <div className="text-[10px] font-mono-tabular text-[var(--text-muted)]">
+                              {sharePct < 1 && bytes > 0 ? "<1%" : `${sharePct}%`}{" "}
+                              of library
+                            </div>
+                          )
                         )}
                       </div>
 
@@ -750,13 +819,21 @@ export const StorageManagerModal: React.FC<StorageManagerModalProps> = ({
                         <button
                           type="button"
                           disabled={Boolean(replacingBookId || deletingBookId)}
-                          onClick={() => handleTriggerReplace(book.id)}
-                          title="Replace stored file (e.g., compressed PDF or EPUB) while preserving metadata and notes"
+                          onClick={() => handleTriggerReplace(book)}
+                          title="Relink or replace stored file while preserving metadata and notes"
                           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md border border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] hover:border-[var(--accent)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
                         >
-                          <FileUp className="w-3 h-3 text-[var(--accent)] shrink-0" />
+                          {isMissing ? (
+                            <Link2 className="w-3 h-3 text-[var(--accent)] shrink-0" />
+                          ) : (
+                            <FileUp className="w-3 h-3 text-[var(--accent)] shrink-0" />
+                          )}
                           <span>
-                            {isReplacing ? "Replacing…" : "Replace File"}
+                            {isReplacing
+                              ? "Replacing…"
+                              : isMissing
+                                ? "Relink File"
+                                : "Replace File"}
                           </span>
                         </button>
 

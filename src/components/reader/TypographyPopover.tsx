@@ -29,7 +29,7 @@ import type {
   ReaderContrastPreset,
   ReaderFontWeight,
   ReaderPreferences,
-} from "../../../library";
+} from "../../types/library";
 
 interface TypographyPopoverProps {
   format: BookFormat;

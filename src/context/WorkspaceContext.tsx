@@ -56,6 +56,7 @@ import {
   parseLocalDateKey,
   toLocalDateKey,
 } from "../utils/date";
+import { releaseAndroidUri } from "../utils/androidSaf";
 import { pullWorkspaceFromGist, pushWorkspaceToGist } from "../utils/gist";
 import { syncNativeStatusBar } from "../utils/nativeStatusBar";
 import { parseNlpInput } from "../utils/nlp";
@@ -2134,6 +2135,18 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
                 return e;
               });
 
+        const deletedBooks = prev.books.filter((b) => deleteSet.has(b.id));
+        const remainingUris = new Set(
+          prev.books
+            .filter((b) => !deleteSet.has(b.id) && b.externalUri)
+            .map((b) => b.externalUri!),
+        );
+        for (const b of deletedBooks) {
+          if (b.externalUri && !remainingUris.has(b.externalUri)) {
+            void releaseAndroidUri(b.externalUri);
+          }
+        }
+
         return {
           ...prev,
           books: prev.books.filter((b) => !deleteSet.has(b.id)),
@@ -2860,8 +2873,54 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         bookHighlights: next.bookHighlights,
       });
 
-      setWorkspace(
-        purgeWorkspace({
+      const nextStreams = Array.isArray(next.streams) ? next.streams : [];
+      const validPulledStreamIds = new Set(nextStreams.map((s) => s.id));
+
+      setWorkspace((prev) => {
+        // Map local device-only book storage bindings by ID and SHA-256 hash
+        const localBindingById = new Map<
+          string,
+          { storageMode: BookRecord["storageMode"]; externalUri?: string }
+        >();
+        const localBindingByHash = new Map<
+          string,
+          { storageMode: BookRecord["storageMode"]; externalUri?: string }
+        >();
+        for (const localBook of prev.books) {
+          if (localBook.storageMode === "android-uri" && localBook.externalUri) {
+            const binding = {
+              storageMode: localBook.storageMode,
+              externalUri: localBook.externalUri,
+            };
+            localBindingById.set(localBook.id, binding);
+            if (localBook.fileHash) {
+              localBindingByHash.set(localBook.fileHash, binding);
+            }
+          }
+        }
+
+        // Pull metadata & covers from remote; strip any foreign device URIs and re-attach local ones
+        const mergedBooks = normalizedLib.books.map((remoteBook) => {
+          const {
+            externalUri: _foreignUri,
+            storageMode: _foreignMode,
+            ...cleanRemote
+          } = remoteBook;
+          const localBinding =
+            localBindingById.get(remoteBook.id) ??
+            (remoteBook.fileHash
+              ? localBindingByHash.get(remoteBook.fileHash)
+              : undefined);
+          return localBinding ? { ...cleanRemote, ...localBinding } : cleanRemote;
+        });
+
+        // Keep local active Streamer grid & reader prefs per-device while syncing Vault items & Presets
+        const preservedStreamerState = normalizeStreamerState(
+          prev.streamerState,
+          validPulledStreamIds,
+        );
+
+        return purgeWorkspace({
           ...empty,
           ...next,
           version: 3,
@@ -2874,27 +2933,20 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           noteNotebooks: Array.isArray(next.noteNotebooks)
             ? next.noteNotebooks
             : [],
-          books: normalizedLib.books,
+          books: mergedBooks,
           libraryFolders: normalizedLib.libraryFolders,
           libraryCategories: normalizedLib.libraryCategories,
           libraryViewFolders: normalizedLib.libraryViewFolders,
           bookBookmarks: normalizedLib.bookBookmarks,
           bookHighlights: normalizedLib.bookHighlights,
-          streams: Array.isArray(next.streams) ? next.streams : [],
+          streams: nextStreams,
           streamFolders: Array.isArray(next.streamFolders)
             ? next.streamFolders
             : [],
           streamPresets: Array.isArray(next.streamPresets)
             ? next.streamPresets
             : [],
-          streamerState: normalizeStreamerState(
-            next.streamerState,
-            new Set(
-              (Array.isArray(next.streams) ? next.streams : []).map(
-                (s) => s.id,
-              ),
-            ),
-          ),
+          streamerState: preservedStreamerState,
           settings: {
             ...empty.settings,
             ...(next.settings || {}),
@@ -2902,11 +2954,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
               next.settings?.timelineDisplayMode || "default",
             epubPrefs: {
               ...empty.settings.epubPrefs!,
-              ...(next.settings?.epubPrefs || {}),
+              ...(prev.settings?.epubPrefs || {}),
             },
           },
-        }),
-      );
+        });
+      });
 
       const validBookIds = new Set(normalizedLib.books.map((b) => b.id));
       pruneMissingBookVoicePreferences(validBookIds);

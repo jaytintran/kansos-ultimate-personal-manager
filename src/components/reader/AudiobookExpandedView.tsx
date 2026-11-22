@@ -17,7 +17,7 @@ import type {
   BookRecord,
   BookVoiceOverride,
   SleepTimerMode,
-} from "../../../library";
+} from "../../types/library";
 import { BookCover } from "../library/BookCover";
 import { formatCountdown } from "./AudiobookPlayerBar";
 

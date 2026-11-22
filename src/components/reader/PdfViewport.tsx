@@ -15,7 +15,7 @@ import {
 } from "../../lib/narrationText";
 import type { PdfDocumentHandle } from "../../lib/parsers/pdfParser";
 import { resolvePdfCanvasFilter } from "../../lib/readerUtils";
-import type { HighlightColor, ReaderPreferences } from "../../../library";
+import type { HighlightColor, ReaderPreferences } from "../../types/library";
 
 interface PdfSelectionMenu {
   text: string;

@@ -1,10 +1,12 @@
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   BookOpen,
   Check,
   GripVertical,
   Info,
+  Link2,
   Pencil,
   Star,
 } from "lucide-react";
@@ -20,7 +22,7 @@ import type {
   FolderRecord,
   SortDirection,
   SortField,
-} from "../../../library";
+} from "../../types/library";
 import { BookCover } from "./BookCover";
 
 interface BookTableProps {
@@ -34,6 +36,7 @@ interface BookTableProps {
   sortField: SortField;
   sortDirection: SortDirection;
   isCustomSort?: boolean;
+  missingBookIds?: Set<string>;
   onReorderBooks?: (
     draggedIds: string[],
     targetBookId: string,
@@ -45,6 +48,7 @@ interface BookTableProps {
   onOpenBook: (book: BookRecord) => void;
   onInspectBook: (book: BookRecord) => void;
   onEditBook: (book: BookRecord) => void;
+  onRelinkBook?: (book: BookRecord) => void;
   onToggleFavorite: (book: BookRecord) => void;
   onContextMenuBook?: (book: BookRecord, e: React.MouseEvent) => void;
 }
@@ -60,6 +64,7 @@ export const BookTable: React.FC<BookTableProps> = ({
   sortField,
   sortDirection,
   isCustomSort = false,
+  missingBookIds,
   onReorderBooks,
   onSortChange,
   onToggleSelect,
@@ -67,6 +72,7 @@ export const BookTable: React.FC<BookTableProps> = ({
   onOpenBook,
   onInspectBook,
   onEditBook,
+  onRelinkBook,
   onToggleFavorite,
   onContextMenuBook,
 }) => {
@@ -371,6 +377,19 @@ export const BookTable: React.FC<BookTableProps> = ({
                           {book.subtitle}
                         </p>
                       )}
+                      {missingBookIds?.has(book.id) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRelinkBook?.(book);
+                          }}
+                          className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-[var(--warning)] hover:text-[var(--accent)] hover:underline cursor-pointer"
+                        >
+                          <AlertTriangle className="w-3 h-3 shrink-0" />
+                          <span>Missing · Relink</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </td>
@@ -455,6 +474,17 @@ export const BookTable: React.FC<BookTableProps> = ({
                     >
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
+                    {missingBookIds?.has(book.id) && onRelinkBook && (
+                      <button
+                        type="button"
+                        onClick={() => onRelinkBook(book)}
+                        title="Relink file from storage"
+                        aria-label={`Relink ${book.title}`}
+                        className="p-1.5 rounded text-[var(--warning)] hover:text-[var(--accent)] hover:bg-[var(--bg-canvas)] cursor-pointer"
+                      >
+                        <Link2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => onOpenBook(book)}

@@ -1,9 +1,11 @@
 import {
+  AlertTriangle,
   Bookmark,
   BookOpen,
   ChevronDown,
   ChevronUp,
   Highlighter,
+  Link2,
   Palette,
   Pencil,
   Star,
@@ -27,13 +29,14 @@ import type {
   FolderRecord,
   HighlightRecord,
   ReadingStatus,
-} from "../../../library";
+} from "../../types/library";
 import { BookCover } from "./BookCover";
 import { CoverCustomizer } from "./CoverCustomizer";
 
 interface BookInspectorProps {
   book: BookRecord | null;
   isOpen: boolean;
+  isMissing?: boolean;
   folders: FolderRecord[];
   categories: CategoryRecord[];
   highlights: HighlightRecord[];
@@ -42,12 +45,14 @@ interface BookInspectorProps {
   onOpenBook: (book: BookRecord, unitIndex?: number) => void;
   onUpdateBook: (updated: BookRecord) => void;
   onEditMetadata: (book: BookRecord) => void;
+  onRelinkBook?: (book: BookRecord) => void;
   onDeleteBook: (bookId: string) => void;
 }
 
 export const BookInspector: React.FC<BookInspectorProps> = ({
   book,
   isOpen,
+  isMissing = false,
   folders,
   categories,
   highlights,
@@ -56,6 +61,7 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
   onOpenBook,
   onUpdateBook,
   onEditMetadata,
+  onRelinkBook,
   onDeleteBook,
 }) => {
   const [showCoverEditor, setShowCoverEditor] = useState(false);
@@ -197,7 +203,7 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
             {book.author}
           </p>
 
-          <div className="mt-1.5 flex items-center justify-center gap-1.5 text-[11px] text-[var(--text-muted)] font-mono-tabular">
+          <div className="mt-1.5 flex flex-wrap items-center justify-center gap-1.5 text-[11px] text-[var(--text-muted)] font-mono-tabular">
             <span className="uppercase">{book.format}</span>
             <span>·</span>
             <span>{formatFileSize(book.fileSize)}</span>
@@ -207,22 +213,51 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
                 <span>{book.year}</span>
               </>
             )}
+            {book.storageMode === "android-uri" && !isMissing && (
+              <>
+                <span>·</span>
+                <span className="text-[var(--accent)] font-sans">
+                  Linked (0 B in app)
+                </span>
+              </>
+            )}
           </div>
+
+          {isMissing && (
+            <div className="mt-3 w-full rounded-md border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-left text-[11px] text-[var(--warning)] flex items-start gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>
+                Book file missing on this device. Relink a local file to read
+                while keeping all notes and progress.
+              </span>
+            </div>
+          )}
 
           {/* Primary Action + Cover Customizer Toggle */}
           <div className="mt-4 w-full flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onOpenBook(book)}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-xs font-medium bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>
-                {book.progress > 0 && book.status !== "finished"
-                  ? "Continue Reading"
-                  : "Read Book"}
-              </span>
-            </button>
+            {isMissing && onRelinkBook ? (
+              <button
+                type="button"
+                onClick={() => onRelinkBook(book)}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-xs font-medium bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <Link2 className="w-3.5 h-3.5" />
+                <span>Relink File</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onOpenBook(book)}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-xs font-medium bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>
+                  {book.progress > 0 && book.status !== "finished"
+                    ? "Continue Reading"
+                    : "Read Book"}
+                </span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -381,6 +416,24 @@ export const BookInspector: React.FC<BookInspectorProps> = ({
               <dt className="text-[var(--text-muted)] shrink-0">Added</dt>
               <dd className="font-mono-tabular text-[var(--text-secondary)] text-right">
                 {formatShortDate(book.addedAt)}
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-[var(--text-muted)] shrink-0">Storage</dt>
+              <dd className="text-right">
+                {isMissing ? (
+                  <span className="text-[var(--warning)] font-medium">
+                    Missing on device
+                  </span>
+                ) : book.storageMode === "android-uri" ? (
+                  <span className="text-[var(--accent)]">
+                    Linked on device · 0 B in app
+                  </span>
+                ) : (
+                  <span className="text-[var(--text-secondary)]">
+                    App storage · {formatFileSize(book.fileSize)}
+                  </span>
+                )}
               </dd>
             </div>
             {book.tags.length > 0 && (

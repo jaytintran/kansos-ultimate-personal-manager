@@ -13,7 +13,7 @@ import type {
   GroupByField,
   SortDirection,
   SortField,
-} from "../../../library";
+} from "../../types/library";
 import { BottomSheet } from "../ui/BottomSheet";
 
 interface MobileFilterSortSheetProps {

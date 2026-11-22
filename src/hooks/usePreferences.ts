@@ -9,7 +9,7 @@ import type {
   SortField,
   ViewFolderCardLayout,
   ViewFolderDisplayMode,
-} from "../../library";
+} from "../types/library";
 
 export const DEFAULT_SIDEBAR_WIDTH = 248;
 export const MIN_SIDEBAR_WIDTH = 200;

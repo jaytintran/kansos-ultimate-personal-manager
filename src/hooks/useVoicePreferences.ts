@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { BookVoiceOverride, NarratorTone } from "../../library";
+import type { BookVoiceOverride, NarratorTone } from "../types/library";
 
 export interface NarratorToneOption {
   id: NarratorTone;

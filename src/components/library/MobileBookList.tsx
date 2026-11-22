@@ -1,10 +1,17 @@
-import { Check, GripVertical, MoreHorizontal, Star } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  GripVertical,
+  Link2,
+  MoreHorizontal,
+  Star,
+} from "lucide-react";
 import React, { useRef, useState } from "react";
 import type {
   BookRecord,
   CardDetailOptions,
   CategoryRecord,
-} from "../../../library";
+} from "../../types/library";
 import { BookCover } from "./BookCover";
 
 interface MobileBookListProps {
@@ -22,6 +29,8 @@ interface MobileBookListProps {
   onOpenBook: (book: BookRecord) => void;
   onQuickAction: (book: BookRecord) => void;
   onToggleSelect: (bookId: string, shiftKey: boolean) => void;
+  missingBookIds?: Set<string>;
+  onRelinkBook?: (book: BookRecord) => void;
 }
 
 export const MobileBookList: React.FC<MobileBookListProps> = ({
@@ -35,6 +44,8 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
   onOpenBook,
   onQuickAction,
   onToggleSelect,
+  missingBookIds,
+  onRelinkBook,
 }) => {
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -237,6 +248,23 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
                     }}
                   />
                 </div>
+              )}
+
+              {missingBookIds?.has(book.id) && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRelinkBook?.(book);
+                  }}
+                  className="mt-1.5 inline-flex items-center gap-1.5 min-h-[28px] text-[11px] font-medium text-[var(--warning)] hover:text-[var(--accent)] cursor-pointer"
+                >
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  <span>Missing</span>
+                  <span aria-hidden="true">·</span>
+                  <Link2 className="w-3 h-3 shrink-0" />
+                  <span>Tap to Relink</span>
+                </button>
               )}
             </div>
 

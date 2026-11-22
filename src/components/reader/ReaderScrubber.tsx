@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, Pin } from "lucide-react";
 import React, { useRef, useState } from "react";
 import { formatReadingTime } from "../../lib/readerUtils";
-import type { BookFormat } from "../../../library";
+import type { BookFormat } from "../../types/library";
 
 export interface ScrubberMarker {
   unitIndex: number;

@@ -1,7 +1,7 @@
 import { ArrowRight, BookOpen } from "lucide-react";
 import React from "react";
 import { formatRelativeDate } from "../../lib/formatters";
-import type { BookRecord } from "../../../library";
+import type { BookRecord } from "../../types/library";
 import { BookCover } from "./BookCover";
 
 interface ContinueReadingShelfProps {

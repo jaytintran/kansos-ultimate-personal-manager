@@ -7,7 +7,7 @@ import type {
   CategoryRecord,
   CoverSize,
   GroupByField,
-} from "../../../library";
+} from "../../types/library";
 import type { ActiveLibraryFilter } from "./LibrarySidebar";
 
 interface LibraryOptionsPopoverProps {

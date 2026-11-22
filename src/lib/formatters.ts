@@ -5,7 +5,7 @@ import type {
   FolderColor,
   FolderRecord,
   HighlightColor,
-} from "../../library";
+} from "../types/library";
 
 export interface CoverPalette {
   name: string;

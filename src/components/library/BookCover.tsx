@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { COVER_PALETTES } from "../../lib/formatters";
-import type { BookFormat, CoverStyle } from "../../../library";
+import type { BookFormat, CoverStyle } from "../../types/library";
 
 interface BookCoverProps {
   title: string;

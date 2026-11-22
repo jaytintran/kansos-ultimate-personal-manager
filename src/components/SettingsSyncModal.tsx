@@ -36,6 +36,13 @@ import {
   ViewId,
 } from "../types";
 import {
+  getAndroidImportMode,
+  getAndroidLinkedFolders,
+  isAndroidCapacitor,
+  setAndroidImportMode,
+  type AndroidImportStorageMode,
+} from "../utils/androidSaf";
+import {
   downloadWorkspaceJson,
   GistPullPreview,
   pullWorkspaceFromGist,
@@ -127,6 +134,8 @@ const LOCAL_STORAGE_KEY_LABELS: Record<string, string> = {
   kanso_events_filters_v1: "Events Filter State",
   kanso_library_studio_prefs_v1: "Library & Reader Preferences",
   kanso_library_voice_prefs_v1: "Audiobook Voice Preferences",
+  kanso_android_import_mode_v1: "Android Library Import Mode",
+  kanso_android_linked_folders_v1: "Android Linked Device Folders",
 };
 
 function measureJsonBytes(value: unknown): number {
@@ -190,6 +199,14 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
   const [localKeys, setLocalKeys] = useState<LocalStorageEntryInfo[]>([]);
   const [confirmActionKey, setConfirmActionKey] = useState<string | null>(null);
   const [storageBusyKey, setStorageBusyKey] = useState<string | null>(null);
+  const isAndroidApp = useMemo(() => isAndroidCapacitor(), []);
+  const [androidImportMode, setAndroidImportModeState] =
+    useState<AndroidImportStorageMode>(() =>
+      isAndroidCapacitor() ? getAndroidImportMode() : "ask",
+    );
+  const [androidLinkedFolderCount, setAndroidLinkedFolderCount] = useState<number>(
+    () => (isAndroidCapacitor() ? getAndroidLinkedFolders().length : 0),
+  );
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -242,8 +259,12 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
       setPullPreview(null);
       setConfirmClear(false);
       setConfirmActionKey(null);
+      if (isAndroidApp) {
+        setAndroidImportModeState(getAndroidImportMode());
+        setAndroidLinkedFolderCount(getAndroidLinkedFolders().length);
+      }
     }
-  }, [open, initialTab]);
+  }, [open, initialTab, isAndroidApp]);
 
   useEffect(() => {
     if (open && tab === "storage") {
@@ -877,13 +898,13 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                 className="text-xs leading-relaxed"
                 style={{ color: "var(--text-secondary)" }}
               >
-                Kanso runs 100% offline in your browser. Connect a GitHub
-                Personal Access Token with the{" "}
-                <span className="font-mono">gist</span> scope to manually push
-                and pull your workspace as a private Gist. Once configured,
-                quick <strong>Push</strong> and instant <strong>Pull</strong>{" "}
-                buttons appear in the sidebar and mobile header. Large PDF/EPUB
-                files stay locally in IndexedDB.
+                Kanso runs 100% offline. Connect a GitHub Personal Access Token
+                with the <span className="font-mono">gist</span> scope to push
+                and pull your workspace snapshot (replace-only on pull). Book
+                metadata, covers, notes, highlights, Streamer Vault &amp;
+                presets sync across devices, while binary e-book files, active
+                Streamer grid layout, and Reader typography/voice settings stay
+                per-device.
               </p>
 
               <div className="space-y-3">
@@ -1434,6 +1455,68 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                   <span className="w-5 h-5 rounded-full bg-white shadow-xs" />
                 </button>
               </div>
+
+              {/* Android Capacitor-only Library File Storage Preference */}
+              {isAndroidApp && (
+                <div
+                  className="flex flex-col gap-3 pt-4 border-t"
+                  style={{ borderColor: "var(--border-subtle)" }}
+                >
+                  <div>
+                    <div className="text-sm font-semibold">
+                      Android E-Book Storage Mode
+                    </div>
+                    <div
+                      className="text-xs mt-0.5"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      Choose whether imported e-books read directly from device
+                      storage (0 B in app) or copy into app storage.
+                      {androidLinkedFolderCount > 0
+                        ? ` · ${androidLinkedFolderCount} linked folder${androidLinkedFolderCount === 1 ? "" : "s"}`
+                        : ""}
+                    </div>
+                  </div>
+                  <div
+                    className="inline-flex flex-wrap items-center gap-1 p-1 rounded-lg border self-start"
+                    style={{
+                      backgroundColor: "var(--bg-surface-subtle)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    {(
+                      [
+                        { id: "ask", label: "Ask every time" },
+                        { id: "always-link", label: "Always Link" },
+                        { id: "always-copy", label: "Always Copy" },
+                      ] as const
+                    ).map((opt) => {
+                      const active = androidImportMode === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => {
+                            setAndroidImportMode(opt.id);
+                            setAndroidImportModeState(opt.id);
+                          }}
+                          className="px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer"
+                          style={{
+                            backgroundColor: active
+                              ? "var(--bg-surface)"
+                              : "transparent",
+                            color: active
+                              ? "var(--text-primary)"
+                              : "var(--text-muted)",
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Sample Data & Reset */}
               <div

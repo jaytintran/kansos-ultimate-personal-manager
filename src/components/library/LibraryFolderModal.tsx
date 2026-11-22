@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import React, { useState } from "react";
 import { FOLDER_COLORS, flattenFoldersHierarchy } from "../../lib/formatters";
-import type { FolderColor, FolderRecord } from "../../../library";
+import type { FolderColor, FolderRecord } from "../../types/library";
 
 interface LibraryFolderModalProps {
   mode: "create" | "edit";

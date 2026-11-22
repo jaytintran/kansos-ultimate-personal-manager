@@ -6,7 +6,8 @@ import type {
   FolderRecord,
   HighlightRecord,
   ViewFolderRecord,
-} from "../../library";
+} from "../types/library";
+import { resolveBookFileBuffer } from "./bookFileLoader";
 import { libraryDb } from "./db";
 
 export interface LibraryBackupFileEntry {
@@ -51,11 +52,16 @@ export async function exportLibraryBackupZip(params: {
   }> = [];
 
   for (const book of params.books) {
-    const stored = await libraryDb.getBookFile(book.id);
-    if (!stored) continue;
+    let data: ArrayBuffer | null = null;
+    try {
+      data = await resolveBookFileBuffer(book);
+    } catch {
+      data = null;
+    }
+    if (!data) continue;
     const safeExt = book.format || "epub";
     const archivePath = `files/${book.id}.${safeExt}`;
-    zip.file(archivePath, stored.data);
+    zip.file(archivePath, data);
     fileEntries.push({ bookId: book.id, archivePath, fileName: book.fileName });
   }
 
