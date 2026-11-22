@@ -1,4 +1,9 @@
 import type { AudioFormat, AudioImportMetadataResult } from "../types/audio";
+import {
+  isAndroidCapacitor,
+  prepareAndroidAudioSrc,
+  readAndroidUriHeaderSlice,
+} from "../utils/androidSaf";
 import { computeSha256Hex } from "./db";
 import { compressCoverDataUrl } from "./formatters";
 
@@ -558,6 +563,38 @@ export function buildDeterministicWaveformPeaks(
   return peaks;
 }
 
+export async function probeAudioDurationFromUrl(
+  url: string,
+): Promise<number> {
+  if (typeof Audio === "undefined" || !url) return 0;
+  return await new Promise<number>((resolve) => {
+    const el = new Audio();
+    el.preload = "metadata";
+    const timer = window.setTimeout(() => {
+      cleanup();
+      resolve(0);
+    }, 3500);
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      el.onloadedmetadata = null;
+      el.onerror = null;
+      el.removeAttribute("src");
+      el.load();
+    };
+    el.onloadedmetadata = () => {
+      const dur =
+        Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0;
+      cleanup();
+      resolve(dur);
+    };
+    el.onerror = () => {
+      cleanup();
+      resolve(0);
+    };
+    el.src = url;
+  });
+}
+
 async function probeAudioDuration(
   buffer: ArrayBuffer,
   mimeType: string,
@@ -566,30 +603,7 @@ async function probeAudioDuration(
   const blob = new Blob([buffer], { type: mimeType });
   const url = URL.createObjectURL(blob);
   try {
-    return await new Promise<number>((resolve) => {
-      const el = new Audio();
-      el.preload = "metadata";
-      const timer = window.setTimeout(() => {
-        cleanup();
-        resolve(0);
-      }, 3500);
-      const cleanup = () => {
-        window.clearTimeout(timer);
-        el.removeAttribute("src");
-        el.load();
-      };
-      el.onloadedmetadata = () => {
-        const dur =
-          Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0;
-        cleanup();
-        resolve(dur);
-      };
-      el.onerror = () => {
-        cleanup();
-        resolve(0);
-      };
-      el.src = url;
-    });
+    return await probeAudioDurationFromUrl(url);
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -599,9 +613,10 @@ async function extractRealWaveformPeaks(
   buffer: ArrayBuffer,
   barCount = 48,
 ): Promise<number[] | null> {
-  // Only decode moderate-sized files (<= 30 MB) to avoid excessive memory pressure on Android
+  // Skip expensive full-file PCM decode on Android mobile or large files (>12 MB)
   if (
-    buffer.byteLength > 30 * 1024 * 1024 ||
+    isAndroidCapacitor() ||
+    buffer.byteLength > 12 * 1024 * 1024 ||
     typeof window === "undefined"
   ) {
     return null;
@@ -714,5 +729,131 @@ export async function extractAudioMetadataFromBuffer(
     durationSeconds,
     waveformPeaks: decodedPeaks || buildDeterministicWaveformPeaks(buffer),
     coverDataUrl: compressedCover,
+  };
+}
+
+function parseRawTagsFromSlice(
+  bytes: Uint8Array,
+  format: AudioFormat,
+): ParsedRawTags & { durationHint?: number } {
+  let parsed: ParsedRawTags & { durationHint?: number } = {};
+  if (format === "mp3" || format === "aac") {
+    parsed = parseId3v2(bytes);
+  } else if (format === "m4a") {
+    parsed = parseMp4Tags(bytes);
+  } else if (format === "flac") {
+    parsed = parseFlacTags(bytes);
+  } else if (format === "ogg" || format === "opus") {
+    parsed = parseOggTags(bytes);
+  } else if (format === "wav") {
+    parsed = parseRiffWavTags(bytes);
+  }
+  if (
+    !parsed.title &&
+    bytes.length > 10 &&
+    bytes[0] === 0x49 &&
+    bytes[1] === 0x44 &&
+    bytes[2] === 0x33
+  ) {
+    parsed = { ...parseId3v2(bytes), ...parsed };
+  }
+  return parsed;
+}
+
+/**
+ * Fast Android SAF metadata extractor that reads only the header slice and probes
+ * duration natively from the cached `_capacitor_file_` stream—eliminating multi-MB
+ * Base64 bridge transfers and decodeAudioData freezes when linking tracks or folders.
+ */
+export async function extractAudioMetadataFromAndroidUri(
+  uri: string,
+  fileName: string,
+  rawMimeType = "",
+  knownSize = 0,
+): Promise<{
+  metadata: AudioImportMetadataResult;
+  cachedSrc: string | null;
+}> {
+  const format = detectAudioFormat(fileName, rawMimeType) ?? "mp3";
+  const mimeType = getAudioMimeType(format, rawMimeType);
+  const fallback = cleanTrackBaseTitle(fileName);
+
+  let headerBuffer = new ArrayBuffer(0);
+  let actualSize = knownSize;
+  let cachedSrc: string | null = null;
+  let probedDuration = 0;
+
+  try {
+    const prepared = await prepareAndroidAudioSrc(uri, format);
+    cachedSrc = prepared.src;
+    if (prepared.size > 0) actualSize = prepared.size;
+
+    const [dur, sliceRes] = await Promise.all([
+      probeAudioDurationFromUrl(prepared.src),
+      fetch(prepared.src, {
+        headers: { Range: "bytes=0-393215" },
+      })
+        .then(async (r) => {
+          if (!r.ok) return new ArrayBuffer(0);
+          const buf = await r.arrayBuffer();
+          return buf.byteLength > 393216 ? buf.slice(0, 393216) : buf;
+        })
+        .catch(() => new ArrayBuffer(0)),
+    ]);
+    probedDuration = dur;
+    headerBuffer = sliceRes;
+  } catch {
+    // Fallback to tiny header-only SAF read if prepareAudioFile is unavailable
+    try {
+      const slice = await readAndroidUriHeaderSlice(uri, 393216);
+      headerBuffer = slice.buffer;
+      if (slice.totalSize > 0) actualSize = slice.totalSize;
+    } catch {
+      headerBuffer = new ArrayBuffer(0);
+    }
+  }
+
+  const headerBytes = new Uint8Array(headerBuffer);
+  const parsed =
+    headerBytes.length > 0 ? parseRawTagsFromSlice(headerBytes, format) : {};
+
+  // Fast deterministic fingerprint from header slice + exact size (avoids hashing 50MB in JS)
+  const hashInput = new Uint8Array(headerBytes.byteLength + 16);
+  hashInput.set(headerBytes, 0);
+  const sizeView = new DataView(hashInput.buffer);
+  sizeView.setFloat64(headerBytes.byteLength, actualSize || 0, true);
+
+  const [fileHash, compressedCover] = await Promise.all([
+    computeSha256Hex(hashInput.buffer),
+    parsed.coverDataUrl
+      ? compressCoverDataUrl(parsed.coverDataUrl, 360, 360, 0.8)
+      : Promise.resolve(null),
+  ]);
+
+  const durationSeconds =
+    probedDuration > 0
+      ? probedDuration
+      : parsed.durationHint && parsed.durationHint > 0
+        ? parsed.durationHint
+        : 0;
+
+  return {
+    cachedSrc,
+    metadata: {
+      format,
+      mimeType,
+      fileName,
+      fileSize: actualSize,
+      fileHash,
+      title: parsed.title || fallback.title,
+      artist: parsed.artist || fallback.artist,
+      album: parsed.album || "",
+      trackNumber: parsed.trackNumber ?? null,
+      year: parsed.year || "",
+      genre: parsed.genre || "",
+      durationSeconds,
+      waveformPeaks: buildDeterministicWaveformPeaks(headerBuffer),
+      coverDataUrl: compressedCover,
+    },
   };
 }

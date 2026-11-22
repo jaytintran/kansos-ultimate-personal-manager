@@ -36,6 +36,7 @@ import type {
   AudioStudioState,
   AudioTrackRecord,
 } from "../../types/audio";
+import { isAndroidCapacitor } from "../../utils/androidSaf";
 import { AudioArtwork } from "./AudioArtwork";
 import { extractDraggedAudioIds, hasDraggedAudioPayload } from "./AudioSidebar";
 
@@ -79,11 +80,49 @@ interface AudioPlayerDeckProps {
 
 const SLEEP_PRESETS = [15, 30, 45, 60, 90];
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
+const FALLBACK_WAVEFORM_PEAKS = Array.from({ length: 52 }, (_, i) =>
+  Math.max(
+    0.22,
+    Math.min(0.92, 0.48 + 0.32 * Math.sin(i * 0.45) * Math.cos(i * 0.17)),
+  ),
+);
 
 function formatCountdown(secs: number): string {
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+interface WaveformPalette {
+  accentColor: string;
+  mutedColor: string;
+  troughColor: string;
+  softAccent: string;
+}
+
+function readWaveformPalette(): WaveformPalette {
+  if (typeof window === "undefined") {
+    return {
+      accentColor: "#b45309",
+      mutedColor: "#78716c",
+      troughColor: "#efede8",
+      softAccent: "rgba(180,83,9,0.2)",
+    };
+  }
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    accentColor: cs.getPropertyValue("--accent").trim() || "#b45309",
+    mutedColor:
+      cs.getPropertyValue("--text-muted").trim() ||
+      cs.getPropertyValue("--border-strong").trim() ||
+      "#78716c",
+    troughColor:
+      cs.getPropertyValue("--bg-surface-subtle").trim() ||
+      cs.getPropertyValue("--bg-surface").trim() ||
+      "rgba(120,113,108,0.12)",
+    softAccent:
+      cs.getPropertyValue("--accent-soft").trim() || "rgba(180,83,9,0.2)",
+  };
 }
 
 export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
@@ -133,6 +172,26 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const popoverRootRef = useRef<HTMLDivElement | null>(null);
   const draggingSeekRef = useRef(false);
+  const paletteRef = useRef<WaveformPalette>(readWaveformPalette());
+  const freqBufferRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+
+  const [isMobileViewport, setIsMobileViewport] = useState<boolean>(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 1023px)").matches
+      : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const onChange = () => setIsMobileViewport(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  const useStaticWaveformOnly =
+    isAndroidCapacitor() || isMobileViewport || visualizerMode === "waveform";
 
   const trackMap = new Map(tracks.map((t) => [t.id, t]));
   const primaryRt = primarySlot ? slotRuntime[primarySlot.slotId] : undefined;
@@ -140,6 +199,35 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
     primaryRt?.currentTime ?? primaryTrack?.currentPositionSeconds ?? 0;
   const duration = primaryRt?.duration ?? primaryTrack?.durationSeconds ?? 0;
   const primaryRate = primarySlot?.playbackRate ?? 1;
+
+  const drawStateRef = useRef({
+    peaks: FALLBACK_WAVEFORM_PEAKS,
+    currentTime,
+    duration,
+    isPlaying,
+    abLoopStart: primarySlot?.abLoopStart ?? null,
+    abLoopEnd: primarySlot?.abLoopEnd ?? null,
+    analyserNode,
+    useStaticWaveformOnly,
+  });
+
+  const normalizedPeaks =
+    primaryTrack?.waveformPeaks && primaryTrack.waveformPeaks.length > 0
+      ? primaryTrack.waveformPeaks.map((p) =>
+          Number.isFinite(p) ? Math.max(0.16, Math.min(0.95, p)) : 0.38,
+        )
+      : FALLBACK_WAVEFORM_PEAKS;
+
+  drawStateRef.current = {
+    peaks: normalizedPeaks,
+    currentTime,
+    duration,
+    isPlaying,
+    abLoopStart: primarySlot?.abLoopStart ?? null,
+    abLoopEnd: primarySlot?.abLoopEnd ?? null,
+    analyserNode,
+    useStaticWaveformOnly,
+  };
 
   useEffect(() => {
     if (!openPopover) return;
@@ -155,137 +243,173 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
     return () => window.removeEventListener("mousedown", onDown);
   }, [openPopover]);
 
-  // Interactive Canvas Waveform & Live Spectrum Renderer
+  const drawWaveformFrame = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const cssWidth = Math.max(80, rect.width);
+    const cssHeight = Math.max(24, rect.height);
+    const pixelWidth = Math.max(1, Math.round(cssWidth * dpr));
+    const pixelHeight = Math.max(1, Math.round(cssHeight * dpr));
+
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    }
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const scaleX = pixelWidth / cssWidth;
+    const scaleY = pixelHeight / cssHeight;
+    ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+    const pal = paletteRef.current;
+    const st = drawStateRef.current;
+    const ratio =
+      st.duration > 0
+        ? Math.max(0, Math.min(1, st.currentTime / st.duration))
+        : 0;
+
+    // Subtle recessed trough background + baseline so scrubber is never invisible
+    ctx.globalAlpha = 0.72;
+    ctx.fillStyle = pal.troughColor;
+    ctx.fillRect(0, 2, cssWidth, Math.max(4, cssHeight - 4));
+
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = pal.mutedColor;
+    ctx.fillRect(0, Math.floor(cssHeight / 2), cssWidth, 1);
+
+    // A-B Loop Highlight Region
+    if (
+      st.duration > 0 &&
+      st.abLoopStart != null &&
+      st.abLoopEnd != null &&
+      st.abLoopEnd > st.abLoopStart
+    ) {
+      const xA = (st.abLoopStart / st.duration) * cssWidth;
+      const xB = (st.abLoopEnd / st.duration) * cssWidth;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = pal.softAccent;
+      ctx.fillRect(xA, 0, Math.max(2, xB - xA), cssHeight);
+    }
+
+    const peaks = st.peaks;
+    const bars = peaks.length;
+    const barW = cssWidth / bars;
+    const gap = Math.max(1, barW * 0.28);
+
+    const liveSpectrum =
+      !st.useStaticWaveformOnly && st.analyserNode && st.isPlaying;
+    let freqData: Uint8Array<ArrayBuffer> | null = null;
+    if (liveSpectrum && st.analyserNode) {
+      if (
+        !freqBufferRef.current ||
+        freqBufferRef.current.length !== st.analyserNode.frequencyBinCount
+      ) {
+        freqBufferRef.current = new Uint8Array(
+          st.analyserNode.frequencyBinCount,
+        );
+      }
+      freqData = freqBufferRef.current;
+      st.analyserNode.getByteFrequencyData(freqData);
+    }
+
+    for (let i = 0; i < bars; i++) {
+      let amp = peaks[i];
+      if (freqData) {
+        const binIdx = Math.min(
+          freqData.length - 1,
+          Math.floor((i / bars) * freqData.length * 0.8),
+        );
+        const liveVal = Math.max(0.14, (freqData[binIdx] || 0) / 255);
+        amp = liveVal * 0.72 + peaks[i] * 0.28;
+      }
+      const barH = Math.max(3, amp * (cssHeight - 6));
+      const x = i * barW;
+      const barPosRatio = (i + 0.5) / bars;
+      const isPlayed = st.duration > 0 && ratio > 0 && barPosRatio <= ratio;
+      ctx.fillStyle = isPlayed ? pal.accentColor : pal.mutedColor;
+      ctx.globalAlpha = isPlayed ? 0.96 : 0.48;
+      ctx.fillRect(
+        x + gap / 2,
+        (cssHeight - barH) / 2,
+        Math.max(1.5, barW - gap),
+        barH,
+      );
+    }
+
+    // Playhead marker
+    if (st.duration > 0) {
+      const px = Math.max(1.5, Math.min(cssWidth - 2.5, ratio * cssWidth));
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = pal.accentColor;
+      ctx.fillRect(px - 1.25, 1, 2.5, Math.max(4, cssHeight - 2));
+    }
+  }, []);
+
+  // Cache CSS palette tokens and watch theme switches without querying getComputedStyle per frame
+  useEffect(() => {
+    paletteRef.current = readWaveformPalette();
+    drawWaveformFrame();
+
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(() => {
+      paletteRef.current = readWaveformPalette();
+      drawWaveformFrame();
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme", "class", "style"],
+    });
+    return () => observer.disconnect();
+  }, [drawWaveformFrame]);
+
+  // Redraw automatically when container resizes or device rotates
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    let rafId = 0;
+    drawWaveformFrame();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      drawWaveformFrame();
+    });
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, [drawWaveformFrame]);
 
-    const peaks =
-      primaryTrack?.waveformPeaks && primaryTrack.waveformPeaks.length > 0
-        ? primaryTrack.waveformPeaks
-        : Array.from({ length: 56 }, (_, i) =>
-            Math.max(
-              0.2,
-              Math.min(0.95, 0.45 + 0.35 * Math.sin(i * 0.45) * Math.cos(i * 0.17)),
-            ),
-          );
-
-    const freqData = analyserNode
-      ? new Uint8Array(analyserNode.frequencyBinCount)
-      : null;
-
-    const drawFrame = () => {
-      const dpr = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
-      const width = Math.max(120, Math.round(rect.width));
-      const height = Math.max(24, Math.round(rect.height));
-      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-      }
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.save();
-      ctx.scale(dpr, dpr);
-      ctx.clearRect(0, 0, width, height);
-
-      const cs = getComputedStyle(document.documentElement);
-      const accentColor = cs.getPropertyValue("--accent").trim() || "#b45309";
-      const mutedColor =
-        cs.getPropertyValue("--border-strong").trim() || "#9ca3af";
-      const softAccent =
-        cs.getPropertyValue("--accent-soft").trim() || "rgba(180,83,9,0.2)";
-
-      const ratio =
-        duration > 0 ? Math.max(0, Math.min(1, currentTime / duration)) : 0;
-
-      // A-B Loop Highlight Region
-      if (
-        duration > 0 &&
-        primarySlot?.abLoopStart != null &&
-        primarySlot?.abLoopEnd != null &&
-        primarySlot.abLoopEnd > primarySlot.abLoopStart
-      ) {
-        const xA = (primarySlot.abLoopStart / duration) * width;
-        const xB = (primarySlot.abLoopEnd / duration) * width;
-        ctx.fillStyle = softAccent;
-        ctx.fillRect(xA, 0, Math.max(2, xB - xA), height);
-      }
-
-      if (visualizerMode === "spectrum" && analyserNode && freqData && isPlaying) {
-        analyserNode.getByteFrequencyData(freqData);
-        const bars = peaks.length;
-        const barW = width / bars;
-        const gap = Math.max(1, barW * 0.25);
-        for (let i = 0; i < bars; i++) {
-          const binIdx = Math.min(
-            freqData.length - 1,
-            Math.floor((i / bars) * freqData.length * 0.8),
-          );
-          const amp = Math.max(0.12, (freqData[binIdx] || 0) / 255);
-          const combined = amp * 0.72 + peaks[i] * 0.28;
-          const barH = Math.max(3, combined * (height - 4));
-          const x = i * barW;
-          const isPlayed = i / bars <= ratio;
-          ctx.fillStyle = isPlayed ? accentColor : mutedColor;
-          ctx.globalAlpha = isPlayed ? 0.95 : 0.45;
-          ctx.fillRect(
-            x + gap / 2,
-            (height - barH) / 2,
-            Math.max(1.5, barW - gap),
-            barH,
-          );
-        }
-      } else {
-        const bars = peaks.length;
-        const barW = width / bars;
-        const gap = Math.max(1, barW * 0.28);
-        for (let i = 0; i < bars; i++) {
-          const barH = Math.max(3, peaks[i] * (height - 4));
-          const x = i * barW;
-          const isPlayed = i / bars <= ratio;
-          ctx.fillStyle = isPlayed ? accentColor : mutedColor;
-          ctx.globalAlpha = isPlayed ? 0.95 : 0.42;
-          ctx.fillRect(
-            x + gap / 2,
-            (height - barH) / 2,
-            Math.max(1.5, barW - gap),
-            barH,
-          );
-        }
-      }
-
-      // Playhead marker
-      if (duration > 0) {
-        const px = Math.max(1, Math.min(width - 2, ratio * width));
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = accentColor;
-        ctx.fillRect(px - 1, 0, 2, height);
-      }
-
-      ctx.restore();
-
-      if (isPlaying && visualizerMode === "spectrum") {
-        rafId = requestAnimationFrame(drawFrame);
-      }
-    };
-
-    drawFrame();
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-    };
+  // Redraw static waveform immediately on playback progress / track / loop changes
+  useEffect(() => {
+    drawWaveformFrame();
   }, [
-    primaryTrack,
+    drawWaveformFrame,
+    primaryTrack?.id,
+    primaryTrack?.waveformPeaks,
     primarySlot?.abLoopStart,
     primarySlot?.abLoopEnd,
     currentTime,
     duration,
     isPlaying,
-    analyserNode,
-    visualizerMode,
+    useStaticWaveformOnly,
   ]);
+
+  // Desktop-only 60fps spectrum RAF loop (disabled on mobile/Android for battery & FPS)
+  useEffect(() => {
+    if (useStaticWaveformOnly || !isPlaying || !analyserNode) return;
+    let rafId = 0;
+    const tick = () => {
+      drawWaveformFrame();
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [drawWaveformFrame, useStaticWaveformOnly, isPlaying, analyserNode]);
 
   const seekFromCanvasPointer = useCallback(
     (clientX: number) => {
@@ -922,32 +1046,34 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
             onPointerCancel={() => {
               draggingSeekRef.current = false;
             }}
-            className="flex-1 h-7 rounded cursor-pointer touch-none"
+            className="flex-1 min-w-0 w-full h-8 sm:h-7 rounded-md cursor-pointer touch-none block"
             aria-label="Audio seek waveform"
           />
           <span className="font-mono tabular-nums text-[11px] text-[var(--text-muted)] w-10 shrink-0">
             {formatAudioDuration(duration)}
           </span>
-          <button
-            type="button"
-            onClick={() =>
-              onChangeVisualizerMode(
-                visualizerMode === "spectrum" ? "waveform" : "spectrum",
-              )
-            }
-            title={
-              visualizerMode === "spectrum"
-                ? "Switch to static waveform"
-                : "Switch to live spectrum visualizer"
-            }
-            className="hidden sm:inline-flex p-1 rounded text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer shrink-0"
-          >
-            {visualizerMode === "spectrum" ? (
-              <Activity className="w-3.5 h-3.5 text-[var(--accent)]" />
-            ) : (
-              <AudioWaveform className="w-3.5 h-3.5" />
-            )}
-          </button>
+          {!isAndroidCapacitor() && (
+            <button
+              type="button"
+              onClick={() =>
+                onChangeVisualizerMode(
+                  visualizerMode === "spectrum" ? "waveform" : "spectrum",
+                )
+              }
+              title={
+                visualizerMode === "spectrum"
+                  ? "Switch to static waveform"
+                  : "Switch to live spectrum visualizer"
+              }
+              className="hidden lg:inline-flex p-1 rounded text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer shrink-0"
+            >
+              {visualizerMode === "spectrum" ? (
+                <Activity className="w-3.5 h-3.5 text-[var(--accent)]" />
+              ) : (
+                <AudioWaveform className="w-3.5 h-3.5" />
+              )}
+            </button>
+          )}
         </div>
 
         {/* Controls Row */}

@@ -55,6 +55,15 @@ interface KansoSafPluginInterface {
     byteLength: number;
     totalSize: number;
   }>;
+  prepareAudioFile(options: {
+    uri: string;
+    extension?: string;
+    maxCacheBytes?: number;
+  }): Promise<{
+    filePath: string;
+    size: number;
+    cacheHit?: boolean;
+  }>;
   releaseUri(options: { uri: string }): Promise<void>;
   setSystemChrome(options: { color: string; isDark: boolean }): Promise<void>;
   setBackgroundMediaState(options: {
@@ -468,4 +477,54 @@ export async function readAndroidUriAsArrayBuffer(
     cursor += chunk.byteLength;
   }
   return combined.buffer as ArrayBuffer;
+}
+
+/**
+ * Streams a linked Android SAF audio URI into the native Android LRU cache and returns
+ * a same-origin Capacitor WebView URL (`https://localhost/_capacitor_file_/...`) that
+ * supports native Chromium decoding & byte-range seeking with zero Base64 bridge overhead.
+ */
+export async function prepareAndroidAudioSrc(
+  uri: string,
+  extension?: string,
+  maxCacheBytes = 256 * 1024 * 1024,
+): Promise<{ src: string; filePath: string; size: number }> {
+  if (!isAndroidCapacitor()) {
+    throw new Error("Android SAF storage is only available in the Android app.");
+  }
+  const res = await KansoSaf.prepareAudioFile({
+    uri,
+    extension,
+    maxCacheBytes,
+  });
+  if (!res?.filePath) {
+    throw new Error("Native audio cache did not return a playable path.");
+  }
+  return {
+    src: Capacitor.convertFileSrc(res.filePath),
+    filePath: res.filePath,
+    size: res.size || 0,
+  };
+}
+
+/**
+ * Reads only the leading header slice of a SAF URI for instant ID3/MP4/FLAC/OGG tag parsing.
+ */
+export async function readAndroidUriHeaderSlice(
+  uri: string,
+  maxBytes = 393216,
+): Promise<{ buffer: ArrayBuffer; totalSize: number }> {
+  if (!isAndroidCapacitor()) {
+    throw new Error("Android SAF storage is only available in the Android app.");
+  }
+  const res = await KansoSaf.readDocument({
+    uri,
+    offset: 0,
+    length: maxBytes,
+  });
+  const bytes = decodeBase64ToUint8Array(res.base64);
+  return {
+    buffer: bytes.buffer as ArrayBuffer,
+    totalSize: Math.max(res.totalSize || 0, bytes.byteLength),
+  };
 }

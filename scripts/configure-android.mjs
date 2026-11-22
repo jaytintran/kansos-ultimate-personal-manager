@@ -708,8 +708,14 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
@@ -1128,6 +1134,190 @@ public class KansoSafPlugin extends Plugin {
                 }
             } catch (Exception e) {
                 call.reject("Could not read device file: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    private static String sha256HexShort(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < Math.min(16, digest.length); i++) {
+                sb.append(String.format(Locale.ROOT, "%02x", digest[i] & 0xff));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return Integer.toHexString(input.hashCode());
+        }
+    }
+
+    private static String sanitizeAudioExt(String extHint, String displayName) {
+        String candidate = extHint != null ? extHint.trim().toLowerCase(Locale.ROOT) : "";
+        if (candidate.isEmpty() && displayName != null) {
+            int dot = displayName.lastIndexOf('.');
+            if (dot >= 0 && dot < displayName.length() - 1) {
+                candidate = displayName.substring(dot + 1).trim().toLowerCase(Locale.ROOT);
+            }
+        }
+        candidate = candidate.replaceAll("[^a-z0-9]", "");
+        switch (candidate) {
+            case "mp3":
+            case "m4a":
+            case "mp4":
+            case "wav":
+            case "ogg":
+            case "oga":
+            case "flac":
+            case "opus":
+            case "aac":
+                return candidate;
+            default:
+                return "audio";
+        }
+    }
+
+    private synchronized void evictAudioCacheIfNeeded(File cacheDir, File keepFile, long maxBytes) {
+        File[] files = cacheDir.listFiles();
+        if (files == null || files.length == 0) return;
+        long total = 0L;
+        for (File f : files) {
+            if (f.isFile()) {
+                total += f.length();
+            }
+        }
+        if (total <= maxBytes) return;
+
+        Arrays.sort(files, Comparator.comparingLong(File::lastModified));
+        for (File f : files) {
+            if (total <= maxBytes) break;
+            if (!f.isFile() || f.equals(keepFile)) continue;
+            long len = f.length();
+            if (f.delete()) {
+                total -= len;
+            }
+        }
+    }
+
+    @PluginMethod
+    public void prepareAudioFile(PluginCall call) {
+        String uriStr = call.getString("uri");
+        if (uriStr == null || uriStr.trim().isEmpty()) {
+            call.reject("Missing uri parameter");
+            return;
+        }
+        String extHint = call.getString("extension", "");
+        long requestedMax = call.getInt("maxCacheBytes", 256 * 1024 * 1024);
+        final long maxCacheBytes = Math.max(32L * 1024L * 1024L, requestedMax);
+
+        executor.execute(() -> {
+            try {
+                Uri uri = Uri.parse(uriStr);
+                ContentResolver cr = getContext().getContentResolver();
+
+                String displayName = null;
+                long reportedSize = -1L;
+                long reportedMtime = 0L;
+                String[] projection = new String[] {
+                    OpenableColumns.DISPLAY_NAME,
+                    OpenableColumns.SIZE,
+                    DocumentsContract.Document.COLUMN_LAST_MODIFIED
+                };
+                try (Cursor cursor = cr.query(uri, projection, null, null, null)) {
+                    if (cursor != null && cursor.moveToFirst()) {
+                        int nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                        int sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE);
+                        int mtimeIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED);
+                        if (nameIdx >= 0 && !cursor.isNull(nameIdx)) {
+                            displayName = cursor.getString(nameIdx);
+                        }
+                        if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) {
+                            reportedSize = cursor.getLong(sizeIdx);
+                        }
+                        if (mtimeIdx >= 0 && !cursor.isNull(mtimeIdx)) {
+                            reportedMtime = cursor.getLong(mtimeIdx);
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // Metadata columns are optional across SAF providers
+                }
+
+                String ext = sanitizeAudioExt(extHint, displayName);
+                String uriHash = sha256HexShort(uriStr);
+                File cacheDir = new File(getContext().getCacheDir(), "kanso_audio_cache");
+                if (!cacheDir.exists()) {
+                    cacheDir.mkdirs();
+                }
+
+                String stamp = reportedMtime + "_" + Math.max(0L, reportedSize);
+                File targetFile = new File(cacheDir, uriHash + "_" + stamp + "." + ext);
+
+                if (
+                    targetFile.exists() &&
+                    targetFile.length() > 0 &&
+                    (reportedSize <= 0L || targetFile.length() == reportedSize)
+                ) {
+                    targetFile.setLastModified(System.currentTimeMillis());
+                    JSObject hit = new JSObject();
+                    hit.put("filePath", targetFile.getAbsolutePath());
+                    hit.put("size", targetFile.length());
+                    hit.put("cacheHit", true);
+                    call.resolve(hit);
+                    return;
+                }
+
+                // Clean up older versions for this URI before streaming fresh copy
+                File[] stale = cacheDir.listFiles((dir, name) -> name.startsWith(uriHash + "_") && !name.equals(targetFile.getName()));
+                if (stale != null) {
+                    for (File oldFile : stale) {
+                        oldFile.delete();
+                    }
+                }
+
+                File tmpFile = new File(cacheDir, uriHash + "_" + stamp + "." + ext + ".tmp");
+                long copied = 0L;
+                try (InputStream is = cr.openInputStream(uri)) {
+                    if (is == null) {
+                        call.reject("Unable to open device audio stream");
+                        return;
+                    }
+                    try (FileOutputStream fos = new FileOutputStream(tmpFile)) {
+                        byte[] buf = new byte[65536];
+                        int read;
+                        while ((read = is.read(buf)) != -1) {
+                            fos.write(buf, 0, read);
+                            copied += read;
+                        }
+                        fos.getFD().sync();
+                    }
+                } catch (Exception streamErr) {
+                    if (tmpFile.exists()) tmpFile.delete();
+                    throw streamErr;
+                }
+
+                if (copied <= 0L) {
+                    if (tmpFile.exists()) tmpFile.delete();
+                    call.reject("Device audio stream was empty");
+                    return;
+                }
+
+                if (targetFile.exists()) {
+                    targetFile.delete();
+                }
+                if (!tmpFile.renameTo(targetFile)) {
+                    // Fallback copy/replace if rename across states failed
+                    targetFile = tmpFile;
+                }
+                targetFile.setLastModified(System.currentTimeMillis());
+                evictAudioCacheIfNeeded(cacheDir, targetFile, maxCacheBytes);
+
+                JSObject res = new JSObject();
+                res.put("filePath", targetFile.getAbsolutePath());
+                res.put("size", targetFile.length());
+                res.put("cacheHit", false);
+                call.resolve(res);
+            } catch (Exception e) {
+                call.reject("Could not prepare native audio cache: " + e.getMessage(), e);
             }
         });
     }

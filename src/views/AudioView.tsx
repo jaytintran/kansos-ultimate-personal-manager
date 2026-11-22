@@ -78,6 +78,7 @@ import {
 } from "../lib/audioFormatters";
 import {
   detectAudioFormat,
+  extractAudioMetadataFromAndroidUri,
   extractAudioMetadataFromBuffer,
 } from "../lib/audioMetadata";
 import { audioDb } from "../lib/db";
@@ -802,13 +803,25 @@ export const AudioView = React.forwardRef<AudioControllerHandle, AudioViewProps>
               continue;
             }
 
-            const buffer = await readAndroidUriAsArrayBuffer(pf.uri, pf.size);
-            const meta = await extractAudioMetadataFromBuffer(
-              buffer,
-              pf.name,
-              pf.mimeType,
-              pf.size || buffer.byteLength,
-            );
+            const { metadata: meta, cachedSrc } =
+              await extractAudioMetadataFromAndroidUri(
+                pf.uri,
+                pf.name,
+                pf.mimeType,
+                pf.size,
+              );
+            let buffer = new ArrayBuffer(0);
+            if (choice === "copy") {
+              if (cachedSrc) {
+                const res = await fetch(cachedSrc).catch(() => null);
+                buffer =
+                  res && res.ok
+                    ? await res.arrayBuffer()
+                    : await readAndroidUriAsArrayBuffer(pf.uri, pf.size);
+              } else {
+                buffer = await readAndroidUriAsArrayBuffer(pf.uri, pf.size);
+              }
+            }
             const dup = findDuplicateTrack(
               meta.fileHash,
               meta.fileName,
@@ -818,7 +831,7 @@ export const AudioView = React.forwardRef<AudioControllerHandle, AudioViewProps>
               duplicates.push({
                 id: makeId("dup"),
                 fileName: pf.name,
-                fileSize: pf.size || buffer.byteLength,
+                fileSize: pf.size || meta.fileSize || buffer.byteLength,
                 arrayBuffer: buffer,
                 metadata: meta,
                 existingTrack: dup.existingTrack,
@@ -1143,12 +1156,11 @@ export const AudioView = React.forwardRef<AudioControllerHandle, AudioViewProps>
           const picked = await pickAndroidAudioDocuments(false);
           if (picked.cancelled || picked.files.length === 0) return;
           const file = picked.files[0];
-          const buffer = await readAndroidUriAsArrayBuffer(file.uri, file.size);
-          const meta = await extractAudioMetadataFromBuffer(
-            buffer,
+          const { metadata: meta } = await extractAudioMetadataFromAndroidUri(
+            file.uri,
             file.name,
             file.mimeType,
-            file.size || buffer.byteLength,
+            file.size,
           );
           await audioDb.deleteAudioFile(track.id).catch(() => undefined);
           updateAudioTrack(track.id, {
@@ -1186,7 +1198,7 @@ export const AudioView = React.forwardRef<AudioControllerHandle, AudioViewProps>
           return;
         }
         playAudioTrack(track.id, { replaceMix: true });
-        mixer.ensurePlaying();
+        mixer.ensurePlaying({ rewindIfEndedTrackId: track.id });
       },
       [missingTrackIds, handleRelinkTrack, playAudioTrack, mixer],
     );

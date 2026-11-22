@@ -2,6 +2,7 @@ import type { AudioTrackRecord } from "../types/audio";
 import {
   checkAndroidAudioUris,
   isAndroidCapacitor,
+  prepareAndroidAudioSrc,
   readAndroidUriAsArrayBuffer,
 } from "../utils/androidSaf";
 import { audioDb } from "./db";
@@ -24,7 +25,7 @@ export class AudioFileMissingError extends Error {
 
 /**
  * Resolves the raw audio ArrayBuffer for an AudioTrackRecord from either:
- * 1) Persisted Android SAF content:// URI (zero-copy on Android Capacitor)
+ * 1) Native Android SAF cache via Capacitor HTTP asset loader (or Base64 fallback)
  * 2) Local IndexedDB `audio_files` store
  */
 export async function resolveAudioFileBuffer(
@@ -32,6 +33,19 @@ export async function resolveAudioFileBuffer(
 ): Promise<{ buffer: ArrayBuffer; mimeType: string }> {
   if (track.storageMode === "android-uri" && track.externalUri) {
     if (isAndroidCapacitor()) {
+      try {
+        const prepared = await prepareAndroidAudioSrc(
+          track.externalUri,
+          track.format,
+        );
+        const res = await fetch(prepared.src);
+        if (res.ok) {
+          const buffer = await res.arrayBuffer();
+          return { buffer, mimeType: track.mimeType || "audio/mpeg" };
+        }
+      } catch {
+        // Fallback to chunked SAF bridge or IndexedDB cache
+      }
       try {
         const buffer = await readAndroidUriAsArrayBuffer(
           track.externalUri,
@@ -71,11 +85,63 @@ export async function resolveAudioFileBuffer(
 }
 
 /**
- * Creates a playable Blob URL for a track along with a cleanup callback.
+ * Creates a playable URL for a track along with a cleanup callback.
+ * On Android Capacitor linked tracks, streams directly from native Android LRU cache
+ * via Capacitor.convertFileSrc (`https://localhost/_capacitor_file_/...`) without
+ * loading multi-megabyte blobs across the Base64 JS bridge.
  */
 export async function resolveAudioPlaybackUrl(
   track: AudioTrackRecord,
 ): Promise<{ url: string; revoke: () => void }> {
+  if (
+    track.storageMode === "android-uri" &&
+    track.externalUri &&
+    isAndroidCapacitor()
+  ) {
+    try {
+      const prepared = await prepareAndroidAudioSrc(
+        track.externalUri,
+        track.format,
+      );
+      return {
+        url: prepared.src,
+        revoke: () => {
+          // Managed by native Android LRU cache
+        },
+      };
+    } catch (nativeErr) {
+      const errMsg =
+        nativeErr instanceof Error ? nativeErr.message.toLowerCase() : "";
+      const isUnimplemented =
+        errMsg.includes("not implemented") || errMsg.includes("unimplemented");
+      if (!isUnimplemented) {
+        // Check IndexedDB fallback before failing
+        const cached = await audioDb.getAudioFile(track.id).catch(() => null);
+        if (cached?.data) {
+          const blob = new Blob([cached.data], {
+            type: cached.mimeType || track.mimeType || "audio/mpeg",
+          });
+          const url = URL.createObjectURL(blob);
+          return {
+            url,
+            revoke: () => {
+              try {
+                URL.revokeObjectURL(url);
+              } catch {
+                // Ignore
+              }
+            },
+          };
+        }
+        throw new AudioFileMissingError(
+          track.id,
+          "uri-unreadable",
+          `The linked audio file "${track.fileName}" could not be read from device storage. Tap Relink.`,
+        );
+      }
+    }
+  }
+
   const { buffer, mimeType } = await resolveAudioFileBuffer(track);
   const blob = new Blob([buffer], { type: mimeType });
   const url = URL.createObjectURL(blob);

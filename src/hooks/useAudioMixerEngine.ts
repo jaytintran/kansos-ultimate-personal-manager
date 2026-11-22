@@ -98,6 +98,11 @@ export function useAudioMixerEngine({
   const masterGainRef = useRef<GainNode | null>(null);
   const sleepFadeRef = useRef(1);
 
+  const setAllPausedSync = useCallback((paused: boolean) => {
+    isAllPausedRef.current = paused;
+    setIsAllPaused(paused);
+  }, []);
+
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
   const audioStateRef = useRef(audioState);
@@ -105,7 +110,6 @@ export function useAudioMixerEngine({
   const viewMutedRef = useRef(viewMuted);
   viewMutedRef.current = viewMuted;
   const isAllPausedRef = useRef(isAllPaused);
-  isAllPausedRef.current = isAllPaused;
 
   const trackMap = useMemo(
     () => new Map(tracks.map((t) => [t.id, t])),
@@ -316,7 +320,7 @@ export function useAudioMixerEngine({
           persistSlotPosition(existingNode);
         }
         onRecordPlayRef.current(nextTrackId);
-        setIsAllPaused(false);
+        setAllPausedSync(false);
         onUpdateAudioStateRef.current((prev) => ({
           ...prev,
           primaryTrackId: nextTrackId,
@@ -333,7 +337,7 @@ export function useAudioMixerEngine({
         }));
       } else {
         onRecordPlayRef.current(nextTrackId);
-        setIsAllPaused(false);
+        setAllPausedSync(false);
         onUpdateAudioStateRef.current((prev) => ({
           ...prev,
           primaryTrackId: nextTrackId,
@@ -353,7 +357,7 @@ export function useAudioMixerEngine({
         }));
       }
     },
-    [persistSlotPosition],
+    [persistSlotPosition, setAllPausedSync],
   );
 
   const playNext = useCallback(
@@ -399,6 +403,150 @@ export function useAudioMixerEngine({
     }
   }, [switchPrimaryTrack]);
 
+  const syncNodeRuntime = useCallback((node: InternalSlotNode) => {
+    const track = trackMapRef.current.get(node.trackId);
+    const dur =
+      Number.isFinite(node.audio.duration) && node.audio.duration > 0
+        ? node.audio.duration
+        : track?.durationSeconds ?? 0;
+    const nextCur = Number.isFinite(node.audio.currentTime)
+      ? node.audio.currentTime
+      : 0;
+    const nextPlaying = !node.audio.paused && !node.audio.ended;
+    setSlotRuntime((prev) => {
+      const curRt = prev[node.slotId];
+      if (
+        curRt &&
+        Math.abs(curRt.currentTime - nextCur) < 0.08 &&
+        Math.abs(curRt.duration - dur) < 0.08 &&
+        curRt.playing === nextPlaying &&
+        curRt.loading === node.loading &&
+        curRt.error === node.error
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [node.slotId]: {
+          currentTime: nextCur,
+          duration: dur,
+          playing: nextPlaying,
+          loading: node.loading,
+          error: node.error,
+        },
+      };
+    });
+  }, []);
+
+  const loadSlotSource = useCallback(
+    (node: InternalSlotNode, track: AudioTrackRecord) => {
+      node.loading = true;
+      node.error = false;
+      syncNodeRuntime(node);
+
+      void resolveAudioPlaybackUrl(track)
+        .then(({ url, revoke }) => {
+          if (slotsRef.current.get(node.slotId) !== node) {
+            revoke();
+            return;
+          }
+          if (node.revokeUrl && node.blobUrl !== url) {
+            node.revokeUrl();
+          }
+          node.blobUrl = url;
+          node.revokeUrl = revoke;
+          node.loading = false;
+          node.error = false;
+
+          // Only apply crossOrigin="anonymous" for remote cross-origin HTTP(S) URLs.
+          // Setting crossOrigin on blob:/same-origin _capacitor_file_ URLs can break Android WebView playback.
+          const isRemoteCrossOrigin =
+            typeof window !== "undefined" &&
+            (url.startsWith("http://") || url.startsWith("https://")) &&
+            !url.startsWith(window.location.origin);
+          if (isRemoteCrossOrigin) {
+            node.audio.crossOrigin = "anonymous";
+          } else {
+            node.audio.removeAttribute("crossOrigin");
+          }
+
+          node.audio.src = url;
+          node.audio.load();
+          syncAudioGains();
+          if (!isAllPausedRef.current) {
+            if (audioCtxRef.current?.state === "suspended") {
+              void audioCtxRef.current.resume().catch(() => undefined);
+            }
+            void node.audio.play().catch(() => undefined);
+          }
+          syncNodeRuntime(node);
+        })
+        .catch(() => {
+          if (slotsRef.current.get(node.slotId) !== node) return;
+          node.loading = false;
+          node.error = true;
+          syncNodeRuntime(node);
+          onMissingTrackFileRef.current?.(track);
+        });
+    },
+    [syncAudioGains, syncNodeRuntime],
+  );
+
+  const playNodeAudio = useCallback(
+    (node: InternalSlotNode, rewindIfEnded = true) => {
+      ensureWebAudioGraph();
+      if (audioCtxRef.current?.state === "suspended") {
+        void audioCtxRef.current.resume().catch(() => undefined);
+      }
+
+      const track = trackMapRef.current.get(node.trackId);
+      if (node.error || node.audio.error || !node.blobUrl) {
+        if (track && !node.loading) {
+          loadSlotSource(node, track);
+        }
+        return;
+      }
+
+      const dur =
+        Number.isFinite(node.audio.duration) && node.audio.duration > 0
+          ? node.audio.duration
+          : track?.durationSeconds ?? 0;
+      const isAtOrNearEnd =
+        node.audio.ended ||
+        (dur > 0 && node.audio.currentTime >= dur - 0.5);
+
+      if (rewindIfEnded && isAtOrNearEnd) {
+        try {
+          node.audio.currentTime = 0;
+        } catch {
+          // Ignore seek error before ready
+        }
+        if (track && (track.currentPositionSeconds || 0) > 0) {
+          onUpdateTrackRef.current(track.id, { currentPositionSeconds: 0 });
+        }
+        syncNodeRuntime(node);
+      }
+
+      if (node.audio.paused || node.audio.ended) {
+        void node.audio.play().catch(() => {
+          if (slotsRef.current.get(node.slotId) !== node) return;
+          if (node.audio.readyState === 0 && node.blobUrl) {
+            try {
+              node.audio.load();
+              if (rewindIfEnded && isAtOrNearEnd) {
+                node.audio.currentTime = 0;
+              }
+              void node.audio.play().catch(() => undefined);
+            } catch {
+              // Ignore retry failure
+            }
+          }
+        });
+      }
+    },
+    [ensureWebAudioGraph, loadSlotSource, syncNodeRuntime],
+  );
+
   // Synchronize HTMLAudioElements with audioState.activeSlots
   useEffect(() => {
     const activeSlots = audioState.activeSlots;
@@ -410,7 +558,8 @@ export function useAudioMixerEngine({
         persistSlotPosition(node);
         try {
           node.audio.pause();
-          node.audio.src = "";
+          node.audio.removeAttribute("src");
+          node.audio.load();
         } catch {
           // Ignore cleanup errors
         }
@@ -431,7 +580,7 @@ export function useAudioMixerEngine({
     }
 
     if (activeSlots.length === 0) {
-      setIsAllPaused(true);
+      setAllPausedSync(true);
       return;
     }
 
@@ -445,7 +594,8 @@ export function useAudioMixerEngine({
           persistSlotPosition(existing);
           try {
             existing.audio.pause();
-            existing.audio.src = "";
+            existing.audio.removeAttribute("src");
+            existing.audio.load();
           } catch {
             // Ignore
           }
@@ -464,7 +614,6 @@ export function useAudioMixerEngine({
 
         const audio = new Audio();
         audio.preload = "auto";
-        audio.crossOrigin = "anonymous";
         audio.loop = Boolean(slot.loop);
         audio.playbackRate = Math.max(0.5, Math.min(3, slot.playbackRate || 1));
 
@@ -508,23 +657,6 @@ export function useAudioMixerEngine({
           },
         }));
 
-        const syncSlotState = () => {
-          const dur =
-            Number.isFinite(audio.duration) && audio.duration > 0
-              ? audio.duration
-              : trackMapRef.current.get(slot.trackId)?.durationSeconds ?? 0;
-          setSlotRuntime((prev) => ({
-            ...prev,
-            [slot.slotId]: {
-              currentTime: audio.currentTime || 0,
-              duration: dur,
-              playing: !audio.paused && !audio.ended,
-              loading: node.loading,
-              error: node.error,
-            },
-          }));
-        };
-
         audio.addEventListener("loadedmetadata", () => {
           if (slotsRef.current.get(slot.slotId) !== node) return;
           node.loading = false;
@@ -549,7 +681,7 @@ export function useAudioMixerEngine({
               }
             }
           }
-          syncSlotState();
+          syncNodeRuntime(node);
         });
 
         audio.addEventListener("timeupdate", () => {
@@ -570,13 +702,17 @@ export function useAudioMixerEngine({
           if (!audio.paused && Date.now() - node.lastSavedAt >= 4000) {
             persistSlotPosition(node);
           }
-          syncSlotState();
+          syncNodeRuntime(node);
         });
 
-        audio.addEventListener("play", syncSlotState);
+        audio.addEventListener("play", () => {
+          if (slotsRef.current.get(slot.slotId) !== node) return;
+          syncNodeRuntime(node);
+        });
         audio.addEventListener("pause", () => {
+          if (slotsRef.current.get(slot.slotId) !== node) return;
           persistSlotPosition(node);
-          syncSlotState();
+          syncNodeRuntime(node);
         });
 
         audio.addEventListener("ended", () => {
@@ -587,14 +723,14 @@ export function useAudioMixerEngine({
             state.primaryTrackId === slot.trackId ||
             state.activeSlots.length === 1;
           if (!isPrimary) {
-            syncSlotState();
+            syncNodeRuntime(node);
             return;
           }
 
           if (state.repeatMode === "one") {
             audio.currentTime = 0;
             void audio.play().catch(() => undefined);
-            syncSlotState();
+            syncNodeRuntime(node);
             return;
           }
 
@@ -602,45 +738,21 @@ export function useAudioMixerEngine({
           if (nextId) {
             switchPrimaryTrack(nextId);
           } else {
-            setIsAllPaused(true);
-            syncSlotState();
+            setAllPausedSync(true);
+            syncNodeRuntime(node);
           }
         });
 
         audio.addEventListener("error", () => {
           if (slotsRef.current.get(slot.slotId) !== node) return;
+          // Ignore blank src teardown error
+          if (!audio.getAttribute("src")) return;
           node.loading = false;
           node.error = true;
-          syncSlotState();
+          syncNodeRuntime(node);
         });
 
-        void resolveAudioPlaybackUrl(track)
-          .then(({ url, revoke }) => {
-            if (slotsRef.current.get(slot.slotId) !== node) {
-              revoke();
-              return;
-            }
-            node.blobUrl = url;
-            node.revokeUrl = revoke;
-            node.loading = false;
-            node.error = false;
-            audio.src = url;
-            syncAudioGains();
-            if (!isAllPausedRef.current) {
-              if (audioCtxRef.current?.state === "suspended") {
-                void audioCtxRef.current.resume().catch(() => undefined);
-              }
-              void audio.play().catch(() => undefined);
-            }
-            syncSlotState();
-          })
-          .catch(() => {
-            if (slotsRef.current.get(slot.slotId) !== node) return;
-            node.loading = false;
-            node.error = true;
-            syncSlotState();
-            onMissingTrackFileRef.current?.(track);
-          });
+        loadSlotSource(node, track);
       }
     }
 
@@ -649,9 +761,12 @@ export function useAudioMixerEngine({
     audioState.activeSlots,
     ensureWebAudioGraph,
     getNextTrackId,
+    loadSlotSource,
     persistSlotPosition,
+    setAllPausedSync,
     switchPrimaryTrack,
     syncAudioGains,
+    syncNodeRuntime,
   ]);
 
   // Keep gain & EQ settings synced whenever mix sliders or EQ change
@@ -681,7 +796,8 @@ export function useAudioMixerEngine({
       for (const node of slotsRef.current.values()) {
         try {
           node.audio.pause();
-          node.audio.src = "";
+          node.audio.removeAttribute("src");
+          node.audio.load();
         } catch {
           // Ignore
         }
@@ -706,45 +822,55 @@ export function useAudioMixerEngine({
     );
 
     if (anyPlaying && !isAllPausedRef.current) {
-      setIsAllPaused(true);
+      setAllPausedSync(true);
       for (const node of slotsRef.current.values()) {
         node.audio.pause();
         persistSlotPosition(node);
       }
     } else {
-      setIsAllPaused(false);
+      setAllPausedSync(false);
       for (const node of slotsRef.current.values()) {
-        if (node.blobUrl) {
-          void node.audio.play().catch(() => undefined);
+        playNodeAudio(node, true);
+      }
+    }
+  }, [ensureWebAudioGraph, persistSlotPosition, playNodeAudio, setAllPausedSync]);
+
+  const ensurePlaying = useCallback(
+    (options?: { rewindIfEndedTrackId?: string }) => {
+      ensureWebAudioGraph();
+      setAllPausedSync(false);
+      for (const node of slotsRef.current.values()) {
+        const shouldRewindTrack =
+          !options?.rewindIfEndedTrackId ||
+          node.trackId === options.rewindIfEndedTrackId;
+        if (
+          shouldRewindTrack ||
+          node.audio.paused ||
+          node.audio.ended ||
+          node.error ||
+          !node.blobUrl
+        ) {
+          playNodeAudio(node, true);
         }
       }
-    }
-  }, [ensureWebAudioGraph, persistSlotPosition]);
-
-  const ensurePlaying = useCallback(() => {
-    ensureWebAudioGraph();
-    setIsAllPaused(false);
-    for (const node of slotsRef.current.values()) {
-      if (node.blobUrl && node.audio.paused) {
-        void node.audio.play().catch(() => undefined);
-      }
-    }
-  }, [ensureWebAudioGraph]);
+    },
+    [ensureWebAudioGraph, playNodeAudio, setAllPausedSync],
+  );
 
   const togglePlaySlot = useCallback(
     (slotId: string) => {
       const node = slotsRef.current.get(slotId);
-      if (!node || !node.blobUrl) return;
+      if (!node) return;
       ensureWebAudioGraph();
-      if (node.audio.paused || node.audio.ended) {
-        setIsAllPaused(false);
-        void node.audio.play().catch(() => undefined);
+      if (node.audio.paused || node.audio.ended || node.error || !node.blobUrl) {
+        setAllPausedSync(false);
+        playNodeAudio(node, true);
       } else {
         node.audio.pause();
         persistSlotPosition(node);
       }
     },
-    [ensureWebAudioGraph, persistSlotPosition],
+    [ensureWebAudioGraph, persistSlotPosition, playNodeAudio, setAllPausedSync],
   );
 
   const seekSlot = useCallback(
@@ -798,7 +924,7 @@ export function useAudioMixerEngine({
   }, []);
 
   const stopAll = useCallback(() => {
-    setIsAllPaused(true);
+    setAllPausedSync(true);
     setSleepRemainingSeconds(null);
     sleepFadeRef.current = 1;
     for (const node of slotsRef.current.values()) {
@@ -809,7 +935,7 @@ export function useAudioMixerEngine({
         // Ignore
       }
     }
-  }, [persistSlotPosition]);
+  }, [persistSlotPosition, setAllPausedSync]);
 
   // Sleep Timer with smooth 8-second fade-out
   useEffect(() => {
@@ -822,7 +948,7 @@ export function useAudioMixerEngine({
     if (sleepRemainingSeconds <= 0) {
       sleepFadeRef.current = 1;
       setSleepRemainingSeconds(null);
-      setIsAllPaused(true);
+      setAllPausedSync(true);
       for (const node of slotsRef.current.values()) {
         node.audio.pause();
         persistSlotPosition(node);
@@ -883,6 +1009,13 @@ export function useAudioMixerEngine({
 
   const primaryRt = primarySlot ? slotRuntime[primarySlot.slotId] : undefined;
 
+  const summaryCurrentTime = Math.floor(
+    primaryRt?.currentTime ?? primaryTrack?.currentPositionSeconds ?? 0,
+  );
+  const summaryDuration = Math.floor(
+    primaryRt?.duration ?? primaryTrack?.durationSeconds ?? 0,
+  );
+
   const summary: AudioPlaybackSummary = useMemo(
     () => ({
       activeCount: audioState.activeSlots.length,
@@ -894,8 +1027,8 @@ export function useAudioMixerEngine({
       primaryTitle: primaryTrack?.title ?? null,
       primaryArtist: primaryTrack?.artist ?? null,
       primaryCoverDataUrl: primaryTrack?.coverDataUrl ?? null,
-      currentTime: primaryRt?.currentTime ?? primaryTrack?.currentPositionSeconds ?? 0,
-      duration: primaryRt?.duration ?? primaryTrack?.durationSeconds ?? 0,
+      currentTime: summaryCurrentTime,
+      duration: summaryDuration,
     }),
     [
       audioState.activeSlots.length,
@@ -903,13 +1036,37 @@ export function useAudioMixerEngine({
       isPlaying,
       viewMuted,
       isAllPaused,
-      primaryTrack,
-      primaryRt,
+      primaryTrack?.id,
+      primaryTrack?.title,
+      primaryTrack?.artist,
+      primaryTrack?.coverDataUrl,
+      summaryCurrentTime,
+      summaryDuration,
     ],
   );
 
+  const lastEmittedSummaryRef = useRef<AudioPlaybackSummary | null>(null);
   useEffect(() => {
-    onPlaybackStateChange?.(summary);
+    if (!onPlaybackStateChange) return;
+    const prev = lastEmittedSummaryRef.current;
+    if (
+      prev &&
+      prev.activeCount === summary.activeCount &&
+      prev.playingCount === summary.playingCount &&
+      prev.isPlaying === summary.isPlaying &&
+      prev.isViewMuted === summary.isViewMuted &&
+      prev.isAllPaused === summary.isAllPaused &&
+      prev.primaryTrackId === summary.primaryTrackId &&
+      prev.primaryTitle === summary.primaryTitle &&
+      prev.primaryArtist === summary.primaryArtist &&
+      prev.primaryCoverDataUrl === summary.primaryCoverDataUrl &&
+      prev.currentTime === summary.currentTime &&
+      prev.duration === summary.duration
+    ) {
+      return;
+    }
+    lastEmittedSummaryRef.current = summary;
+    onPlaybackStateChange(summary);
   }, [summary, onPlaybackStateChange]);
 
   // Web MediaSession metadata & transport actions (desktop & browser lock screen)
