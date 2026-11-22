@@ -44,6 +44,15 @@ interface KansoSafPluginInterface {
   }>;
   releaseUri(options: { uri: string }): Promise<void>;
   setSystemChrome(options: { color: string; isDark: boolean }): Promise<void>;
+  setBackgroundMediaState(options: {
+    playing: boolean;
+    title?: string;
+    subtitle?: string;
+  }): Promise<void>;
+  addListener(
+    eventName: "mediaControlAction",
+    listenerFunc: (event: { action: "pause" | "stop" }) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
 }
 
 const KansoSaf = registerPlugin<KansoSafPluginInterface>("KansoSaf");
@@ -196,6 +205,57 @@ export async function applyAndroidSystemChrome(
   } catch {
     // Ignore when running on older native builds without setSystemChrome
   }
+}
+
+export async function syncAndroidBackgroundAudio(state: {
+  playing: boolean;
+  title?: string;
+  subtitle?: string;
+}): Promise<void> {
+  if (!isAndroidCapacitor()) return;
+  try {
+    await KansoSaf.setBackgroundMediaState({
+      playing: state.playing,
+      title: state.title,
+      subtitle: state.subtitle,
+    });
+  } catch {
+    // Ignore when running on older native builds without foreground media service support
+  }
+}
+
+export function subscribeAndroidMediaControls(
+  handler: (action: "pause" | "stop") => void,
+): () => void {
+  if (!isAndroidCapacitor()) {
+    return () => {};
+  }
+  let cancelled = false;
+  let removeHandle: (() => Promise<void>) | null = null;
+
+  void KansoSaf.addListener("mediaControlAction", (event) => {
+    if (event?.action === "pause" || event?.action === "stop") {
+      handler(event.action);
+    }
+  })
+    .then((handle) => {
+      if (cancelled) {
+        void handle.remove();
+      } else {
+        removeHandle = handle.remove;
+      }
+    })
+    .catch(() => {
+      // Ignore listener registration errors on unsupported runtimes
+    });
+
+  return () => {
+    cancelled = true;
+    if (removeHandle) {
+      void removeHandle();
+      removeHandle = null;
+    }
+  };
 }
 
 function decodeBase64ToUint8Array(base64: string): Uint8Array {

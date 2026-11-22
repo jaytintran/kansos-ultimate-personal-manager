@@ -361,7 +361,9 @@ const KansoShell: React.FC = () => {
   const isFixedHeightView =
     activeView === "streamer" ||
     activeView === "library" ||
-    activeView === "lists";
+    activeView === "lists" ||
+    activeView === "timeline" ||
+    activeView === "achievements";
 
   return (
     <div

@@ -25,6 +25,11 @@ import {
   StreamViewMode,
 } from "../types";
 import {
+  isAndroidCapacitor,
+  subscribeAndroidMediaControls,
+  syncAndroidBackgroundAudio,
+} from "../utils/androidSaf";
+import {
   fetchYouTubeMetadata,
   parseYouTubeUrl,
   parseYouTubeMessage,
@@ -155,6 +160,20 @@ export const StreamerView = forwardRef<
   const pausedSlotIdsRef = useRef<string[]>([]);
   const handshakeTimersRef = useRef<Record<string, number[]>>({});
   const prevSummaryRef = useRef<StreamerPlaybackSummary | null>(null);
+  const allPausedRef = useRef(allPaused);
+  allPausedRef.current = allPaused;
+  const playerStatesRef = useRef(playerStates);
+  playerStatesRef.current = playerStates;
+  const intentionalPauseUntilRef = useRef<number>(0);
+  const lastBackgroundAtRef = useRef<number>(0);
+  const preBackgroundPlayingRef = useRef<Set<string>>(new Set());
+  const backgroundRecoveryCountsRef = useRef<Record<string, number>>({});
+
+  const markIntentionalPause = useCallback(() => {
+    intentionalPauseUntilRef.current = Date.now() + 1800;
+    preBackgroundPlayingRef.current.clear();
+    backgroundRecoveryCountsRef.current = {};
+  }, []);
 
   // Drag-and-drop reorder state (keyed by slotId so playing YouTube iframes stay stable)
   const activeDragSlotIdRef = useRef<string | null>(null);
@@ -383,6 +402,7 @@ export const StreamerView = forwardRef<
   useEffect(() => {
     if (sleepRemainingSeconds === null) return;
     if (sleepRemainingSeconds <= 0) {
+      markIntentionalPause();
       for (const slot of activeSlotsRef.current) {
         sendYouTubeCommand(
           iframeRefs.current[slot.slotId] || null,
@@ -392,6 +412,15 @@ export const StreamerView = forwardRef<
         );
       }
       setAllPaused(true);
+      setPlayerStates((prev) => {
+        const next = { ...prev };
+        for (const slot of activeSlotsRef.current) {
+          if (next[slot.slotId] === 1 || next[slot.slotId] === 3) {
+            next[slot.slotId] = 2;
+          }
+        }
+        return next;
+      });
       setSleepRemainingSeconds(null);
       pushToast("Sleep timer ended — streams paused");
       return;
@@ -403,7 +432,46 @@ export const StreamerView = forwardRef<
       );
     }, 1000);
     return () => window.clearTimeout(timer);
-  }, [sleepRemainingSeconds, pushToast]);
+  }, [sleepRemainingSeconds, pushToast, markIntentionalPause]);
+
+  // Snapshot active playing streams before Android backgrounds/locks so transient pause blips recover cleanly
+  useEffect(() => {
+    if (!isAndroidCapacitor()) return;
+
+    const recordBackgroundTransition = () => {
+      if (allPausedRef.current || Date.now() <= intentionalPauseUntilRef.current) {
+        return;
+      }
+      const playingSet = new Set<string>();
+      for (const sl of activeSlotsRef.current) {
+        const st = playerStatesRef.current[sl.slotId];
+        if (st === 1 || st === 3) {
+          playingSet.add(sl.slotId);
+        }
+      }
+      if (playingSet.size > 0) {
+        lastBackgroundAtRef.current = Date.now();
+        preBackgroundPlayingRef.current = playingSet;
+        backgroundRecoveryCountsRef.current = {};
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        recordBackgroundTransition();
+      } else {
+        preBackgroundPlayingRef.current.clear();
+        backgroundRecoveryCountsRef.current = {};
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", recordBackgroundTransition);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", recordBackgroundTransition);
+    };
+  }, []);
 
   // Listen for real-time YouTube IFrame postMessage state changes (playback & loop completion)
   useEffect(() => {
@@ -434,16 +502,34 @@ export const StreamerView = forwardRef<
 
       if (parsed.playerState !== undefined) {
         const nextState = parsed.playerState;
+        const slot = activeSlotsRef.current.find(
+          (sl) => sl.slotId === matchedSlotId,
+        );
+        const iframe = iframeRefs.current[matchedSlotId] || null;
+
+        // Recover if Android WebView window visibility transition emitted a brief unintended pause
+        if (
+          nextState === 2 &&
+          isAndroidCapacitor() &&
+          !allPausedRef.current &&
+          Date.now() > intentionalPauseUntilRef.current &&
+          Date.now() - lastBackgroundAtRef.current < 2500 &&
+          preBackgroundPlayingRef.current.has(matchedSlotId)
+        ) {
+          const retries = backgroundRecoveryCountsRef.current[matchedSlotId] || 0;
+          if (retries < 2 && slot && iframe) {
+            backgroundRecoveryCountsRef.current[matchedSlotId] = retries + 1;
+            sendYouTubeCommand(iframe, "playVideo", [], matchedSlotId);
+            applySlotAudio(slot, iframe, sleepFadeRef.current);
+            return;
+          }
+        }
+
         setPlayerStates((prev) =>
           prev[matchedSlotId!] === nextState
             ? prev
             : { ...prev, [matchedSlotId!]: nextState },
         );
-
-        const slot = activeSlotsRef.current.find(
-          (sl) => sl.slotId === matchedSlotId,
-        );
-        const iframe = iframeRefs.current[matchedSlotId] || null;
 
         if (nextState === 1 || nextState === 3) {
           setAllPaused(false);
@@ -464,6 +550,7 @@ export const StreamerView = forwardRef<
             sendYouTubeCommand(iframe, "playVideo", [], slot.slotId);
             applySlotAudio(slot, iframe, sleepFadeRef.current);
           } else {
+            markIntentionalPause();
             setLoopDoneMap((prev) => ({ ...prev, [matchedSlotId!]: true }));
             sendYouTubeCommand(iframe, "pauseVideo", [], slot.slotId);
           }
@@ -473,7 +560,7 @@ export const StreamerView = forwardRef<
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [applySlotAudio]);
+  }, [applySlotAudio, markIntentionalPause]);
 
   // Register YouTube IFrame listener & initial audio state on iframe load
   const handleIframeLoad = useCallback(
@@ -520,17 +607,67 @@ export const StreamerView = forwardRef<
 
   const allActiveMuted = viewMuted || allIndividuallyMuted;
 
-  const playingCount = useMemo(
+  const playingSlots = useMemo(
     () =>
       activeSlots.filter((sl) => {
         const st = playerStates[sl.slotId];
         return st === 1 || st === 3;
-      }).length,
+      }),
     [activeSlots, playerStates],
   );
 
+  const playingCount = playingSlots.length;
   const isPlaying = playingCount > 0;
   const isAllPaused = allPaused && activeSlots.length > 0 && !isPlaying;
+
+  const backgroundMediaMeta = useMemo(() => {
+    if (playingSlots.length === 0) {
+      return { title: "Kanso Streamer", subtitle: "Playing in background" };
+    }
+    const firstStream = streamById.get(playingSlots[0].streamId);
+    const firstTitle =
+      firstStream?.customLabel || firstStream?.title || "Kanso Streamer";
+
+    if (playingSlots.length === 1) {
+      return {
+        title: firstTitle,
+        subtitle: firstStream?.channel
+          ? `${firstStream.channel} · Playing in background`
+          : "Playing in background",
+      };
+    }
+
+    const activePreset = streamerState.activePresetId
+      ? streamPresets.find((p) => p.id === streamerState.activePresetId)
+      : undefined;
+
+    return {
+      title: activePreset?.name || firstTitle,
+      subtitle: `${playingSlots.length} streams playing in background`,
+    };
+  }, [playingSlots, streamById, streamerState.activePresetId, streamPresets]);
+
+  // Sync Android Foreground MediaPlayback Service strictly while streams are playing
+  useEffect(() => {
+    if (!isAndroidCapacitor()) return;
+    void syncAndroidBackgroundAudio(
+      isPlaying
+        ? {
+            playing: true,
+            title: backgroundMediaMeta.title,
+            subtitle: backgroundMediaMeta.subtitle,
+          }
+        : { playing: false },
+    );
+  }, [isPlaying, backgroundMediaMeta.title, backgroundMediaMeta.subtitle]);
+
+  useEffect(() => {
+    return () => {
+      if (isAndroidCapacitor()) {
+        void syncAndroidBackgroundAudio({ playing: false });
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!onPlaybackStateChange) return;
@@ -623,6 +760,63 @@ export const StreamerView = forwardRef<
     ],
   );
 
+  // Explicit Pause All helper (used by UI Pause All, Android notification Pause/Stop, and Audio Focus loss)
+  const pauseAllStreams = useCallback(
+    (silentToast = false, stopSleepTimer = false) => {
+      const slots = activeSlotsRef.current;
+      if (slots.length === 0) {
+        if (isAndroidCapacitor()) {
+          void syncAndroidBackgroundAudio({ playing: false });
+        }
+        return;
+      }
+      markIntentionalPause();
+      const currentlyPlayingIds = slots
+        .filter((sl) => {
+          const st = playerStatesRef.current[sl.slotId];
+          return st === 1 || st === 3;
+        })
+        .map((sl) => sl.slotId);
+      if (currentlyPlayingIds.length > 0) {
+        pausedSlotIdsRef.current = currentlyPlayingIds;
+      }
+      for (const sl of slots) {
+        sendYouTubeCommand(
+          iframeRefs.current[sl.slotId] || null,
+          "pauseVideo",
+          [],
+          sl.slotId,
+        );
+      }
+      setAllPaused(true);
+      if (stopSleepTimer) {
+        setSleepRemainingSeconds(null);
+      }
+      setPlayerStates((prev) => {
+        const next = { ...prev };
+        for (const sl of slots) {
+          if (next[sl.slotId] === 1 || next[sl.slotId] === 3) {
+            next[sl.slotId] = 2;
+          }
+        }
+        return next;
+      });
+      if (isAndroidCapacitor()) {
+        void syncAndroidBackgroundAudio({ playing: false });
+      }
+      if (!silentToast) pushToast("Paused all stacked streams");
+    },
+    [markIntentionalPause, pushToast],
+  );
+
+  // Handle Android media notification Pause / Stop buttons & OS audio focus loss
+  useEffect(() => {
+    if (!isAndroidCapacitor()) return;
+    return subscribeAndroidMediaControls((action) => {
+      pauseAllStreams(true, action === "stop");
+    });
+  }, [pauseAllStreams]);
+
   // Combined Play All / Pause All toggle
   const handleTogglePauseAll = useCallback(
     (silentToast = false) => {
@@ -636,25 +830,7 @@ export const StreamerView = forwardRef<
         .map((sl) => sl.slotId);
 
       if (currentlyPlayingIds.length > 0 && !isAllPaused) {
-        pausedSlotIdsRef.current = currentlyPlayingIds;
-        for (const sl of activeSlots) {
-          sendYouTubeCommand(
-            iframeRefs.current[sl.slotId] || null,
-            "pauseVideo",
-            [],
-            sl.slotId,
-          );
-        }
-        setAllPaused(true);
-        setPlayerStates((prev) => {
-          const next = { ...prev };
-          for (const sl of activeSlots) {
-            if (next[sl.slotId] === 1 || next[sl.slotId] === 3)
-              next[sl.slotId] = 2;
-          }
-          return next;
-        });
-        if (!silentToast) pushToast("Paused all stacked streams");
+        pauseAllStreams(silentToast);
         return;
       }
 
@@ -685,6 +861,7 @@ export const StreamerView = forwardRef<
       activeSlotIdSet,
       isAllPaused,
       playerStates,
+      pauseAllStreams,
       applySlotAudio,
       pushToast,
     ],

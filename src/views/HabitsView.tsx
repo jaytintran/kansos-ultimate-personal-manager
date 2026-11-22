@@ -811,7 +811,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                   e.preventDefault();
                   reorderHabits(draggedId, habit.id, position);
                 }}
-                className={`relative rounded-2xl border p-4 space-y-4 flex flex-col justify-between transition-all duration-150 ${
+                className={`relative rounded-xl sm:rounded-2xl border p-3 sm:p-4 space-y-3 sm:space-y-4 flex flex-col justify-between transition-all duration-150 ${
                   activeHabits.length > 1
                     ? "cursor-grab active:cursor-grabbing"
                     : ""
@@ -848,7 +848,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                 )}
 
                 {/* Card Header */}
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start justify-between gap-2 sm:gap-3">
                   <div className="flex items-start gap-1.5 min-w-0 flex-1">
                     <div
                       role="button"
@@ -899,7 +899,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                         }
                       }}
                       onPointerCancel={clearHabitDragState}
-                      className="touch-none select-none w-6 h-9 -ml-1.5 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+                      className="touch-none select-none w-6 h-7 sm:h-9 -ml-1.5 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
                     >
                       <GripVertical className="w-3.5 h-3.5" />
                     </div>
@@ -909,24 +909,27 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                       onClick={() =>
                         onOpenDetail({ mode: "habit", id: habit.id })
                       }
-                      className="flex items-center gap-2.5 min-w-0 text-left hover:underline"
+                      className="flex items-center gap-2 sm:gap-2.5 min-w-0 text-left hover:underline"
                     >
                       <span
-                        className="h-9 w-9 rounded-xl flex items-center justify-center shrink-0"
+                        className="h-7 w-7 sm:h-9 sm:w-9 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0"
                         style={{
                           backgroundColor: `${habit.color}1c`,
                           color: habit.color,
                         }}
                       >
-                        <HabitIcon name={habit.icon} className="w-4.5 h-4.5" />
+                        <HabitIcon
+                          name={habit.icon}
+                          className="w-3.5 h-3.5 sm:w-4.5 sm:h-4.5"
+                        />
                       </span>
                       <div className="min-w-0">
-                        <h2 className="font-display text-base font-bold truncate">
+                        <h2 className="text-sm font-medium leading-snug sm:font-display sm:text-base sm:font-bold sm:leading-normal truncate">
                           {habit.title}
                         </h2>
                         {habit.purpose && (
                           <p
-                            className="text-xs truncate"
+                            className="text-[11px] sm:text-xs truncate"
                             style={{ color: "var(--text-muted)" }}
                           >
                             {habit.purpose}
@@ -938,12 +941,12 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
 
                   {/* Top-Right Streak Counter */}
                   <span
-                    className="inline-flex items-center gap-1 font-mono tabular-nums text-xs font-bold shrink-0"
+                    className="inline-flex items-center gap-0.5 sm:gap-1 font-mono tabular-nums text-[11px] sm:text-xs font-semibold sm:font-bold shrink-0 mt-0.5 sm:mt-0"
                     style={{
                       color: streak > 0 ? habit.color : "var(--text-muted)",
                     }}
                   >
-                    <Flame className="w-4 h-4" />
+                    <Flame className="w-3 h-3 sm:w-4 sm:h-4" />
                     <span>{streak}d</span>
                   </span>
                 </div>
@@ -1014,7 +1017,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                           type="button"
                           onClick={() => toggleHabitCompletion(habit.id, key)}
                           title={`${getDayAbbrev(key)} ${key}`}
-                          className="h-9 rounded-lg border flex flex-col items-center justify-center text-[10px] font-mono tabular-nums transition-colors"
+                          className="h-8 sm:h-9 rounded-lg border flex flex-col items-center justify-center text-[10px] font-mono tabular-nums transition-colors"
                           style={{
                             backgroundColor: done
                               ? habit.color
@@ -1040,7 +1043,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
 
                 {/* Bottom-Right Check Today / Done Today Button */}
                 <div
-                  className="flex items-center justify-between pt-2 border-t"
+                  className="flex items-center justify-between pt-1.5 sm:pt-2 border-t"
                   style={{ borderColor: "var(--border-subtle)" }}
                 >
                   <span
@@ -1052,7 +1055,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                   <button
                     type="button"
                     onClick={() => toggleHabitCompletion(habit.id, todayKey)}
-                    className="h-8 px-3 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-colors"
+                    className="h-7 sm:h-8 px-2.5 sm:px-3 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-semibold inline-flex items-center gap-1.5 transition-colors"
                     style={{
                       backgroundColor: doneToday
                         ? habit.color

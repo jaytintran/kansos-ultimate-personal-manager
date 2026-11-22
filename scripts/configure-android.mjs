@@ -30,6 +30,8 @@ const javaPackageDir = path.join(
 );
 const mainActivityPath = path.join(javaPackageDir, 'MainActivity.java');
 const safPluginPath = path.join(javaPackageDir, 'KansoSafPlugin.java');
+const mediaServicePath = path.join(javaPackageDir, 'KansoMediaPlaybackService.java');
+const androidResDir = path.join(androidRoot, 'app/src/main/res');
 
 if (!fs.existsSync(androidRoot)) {
   console.error(
@@ -54,6 +56,9 @@ if (fs.existsSync(manifestPath)) {
 
   ensurePermission('android.permission.INTERNET');
   ensurePermission('android.permission.WAKE_LOCK');
+  ensurePermission('android.permission.FOREGROUND_SERVICE');
+  ensurePermission('android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK');
+  ensurePermission('android.permission.POST_NOTIFICATIONS');
 
   // Ensure hardwareAccelerated="true" on <application>
   if (!manifest.includes('android:hardwareAccelerated=')) {
@@ -61,6 +66,17 @@ if (fs.existsSync(manifestPath)) {
       '<application',
       '<application\n        android:hardwareAccelerated="true"'
     );
+    changed = true;
+  }
+
+  // Ensure KansoMediaPlaybackService is registered inside <application>
+  if (!manifest.includes('android:name=".KansoMediaPlaybackService"')) {
+    const serviceTag =
+      `        <service\n` +
+      `            android:name=".KansoMediaPlaybackService"\n` +
+      `            android:exported="false"\n` +
+      `            android:foregroundServiceType="mediaPlayback" />`;
+    manifest = manifest.replace('</application>', `${serviceTag}\n    </application>`);
     changed = true;
   }
 
@@ -86,7 +102,7 @@ if (fs.existsSync(manifestPath)) {
 
   if (changed) {
     fs.writeFileSync(manifestPath, manifest, 'utf8');
-    console.log('[Kanso Android] Updated AndroidManifest.xml (permissions + rotation configChanges).');
+    console.log('[Kanso Android] Updated AndroidManifest.xml (permissions, mediaPlayback service & rotation configChanges).');
   } else {
     console.log('[Kanso Android] AndroidManifest.xml is already configured.');
   }
@@ -94,19 +110,322 @@ if (fs.existsSync(manifestPath)) {
   console.warn(`[Kanso Android] Could not find ${manifestPath}.`);
 }
 
-// 2. Write KansoSafPlugin.java (Android Storage Access Framework plugin with persistable URIs)
+// 1b. Write crisp monochrome vector notification icon for KansoMediaPlaybackService
+if (fs.existsSync(androidResDir)) {
+  const drawableDir = path.join(androidResDir, 'drawable');
+  fs.mkdirSync(drawableDir, { recursive: true });
+  const mediaIconXml = `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,3v10.55c-0.59,-0.34 -1.27,-0.55 -2,-0.55 -2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4V7h4V3h-6z" />
+</vector>
+`;
+  fs.writeFileSync(path.join(drawableDir, 'ic_kanso_media.xml'), mediaIconXml, 'utf8');
+}
+
+// 2. Write KansoMediaPlaybackService.java (Foreground mediaPlayback service active strictly while streaming)
+const mediaServiceSource = `package com.kanso.workspace;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.ServiceInfo;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
+import android.os.Build;
+import android.os.IBinder;
+import android.os.PowerManager;
+import androidx.annotation.Nullable;
+import androidx.core.app.NotificationCompat;
+
+public class KansoMediaPlaybackService extends Service {
+
+    public static final String CHANNEL_ID = "kanso_streamer_media";
+    public static final int NOTIFICATION_ID = 4207;
+
+    public static final String ACTION_START_OR_UPDATE = "com.kanso.workspace.MEDIA_START_OR_UPDATE";
+    public static final String ACTION_STOP_SERVICE = "com.kanso.workspace.MEDIA_STOP_SERVICE";
+    public static final String ACTION_NOTIFY_PAUSE = "com.kanso.workspace.MEDIA_NOTIFY_PAUSE";
+    public static final String ACTION_NOTIFY_STOP = "com.kanso.workspace.MEDIA_NOTIFY_STOP";
+
+    public static final String EXTRA_TITLE = "title";
+    public static final String EXTRA_SUBTITLE = "subtitle";
+
+    public interface ControlListener {
+        void onMediaControl(String action);
+    }
+
+    private static volatile ControlListener controlListener;
+
+    public static void setControlListener(ControlListener listener) {
+        controlListener = listener;
+    }
+
+    private PowerManager.WakeLock wakeLock;
+    private AudioManager audioManager;
+    private AudioFocusRequest focusRequest;
+    private boolean hasAudioFocus = false;
+
+    private final AudioManager.OnAudioFocusChangeListener focusChangeListener = focusChange -> {
+        if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
+            ControlListener listener = controlListener;
+            if (listener != null) {
+                listener.onMediaControl("pause");
+            }
+            stopPlaybackService();
+        }
+    };
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        ensureNotificationChannel();
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (pm != null) {
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "kanso:streamer_audio");
+            wakeLock.setReferenceCounted(false);
+        }
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        String action = intent != null ? intent.getAction() : ACTION_START_OR_UPDATE;
+
+        if (ACTION_STOP_SERVICE.equals(action)) {
+            stopPlaybackService();
+            return START_NOT_STICKY;
+        }
+
+        if (ACTION_NOTIFY_PAUSE.equals(action)) {
+            ControlListener listener = controlListener;
+            if (listener != null) {
+                listener.onMediaControl("pause");
+            }
+            stopPlaybackService();
+            return START_NOT_STICKY;
+        }
+
+        if (ACTION_NOTIFY_STOP.equals(action)) {
+            ControlListener listener = controlListener;
+            if (listener != null) {
+                listener.onMediaControl("stop");
+            }
+            stopPlaybackService();
+            return START_NOT_STICKY;
+        }
+
+        String title = intent != null ? intent.getStringExtra(EXTRA_TITLE) : null;
+        String subtitle = intent != null ? intent.getStringExtra(EXTRA_SUBTITLE) : null;
+        if (title == null || title.trim().isEmpty()) {
+            title = "Kanso Streamer";
+        }
+        if (subtitle == null || subtitle.trim().isEmpty()) {
+            subtitle = "Playing in background";
+        }
+
+        acquireLocksAndFocus();
+        Notification notification = buildNotification(title, subtitle);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
+
+        return START_NOT_STICKY;
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        stopPlaybackService();
+        super.onTaskRemoved(rootIntent);
+    }
+
+    @Override
+    public void onDestroy() {
+        releaseLocksAndFocus();
+        super.onDestroy();
+    }
+
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
+    private void stopPlaybackService() {
+        MainActivity.backgroundAudioActive = false;
+        releaseLocksAndFocus();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+        } else {
+            stopForeground(true);
+        }
+        stopSelf();
+    }
+
+    private void acquireLocksAndFocus() {
+        if (wakeLock != null && !wakeLock.isHeld()) {
+            try {
+                wakeLock.acquire();
+            } catch (Exception ignored) {
+                // Ignore wake lock failures on restricted OEMs
+            }
+        }
+        if (audioManager != null && !hasAudioFocus) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    if (focusRequest == null) {
+                        AudioAttributes attrs = new AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build();
+                        focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                            .setAudioAttributes(attrs)
+                            .setOnAudioFocusChangeListener(focusChangeListener)
+                            .build();
+                    }
+                    int result = audioManager.requestAudioFocus(focusRequest);
+                    hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+                } else {
+                    int result = audioManager.requestAudioFocus(
+                        focusChangeListener,
+                        AudioManager.STREAM_MUSIC,
+                        AudioManager.AUDIOFOCUS_GAIN
+                    );
+                    hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+                }
+            } catch (Exception ignored) {
+                // Ignore audio focus edge errors
+            }
+        }
+    }
+
+    private void releaseLocksAndFocus() {
+        if (wakeLock != null && wakeLock.isHeld()) {
+            try {
+                wakeLock.release();
+            } catch (Exception ignored) {
+                // Already released
+            }
+        }
+        if (audioManager != null && hasAudioFocus) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && focusRequest != null) {
+                    audioManager.abandonAudioFocusRequest(focusRequest);
+                } else {
+                    audioManager.abandonAudioFocus(focusChangeListener);
+                }
+            } catch (Exception ignored) {
+                // Ignore audio focus cleanup failures
+            }
+            hasAudioFocus = false;
+        }
+    }
+
+    private void ensureNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager == null) return;
+            NotificationChannel existing = manager.getNotificationChannel(CHANNEL_ID);
+            if (existing == null) {
+                NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Streamer Background Audio",
+                    NotificationManager.IMPORTANCE_LOW
+                );
+                channel.setDescription("Keeps active Streamer View mixes playing when Kanso is in the background.");
+                channel.setShowBadge(false);
+                channel.setSound(null, null);
+                manager.createNotificationChannel(channel);
+            }
+        }
+    }
+
+    private Notification buildNotification(String title, String subtitle) {
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent openPendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        Intent pauseIntent = new Intent(this, KansoMediaPlaybackService.class);
+        pauseIntent.setAction(ACTION_NOTIFY_PAUSE);
+        PendingIntent pausePendingIntent = PendingIntent.getService(
+            this,
+            1,
+            pauseIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        Intent stopIntent = new Intent(this, KansoMediaPlaybackService.class);
+        stopIntent.setAction(ACTION_NOTIFY_STOP);
+        PendingIntent stopPendingIntent = PendingIntent.getService(
+            this,
+            2,
+            stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        int iconRes = getResources().getIdentifier("ic_kanso_media", "drawable", getPackageName());
+        if (iconRes == 0) {
+            iconRes = android.R.drawable.ic_media_play;
+        }
+
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(iconRes)
+            .setContentTitle(title)
+            .setContentText(subtitle)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(openPendingIntent)
+            .addAction(android.R.drawable.ic_media_pause, "Pause", pausePendingIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
+            .build();
+    }
+}
+`;
+
+fs.mkdirSync(javaPackageDir, { recursive: true });
+fs.writeFileSync(mediaServicePath, mediaServiceSource, 'utf8');
+console.log('[Kanso Android] Generated KansoMediaPlaybackService.java for background media playback & notification.');
+
+// 3. Write KansoSafPlugin.java (Android Storage Access Framework + System Chrome + Media Service bridge)
 const safPluginSource = `package com.kanso.workspace;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ContentResolver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.util.Base64;
 import androidx.activity.result.ActivityResult;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -126,7 +445,28 @@ import java.util.concurrent.Executors;
 @CapacitorPlugin(name = "KansoSaf")
 public class KansoSafPlugin extends Plugin {
 
+    private static final int REQ_POST_NOTIFICATIONS = 4208;
     private final ExecutorService executor = Executors.newCachedThreadPool();
+    private boolean hasRequestedNotificationPermission = false;
+
+    @Override
+    public void load() {
+        super.load();
+        final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        KansoMediaPlaybackService.setControlListener(action ->
+            mainHandler.post(() -> {
+                JSObject payload = new JSObject();
+                payload.put("action", action);
+                notifyListeners("mediaControlAction", payload);
+            })
+        );
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        KansoMediaPlaybackService.setControlListener(null);
+        super.handleOnDestroy();
+    }
 
     private static boolean isSupportedBookName(String name) {
         if (name == null) return false;
@@ -534,19 +874,63 @@ public class KansoSafPlugin extends Plugin {
         activity.runOnUiThread(() -> MainActivity.applySystemChrome(activity, finalColor, isDark));
         call.resolve();
     }
+
+    @PluginMethod
+    public void setBackgroundMediaState(PluginCall call) {
+        boolean playing = Boolean.TRUE.equals(call.getBoolean("playing", false));
+        String title = call.getString("title", "Kanso Streamer");
+        String subtitle = call.getString("subtitle", "Playing in background");
+
+        Context ctx = getContext();
+        Activity activity = getActivity();
+        MainActivity.backgroundAudioActive = playing;
+
+        if (playing) {
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                activity != null &&
+                !hasRequestedNotificationPermission &&
+                ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                hasRequestedNotificationPermission = true;
+                ActivityCompat.requestPermissions(
+                    activity,
+                    new String[] { Manifest.permission.POST_NOTIFICATIONS },
+                    REQ_POST_NOTIFICATIONS
+                );
+            }
+            try {
+                Intent serviceIntent = new Intent(ctx, KansoMediaPlaybackService.class);
+                serviceIntent.setAction(KansoMediaPlaybackService.ACTION_START_OR_UPDATE);
+                serviceIntent.putExtra(KansoMediaPlaybackService.EXTRA_TITLE, title);
+                serviceIntent.putExtra(KansoMediaPlaybackService.EXTRA_SUBTITLE, subtitle);
+                ContextCompat.startForegroundService(ctx, serviceIntent);
+            } catch (Exception ignored) {
+                // Guard against OS foreground-start restrictions if app is already closing
+            }
+        } else {
+            try {
+                ctx.stopService(new Intent(ctx, KansoMediaPlaybackService.class));
+            } catch (Exception ignored) {
+                // Safe no-op if already stopped
+            }
+        }
+
+        call.resolve();
+    }
 }
 `;
 
-fs.mkdirSync(javaPackageDir, { recursive: true });
 fs.writeFileSync(safPluginPath, safPluginSource, 'utf8');
-console.log('[Kanso Android] Generated KansoSafPlugin.java for SAF direct file & folder linking.');
+console.log('[Kanso Android] Generated KansoSafPlugin.java with SAF, System Chrome & Media Service bridge.');
 
-// 3. Patch MainActivity.java for KansoSafPlugin registration, cutout-safe solid status bar insets,
-//    zero WebView stretch overscroll, YouTube embeds & background audio
+// 4. Patch MainActivity.java for KansoSafPlugin registration, cutout-safe solid status bar insets,
+//    zero WebView stretch overscroll, YouTube embeds & playback-scoped background audio keep-alive
 const mainActivitySource = `package com.kanso.workspace;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
@@ -565,6 +949,7 @@ public class MainActivity extends BridgeActivity {
     public static final String CHROME_PREFS_NAME = "kanso_chrome_prefs";
     public static final String CHROME_COLOR_KEY = "chrome_bg_color";
     public static final String CHROME_DARK_KEY = "chrome_is_dark";
+    public static volatile boolean backgroundAudioActive = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -612,13 +997,50 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onPause() {
         super.onPause();
-        // Keep the WebView active when backgrounded so YouTube Streamer audio
-        // can continue playing without being paused immediately by WebView lifecycle hooks.
-        if (this.bridge != null && this.bridge.getWebView() != null) {
-            WebView webView = this.bridge.getWebView();
-            webView.onResume();
-            webView.resumeTimers();
+        keepWebViewAliveIfPlaying();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        keepWebViewAliveIfPlaying();
+    }
+
+    @Override
+    public void onDestroy() {
+        if (isFinishing()) {
+            backgroundAudioActive = false;
+            try {
+                stopService(new Intent(this, KansoMediaPlaybackService.class));
+            } catch (Exception ignored) {
+                // Safe cleanup
+            }
         }
+        super.onDestroy();
+    }
+
+    private void keepWebViewAliveIfPlaying() {
+        if (!backgroundAudioActive || this.bridge == null || this.bridge.getWebView() == null) {
+            return;
+        }
+        final WebView webView = this.bridge.getWebView();
+        webView.onResume();
+        webView.resumeTimers();
+        webView.dispatchWindowVisibilityChanged(View.VISIBLE);
+        webView.post(() -> {
+            if (backgroundAudioActive) {
+                webView.onResume();
+                webView.resumeTimers();
+                webView.dispatchWindowVisibilityChanged(View.VISIBLE);
+            }
+        });
+        webView.postDelayed(() -> {
+            if (backgroundAudioActive) {
+                webView.onResume();
+                webView.resumeTimers();
+                webView.dispatchWindowVisibilityChanged(View.VISIBLE);
+            }
+        }, 250);
     }
 
     public static void applySystemChrome(Activity activity, int colorInt, boolean isDark) {
@@ -661,11 +1083,10 @@ public class MainActivity extends BridgeActivity {
 `;
 
 fs.writeFileSync(mainActivityPath, mainActivitySource, 'utf8');
-console.log('[Kanso Android] Configured MainActivity.java with KansoSafPlugin, cutout-safe insets, no-bounce WebView & media playback.');
+console.log('[Kanso Android] Configured MainActivity.java with KansoSafPlugin, cutout-safe insets, no-bounce WebView & background media keep-alive.');
 
-// 4. Install Kanso Android Launcher & Adaptive Icons
+// 5. Install Kanso Android Launcher & Adaptive Icons
 const iconsSourceDir = path.join(projectRoot, 'resources/android-icons');
-const androidResDir = path.join(androidRoot, 'app/src/main/res');
 if (fs.existsSync(iconsSourceDir) && fs.existsSync(androidResDir)) {
   const densities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
   for (const density of densities) {

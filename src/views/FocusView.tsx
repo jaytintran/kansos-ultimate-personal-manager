@@ -614,7 +614,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
                           e.stopPropagation();
                           onOpenContextMenu({ kind: "entry", entry }, e);
                         }}
-                        className="h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0"
+                        className="self-center h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0"
                         style={{ color: "var(--text-muted)" }}
                         aria-label="More actions"
                       >
@@ -866,7 +866,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
                             e.stopPropagation();
                             onOpenContextMenu({ kind: "entry", entry }, e);
                           }}
-                          className="h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0"
+                          className="self-center h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0"
                           style={{ color: "var(--text-muted)" }}
                           aria-label="More actions"
                         >
@@ -1337,7 +1337,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
                         e.stopPropagation();
                         onOpenContextMenu({ kind: "entry", entry }, e);
                       }}
-                      className="h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100"
+                      className="self-center h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
                       style={{ color: "var(--text-muted)" }}
                       aria-label="More actions"
                     >
