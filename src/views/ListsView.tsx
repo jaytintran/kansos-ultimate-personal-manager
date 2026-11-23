@@ -19,6 +19,7 @@ import {
   Link2,
   List as ListIcon,
   MoreVertical,
+  PanelLeftOpen,
   PanelRight,
   PauseCircle,
   Pencil,
@@ -45,6 +46,12 @@ import {
   KanbanColumnDef,
   ListKanbanBoard,
 } from "../components/lists/ListKanbanBoard";
+import {
+  DEFAULT_LISTS_SIDEBAR_WIDTH,
+  ListsLeftSidebar,
+  MAX_LISTS_SIDEBAR_WIDTH,
+  MIN_LISTS_SIDEBAR_WIDTH,
+} from "../components/lists/ListsLeftSidebar";
 import {
   AttachLinkedEntriesModal,
   DeleteListConfirmModal,
@@ -106,6 +113,9 @@ interface ListsWorkspaceState {
   collapsedGroups: Record<string, boolean>;
   droppedCollapsed: boolean;
   perListLayout: Record<string, LayoutConfig>;
+  sidebarWidth: number;
+  sidebarCollapsedDesktop: boolean;
+  sidebarSectionsCollapsed: { smart: boolean; lists: boolean };
 }
 
 const PREFS_KEY = "kanso_lists_prefs_v1";
@@ -228,6 +238,9 @@ function loadLocalWorkspaceState(
     collapsedGroups: {},
     droppedCollapsed: true,
     perListLayout: {},
+    sidebarWidth: DEFAULT_LISTS_SIDEBAR_WIDTH,
+    sidebarCollapsedDesktop: false,
+    sidebarSectionsCollapsed: { smart: false, lists: false },
   };
 
   if (typeof localStorage === "undefined") return defaults;
@@ -243,10 +256,29 @@ function loadLocalWorkspaceState(
         ? parsed.scope
         : defaults.scope;
 
+    const rawWidth =
+      typeof parsed.sidebarWidth === "number" &&
+      Number.isFinite(parsed.sidebarWidth)
+        ? Math.min(
+            MAX_LISTS_SIDEBAR_WIDTH,
+            Math.max(MIN_LISTS_SIDEBAR_WIDTH, parsed.sidebarWidth),
+          )
+        : DEFAULT_LISTS_SIDEBAR_WIDTH;
+
     return {
       ...defaults,
       ...parsed,
       scope: validScope,
+      sidebarWidth: rawWidth,
+      sidebarCollapsedDesktop: Boolean(parsed.sidebarCollapsedDesktop),
+      sidebarSectionsCollapsed:
+        parsed.sidebarSectionsCollapsed &&
+        typeof parsed.sidebarSectionsCollapsed === "object"
+          ? {
+              smart: Boolean(parsed.sidebarSectionsCollapsed.smart),
+              lists: Boolean(parsed.sidebarSectionsCollapsed.lists),
+            }
+          : defaults.sidebarSectionsCollapsed,
       collapsedGroups:
         parsed.collapsedGroups && typeof parsed.collapsedGroups === "object"
           ? parsed.collapsedGroups
@@ -321,6 +353,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const [quickJumpOpen, setQuickJumpOpen] = useState(false);
   const [quickJumpQuery, setQuickJumpQuery] = useState("");
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const [smartAddTargetListId, setSmartAddTargetListId] = useState<string>(
     () => activeLists[0]?.id || "",
@@ -480,9 +513,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
 
   // Drag & drop state
   const activeDragItemIdRef = useRef<string | null>(null);
-  const activeDragListTabIdRef = useRef<string | null>(null);
   const itemElRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const listTabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const statusDropZoneRefs = useRef<Map<ListItemStatus, HTMLElement>>(
     new Map(),
   );
@@ -494,26 +525,12 @@ export const ListsView: React.FC<ListsViewProps> = ({
   } | null>(null);
   const [statusGroupDropTarget, setStatusGroupDropTarget] =
     useState<ListItemStatus | null>(null);
-  const [listTabItemDropTargetId, setListTabItemDropTargetId] = useState<
-    string | null
-  >(null);
-  const [draggingListTabId, setDraggingListTabId] = useState<string | null>(
-    null,
-  );
-  const [listTabDropTarget, setListTabDropTarget] = useState<{
-    listId: string;
-    position: "before" | "after";
-  } | null>(null);
 
   const clearAllDragStates = useCallback(() => {
     activeDragItemIdRef.current = null;
-    activeDragListTabIdRef.current = null;
     setDraggingItemId(null);
     setItemDropTarget(null);
     setStatusGroupDropTarget(null);
-    setListTabItemDropTargetId(null);
-    setDraggingListTabId(null);
-    setListTabDropTarget(null);
   }, []);
 
   useEffect(() => {
@@ -942,25 +959,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
     ): {
       itemTarget: { itemId: string; position: "before" | "after" } | null;
       statusTarget: ListItemStatus | null;
-      listTabTargetId: string | null;
     } => {
-      for (const [tabId, el] of listTabRefs.current.entries()) {
-        if (scope.kind === "list" && tabId === scope.listId) continue;
-        const rect = el.getBoundingClientRect();
-        if (
-          clientX >= rect.left &&
-          clientX <= rect.right &&
-          clientY >= rect.top &&
-          clientY <= rect.bottom
-        ) {
-          return {
-            itemTarget: null,
-            statusTarget: null,
-            listTabTargetId: tabId,
-          };
-        }
-      }
-
       for (const item of renderedItemOrder) {
         if (item.id === activeItemId) continue;
         const el = itemElRefs.current.get(item.id);
@@ -983,7 +982,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
           return {
             itemTarget: { itemId: item.id, position },
             statusTarget: null,
-            listTabTargetId: null,
           };
         }
       }
@@ -1000,15 +998,14 @@ export const ListsView: React.FC<ListsViewProps> = ({
             return {
               itemTarget: null,
               statusTarget: st,
-              listTabTargetId: null,
             };
           }
         }
       }
 
-      return { itemTarget: null, statusTarget: null, listTabTargetId: null };
+      return { itemTarget: null, statusTarget: null };
     },
-    [scope, renderedItemOrder, isSingleColumnForElement, isSmartScope, activeLayout.groupBy],
+    [renderedItemOrder, isSingleColumnForElement, isSmartScope, activeLayout.groupBy],
   );
 
   // Item click handler (Desktop: Inspector in right split pane; Mobile: existing DetailSheet modal)
@@ -1567,7 +1564,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
         role="button"
         tabIndex={0}
         aria-label={`Reorder ${item.title}`}
-        title="Drag to reorder or drop onto a list tab"
+        title="Drag to reorder"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => {
           if (e.pointerType === "mouse") return;
@@ -1577,27 +1574,22 @@ export const ListsView: React.FC<ListsViewProps> = ({
           setDraggingItemId(item.id);
           setItemDropTarget(null);
           setStatusGroupDropTarget(null);
-          setListTabItemDropTargetId(null);
         }}
         onPointerMove={(e) => {
           if (e.pointerType === "mouse" || draggingItemId !== item.id) return;
           const resolved = resolveTouchDrop(e.clientX, e.clientY, item.id);
           setItemDropTarget(resolved.itemTarget);
           setStatusGroupDropTarget(resolved.statusTarget);
-          setListTabItemDropTargetId(resolved.listTabTargetId);
         }}
         onPointerUp={(e) => {
           if (e.pointerType === "mouse") return;
           e.stopPropagation();
           if (draggingItemId === item.id) {
             const resolved = resolveTouchDrop(e.clientX, e.clientY, item.id);
-            const tabTarget = resolved.listTabTargetId ?? listTabItemDropTargetId;
             const statusTarget = resolved.statusTarget ?? statusGroupDropTarget;
             const targetItem = resolved.itemTarget ?? itemDropTarget;
             clearAllDragStates();
-            if (tabTarget) {
-              handleMoveItemToList(item.id, tabTarget);
-            } else if (statusTarget) {
+            if (statusTarget) {
               handleChangeItemStatus(item.id, statusTarget);
             } else if (targetItem && targetItem.itemId !== item.id) {
               handleDropItemOnItem(
@@ -1966,7 +1958,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
         role="button"
         tabIndex={0}
         aria-label={`Reorder ${item.title}`}
-        title="Drag to reorder, change status, or drop onto a list tab"
+        title="Drag to reorder or change status"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => {
           if (e.pointerType === "mouse") return;
@@ -1976,27 +1968,22 @@ export const ListsView: React.FC<ListsViewProps> = ({
           setDraggingItemId(item.id);
           setItemDropTarget(null);
           setStatusGroupDropTarget(null);
-          setListTabItemDropTargetId(null);
         }}
         onPointerMove={(e) => {
           if (e.pointerType === "mouse" || draggingItemId !== item.id) return;
           const resolved = resolveTouchDrop(e.clientX, e.clientY, item.id);
           setItemDropTarget(resolved.itemTarget);
           setStatusGroupDropTarget(resolved.statusTarget);
-          setListTabItemDropTargetId(resolved.listTabTargetId);
         }}
         onPointerUp={(e) => {
           if (e.pointerType === "mouse") return;
           e.stopPropagation();
           if (draggingItemId === item.id) {
             const resolved = resolveTouchDrop(e.clientX, e.clientY, item.id);
-            const tabTarget = resolved.listTabTargetId ?? listTabItemDropTargetId;
             const statusTarget = resolved.statusTarget ?? statusGroupDropTarget;
             const targetItem = resolved.itemTarget ?? itemDropTarget;
             clearAllDragStates();
-            if (tabTarget) {
-              handleMoveItemToList(item.id, tabTarget);
-            } else if (statusTarget) {
+            if (statusTarget) {
               handleChangeItemStatus(item.id, statusTarget);
             } else if (targetItem && targetItem.itemId !== item.id) {
               handleDropItemOnItem(
@@ -2478,11 +2465,239 @@ export const ListsView: React.FC<ListsViewProps> = ({
     scope.kind === "smart" ? STATUS_META[scope.status] : null;
   const SmartHeaderIcon = activeSmartMeta?.icon;
 
+  const handleSelectScope = useCallback((nextScope: ListsScope) => {
+    setLocalState((prev) => ({
+      ...prev,
+      scope: nextScope,
+      statusFilter: nextScope.kind === "list" ? "all" : prev.statusFilter,
+      tagFilter: "all",
+      subTab: nextScope.kind === "smart" ? "items" : prev.subTab,
+    }));
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  }, []);
+
+  const renderQuickJumpButton = () => (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => {
+          setQuickJumpOpen((o) => !o);
+          setQuickJumpQuery("");
+        }}
+        title="Quick jump to any smart view or list"
+        aria-label="Quick jump to smart view or list"
+        aria-expanded={quickJumpOpen}
+        className="h-8 px-2 sm:px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+        style={{
+          backgroundColor: quickJumpOpen
+            ? "var(--accent-soft)"
+            : "var(--bg-surface)",
+          borderColor: quickJumpOpen ? "var(--accent)" : "var(--border-subtle)",
+          color: quickJumpOpen ? "var(--accent)" : "var(--text-secondary)",
+        }}
+      >
+        <Search className="w-3.5 h-3.5" />
+        <span className="hidden xl:inline">Jump</span>
+        <ChevronDown className="w-3 h-3 opacity-75" />
+      </button>
+
+      {quickJumpOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-30"
+            onClick={() => setQuickJumpOpen(false)}
+          />
+          <div
+            className="absolute right-0 top-10 z-40 w-64 max-w-[calc(100vw-2rem)] rounded-2xl border overflow-hidden flex flex-col max-h-[65dvh]"
+            style={{
+              backgroundColor: "var(--bg-elevated)",
+              borderColor: "var(--border-strong)",
+              boxShadow: "var(--shadow-popover)",
+            }}
+          >
+            <div
+              className="p-2 border-b flex items-center gap-1.5"
+              style={{ borderColor: "var(--border-subtle)" }}
+            >
+              <Search
+                className="w-3.5 h-3.5 shrink-0"
+                style={{ color: "var(--text-muted)" }}
+              />
+              <input
+                type="text"
+                value={quickJumpQuery}
+                onChange={(e) => setQuickJumpQuery(e.target.value)}
+                placeholder="Jump to list or status..."
+                autoFocus
+                className="flex-1 min-w-0 bg-transparent text-xs outline-none"
+                style={{ color: "var(--text-primary)" }}
+              />
+            </div>
+            <div className="overflow-y-auto p-1.5 space-y-2">
+              {quickJumpSmartItems.length > 0 && (
+                <div className="space-y-0.5">
+                  <div
+                    className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Across All Lists
+                  </div>
+                  {quickJumpSmartItems.map((st) => {
+                    const sm = STATUS_META[st];
+                    const Icon = sm.icon;
+                    const active = scope.kind === "smart" && scope.status === st;
+                    return (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => {
+                          handleSelectScope({ kind: "smart", status: st });
+                          setQuickJumpOpen(false);
+                        }}
+                        className="w-full px-2 py-1.5 rounded-lg flex items-center justify-between gap-2 text-xs font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                        style={{
+                          backgroundColor: active
+                            ? "var(--accent-soft)"
+                            : "transparent",
+                          color: active
+                            ? "var(--accent)"
+                            : "var(--text-primary)",
+                        }}
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <Icon
+                            className="w-3.5 h-3.5 shrink-0"
+                            style={{ color: sm.color }}
+                          />
+                          <span className="truncate">{sm.label}</span>
+                        </span>
+                        <span
+                          className="font-mono text-[11px]"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          {globalStatusCounts[st]}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {quickJumpLists.length > 0 && (
+                <div className="space-y-0.5">
+                  <div
+                    className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Lists
+                  </div>
+                  {quickJumpLists.map((list) => {
+                    const active =
+                      scope.kind === "list" && scope.listId === list.id;
+                    const color = list.color || "#4f46e5";
+                    return (
+                      <button
+                        key={list.id}
+                        type="button"
+                        onClick={() => {
+                          handleSelectScope({ kind: "list", listId: list.id });
+                          setQuickJumpOpen(false);
+                        }}
+                        className="w-full px-2 py-1.5 rounded-lg flex items-center justify-between gap-2 text-xs font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                        style={{
+                          backgroundColor: active
+                            ? "var(--accent-soft)"
+                            : "transparent",
+                          color: active
+                            ? "var(--accent)"
+                            : "var(--text-primary)",
+                        }}
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <CollectionIcon
+                            name={list.icon}
+                            className="w-3.5 h-3.5 shrink-0"
+                            style={{ color }}
+                          />
+                          <span className="truncate">{list.title}</span>
+                        </span>
+                        <span
+                          className="font-mono text-[11px]"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          {listItemCountsByCollection.get(list.id) || 0}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   return (
     <div
-      className="h-full flex-1 min-h-0 lg:h-dvh flex flex-col overflow-hidden overscroll-none"
+      className="h-full flex-1 min-h-0 lg:h-dvh flex overflow-hidden overscroll-none"
       style={{ backgroundColor: "var(--bg-canvas)" }}
     >
+      {/* Desktop Resizable/Collapsible Left Sidebar + Mobile Slide-Over Drawer */}
+      <ListsLeftSidebar
+        lists={activeLists}
+        listItemCounts={listItemCountsByCollection}
+        globalStatusCounts={globalStatusCounts}
+        statusOrder={STATUS_ORDER}
+        statusMeta={STATUS_META}
+        scope={scope}
+        sidebarWidth={localState.sidebarWidth}
+        isCollapsedDesktop={localState.sidebarCollapsedDesktop}
+        sectionsCollapsed={localState.sidebarSectionsCollapsed}
+        onToggleSection={(section) =>
+          setLocalState((prev) => ({
+            ...prev,
+            sidebarSectionsCollapsed: {
+              ...prev.sidebarSectionsCollapsed,
+              [section]: !prev.sidebarSectionsCollapsed[section],
+            },
+          }))
+        }
+        isOpenMobile={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
+        onCollapseDesktop={() =>
+          setLocalState((prev) => ({
+            ...prev,
+            sidebarCollapsedDesktop: true,
+          }))
+        }
+        onSidebarWidthChange={(w) =>
+          setLocalState((prev) => ({ ...prev, sidebarWidth: w }))
+        }
+        onSelectScope={handleSelectScope}
+        onCreateList={openCreateListModal}
+        onEditList={(list) =>
+          setListModal({
+            mode: "edit",
+            list,
+            title: list.title,
+            icon: list.icon,
+            color: list.color || LIST_COLORS[0],
+            listType: list.listType || "custom",
+          })
+        }
+        onDeleteList={(list) => setDeleteTargetList(list)}
+        onReorderList={reorderLists}
+        onMoveItemToList={handleMoveItemToList}
+        onChangeItemStatus={handleChangeItemStatus}
+        activeDragItemIdRef={activeDragItemIdRef}
+        onClearAllDragStates={clearAllDragStates}
+      />
+
+      {/* Main Lists Workspace Column */}
+      <div className="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
       {/* ================= PINNED TOP CHROME ================= */}
       <div className="shrink-0">
         {/* Row 1: Unified Compact View Header */}
@@ -2493,6 +2708,45 @@ export const ListsView: React.FC<ListsViewProps> = ({
           {currentList ? (
             <>
               <div className="flex items-center gap-2.5 min-w-0">
+                {/* Mobile Slide-Over Sidebar Trigger */}
+                <button
+                  type="button"
+                  onClick={() => setMobileSidebarOpen(true)}
+                  title="Open lists sidebar"
+                  aria-label="Open lists sidebar"
+                  className="lg:hidden h-8 w-8 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <PanelLeftOpen className="w-4 h-4" />
+                </button>
+
+                {/* Desktop Collapsed Sidebar Reopen */}
+                {localState.sidebarCollapsedDesktop && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLocalState((prev) => ({
+                        ...prev,
+                        sidebarCollapsedDesktop: false,
+                      }))
+                    }
+                    title="Show lists sidebar"
+                    aria-label="Show lists sidebar"
+                    className="hidden lg:flex h-8 w-8 items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <PanelLeftOpen className="w-4 h-4" />
+                  </button>
+                )}
+
                 <span
                   className="h-7 w-7 rounded-lg flex items-center justify-center shrink-0"
                   style={{
@@ -2520,6 +2774,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
+                {renderQuickJumpButton()}
                 <button
                   type="button"
                   onClick={() =>
@@ -2591,6 +2846,45 @@ export const ListsView: React.FC<ListsViewProps> = ({
           ) : activeSmartMeta && SmartHeaderIcon ? (
             <>
               <div className="flex items-center gap-2.5 min-w-0">
+                {/* Mobile Slide-Over Sidebar Trigger */}
+                <button
+                  type="button"
+                  onClick={() => setMobileSidebarOpen(true)}
+                  title="Open lists sidebar"
+                  aria-label="Open lists sidebar"
+                  className="lg:hidden h-8 w-8 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <PanelLeftOpen className="w-4 h-4" />
+                </button>
+
+                {/* Desktop Collapsed Sidebar Reopen */}
+                {localState.sidebarCollapsedDesktop && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLocalState((prev) => ({
+                        ...prev,
+                        sidebarCollapsedDesktop: false,
+                      }))
+                    }
+                    title="Show lists sidebar"
+                    aria-label="Show lists sidebar"
+                    className="hidden lg:flex h-8 w-8 items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <PanelLeftOpen className="w-4 h-4" />
+                  </button>
+                )}
+
                 <span
                   className="h-7 w-7 rounded-lg flex items-center justify-center shrink-0"
                   style={{
@@ -2615,6 +2909,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
+                {renderQuickJumpButton()}
                 <button
                   type="button"
                   onClick={() =>
@@ -2640,439 +2935,65 @@ export const ListsView: React.FC<ListsViewProps> = ({
               </div>
             </>
           ) : (
-            <div className="flex items-center justify-between w-full">
-              <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight">
-                Lists
-              </h1>
-              <button
-                type="button"
-                onClick={openCreateListModal}
-                className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
-                style={{
-                  backgroundColor: "var(--accent)",
-                  color: "var(--accent-fg)",
-                }}
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>New List</span>
-              </button>
+            <div className="flex items-center justify-between w-full gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMobileSidebarOpen(true)}
+                  title="Open lists sidebar"
+                  aria-label="Open lists sidebar"
+                  className="lg:hidden h-8 w-8 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <PanelLeftOpen className="w-4 h-4" />
+                </button>
+                {localState.sidebarCollapsedDesktop && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLocalState((prev) => ({
+                        ...prev,
+                        sidebarCollapsedDesktop: false,
+                      }))
+                    }
+                    title="Show lists sidebar"
+                    aria-label="Show lists sidebar"
+                    className="hidden lg:flex h-8 w-8 items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <PanelLeftOpen className="w-4 h-4" />
+                  </button>
+                )}
+                <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight">
+                  Lists
+                </h1>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {renderQuickJumpButton()}
+                <button
+                  type="button"
+                  onClick={openCreateListModal}
+                  className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                  style={{
+                    backgroundColor: "var(--accent)",
+                    color: "var(--accent-fg)",
+                  }}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>New List</span>
+                </button>
+              </div>
             </div>
           )}
         </header>
-
-        {/* Row 2: Quick Jump Picker + Pinned Cross-List Smart Tabs + User Lists Strip */}
-        <nav
-          aria-label="List collections and smart tabs"
-          className="relative flex items-center gap-1 border-b px-4 sm:px-6"
-          style={{ borderColor: "var(--border-subtle)" }}
-        >
-          {/* Quick Jump Picker Button */}
-          <div className="relative shrink-0 py-1 pr-1">
-            <button
-              type="button"
-              onClick={() => {
-                setQuickJumpOpen((o) => !o);
-                setQuickJumpQuery("");
-              }}
-              title="Quick jump to any smart view or list"
-              aria-label="Quick jump to list"
-              aria-expanded={quickJumpOpen}
-              className="h-8 px-2 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
-              style={{
-                backgroundColor: quickJumpOpen
-                  ? "var(--accent-soft)"
-                  : "var(--bg-surface)",
-                borderColor: quickJumpOpen
-                  ? "var(--accent)"
-                  : "var(--border-subtle)",
-                color: quickJumpOpen
-                  ? "var(--accent)"
-                  : "var(--text-secondary)",
-              }}
-            >
-              <Search className="w-3 h-3" />
-              <ChevronDown className="w-3 h-3 opacity-75" />
-            </button>
-
-            {quickJumpOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-30"
-                  onClick={() => setQuickJumpOpen(false)}
-                />
-                <div
-                  className="absolute left-0 top-10 z-40 w-64 rounded-2xl border overflow-hidden flex flex-col max-h-[65dvh]"
-                  style={{
-                    backgroundColor: "var(--bg-elevated)",
-                    borderColor: "var(--border-strong)",
-                    boxShadow: "var(--shadow-popover)",
-                  }}
-                >
-                  <div
-                    className="p-2 border-b flex items-center gap-1.5"
-                    style={{ borderColor: "var(--border-subtle)" }}
-                  >
-                    <Search
-                      className="w-3.5 h-3.5 shrink-0"
-                      style={{ color: "var(--text-muted)" }}
-                    />
-                    <input
-                      type="text"
-                      value={quickJumpQuery}
-                      onChange={(e) => setQuickJumpQuery(e.target.value)}
-                      placeholder="Jump to list or status..."
-                      autoFocus
-                      className="flex-1 min-w-0 bg-transparent text-xs outline-none"
-                      style={{ color: "var(--text-primary)" }}
-                    />
-                  </div>
-                  <div className="overflow-y-auto p-1.5 space-y-2">
-                    {quickJumpSmartItems.length > 0 && (
-                      <div className="space-y-0.5">
-                        <div
-                          className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          Across All Lists
-                        </div>
-                        {quickJumpSmartItems.map((st) => {
-                          const sm = STATUS_META[st];
-                          const Icon = sm.icon;
-                          const active =
-                            scope.kind === "smart" && scope.status === st;
-                          return (
-                            <button
-                              key={st}
-                              type="button"
-                              onClick={() => {
-                                setLocalState((prev) => ({
-                                  ...prev,
-                                  scope: { kind: "smart", status: st },
-                                  tagFilter: "all",
-                                  subTab: "items",
-                                }));
-                                setSelectedIds(new Set());
-                                setQuickJumpOpen(false);
-                              }}
-                              className="w-full px-2 py-1.5 rounded-lg flex items-center justify-between gap-2 text-xs font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                              style={{
-                                backgroundColor: active
-                                  ? "var(--accent-soft)"
-                                  : "transparent",
-                                color: active
-                                  ? "var(--accent)"
-                                  : "var(--text-primary)",
-                              }}
-                            >
-                              <span className="flex items-center gap-2 min-w-0">
-                                <Icon
-                                  className="w-3.5 h-3.5 shrink-0"
-                                  style={{ color: sm.color }}
-                                />
-                                <span className="truncate">{sm.label}</span>
-                              </span>
-                              <span
-                                className="font-mono text-[11px]"
-                                style={{ color: "var(--text-muted)" }}
-                              >
-                                {globalStatusCounts[st]}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {quickJumpLists.length > 0 && (
-                      <div className="space-y-0.5">
-                        <div
-                          className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          Lists
-                        </div>
-                        {quickJumpLists.map((list) => {
-                          const active =
-                            scope.kind === "list" && scope.listId === list.id;
-                          const color = list.color || "#4f46e5";
-                          return (
-                            <button
-                              key={list.id}
-                              type="button"
-                              onClick={() => {
-                                setLocalState((prev) => ({
-                                  ...prev,
-                                  scope: { kind: "list", listId: list.id },
-                                  statusFilter: "all",
-                                  tagFilter: "all",
-                                }));
-                                setSelectedIds(new Set());
-                                setQuickJumpOpen(false);
-                              }}
-                              className="w-full px-2 py-1.5 rounded-lg flex items-center justify-between gap-2 text-xs font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                              style={{
-                                backgroundColor: active
-                                  ? "var(--accent-soft)"
-                                  : "transparent",
-                                color: active
-                                  ? "var(--accent)"
-                                  : "var(--text-primary)",
-                              }}
-                            >
-                              <span className="flex items-center gap-2 min-w-0">
-                                <CollectionIcon
-                                  name={list.icon}
-                                  className="w-3.5 h-3.5 shrink-0"
-                                  style={{ color }}
-                                />
-                                <span className="truncate">{list.title}</span>
-                              </span>
-                              <span
-                                className="font-mono text-[11px]"
-                                style={{ color: "var(--text-muted)" }}
-                              >
-                                {listItemCountsByCollection.get(list.id) || 0}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Horizontally Scrollable Smart Tabs + Lists */}
-          <div className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto no-scrollbar">
-            {/* 5 Pinned Cross-List Smart Tabs */}
-            {STATUS_ORDER.map((st) => {
-              const sm = STATUS_META[st];
-              const Icon = sm.icon;
-              const active = scope.kind === "smart" && scope.status === st;
-              return (
-                <button
-                  key={`smart-${st}`}
-                  type="button"
-                  onClick={() => {
-                    setLocalState((prev) => ({
-                      ...prev,
-                      scope: { kind: "smart", status: st },
-                      tagFilter: "all",
-                      subTab: "items",
-                    }));
-                    setSelectedIds(new Set());
-                  }}
-                  className="h-10 px-2.5 inline-flex items-center gap-1.5 text-xs font-medium shrink-0 border-b-2 transition-all whitespace-nowrap cursor-pointer"
-                  style={{
-                    borderColor: active ? "var(--accent)" : "transparent",
-                    color: active
-                      ? "var(--text-primary)"
-                      : "var(--text-secondary)",
-                    backgroundColor: active
-                      ? "var(--accent-soft)"
-                      : "transparent",
-                  }}
-                  title={`All ${sm.label} items across lists`}
-                >
-                  <Icon
-                    className="w-3.5 h-3.5 shrink-0"
-                    style={{ color: sm.color }}
-                  />
-                  <span className={active ? "font-semibold" : ""}>
-                    {sm.label}
-                  </span>
-                  <span
-                    className="font-mono tabular-nums text-[11px] opacity-70"
-                    style={{
-                      color: active ? "var(--accent)" : "var(--text-muted)",
-                    }}
-                  >
-                    {globalStatusCounts[st]}
-                  </span>
-                </button>
-              );
-            })}
-
-            <span
-              aria-hidden="true"
-              className="h-5 w-px shrink-0 mx-1.5"
-              style={{ backgroundColor: "var(--border-strong)" }}
-            />
-
-            {/* Draggable User List Collection Tabs */}
-            {activeLists.map((list) => {
-              const active = scope.kind === "list" && scope.listId === list.id;
-              const count = listItemCountsByCollection.get(list.id) || 0;
-              const accentHex = list.color || "#4f46e5";
-              const isBeingDragged = draggingListTabId === list.id;
-              const isItemDropHover = listTabItemDropTargetId === list.id;
-              const isTabDropTarget = listTabDropTarget?.listId === list.id;
-
-              return (
-                <button
-                  key={list.id}
-                  ref={(el) => {
-                    if (el) listTabRefs.current.set(list.id, el);
-                    else listTabRefs.current.delete(list.id);
-                  }}
-                  type="button"
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData(
-                      "application/x-kanso-list-tab-id",
-                      list.id,
-                    );
-                    e.dataTransfer.effectAllowed = "move";
-                    activeDragListTabIdRef.current = list.id;
-                    setDraggingListTabId(list.id);
-                  }}
-                  onDragEnd={clearAllDragStates}
-                  onDragOver={(e) => {
-                    const types = e.dataTransfer.types;
-                    if (types.includes("application/x-kanso-list-item-id")) {
-                      if (scope.kind === "list" && list.id === scope.listId)
-                        return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                      setListTabItemDropTargetId(list.id);
-                      return;
-                    }
-                    if (types.includes("application/x-kanso-list-tab-id")) {
-                      if (activeDragListTabIdRef.current === list.id) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const position: "before" | "after" =
-                        e.clientX < rect.left + rect.width / 2
-                          ? "before"
-                          : "after";
-                      setListTabDropTarget((prev) =>
-                        prev?.listId === list.id && prev.position === position
-                          ? prev
-                          : { listId: list.id, position },
-                      );
-                    }
-                  }}
-                  onDragLeave={(e) => {
-                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                      setListTabItemDropTargetId((prev) =>
-                        prev === list.id ? null : prev,
-                      );
-                      setListTabDropTarget((prev) =>
-                        prev?.listId === list.id ? null : prev,
-                      );
-                    }
-                  }}
-                  onDrop={(e) => {
-                    const types = e.dataTransfer.types;
-                    if (types.includes("application/x-kanso-list-item-id")) {
-                      const itemId =
-                        e.dataTransfer.getData(
-                          "application/x-kanso-list-item-id",
-                        ) || activeDragItemIdRef.current;
-                      clearAllDragStates();
-                      if (
-                        !itemId ||
-                        (scope.kind === "list" && list.id === scope.listId)
-                      ) {
-                        return;
-                      }
-                      e.preventDefault();
-                      handleMoveItemToList(itemId, list.id);
-                      return;
-                    }
-                    if (types.includes("application/x-kanso-list-tab-id")) {
-                      const draggedTabId =
-                        e.dataTransfer.getData(
-                          "application/x-kanso-list-tab-id",
-                        ) || activeDragListTabIdRef.current;
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const position: "before" | "after" =
-                        e.clientX < rect.left + rect.width / 2
-                          ? "before"
-                          : "after";
-                      clearAllDragStates();
-                      if (!draggedTabId || draggedTabId === list.id) return;
-                      e.preventDefault();
-                      reorderLists(draggedTabId, list.id, position);
-                    }
-                  }}
-                  onClick={() => {
-                    setLocalState((prev) => ({
-                      ...prev,
-                      scope: { kind: "list", listId: list.id },
-                      statusFilter: "all",
-                      tagFilter: "all",
-                    }));
-                    setSelectedIds(new Set());
-                  }}
-                  title="Click to open · Drag to reorder · Drop items here to move"
-                  className={`relative h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-                    isBeingDragged ? "opacity-45" : ""
-                  } ${
-                    isItemDropHover
-                      ? "ring-1 ring-inset ring-[var(--accent)] rounded-t-md"
-                      : ""
-                  }`}
-                  style={{
-                    borderColor: isItemDropHover
-                      ? "var(--accent)"
-                      : active
-                        ? accentHex
-                        : "transparent",
-                    color:
-                      isItemDropHover || active
-                        ? "var(--text-primary)"
-                        : "var(--text-secondary)",
-                    backgroundColor: isItemDropHover
-                      ? "var(--accent-soft)"
-                      : active
-                        ? `${accentHex}10`
-                        : "transparent",
-                  }}
-                >
-                  {isTabDropTarget && (
-                    <span
-                      aria-hidden="true"
-                      className={`pointer-events-none absolute top-1.5 bottom-1.5 w-[2.5px] rounded-full bg-[var(--accent)] shadow-[0_0_6px_var(--accent)] z-20 ${
-                        listTabDropTarget.position === "before"
-                          ? "left-0"
-                          : "right-0"
-                      }`}
-                    />
-                  )}
-                  <CollectionIcon
-                    name={list.icon}
-                    className="w-3.5 h-3.5 shrink-0"
-                    style={{ color: accentHex }}
-                  />
-                  <span className={active ? "font-semibold" : ""}>
-                    {list.title}
-                  </span>
-                  <span
-                    className="font-mono tabular-nums text-[11px] opacity-70"
-                    style={{ color: active ? accentHex : "var(--text-muted)" }}
-                  >
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-
-            <button
-              type="button"
-              onClick={openCreateListModal}
-              className="h-8 px-2.5 ml-1 my-1 rounded-lg text-xs font-medium inline-flex items-center gap-1 shrink-0 transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
-              style={{ color: "var(--text-muted)" }}
-              title="Create new list collection"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New</span>
-            </button>
-          </div>
-        </nav>
 
         {/* Row 3: Status Counts & Linked Context Triggers (shown for concrete lists) */}
         {currentList && (
@@ -4697,6 +4618,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
           </form>
         </div>
       )}
+      </div>
     </div>
   );
 };
