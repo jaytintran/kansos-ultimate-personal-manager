@@ -179,7 +179,9 @@ export const ContactsView: React.FC = () => {
           ...c.phones.map((p) => p.value),
           ...c.emails.map((e) => e.value),
           ...c.socialHandles.map((s) => s.value),
-          ...c.addresses.map((a) => `${a.street} ${a.city || ""} ${a.country || ""}`),
+          ...c.addresses.map(
+            (a) => `${a.street} ${a.city || ""} ${a.country || ""}`,
+          ),
           ...c.tags,
           ...c.customFields.map((f) => `${f.key} ${f.value}`),
           stripHtmlToText(c.bioHtml),
@@ -203,8 +205,10 @@ export const ContactsView: React.FC = () => {
         const db = b.lastContactedAt || "";
         if (da !== db) return db.localeCompare(da);
       } else if (prefs.sortBy === "birthday") {
-        const ba = getNextOccurrenceInfo(a.birthday, todayKey)?.daysUntil ?? 9999;
-        const bb = getNextOccurrenceInfo(b.birthday, todayKey)?.daysUntil ?? 9999;
+        const ba =
+          getNextOccurrenceInfo(a.birthday, todayKey)?.daysUntil ?? 9999;
+        const bb =
+          getNextOccurrenceInfo(b.birthday, todayKey)?.daysUntil ?? 9999;
         if (ba !== bb) return ba - bb;
       } else if (prefs.sortBy === "recent") {
         return b.createdAt.localeCompare(a.createdAt);
@@ -280,7 +284,8 @@ export const ContactsView: React.FC = () => {
                 className="hidden sm:block text-xs mt-0.5"
                 style={{ color: "var(--text-muted)" }}
               >
-                Personal CRM · Relationships, addresses, milestones &amp; rich context
+                Personal CRM · Relationships, addresses, milestones &amp; rich
+                context
               </p>
             </div>
 
@@ -334,7 +339,8 @@ export const ContactsView: React.FC = () => {
                       onClick={() => {
                         setPrefs((p) => ({
                           ...p,
-                          layoutMode: p.layoutMode === "grid" ? "table" : "grid",
+                          layoutMode:
+                            p.layoutMode === "grid" ? "table" : "grid",
                         }));
                         setMobileHeaderMenuOpen(false);
                       }}
@@ -596,7 +602,9 @@ export const ContactsView: React.FC = () => {
                   : "var(--text-secondary)",
               }}
             >
-              <Star className={`w-3.5 h-3.5 ${onlyFavorites ? "fill-current" : ""}`} />
+              <Star
+                className={`w-3.5 h-3.5 ${onlyFavorites ? "fill-current" : ""}`}
+              />
               <span>Favorites</span>
             </button>
 
@@ -657,8 +665,17 @@ export const ContactsView: React.FC = () => {
               </select>
             )}
 
-            <div className="inline-flex items-center gap-1 h-9 px-2.5 rounded-xl border" style={{ backgroundColor: "var(--bg-surface)", borderColor: "var(--border-subtle)" }}>
-              <ArrowUpDown className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--text-muted)" }} />
+            <div
+              className="inline-flex items-center gap-1 h-9 px-2.5 rounded-xl border"
+              style={{
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+              }}
+            >
+              <ArrowUpDown
+                className="w-3.5 h-3.5 shrink-0"
+                style={{ color: "var(--text-muted)" }}
+              />
               <select
                 value={prefs.sortBy}
                 onChange={(e) =>
@@ -700,7 +717,10 @@ export const ContactsView: React.FC = () => {
                     ? "Your personal CRM is ready"
                     : "No contacts match these filters"}
                 </p>
-                <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                <p
+                  className="text-xs mt-1"
+                  style={{ color: "var(--text-muted)" }}
+                >
                   {contacts.length === 0
                     ? "Add people manually or import a vCard (.vcf) / CSV file."
                     : "Try clearing search or switching filters."}
@@ -832,19 +852,28 @@ export const ContactsView: React.FC = () => {
                       >
                         {primaryPhone && (
                           <div className="flex items-center gap-2 truncate font-mono">
-                            <Phone className="w-3 h-3 shrink-0" style={{ color: "var(--text-muted)" }} />
+                            <Phone
+                              className="w-3 h-3 shrink-0"
+                              style={{ color: "var(--text-muted)" }}
+                            />
                             <span className="truncate">{primaryPhone}</span>
                           </div>
                         )}
                         {primaryEmail && (
                           <div className="flex items-center gap-2 truncate">
-                            <Mail className="w-3 h-3 shrink-0" style={{ color: "var(--text-muted)" }} />
+                            <Mail
+                              className="w-3 h-3 shrink-0"
+                              style={{ color: "var(--text-muted)" }}
+                            />
                             <span className="truncate">{primaryEmail}</span>
                           </div>
                         )}
                         {primaryCity && (
                           <div className="flex items-center gap-2 truncate">
-                            <MapPin className="w-3 h-3 shrink-0" style={{ color: "var(--text-muted)" }} />
+                            <MapPin
+                              className="w-3 h-3 shrink-0"
+                              style={{ color: "var(--text-muted)" }}
+                            />
                             <span className="truncate">{primaryCity}</span>
                           </div>
                         )}
@@ -924,10 +953,16 @@ export const ContactsView: React.FC = () => {
                     <th className="py-2.5 px-3.5 text-right">Last Contacted</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
+                <tbody
+                  className="divide-y"
+                  style={{ borderColor: "var(--border-subtle)" }}
+                >
                   {filteredContacts.map((c) => {
                     const isSelected = c.id === selectedContactId;
-                    const daysSince = daysSinceDateKey(c.lastContactedAt, todayKey);
+                    const daysSince = daysSinceDateKey(
+                      c.lastContactedAt,
+                      todayKey,
+                    );
                     const contactCircles = c.circleIds
                       .map((id) => circleMap.get(id))
                       .filter(Boolean);
@@ -958,8 +993,13 @@ export const ContactsView: React.FC = () => {
                             </div>
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 text-xs" style={{ color: "var(--text-secondary)" }}>
-                          {[c.jobTitle, c.company].filter(Boolean).join(" · ") || "—"}
+                        <td
+                          className="py-2.5 px-3 text-xs"
+                          style={{ color: "var(--text-secondary)" }}
+                        >
+                          {[c.jobTitle, c.company]
+                            .filter(Boolean)
+                            .join(" · ") || "—"}
                         </td>
                         <td className="py-2.5 px-3 text-xs">
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -971,18 +1011,29 @@ export const ContactsView: React.FC = () => {
                               }}
                             />
                             <span>
-                              {contactCircles.map((cir) => cir!.name).join(", ") ||
+                              {contactCircles
+                                .map((cir) => cir!.name)
+                                .join(", ") ||
                                 CLOSENESS_TIER_META[c.closeness].label}
                             </span>
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                        <td
+                          className="py-2.5 px-3 text-xs font-mono"
+                          style={{ color: "var(--text-secondary)" }}
+                        >
                           {c.phones[0]?.value || c.emails[0]?.value || "—"}
                         </td>
-                        <td className="py-2.5 px-3 text-xs font-mono tabular-nums" style={{ color: "var(--text-secondary)" }}>
+                        <td
+                          className="py-2.5 px-3 text-xs font-mono tabular-nums"
+                          style={{ color: "var(--text-secondary)" }}
+                        >
                           {c.birthday ? formatMonthDayLabel(c.birthday) : "—"}
                         </td>
-                        <td className="py-2.5 px-3.5 text-xs font-mono tabular-nums text-right" style={{ color: "var(--text-muted)" }}>
+                        <td
+                          className="py-2.5 px-3.5 text-xs font-mono tabular-nums text-right"
+                          style={{ color: "var(--text-muted)" }}
+                        >
                           {daysSince === null
                             ? "—"
                             : daysSince === 0
@@ -1022,7 +1073,7 @@ export const ContactsView: React.FC = () => {
       {/* Mobile Slide-Over Inspector */}
       {selectedContact && mobileInspectorOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-40 flex justify-end overscroll-none"
+          className="lg:hidden w-full fixed inset-0 z-40 flex justify-end overscroll-none"
           role="dialog"
           aria-modal="true"
           aria-label="Contact Inspector"
@@ -1032,7 +1083,7 @@ export const ContactsView: React.FC = () => {
             onClick={() => setMobileInspectorOpen(false)}
             aria-hidden="true"
           />
-          <div className="relative z-10 w-full max-w-md h-dvh pt-safe pb-safe">
+          <div className="relative z-10 w-full max-w-full h-dvh pt-safe pb-safe">
             <ContactInspector
               contact={selectedContact}
               allContacts={contacts}
@@ -1101,7 +1152,10 @@ export const ContactsView: React.FC = () => {
             </div>
 
             <div className="p-4 space-y-4 max-h-[70dvh] overflow-y-auto">
-              <form onSubmit={handleCreateCircleInModal} className="space-y-2.5">
+              <form
+                onSubmit={handleCreateCircleInModal}
+                className="space-y-2.5"
+              >
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -1268,7 +1322,9 @@ export const ContactsView: React.FC = () => {
                   borderColor: onlyFavorites
                     ? "var(--accent)"
                     : "var(--border-subtle)",
-                  color: onlyFavorites ? "var(--accent)" : "var(--text-primary)",
+                  color: onlyFavorites
+                    ? "var(--accent)"
+                    : "var(--text-primary)",
                 }}
               >
                 <span className="flex items-center gap-2">
@@ -1318,7 +1374,9 @@ export const ContactsView: React.FC = () => {
                   <select
                     value={selectedTier}
                     onChange={(e) =>
-                      setSelectedTier(e.target.value as ContactClosenessTier | "all")
+                      setSelectedTier(
+                        e.target.value as ContactClosenessTier | "all",
+                      )
                     }
                     className="w-full h-9 px-2.5 rounded-xl border text-xs outline-none"
                     style={{
@@ -1363,7 +1421,9 @@ export const ContactsView: React.FC = () => {
                   </div>
                 )}
 
-                <div className={`space-y-1 ${allTags.length === 0 ? "col-span-2" : ""}`}>
+                <div
+                  className={`space-y-1 ${allTags.length === 0 ? "col-span-2" : ""}`}
+                >
                   <label
                     className="text-[11px] font-semibold uppercase tracking-wider"
                     style={{ color: "var(--text-muted)" }}

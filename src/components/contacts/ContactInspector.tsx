@@ -146,7 +146,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
       await navigator.clipboard.writeText(text);
       setCopiedId(key);
       onToast(`Copied ${label}`, "success");
-      window.setTimeout(() => setCopiedId((prev) => (prev === key ? null : prev)), 1600);
+      window.setTimeout(
+        () => setCopiedId((prev) => (prev === key ? null : prev)),
+        1600,
+      );
     } catch {
       onToast("Copy failed", "error");
     }
@@ -272,22 +275,14 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
         }}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs font-semibold uppercase tracking-wider truncate" style={{ color: "var(--text-muted)" }}>
+          <span
+            className="text-xs font-semibold uppercase tracking-wider truncate"
+            style={{ color: "var(--text-muted)" }}
+          >
             Profile Inspector
           </span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            type="button"
-            onClick={() => onUpdate(contact.id, { favorite: !contact.favorite })}
-            className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
-            style={{ color: contact.favorite ? "var(--warning)" : "var(--text-muted)" }}
-            title={contact.favorite ? "Remove from favorites" : "Favorite contact"}
-            aria-label="Toggle favorite"
-          >
-            <Star className={`w-4 h-4 ${contact.favorite ? "fill-current" : ""}`} />
-          </button>
-
           {confirmDelete ? (
             <div className="inline-flex items-center gap-1">
               <button
@@ -319,6 +314,25 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
               <Trash2 className="w-4 h-4" />
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={() =>
+              onUpdate(contact.id, { favorite: !contact.favorite })
+            }
+            className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+            style={{
+              color: contact.favorite ? "var(--warning)" : "var(--text-muted)",
+            }}
+            title={
+              contact.favorite ? "Remove from favorites" : "Favorite contact"
+            }
+            aria-label="Toggle favorite"
+          >
+            <Star
+              className={`w-4 h-4 ${contact.favorite ? "fill-current" : ""}`}
+            />
+          </button>
 
           <button
             type="button"
@@ -378,7 +392,9 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
               <input
                 type="text"
                 value={contact.firstName}
-                onChange={(e) => onUpdate(contact.id, { firstName: e.target.value })}
+                onChange={(e) =>
+                  onUpdate(contact.id, { firstName: e.target.value })
+                }
                 placeholder="First name"
                 className="h-9 px-2.5 rounded-xl border text-sm font-semibold outline-none focus:border-[var(--accent)]"
                 style={{
@@ -389,7 +405,9 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
               <input
                 type="text"
                 value={contact.lastName}
-                onChange={(e) => onUpdate(contact.id, { lastName: e.target.value })}
+                onChange={(e) =>
+                  onUpdate(contact.id, { lastName: e.target.value })
+                }
                 placeholder="Last name"
                 className="h-9 px-2.5 rounded-xl border text-sm font-semibold outline-none focus:border-[var(--accent)]"
                 style={{
@@ -403,7 +421,9 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
               <input
                 type="text"
                 value={contact.nickname || ""}
-                onChange={(e) => onUpdate(contact.id, { nickname: e.target.value })}
+                onChange={(e) =>
+                  onUpdate(contact.id, { nickname: e.target.value })
+                }
                 placeholder="Nickname"
                 className="h-8 px-2.5 rounded-lg border text-xs outline-none focus:border-[var(--accent)]"
                 style={{
@@ -412,11 +432,16 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                 }}
               />
               <div className="col-span-2 relative flex items-center">
-                <Briefcase className="w-3.5 h-3.5 absolute left-2.5 pointer-events-none" style={{ color: "var(--text-muted)" }} />
+                <Briefcase
+                  className="w-3.5 h-3.5 absolute left-2.5 pointer-events-none"
+                  style={{ color: "var(--text-muted)" }}
+                />
                 <input
                   type="text"
                   value={contact.jobTitle || ""}
-                  onChange={(e) => onUpdate(contact.id, { jobTitle: e.target.value })}
+                  onChange={(e) =>
+                    onUpdate(contact.id, { jobTitle: e.target.value })
+                  }
                   placeholder="Role / Title"
                   className="w-full h-8 pl-7 pr-2.5 rounded-lg border text-xs outline-none focus:border-[var(--accent)]"
                   style={{
@@ -428,11 +453,16 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
             </div>
 
             <div className="relative flex items-center">
-              <Building2 className="w-3.5 h-3.5 absolute left-2.5 pointer-events-none" style={{ color: "var(--text-muted)" }} />
+              <Building2
+                className="w-3.5 h-3.5 absolute left-2.5 pointer-events-none"
+                style={{ color: "var(--text-muted)" }}
+              />
               <input
                 type="text"
                 value={contact.company || ""}
-                onChange={(e) => onUpdate(contact.id, { company: e.target.value })}
+                onChange={(e) =>
+                  onUpdate(contact.id, { company: e.target.value })
+                }
                 placeholder="Company / Organization"
                 className="w-full h-8 pl-7 pr-2.5 rounded-lg border text-xs outline-none focus:border-[var(--accent)]"
                 style={{
@@ -456,11 +486,27 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
           }}
         >
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
+            <div
+              className="text-[11px] font-semibold uppercase tracking-wider mb-2"
+              style={{ color: "var(--text-muted)" }}
+            >
               Closeness Tier
             </div>
-            <div className="grid grid-cols-4 gap-1 p-1 rounded-xl border" style={{ backgroundColor: "var(--bg-surface-subtle)", borderColor: "var(--border-subtle)" }}>
-              {(["inner", "close", "regular", "acquaintance"] as ContactClosenessTier[]).map((tier) => {
+            <div
+              className="grid grid-cols-4 gap-1 p-1 rounded-xl border"
+              style={{
+                backgroundColor: "var(--bg-surface-subtle)",
+                borderColor: "var(--border-subtle)",
+              }}
+            >
+              {(
+                [
+                  "inner",
+                  "close",
+                  "regular",
+                  "acquaintance",
+                ] as ContactClosenessTier[]
+              ).map((tier) => {
                 const active = contact.closeness === tier;
                 const meta = CLOSENESS_TIER_META[tier];
                 return (
@@ -470,12 +516,20 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                     onClick={() => onUpdate(contact.id, { closeness: tier })}
                     className="h-7 px-1.5 rounded-lg text-[11px] font-medium transition-colors truncate cursor-pointer"
                     style={{
-                      backgroundColor: active ? "var(--bg-elevated)" : "transparent",
-                      color: active ? "var(--text-primary)" : "var(--text-muted)",
+                      backgroundColor: active
+                        ? "var(--bg-elevated)"
+                        : "transparent",
+                      color: active
+                        ? "var(--text-primary)"
+                        : "var(--text-muted)",
                       boxShadow: active ? "var(--shadow-sm)" : undefined,
                     }}
                   >
-                    {tier === "inner" ? "Inner" : tier === "acquaintance" ? "Acquaint." : meta.label}
+                    {tier === "inner"
+                      ? "Inner"
+                      : tier === "acquaintance"
+                        ? "Acquaint."
+                        : meta.label}
                   </button>
                 );
               })}
@@ -484,7 +538,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+              <span
+                className="text-[11px] font-semibold uppercase tracking-wider"
+                style={{ color: "var(--text-muted)" }}
+              >
                 Relationship Circles
               </span>
               <button
@@ -507,9 +564,15 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                     onClick={() => toggleCircle(cir.id)}
                     className="h-7 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                     style={{
-                      backgroundColor: selected ? "var(--accent-soft)" : "var(--bg-elevated)",
-                      borderColor: selected ? cir.color : "var(--border-subtle)",
-                      color: selected ? "var(--text-primary)" : "var(--text-secondary)",
+                      backgroundColor: selected
+                        ? "var(--accent-soft)"
+                        : "var(--bg-elevated)",
+                      borderColor: selected
+                        ? cir.color
+                        : "var(--border-subtle)",
+                      color: selected
+                        ? "var(--text-primary)"
+                        : "var(--text-secondary)",
                     }}
                   >
                     <span
@@ -522,7 +585,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
               })}
             </div>
             {addingCircle && (
-              <form onSubmit={handleCreateCircle} className="mt-2 flex items-center gap-1.5">
+              <form
+                onSubmit={handleCreateCircle}
+                className="mt-2 flex items-center gap-1.5"
+              >
                 <input
                   type="text"
                   value={newCircleName}
@@ -537,7 +603,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                 <button
                   type="submit"
                   className="h-8 px-3 rounded-lg text-xs font-semibold cursor-pointer"
-                  style={{ backgroundColor: "var(--accent)", color: "var(--accent-fg)" }}
+                  style={{
+                    backgroundColor: "var(--accent)",
+                    color: "var(--accent-fg)",
+                  }}
                 >
                   Add
                 </button>
@@ -546,7 +615,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
           </div>
 
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--text-muted)" }}>
+            <div
+              className="text-[11px] font-semibold uppercase tracking-wider mb-1.5"
+              style={{ color: "var(--text-muted)" }}
+            >
               Tags
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
@@ -575,8 +647,14 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                   </button>
                 </span>
               ))}
-              <form onSubmit={handleAddTag} className="inline-flex items-center gap-1">
-                <Tag className="w-3 h-3" style={{ color: "var(--text-muted)" }} />
+              <form
+                onSubmit={handleAddTag}
+                className="inline-flex items-center gap-1"
+              >
+                <Tag
+                  className="w-3 h-3"
+                  style={{ color: "var(--text-muted)" }}
+                />
                 <input
                   type="text"
                   value={tagDraft}
@@ -603,10 +681,16 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
         >
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+              <div
+                className="text-[11px] font-semibold uppercase tracking-wider"
+                style={{ color: "var(--text-muted)" }}
+              >
                 Last Contacted
               </div>
-              <div className="text-xs font-mono tabular-nums mt-0.5" style={{ color: "var(--text-secondary)" }}>
+              <div
+                className="text-xs font-mono tabular-nums mt-0.5"
+                style={{ color: "var(--text-secondary)" }}
+              >
                 {daysSinceContact === null
                   ? "Not logged yet"
                   : daysSinceContact === 0
@@ -647,21 +731,38 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
             </div>
           </div>
 
-          <div className="pt-2.5 border-t grid grid-cols-1 sm:grid-cols-2 gap-2.5" style={{ borderColor: "var(--border-subtle)" }}>
+          <div
+            className="pt-2.5 border-t grid grid-cols-1 sm:grid-cols-2 gap-2.5"
+            style={{ borderColor: "var(--border-subtle)" }}
+          >
             <div>
-              <label className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>
-                <Gift className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} />
+              <label
+                className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider mb-1"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <Gift
+                  className="w-3.5 h-3.5"
+                  style={{ color: "var(--accent)" }}
+                />
                 <span>Birthday</span>
                 {nextBday && (
-                  <span className="font-mono normal-case text-[10px]" style={{ color: "var(--accent)" }}>
-                    ({nextBday.daysUntil === 0 ? "Today!" : `in ${nextBday.daysUntil}d`})
+                  <span
+                    className="font-mono normal-case text-[10px]"
+                    style={{ color: "var(--accent)" }}
+                  >
+                    (
+                    {nextBday.daysUntil === 0
+                      ? "Today!"
+                      : `in ${nextBday.daysUntil}d`}
+                    )
                   </span>
                 )}
               </label>
               <input
                 type="date"
                 value={
-                  contact.birthday && /^\d{4}-\d{2}-\d{2}$/.test(contact.birthday)
+                  contact.birthday &&
+                  /^\d{4}-\d{2}-\d{2}$/.test(contact.birthday)
                     ? contact.birthday
                     : ""
                 }
@@ -677,7 +778,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
             </div>
 
             <div>
-              <label className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>
+              <label
+                className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider mb-1"
+                style={{ color: "var(--text-muted)" }}
+              >
                 <Heart className="w-3.5 h-3.5" />
                 <span>Anniversary</span>
               </label>
@@ -702,8 +806,14 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
           </div>
 
           <label className="flex items-center justify-between gap-2 pt-1 cursor-pointer">
-            <span className="flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
-              <Calendar className="w-3.5 h-3.5" style={{ color: "var(--text-muted)" }} />
+            <span
+              className="flex items-center gap-2 text-xs"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <Calendar
+                className="w-3.5 h-3.5"
+                style={{ color: "var(--text-muted)" }}
+              />
               <span>Sync Birthday to Timeline &amp; Events</span>
             </span>
             <input
@@ -761,7 +871,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
               }}
             >
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                <div
+                  className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--text-muted)" }}
+                >
                   <Icon className="w-3.5 h-3.5" />
                   <span>{sec.title}</span>
                 </div>
@@ -801,7 +914,9 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                           updateLabeledList(
                             sec.key,
                             rows.map((r) =>
-                              r.id === row.id ? { ...r, label: e.target.value } : r,
+                              r.id === row.id
+                                ? { ...r, label: e.target.value }
+                                : r,
                             ),
                           )
                         }
@@ -819,7 +934,9 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                           updateLabeledList(
                             sec.key,
                             rows.map((r) =>
-                              r.id === row.id ? { ...r, value: e.target.value } : r,
+                              r.id === row.id
+                                ? { ...r, value: e.target.value }
+                                : r,
                             ),
                           )
                         }
@@ -833,13 +950,25 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                       {row.value && (
                         <button
                           type="button"
-                          onClick={() => void handleCopy(row.id, row.value, row.label || sec.title)}
+                          onClick={() =>
+                            void handleCopy(
+                              row.id,
+                              row.value,
+                              row.label || sec.title,
+                            )
+                          }
                           className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
-                          style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
+                          style={{
+                            borderColor: "var(--border-subtle)",
+                            color: "var(--text-muted)",
+                          }}
                           title="Copy"
                         >
                           {copiedId === row.id ? (
-                            <Check className="w-3.5 h-3.5" style={{ color: "var(--success)" }} />
+                            <Check
+                              className="w-3.5 h-3.5"
+                              style={{ color: "var(--success)" }}
+                            />
                           ) : (
                             <Copy className="w-3.5 h-3.5" />
                           )}
@@ -849,24 +978,32 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                         <a
                           href={`${sec.hrefPrefix}${row.value}`}
                           className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border hover:bg-[var(--bg-surface-subtle)]"
-                          style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
+                          style={{
+                            borderColor: "var(--border-subtle)",
+                            color: "var(--text-muted)",
+                          }}
                           title={`Open ${row.value}`}
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
                         </a>
                       )}
-                      {row.value && !sec.hrefPrefix && /^https?:\/\//i.test(row.value) && (
-                        <a
-                          href={row.value}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border hover:bg-[var(--bg-surface-subtle)]"
-                          style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
-                          title="Open link"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                      )}
+                      {row.value &&
+                        !sec.hrefPrefix &&
+                        /^https?:\/\//i.test(row.value) && (
+                          <a
+                            href={row.value}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border hover:bg-[var(--bg-surface-subtle)]"
+                            style={{
+                              borderColor: "var(--border-subtle)",
+                              color: "var(--text-muted)",
+                            }}
+                            title="Open link"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        )}
                       <button
                         type="button"
                         onClick={() =>
@@ -898,7 +1035,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
           }}
         >
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+            <div
+              className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider"
+              style={{ color: "var(--text-muted)" }}
+            >
               <MapPin className="w-3.5 h-3.5" />
               <span>Addresses</span>
             </div>
@@ -954,12 +1094,20 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                           <>
                             <button
                               type="button"
-                              onClick={() => void handleCopy(addr.id, oneLine, "address")}
+                              onClick={() =>
+                                void handleCopy(addr.id, oneLine, "address")
+                              }
                               className="h-7 px-2 rounded-lg border text-[11px] inline-flex items-center gap-1 hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
-                              style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
+                              style={{
+                                borderColor: "var(--border-subtle)",
+                                color: "var(--text-secondary)",
+                              }}
                             >
                               {copiedId === addr.id ? (
-                                <Check className="w-3 h-3" style={{ color: "var(--success)" }} />
+                                <Check
+                                  className="w-3 h-3"
+                                  style={{ color: "var(--success)" }}
+                                />
                               ) : (
                                 <Copy className="w-3 h-3" />
                               )}
@@ -970,7 +1118,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                               target="_blank"
                               rel="noopener noreferrer"
                               className="h-7 px-2 rounded-lg border text-[11px] inline-flex items-center gap-1 hover:bg-[var(--bg-surface-subtle)]"
-                              style={{ borderColor: "var(--border-subtle)", color: "var(--accent)" }}
+                              style={{
+                                borderColor: "var(--border-subtle)",
+                                color: "var(--accent)",
+                              }}
                             >
                               <MapPin className="w-3 h-3" />
                               <span>Maps</span>
@@ -981,7 +1132,9 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                           type="button"
                           onClick={() =>
                             onUpdate(contact.id, {
-                              addresses: contact.addresses.filter((a) => a.id !== addr.id),
+                              addresses: contact.addresses.filter(
+                                (a) => a.id !== addr.id,
+                              ),
                             })
                           }
                           className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
@@ -1019,7 +1172,9 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                       <input
                         type="text"
                         value={addr.country || ""}
-                        onChange={(e) => updateAddr({ country: e.target.value })}
+                        onChange={(e) =>
+                          updateAddr({ country: e.target.value })
+                        }
                         placeholder="Country"
                         className="h-8 px-2.5 rounded-lg border text-xs outline-none focus:border-[var(--accent)]"
                         style={{
@@ -1043,7 +1198,9 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                       <input
                         type="text"
                         value={addr.postalCode || ""}
-                        onChange={(e) => updateAddr({ postalCode: e.target.value })}
+                        onChange={(e) =>
+                          updateAddr({ postalCode: e.target.value })
+                        }
                         placeholder="Postal code"
                         className="h-8 px-2.5 rounded-lg border text-xs font-mono outline-none focus:border-[var(--accent)]"
                         style={{
@@ -1068,7 +1225,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
           }}
         >
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+            <div
+              className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider"
+              style={{ color: "var(--text-muted)" }}
+            >
               <Link2 className="w-3.5 h-3.5" />
               <span>Relationship Links</span>
             </div>
@@ -1098,7 +1258,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                       borderColor: "var(--border-subtle)",
                     }}
                   >
-                    <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                    <span
+                      className="text-[11px]"
+                      style={{ color: "var(--text-muted)" }}
+                    >
                       {rel.relation}:
                     </span>
                     {targetExists ? (
@@ -1193,7 +1356,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
                 <button
                   type="submit"
                   className="h-7 px-3 rounded-lg text-xs font-semibold cursor-pointer"
-                  style={{ backgroundColor: "var(--accent)", color: "var(--accent-fg)" }}
+                  style={{
+                    backgroundColor: "var(--accent)",
+                    color: "var(--accent-fg)",
+                  }}
                 >
                   Save link
                 </button>
@@ -1217,7 +1383,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
           }}
         >
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+            <span
+              className="text-[11px] font-semibold uppercase tracking-wider"
+              style={{ color: "var(--text-muted)" }}
+            >
               Custom Fields
             </span>
             <button
@@ -1295,7 +1464,10 @@ export const ContactInspector: React.FC<ContactInspectorProps> = ({
 
         {/* Rich Bio & Description Editor */}
         <section className="space-y-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+          <div
+            className="text-[11px] font-semibold uppercase tracking-wider"
+            style={{ color: "var(--text-muted)" }}
+          >
             Bio, Context &amp; Memories
           </div>
           <TiptapEditor
