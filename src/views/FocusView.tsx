@@ -672,6 +672,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
                   {xActiveTasks.map((entry) => {
                     const isBeingDragged = draggingXId === entry.id;
                     const isDropTarget = xDropTarget?.entryId === entry.id;
+                    const hasTags = entry.tags.length > 0;
 
                     return (
                       <div
@@ -756,7 +757,9 @@ export const FocusView: React.FC<FocusViewProps> = ({
                           e.preventDefault();
                           onOpenContextMenu({ kind: "entry", entry }, e);
                         }}
-                        className={`relative group flex items-start gap-2.5 px-3.5 py-3 transition-colors hover:bg-[var(--bg-surface-subtle)] ${
+                        className={`relative group flex items-center gap-2.5 px-3.5 ${
+                          hasTags ? "py-3" : "py-2"
+                        } transition-colors hover:bg-[var(--bg-surface-subtle)] ${
                           isBeingDragged
                             ? "opacity-45 bg-[var(--accent-soft)]"
                             : ""
@@ -816,7 +819,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
                             }
                           }}
                           onPointerCancel={clearXDragState}
-                          className="touch-none select-none w-6 h-6 -ml-1.5 mt-0 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+                          className="touch-none select-none w-6 h-6 -ml-1.5 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
                         >
                           <GripVertical className="w-3.5 h-3.5" />
                         </div>
@@ -824,7 +827,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
                         <button
                           type="button"
                           onClick={() => toggleEntryCompleted(entry.id)}
-                          className="mt-0.5 h-5 w-5 flex items-center justify-center rounded-full shrink-0 transition-colors"
+                          className="h-5 w-5 flex items-center justify-center rounded-full shrink-0 transition-colors"
                           style={{ color: "var(--text-muted)" }}
                           title="Mark complete"
                           aria-label={`Complete ${entry.title}`}
@@ -841,7 +844,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
                             }
                             className="text-sm font-medium"
                           />
-                          {(entry.scheduledAt || entry.tags.length > 0) && (
+                          {(entry.scheduledAt || hasTags) && (
                             <div
                               className="flex flex-wrap items-center gap-x-2 text-xs font-mono tabular-nums"
                               style={{ color: "var(--text-muted)" }}
@@ -851,7 +854,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
                                   {formatTime(entry.scheduledAt, timeFormat)}
                                 </span>
                               )}
-                              {entry.tags.length > 0 && (
+                              {hasTags && (
                                 <span>
                                   {entry.tags.map((t) => `#${t}`).join(" ")}
                                 </span>
@@ -866,7 +869,9 @@ export const FocusView: React.FC<FocusViewProps> = ({
                             e.stopPropagation();
                             onOpenContextMenu({ kind: "entry", entry }, e);
                           }}
-                          className="self-center h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0"
+                          className={`${
+                            hasTags ? "h-8 w-8" : "h-7 w-7"
+                          } flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0`}
                           style={{ color: "var(--text-muted)" }}
                           aria-label="More actions"
                         >

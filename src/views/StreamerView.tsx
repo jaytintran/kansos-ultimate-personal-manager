@@ -1750,11 +1750,13 @@ export const StreamerView = forwardRef<
         {/* Global Stream Details / Edit Drawer (opened from Quick-Add or other surfaces) */}
         {editingStream && (
           <StreamEditorDrawer
+            mode="edit"
             stream={editingStream}
             allStreams={streams}
             folders={streamFolders}
             inGrid={activeStreamIdSet.has(editingStream.id)}
             onClose={() => setEditingStreamId(null)}
+            onCreate={(stream, addToGrid) => addStream(stream, addToGrid)}
             onUpdate={(id, updates) => {
               updateStream(id, updates);
             }}
@@ -1763,7 +1765,10 @@ export const StreamerView = forwardRef<
               setEditingStreamId(null);
             }}
             onToggleInGrid={(id) => toggleStreamInGrid(id)}
-            onStackStream={handleSidebarStackStream}
+            onAddFolder={(name, parentId) =>
+              addStreamFolder(name, parentId ?? null)
+            }
+            onNotify={pushToast}
           />
         )}
       </div>
