@@ -90,7 +90,8 @@ import {
   pushWorkspaceToGist,
 } from "../utils/gist";
 import { syncNativeStatusBar } from "../utils/nativeStatusBar";
-import { parseNlpInput } from "../utils/nlp";
+import { extractUrlFromListInput, parseNlpInput } from "../utils/nlp";
+import { removeListItemBookLinks } from "../utils/listBookLinks";
 import { applySyncedViewPreferences } from "../utils/viewPreferences";
 
 const STORAGE_WORKSPACE_KEY = "kanso_workspace_v1";
@@ -603,7 +604,7 @@ interface WorkspaceContextValue {
   ) => ListCollection;
   updateList: (id: string, patch: Partial<ListCollection>) => void;
   renameList: (id: string, title: string, icon?: string) => void;
-  deleteList: (id: string) => void;
+  deleteList: (id: string, moveItemsToListId?: string) => void;
   reorderLists: (
     draggedId: string,
     targetId: string,
@@ -2302,23 +2303,44 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const deleteList = useCallback(
-    (id: string) => {
+    (id: string, moveItemsToListId?: string) => {
       const nowIso = new Date().toISOString();
-      mutateWorkspace((prev) => ({
-        ...prev,
-        lists: prev.lists.filter((l) => l.id !== id),
-        listItems: prev.listItems.filter((item) => item.listId !== id),
-        entries: prev.entries.map((entry) =>
-          entry.listIds && entry.listIds.includes(id)
-            ? {
-                ...entry,
-                listIds: entry.listIds.filter((lid) => lid !== id),
-                updatedAt: nowIso,
-              }
-            : entry,
-        ),
-      }));
-      pushToast("List deleted");
+      const targetMoveId =
+        moveItemsToListId && moveItemsToListId !== id ? moveItemsToListId : null;
+      let deletedIds: string[] = [];
+      mutateWorkspace((prev) => {
+        if (!targetMoveId) {
+          deletedIds = prev.listItems
+            .filter((item) => item.listId === id)
+            .map((item) => item.id);
+        }
+        return {
+          ...prev,
+          lists: prev.lists.filter((l) => l.id !== id),
+          listItems: targetMoveId
+            ? prev.listItems.map((item) =>
+                item.listId === id
+                  ? { ...item, listId: targetMoveId, updatedAt: nowIso }
+                  : item,
+              )
+            : prev.listItems.filter((item) => item.listId !== id),
+          entries: prev.entries.map((entry) =>
+            entry.listIds && entry.listIds.includes(id)
+              ? {
+                  ...entry,
+                  listIds: entry.listIds.filter((lid) => lid !== id),
+                  updatedAt: nowIso,
+                }
+              : entry,
+          ),
+        };
+      });
+      if (deletedIds.length > 0) {
+        queueMicrotask(() => removeListItemBookLinks(deletedIds));
+      }
+      pushToast(
+        targetMoveId ? "Items moved and list deleted" : "List deleted",
+      );
     },
     [mutateWorkspace, pushToast],
   );
@@ -2331,20 +2353,25 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     ): ListItem | null => {
       const trimmed = rawText.trim();
       if (!trimmed) return null;
+      const { url, strippedText, fallbackTitle } =
+        extractUrlFromListInput(trimmed);
       const parsed = parseNlpInput(
-        trimmed,
+        url ? strippedText : trimmed,
         getTodayKey(),
         workspace.settings.timeFormat,
       );
+      const finalTitle =
+        (parsed.cleanTitle || "").trim() || fallbackTitle || trimmed;
       const nowIso = new Date().toISOString();
       const item: ListItem = {
         id: uid("li"),
         listId,
-        title: parsed.cleanTitle,
+        title: finalTitle,
         subtitle: "",
         status,
         tags: parsed.tags,
         content: "",
+        url: url ?? undefined,
         scheduledAt: parsed.scheduledAt,
         completedAt: status === "done" ? nowIso : null,
         createdAt: nowIso,
@@ -2456,6 +2483,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const deleteListItem = useCallback(
     (id: string) => {
+      removeListItemBookLinks([id]);
       mutateWorkspace((prev) => ({
         ...prev,
         listItems: prev.listItems.filter((item) => item.id !== id),

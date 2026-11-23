@@ -19,6 +19,7 @@ import {
   ChevronUp,
   Circle,
   Clock,
+  ExternalLink,
   Eye,
   FileText,
   Flame,
@@ -81,6 +82,12 @@ import {
 } from "./IconLibrary";
 import { TimestampFieldFocus } from "./TimestampsModal";
 import { TiptapEditor, TiptapThumbToolbar } from "./TiptapEditor";
+import {
+  getListItemBookLink,
+  normalizeExternalUrl,
+  openExternalUrlSafely,
+  setListItemBookLink,
+} from "../utils/listBookLinks";
 
 const HABIT_COLOR_PRESETS = [
   "#b45309",
@@ -340,6 +347,12 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
   const [listDueDate, setListDueDate] = useState(() =>
     initialListSrc?.scheduledAt ? initialListSrc.scheduledAt.slice(0, 10) : "",
   );
+  const [listUrl, setListUrl] = useState(() => initialListSrc?.url ?? "");
+  const [listBookLink, setListBookLink] = useState<BookNoteLink | null>(() =>
+    target?.mode === "list_item" && target.id
+      ? getListItemBookLink(target.id)
+      : null,
+  );
 
   const lastSavedSnapRef = useRef<string>("");
   const debounceTimerRef = useRef<number | null>(null);
@@ -445,6 +458,8 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
       const nextTags = src?.tags ?? [];
       const nextContent = src?.content ?? "";
       const nextDue = src?.scheduledAt ? src.scheduledAt.slice(0, 10) : "";
+      const nextUrl = src?.url ?? "";
+      const nextBookLink = target.id ? getListItemBookLink(target.id) : null;
 
       setTitle(nextTitle);
       setListSubtitle(nextSub);
@@ -453,6 +468,8 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
       setTags(nextTags);
       setContent(nextContent);
       setListDueDate(nextDue);
+      setListUrl(nextUrl);
+      setListBookLink(nextBookLink);
 
       lastSavedSnapRef.current = JSON.stringify({
         title: nextTitle,
@@ -462,6 +479,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         tags: nextTags,
         content: nextContent,
         listDueDate: nextDue,
+        listUrl: nextUrl,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -566,13 +584,23 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         tags,
         content: effectiveContent,
         listDueDate,
+        listUrl,
       };
       const snap = JSON.stringify(snapObj);
-      if (snap === lastSavedSnapRef.current) return;
+      if (snap === lastSavedSnapRef.current) {
+        if (activeId) {
+          setListItemBookLink(activeId, listBookLink);
+        }
+        return;
+      }
 
       const scheduledAt = listDueDate
         ? new Date(`${listDueDate}T12:00:00`).toISOString()
         : null;
+      const trimmedUrl = listUrl.trim();
+      const normalizedUrl = trimmedUrl
+        ? normalizeExternalUrl(trimmedUrl) || trimmedUrl
+        : undefined;
       const patch: Partial<ListItem> = {
         title: title.trim() || "Untitled Item",
         subtitle: listSubtitle.trim(),
@@ -580,14 +608,19 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         listId,
         tags,
         content: effectiveContent,
+        url: normalizedUrl,
         scheduledAt,
       };
 
       if (activeId) {
         updateListItem(activeId, patch);
+        setListItemBookLink(activeId, listBookLink);
         if (effectiveContent !== content) setContent(effectiveContent);
         lastSavedSnapRef.current = snap;
-      } else if ((title.trim() || effectiveContent.trim()) && listId) {
+      } else if (
+        (title.trim() || effectiveContent.trim() || trimmedUrl) &&
+        listId
+      ) {
         const created = addListItem(
           listId,
           title.trim() || "Untitled Item",
@@ -595,6 +628,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         );
         if (created) {
           updateListItem(created.id, patch);
+          setListItemBookLink(created.id, listBookLink);
           setCreatedId(created.id);
           if (effectiveContent !== content) setContent(effectiveContent);
           lastSavedSnapRef.current = snap;
@@ -628,6 +662,8 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
     listStatus,
     listId,
     listDueDate,
+    listUrl,
+    listBookLink,
     updateEntry,
     createEntry,
     updateHabit,
@@ -1851,6 +1887,146 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
             </div>
           </div>
         </PropertyRow>
+
+        <PropertyRow
+          icon={<Link2 className="w-3.5 h-3.5" />}
+          label="URL"
+        >
+          <div className="flex items-center gap-1 -mx-1">
+            <input
+              type="url"
+              value={listUrl}
+              onChange={(e) => setListUrl(e.target.value)}
+              placeholder="https://..."
+              className="flex-1 min-w-0 bg-transparent rounded-md px-2 py-1 text-xs outline-none transition-colors hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] placeholder:opacity-50"
+              style={{ color: "var(--text-primary)" }}
+            />
+            {normalizeExternalUrl(listUrl) && (
+              <button
+                type="button"
+                onClick={() => openExternalUrlSafely(listUrl)}
+                title="Open URL in new tab"
+                aria-label="Open URL in new tab"
+                className="h-7 w-7 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] shrink-0 cursor-pointer"
+                style={{ color: "var(--accent)" }}
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </PropertyRow>
+
+        {currentListCollection?.listType === "books" && (() => {
+          const linkedBook = listBookLink?.bookId
+            ? workspace.books.find((b) => b.id === listBookLink.bookId) || null
+            : null;
+          return (
+            <PropertyRow
+              icon={<BookOpen className="w-3.5 h-3.5" />}
+              label="Library Book"
+              alignTop
+            >
+              <div className="space-y-1.5 -mx-1 px-1">
+                <select
+                  value={linkedBook ? linkedBook.id : ""}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    if (!nextId) {
+                      setListBookLink(null);
+                      if (activeId) setListItemBookLink(activeId, null);
+                      return;
+                    }
+                    const chosen = workspace.books.find((b) => b.id === nextId);
+                    if (!chosen) return;
+                    const unitIndex =
+                      chosen.currentLocation?.unitIndex ??
+                      (chosen.format === "pdf" ? 1 : 0);
+                    const scrollRatio =
+                      chosen.currentLocation?.scrollRatio ?? 0;
+                    const locationLabel =
+                      chosen.currentLocation?.label ||
+                      (chosen.format === "pdf"
+                        ? `Page ${unitIndex}`
+                        : `Section ${unitIndex + 1}`);
+                    const nextLink: BookNoteLink = {
+                      bookId: chosen.id,
+                      bookTitle: chosen.title,
+                      bookAuthor: chosen.author,
+                      bookFormat: chosen.format,
+                      unitIndex,
+                      scrollRatio,
+                      locationLabel,
+                      bookRemoved: false,
+                    };
+                    setListBookLink(nextLink);
+                    if (activeId) setListItemBookLink(activeId, nextLink);
+                  }}
+                  className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
+                  style={{
+                    color: linkedBook
+                      ? "var(--text-primary)"
+                      : "var(--text-muted)",
+                  }}
+                >
+                  <option
+                    value=""
+                    style={{
+                      backgroundColor: "var(--bg-elevated)",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    None (this device only)
+                  </option>
+                  {workspace.books.map((b) => (
+                    <option
+                      key={b.id}
+                      value={b.id}
+                      style={{
+                        backgroundColor: "var(--bg-elevated)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {b.title}
+                    </option>
+                  ))}
+                </select>
+
+                {listBookLink && linkedBook && (
+                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    {onJumpToBookLocation && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (debounceTimerRef.current) {
+                            window.clearTimeout(debounceTimerRef.current);
+                          }
+                          flushSave();
+                          onJumpToBookLocation(listBookLink);
+                        }}
+                        className="inline-flex items-center gap-1 font-medium hover:underline cursor-pointer"
+                        style={{ color: "var(--accent)" }}
+                      >
+                        <span>Open in Library</span>
+                        <ArrowUpRight className="w-3 h-3" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setListBookLink(null);
+                        if (activeId) setListItemBookLink(activeId, null);
+                      }}
+                      className="hover:underline cursor-pointer"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      Unlink
+                    </button>
+                  </div>
+                )}
+              </div>
+            </PropertyRow>
+          );
+        })()}
 
         <PropertyRow
           icon={<Hash className="w-3.5 h-3.5" />}

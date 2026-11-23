@@ -8,11 +8,12 @@ import {
   Flame,
   Hash,
   Info,
+  Link2,
   Timer,
 } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { EntryType } from '../types';
-import { parseNlpInput } from '../utils/nlp';
+import { extractUrlFromListInput, parseNlpInput } from '../utils/nlp';
 
 const TYPE_OPTIONS: {
   id: EntryType;
@@ -44,6 +45,7 @@ interface NlpInputBarProps {
   };
   availableTags?: string[];
   showTimeblockTip?: boolean;
+  parseUrls?: boolean;
 }
 
 export const NlpInputBar: React.FC<NlpInputBarProps> = ({
@@ -61,13 +63,24 @@ export const NlpInputBar: React.FC<NlpInputBarProps> = ({
   typeSwitcher,
   availableTags = [],
   showTimeblockTip = true,
+  parseUrls = false,
 }) => {
   const { workspace } = useWorkspace();
   const [value, setValue] = useState('');
 
+  const extractedUrlInfo = useMemo(
+    () => (parseUrls ? extractUrlFromListInput(value) : { url: null, strippedText: value, fallbackTitle: null }),
+    [parseUrls, value]
+  );
+
   const parsed = useMemo(
-    () => parseNlpInput(value, baseDateKey, workspace.settings.timeFormat),
-    [value, baseDateKey, workspace.settings.timeFormat]
+    () =>
+      parseNlpInput(
+        parseUrls ? extractedUrlInfo.strippedText : value,
+        baseDateKey,
+        workspace.settings.timeFormat
+      ),
+    [parseUrls, extractedUrlInfo.strippedText, value, baseDateKey, workspace.settings.timeFormat]
   );
 
   // Sync segmented type switcher if user types /task, /log, /note, /event, /timeblock
@@ -115,7 +128,8 @@ export const NlpInputBar: React.FC<NlpInputBarProps> = ({
     !parsed.hasTimeRange &&
     !disabled;
 
-  const hasTokens = parsed.tokens.length > 0 && !disabled;
+  const hasTokens =
+    (parsed.tokens.length > 0 || Boolean(extractedUrlInfo.url)) && !disabled;
 
   const previewNode =
     (hasTokens || needsTimeblockTip) && !disabled ? (
@@ -129,6 +143,17 @@ export const NlpInputBar: React.FC<NlpInputBarProps> = ({
           boxShadow: previewPosition === 'top' ? 'var(--shadow-popover)' : 'none',
         }}
       >
+        {extractedUrlInfo.url && (
+          <span
+            className="inline-flex items-center gap-1 font-mono text-[11px]"
+            style={{ color: 'var(--accent)' }}
+          >
+            <Link2 className="w-3 h-3 shrink-0" />
+            <span className="truncate max-w-[180px]">
+              {extractedUrlInfo.fallbackTitle || extractedUrlInfo.url}
+            </span>
+          </span>
+        )}
         {parsed.tokens.map((tok, i) => (
           <span
             key={`${tok.kind}-${tok.label}-${i}`}
@@ -153,7 +178,7 @@ export const NlpInputBar: React.FC<NlpInputBarProps> = ({
 
         {parsed.previewLabel && (
           <span className="truncate text-[11px]" style={{ color: 'var(--text-muted)' }}>
-            · {parsed.cleanTitle}
+            · {parsed.cleanTitle || extractedUrlInfo.fallbackTitle}
           </span>
         )}
 

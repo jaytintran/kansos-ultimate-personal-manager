@@ -146,6 +146,44 @@ function addMonthsClamped(base: Date, monthsToAdd: number): Date {
  * - Dates: today, tonight, tomorrow, in 2 days, next monday, this friday, 15/11, Nov 15
  * - Time blocks: from 1pm to 3pm, from 1pm30 to 2pm, from 8:30am to 10:45am, for 2h30m, for 45m, <from 1pm to 3pm>
  */
+export function extractUrlFromListInput(input: string): {
+  url: string | null;
+  strippedText: string;
+  fallbackTitle: string | null;
+} {
+  const urlMatch = input.match(/(?:https?:\/\/|www\.)[^\s<>()]+/i);
+  if (!urlMatch) {
+    return { url: null, strippedText: input, fallbackTitle: null };
+  }
+  const rawToken = urlMatch[0].replace(/[.,;!?)]+$/, "");
+  const normalized = /^www\./i.test(rawToken)
+    ? `https://${rawToken}`
+    : rawToken;
+  try {
+    const parsedUrl = new URL(normalized);
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return { url: null, strippedText: input, fallbackTitle: null };
+    }
+    const strippedText = input
+      .replace(urlMatch[0], " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    const host = parsedUrl.hostname.replace(/^www\./i, "");
+    const path =
+      parsedUrl.pathname && parsedUrl.pathname !== "/"
+        ? parsedUrl.pathname.replace(/\/$/, "")
+        : "";
+    const shortPath = path.length > 28 ? `${path.slice(0, 26)}…` : path;
+    return {
+      url: parsedUrl.toString(),
+      strippedText,
+      fallbackTitle: `${host}${shortPath}`,
+    };
+  } catch {
+    return { url: null, strippedText: input, fallbackTitle: null };
+  }
+}
+
 export function parseNlpInput(
   input: string,
   baseDateKey?: string,

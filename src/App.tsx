@@ -197,6 +197,10 @@ const KansoShell: React.FC = () => {
   const [railTooltip, setRailTooltip] = useState<RailTooltipState | null>(null);
   const bookJumpNonceRef = useRef(0);
   const mainRef = useRef<HTMLElement>(null);
+  const listsSelectItemHandlerRef = useRef<((itemId: string) => void) | null>(
+    null,
+  );
+  const listsIsSelectedRef = useRef<((itemId: string) => boolean) | null>(null);
 
   useEffect(() => {
     if (mainRef.current) {
@@ -1362,6 +1366,9 @@ const KansoShell: React.FC = () => {
           <ListsView
             onOpenDetail={setDetailTarget}
             onOpenContextMenu={handleOpenContextMenu}
+            onJumpToBookLocation={handleJumpToBookLocation}
+            selectItemHandlerRef={listsSelectItemHandlerRef}
+            isSelectedItemRef={listsIsSelectedRef}
           />
         )}
         {activeView === "contacts" && <ContactsView />}
@@ -1910,6 +1917,16 @@ const KansoShell: React.FC = () => {
         onClose={() => setContextMenu(null)}
         onOpenDetail={setDetailTarget}
         onOpenTimestamps={(entryId) => handleOpenTimestamps(entryId, null)}
+        onSelectListItem={
+          activeView === "lists"
+            ? (itemId) => listsSelectItemHandlerRef.current?.(itemId)
+            : undefined
+        }
+        isListItemSelected={
+          activeView === "lists"
+            ? (itemId) => Boolean(listsIsSelectedRef.current?.(itemId))
+            : undefined
+        }
       />
 
       {/* Timestamps Modal */}

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   CalendarClock,
   CheckCircle2,
+  CheckSquare,
   Clock,
   Copy,
   Edit3,
@@ -33,6 +34,8 @@ interface UniversalContextMenuProps {
   onClose: () => void;
   onOpenDetail: (target: DetailSheetTarget) => void;
   onOpenTimestamps: (entryId: string) => void;
+  onSelectListItem?: (itemId: string) => void;
+  isListItemSelected?: (itemId: string) => boolean;
 }
 
 export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
@@ -40,6 +43,8 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
   onClose,
   onOpenDetail,
   onOpenTimestamps,
+  onSelectListItem,
+  isListItemSelected,
 }) => {
   const {
     workspace,
@@ -227,6 +232,30 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
             <Edit3 className="w-3.5 h-3.5" style={{ color: 'var(--text-secondary)' }} />
             <span>Edit Details</span>
           </button>
+
+          {freshListItem && onSelectListItem && (
+            <button
+              type="button"
+              onClick={() => {
+                onSelectListItem(freshListItem.id);
+                onClose();
+              }}
+              className={btnCls}
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <CheckSquare
+                className="w-3.5 h-3.5"
+                style={{
+                  color: isListItemSelected?.(freshListItem.id)
+                    ? 'var(--accent)'
+                    : 'var(--text-secondary)',
+                }}
+              />
+              <span>
+                {isListItemSelected?.(freshListItem.id) ? 'Deselect' : 'Select'}
+              </span>
+            </button>
+          )}
 
           {canAchievement && freshEntry && (
             <button
