@@ -110,9 +110,13 @@ function processRichHtml(rawHtml: string): { html: string; hasTable: boolean } {
       const tag = el.tagName.toLowerCase();
       for (const attr of Array.from(el.attributes)) {
         const name = attr.name.toLowerCase();
+        const trimmedHref = name === 'href' ? attr.value.trim().toLowerCase() : '';
         if (
           name.startsWith('on') ||
-          (name === 'href' && attr.value.trim().toLowerCase().startsWith('javascript:'))
+          (name === 'href' &&
+            (trimmedHref.startsWith('javascript:') ||
+              trimmedHref.startsWith('data:') ||
+              trimmedHref.startsWith('vbscript:')))
         ) {
           el.removeAttribute(attr.name);
           continue;
@@ -129,6 +133,11 @@ function processRichHtml(rawHtml: string): { html: string; hasTable: boolean } {
             el.removeAttribute('style');
           }
         }
+      }
+
+      if (tag === 'a' && el.getAttribute('href')) {
+        el.setAttribute('target', '_blank');
+        el.setAttribute('rel', 'noopener noreferrer');
       }
 
       if ((tag === 'th' || tag === 'td') && !el.getAttribute('style')) {

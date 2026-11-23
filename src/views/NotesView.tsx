@@ -39,6 +39,9 @@ import {
   NotesLeftSidebar,
   NotesScope,
 } from "../components/notes/NotesLeftSidebar";
+import { NotesTabStrip } from "../components/notes/NotesTabStrip";
+import { NoteTabEditor } from "../components/notes/NoteTabEditor";
+import type { TimestampFieldFocus } from "../components/TimestampsModal";
 import { RichContent } from "../components/RichContent";
 import { useWorkspace } from "../context/WorkspaceContext";
 import {
@@ -70,6 +73,70 @@ const SIDEBAR_WIDTH_KEY = "kanso_notes_sidebar_width_v1";
 const SIDEBAR_COLLAPSED_KEY = "kanso_notes_sidebar_collapsed_v1";
 const CONN_OPEN_KEY = "kanso_notes_conn_open_v1";
 const CONN_MODE_KEY = "kanso_notes_conn_mode_v1";
+const WORKSPACE_STATE_STORAGE_KEY = "kanso_notes_workspace_state_v1";
+
+interface PersistedNotesWorkspaceState {
+  scope: NotesScope;
+  drilledParentId: string | null;
+  openTabIds: string[];
+  activeTabId: string | null;
+}
+
+function isValidNotesScope(raw: unknown): raw is NotesScope {
+  if (!raw || typeof raw !== "object") return false;
+  const candidate = raw as { kind?: unknown; notebookId?: unknown };
+  if (
+    candidate.kind === "all" ||
+    candidate.kind === "book_notes" ||
+    candidate.kind === "unfiled" ||
+    candidate.kind === "archive"
+  ) {
+    return true;
+  }
+  return (
+    candidate.kind === "notebook" &&
+    typeof candidate.notebookId === "string" &&
+    candidate.notebookId.length > 0
+  );
+}
+
+function loadPersistedNotesWorkspaceState(): PersistedNotesWorkspaceState {
+  const fallback: PersistedNotesWorkspaceState = {
+    scope: { kind: "all" },
+    drilledParentId: null,
+    openTabIds: [],
+    activeTabId: null,
+  };
+  try {
+    const raw = localStorage.getItem(WORKSPACE_STATE_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<PersistedNotesWorkspaceState>;
+    const scope: NotesScope = isValidNotesScope(parsed?.scope)
+      ? parsed.scope
+      : { kind: "all" };
+    const drilledParentId =
+      typeof parsed?.drilledParentId === "string" && parsed.drilledParentId
+        ? parsed.drilledParentId
+        : null;
+    const openTabIds = Array.isArray(parsed?.openTabIds)
+      ? Array.from(
+          new Set(
+            parsed.openTabIds.filter(
+              (id): id is string => typeof id === "string" && id.length > 0,
+            ),
+          ),
+        )
+      : [];
+    const activeTabId =
+      typeof parsed?.activeTabId === "string" &&
+      openTabIds.includes(parsed.activeTabId)
+        ? parsed.activeTabId
+        : null;
+    return { scope, drilledParentId, openTabIds, activeTabId };
+  } catch {
+    return fallback;
+  }
+}
 
 const LEGACY_EMOJI_ICON_MAP: Record<string, string> = {
   "📚": "BookOpen",
@@ -103,12 +170,14 @@ interface NotesViewProps {
   onOpenDetail: (target: DetailSheetTarget) => void;
   onOpenContextMenu: (record: ContextMenuRecord, e: React.MouseEvent) => void;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
+  onOpenTimestamps?: (entryId: string, focus?: TimestampFieldFocus) => void;
 }
 
 export const NotesView: React.FC<NotesViewProps> = ({
   onOpenDetail,
   onOpenContextMenu,
   onJumpToBookLocation,
+  onOpenTimestamps,
 }) => {
   const {
     workspace,
@@ -129,9 +198,21 @@ export const NotesView: React.FC<NotesViewProps> = ({
     [workspace.noteNotebooks],
   );
 
-  const [scope, setScope] = useState<NotesScope>({ kind: "all" });
-  const [drilledParentId, setDrilledParentId] = useState<string | null>(null);
-  const [focusedNoteId, setFocusedNoteId] = useState<string | null>(null);
+  const initialWorkspaceState = useMemo(loadPersistedNotesWorkspaceState, []);
+
+  const [scope, setScope] = useState<NotesScope>(initialWorkspaceState.scope);
+  const [drilledParentId, setDrilledParentId] = useState<string | null>(
+    initialWorkspaceState.drilledParentId,
+  );
+  const [openTabIds, setOpenTabIds] = useState<string[]>(
+    initialWorkspaceState.openTabIds,
+  );
+  const [activeTabId, setActiveTabId] = useState<string | null>(
+    initialWorkspaceState.activeTabId,
+  );
+  const [focusedNoteId, setFocusedNoteId] = useState<string | null>(
+    initialWorkspaceState.activeTabId,
+  );
   const [search, setSearch] = useState("");
   const [selectedTag, setSelectedTag] = useState<string>("all");
 
@@ -345,6 +426,12 @@ export const NotesView: React.FC<NotesViewProps> = ({
   );
 
   const noteById = useMemo(() => new Map(allNotes.map((n) => [n.id, n])), [allNotes]);
+  const anyNoteById = useMemo(() => {
+    const map = new Map<string, Entry>();
+    allNotes.forEach((n) => map.set(n.id, n));
+    archivedNotes.forEach((n) => map.set(n.id, n));
+    return map;
+  }, [allNotes, archivedNotes]);
 
   const directChildCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -362,6 +449,64 @@ export const NotesView: React.FC<NotesViewProps> = ({
       setDrilledParentId(null);
     }
   }, [drilledParentId, noteById]);
+
+  // Reconcile open tabs & active tab with live notes (drop deleted notes)
+  useEffect(() => {
+    const filteredIds = openTabIds.filter((id) => anyNoteById.has(id));
+    if (filteredIds.length !== openTabIds.length) {
+      let nextActive = activeTabId;
+      if (activeTabId && !anyNoteById.has(activeTabId)) {
+        const prevIndex = openTabIds.indexOf(activeTabId);
+        nextActive =
+          filteredIds[prevIndex] ??
+          filteredIds[prevIndex - 1] ??
+          filteredIds[0] ??
+          null;
+      }
+      setOpenTabIds(filteredIds);
+      setActiveTabId(nextActive);
+    } else if (activeTabId && !filteredIds.includes(activeTabId)) {
+      setActiveTabId(null);
+    }
+  }, [anyNoteById, openTabIds, activeTabId]);
+
+  // Keep focused note in sync with active note tab (for sidebar & connection map)
+  useEffect(() => {
+    if (activeTabId) {
+      setFocusedNoteId(activeTabId);
+    }
+  }, [activeTabId]);
+
+  // Persist local-only workspace state (NOT synced via GitHub Gist)
+  useEffect(() => {
+    try {
+      const payload: PersistedNotesWorkspaceState = {
+        scope,
+        drilledParentId,
+        openTabIds,
+        activeTabId,
+      };
+      localStorage.setItem(
+        WORKSPACE_STATE_STORAGE_KEY,
+        JSON.stringify(payload),
+      );
+    } catch {
+      // Ignore storage failures
+    }
+  }, [scope, drilledParentId, openTabIds, activeTabId]);
+
+  const openNotes = useMemo(
+    () =>
+      openTabIds
+        .map((id) => anyNoteById.get(id))
+        .filter((n): n is Entry => Boolean(n)),
+    [openTabIds, anyNoteById],
+  );
+
+  const activeTabNote = useMemo(
+    () => (activeTabId ? anyNoteById.get(activeTabId) ?? null : null),
+    [activeTabId, anyNoteById],
+  );
 
   const bookNotes = useMemo(
     () => allNotes.filter((n) => Boolean(n.bookLink)),
@@ -538,29 +683,86 @@ export const NotesView: React.FC<NotesViewProps> = ({
   const handleSelectScope = useCallback((nextScope: NotesScope) => {
     setScope(nextScope);
     setDrilledParentId(null);
+    setActiveTabId(null);
   }, []);
 
   const handleOpenNoteById = useCallback(
     (noteId: string) => {
+      if (!anyNoteById.has(noteId)) return;
       setFocusedNoteId(noteId);
-      onOpenDetail({ mode: "note", id: noteId });
+      setOpenTabIds((prev) =>
+        prev.includes(noteId) ? prev : [...prev, noteId],
+      );
+      setActiveTabId(noteId);
     },
-    [onOpenDetail],
+    [anyNoteById],
+  );
+
+  const handleCloseNoteTab = useCallback(
+    (noteId: string) => {
+      setOpenTabIds((prev) => {
+        const idx = prev.indexOf(noteId);
+        if (idx === -1) return prev;
+        const next = prev.filter((id) => id !== noteId);
+        if (activeTabId === noteId) {
+          const fallbackId = next[idx] ?? next[idx - 1] ?? null;
+          setActiveTabId(fallbackId);
+        }
+        return next;
+      });
+    },
+    [activeTabId],
+  );
+
+  const handleCloseOtherTabs = useCallback((keepNoteId: string) => {
+    setOpenTabIds((prev) => (prev.includes(keepNoteId) ? [keepNoteId] : []));
+    setActiveTabId(keepNoteId);
+  }, []);
+
+  const handleCloseAllTabs = useCallback(() => {
+    setOpenTabIds([]);
+    setActiveTabId(null);
+  }, []);
+
+  const handleReorderNoteTabs = useCallback(
+    (draggedId: string, targetId: string, position: "before" | "after") => {
+      if (!draggedId || !targetId || draggedId === targetId) return;
+      setOpenTabIds((prev) => {
+        if (!prev.includes(draggedId) || !prev.includes(targetId)) return prev;
+        const remaining = prev.filter((id) => id !== draggedId);
+        const targetIndex = remaining.indexOf(targetId);
+        if (targetIndex === -1) return prev;
+        const insertIndex =
+          position === "before" ? targetIndex : targetIndex + 1;
+        return [
+          ...remaining.slice(0, insertIndex),
+          draggedId,
+          ...remaining.slice(insertIndex),
+        ];
+      });
+    },
+    [],
   );
 
   const handleCreateNoteDirect = useCallback(
-    (options: { notebookId?: string | null; parentId?: string | null }) => {
+    (options?: {
+      notebookId?: string | null;
+      parentId?: string | null;
+      title?: string;
+    }) => {
       const created = addNotePage({
-        title: "",
+        title: options?.title ?? "",
         content: "",
-        notebookId: options.notebookId ?? null,
-        parentId: options.parentId ?? null,
+        notebookId: options?.notebookId ?? null,
+        parentId: options?.parentId ?? null,
         syncToTimeline: workspace.settings.defaultNoteTimelineSync ?? false,
       });
       setFocusedNoteId(created.id);
-      onOpenDetail({ mode: "note", id: created.id });
+      setOpenTabIds((prev) => [...prev, created.id]);
+      setActiveTabId(created.id);
+      return created;
     },
-    [addNotePage, workspace.settings.defaultNoteTimelineSync, onOpenDetail],
+    [addNotePage, workspace.settings.defaultNoteTimelineSync],
   );
 
   const handleNestNoteUnderParent = useCallback(
@@ -838,6 +1040,52 @@ export const NotesView: React.FC<NotesViewProps> = ({
 
       {/* Center Notes Studio Canvas */}
       <div className="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
+        <NotesTabStrip
+          openNotes={openNotes}
+          activeTabId={activeTabNote ? activeTabNote.id : null}
+          onSelectHome={() => setActiveTabId(null)}
+          onSelectTab={handleOpenNoteById}
+          onCloseTab={handleCloseNoteTab}
+          onCloseOtherTabs={handleCloseOtherTabs}
+          onCloseAllTabs={handleCloseAllTabs}
+          onReorderTabs={handleReorderNoteTabs}
+          onCreateNoteTab={() =>
+            handleCreateNoteDirect({
+              notebookId: activeNotebook ? activeNotebook.id : null,
+              parentId: drilledParentNote ? drilledParentNote.id : null,
+            })
+          }
+          onOpenInModal={(noteId) =>
+            onOpenDetail({ mode: "note", id: noteId })
+          }
+        />
+
+        {activeTabNote ? (
+          <NoteTabEditor
+            key={activeTabNote.id}
+            note={activeTabNote}
+            allActiveNotes={allNotes}
+            sidebarCollapsedDesktop={sidebarCollapsedDesktop}
+            connOpenDesktop={connOpenDesktop}
+            onExpandDesktopSidebar={() => setSidebarCollapsedDesktop(false)}
+            onOpenMobileTree={() => setMobileTreeOpen(true)}
+            onToggleDesktopConnections={() => setConnOpenDesktop((v) => !v)}
+            onOpenMobileConnections={() => setMobileConnOpen(true)}
+            onOpenNoteTab={handleOpenNoteById}
+            onCreateNoteTab={handleCreateNoteDirect}
+            onOpenInModal={(noteId) =>
+              onOpenDetail({ mode: "note", id: noteId })
+            }
+            onOpenTimestamps={onOpenTimestamps}
+            onJumpToBookLocation={onJumpToBookLocation}
+            onRequestArchive={(n) => requestDeleteOrArchiveNote(n, "archive")}
+            onRequestDelete={(n) => requestDeleteOrArchiveNote(n, "delete")}
+            onRestoreNote={(noteId) => {
+              archiveNotePage(noteId, false, "promote");
+              pushToast("Note restored", "success");
+            }}
+          />
+        ) : (
         <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 lg:px-8 pt-5 pb-20 space-y-4">
           {/* Header */}
           <header
@@ -979,17 +1227,9 @@ export const NotesView: React.FC<NotesViewProps> = ({
                 <button
                   type="button"
                   onClick={() =>
-                    onOpenDetail({
-                      mode: "note",
-                      draft: {
-                        type: "note",
-                        title: "",
-                        content: "",
-                        notebookId: activeNotebook ? activeNotebook.id : null,
-                        parentId: drilledParentNote ? drilledParentNote.id : null,
-                        syncToTimeline:
-                          workspace.settings.defaultNoteTimelineSync ?? false,
-                      },
+                    handleCreateNoteDirect({
+                      notebookId: activeNotebook ? activeNotebook.id : null,
+                      parentId: drilledParentNote ? drilledParentNote.id : null,
                     })
                   }
                   className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
@@ -2365,6 +2605,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
             );
           })()}
         </div>
+        )}
       </div>
 
       {/* Right Docked Connection Map (Tree & Anytype Graph) */}

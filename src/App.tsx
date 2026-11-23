@@ -1349,6 +1349,7 @@ const KansoShell: React.FC = () => {
             onOpenDetail={setDetailTarget}
             onOpenContextMenu={handleOpenContextMenu}
             onJumpToBookLocation={handleJumpToBookLocation}
+            onOpenTimestamps={handleOpenTimestamps}
           />
         )}
         {activeView === "events" && (

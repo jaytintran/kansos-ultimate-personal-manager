@@ -576,14 +576,20 @@
   margin-bottom: 0.35rem;
 }
 
-.kanso-notion-editor .ProseMirror .kanso-note-link {
+.kanso-notion-editor .ProseMirror .kanso-note-link,
+.kanso-tiptap .ProseMirror a,
+.kanso-tiptap .ProseMirror .kanso-web-link {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 3px;
   text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  cursor: pointer;
+  transition: text-decoration-color 120ms ease, opacity 120ms ease;
 }
 
-.kanso-notion-editor .ProseMirror .kanso-note-link:hover {
+.kanso-notion-editor .ProseMirror .kanso-note-link:hover,
+.kanso-tiptap .ProseMirror a:hover,
+.kanso-tiptap .ProseMirror .kanso-web-link:hover {
   text-decoration-color: var(--accent);
 }
 
@@ -1268,6 +1274,17 @@
   background: transparent;
   padding: 0;
   font-size: inherit;
+}
+
+.kanso-rich-content a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.kanso-rich-content a:hover {
+  text-decoration-color: var(--accent);
 }
 
 .kanso-rich-content.kanso-rich-has-table {

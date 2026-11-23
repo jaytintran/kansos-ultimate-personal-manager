@@ -1,5 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Editor, EditorContent, useEditor } from '@tiptap/react';
+import {
+  Editor,
+  EditorContent,
+  Extension,
+  InputRule,
+  getMarkRange,
+  useEditor,
+} from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import TaskList from '@tiptap/extension-task-list';
@@ -16,9 +23,13 @@ import {
   BetweenVerticalEnd,
   BetweenVerticalStart,
   Bold,
+  Check,
   CheckSquare,
   Code,
+  Copy,
+  ExternalLink,
   FileText,
+  Globe,
   Heading1,
   Heading2,
   Heading3,
@@ -28,6 +39,7 @@ import {
   ListOrdered,
   Minus,
   PanelTop,
+  Pencil,
   Plus,
   Quote,
   Redo2,
@@ -37,6 +49,8 @@ import {
   Terminal,
   Trash2,
   Undo2,
+  Unlink,
+  X,
 } from 'lucide-react';
 import type { Entry } from '../types';
 import { WikiLinkNode } from './notes/NoteTiptapExtensions';
@@ -168,6 +182,16 @@ const SLASH_ITEMS: SlashItem[] = [
       ed.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
   },
   {
+    id: 'link',
+    label: 'Web Link',
+    description: 'Insert a clickable URL or Markdown link',
+    keywords: 'link url web href markdown http',
+    icon: Globe,
+    action: () => {
+      // Handled inside TiptapEditor so it opens the inline link popover
+    },
+  },
+  {
     id: 'divider',
     label: 'Divider',
     description: 'Horizontal rule separator',
@@ -176,6 +200,88 @@ const SLASH_ITEMS: SlashItem[] = [
     action: (ed) => ed.chain().focus().setHorizontalRule().run(),
   },
 ];
+
+const OPEN_LINK_POPOVER_EVENT = 'kanso:open-link-popover';
+
+function normalizeSafeUrl(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^(javascript|data|vbscript|file):/i.test(trimmed)) return null;
+  if (/^https?:\/\/\S+$/i.test(trimmed) || /^mailto:\S+@\S+$/i.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^www\.[^\s/$.?#].[^\s]*$/i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  if (/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+(?::\d+)?(?:[/?#][^\s]*)?$/i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return null;
+}
+
+function parseSingleBareUrl(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed || /\s/.test(trimmed)) return null;
+  if (/^(?:https?:\/\/|www\.)\S+$/i.test(trimmed)) {
+    return normalizeSafeUrl(trimmed);
+  }
+  return null;
+}
+
+function openExternalAnchorSafely(href: string): void {
+  const safe = normalizeSafeUrl(href);
+  if (!safe || typeof document === 'undefined') return;
+  const a = document.createElement('a');
+  a.href = safe;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+const MarkdownLinkInputExtension = Extension.create({
+  name: 'markdownLinkInput',
+  addInputRules() {
+    return [
+      new InputRule({
+        find: /\[([^[\]\n]+)\]\(([^\s)\n]+(?:\([^\s)\n]*\)[^\s)\n]*)*)\)$/,
+        handler: ({ state, range, match }) => {
+          const label = match[1];
+          const rawUrl = match[2];
+          if (!label || !label.trim() || !rawUrl) return;
+
+          const prevChar =
+            range.from > 1 ? state.doc.textBetween(range.from - 1, range.from) : '';
+          if (prevChar === '[' || prevChar === '!' || prevChar === '\\') return;
+
+          const $from = state.doc.resolve(range.from);
+          if ($from.parent.type.name === 'codeBlock') return;
+          const codeMark = state.schema.marks.code;
+          if (codeMark && state.doc.rangeHasMark(range.from, range.to, codeMark)) return;
+
+          const href = normalizeSafeUrl(rawUrl);
+          if (!href) return;
+
+          const linkType = state.schema.marks.link;
+          if (!linkType) return;
+
+          const mark = linkType.create({
+            href,
+            target: '_blank',
+            rel: 'noopener noreferrer',
+            class: 'kanso-web-link',
+          });
+          state.tr
+            .insertText(label, range.from, range.to)
+            .addMark(range.from, range.from + label.length, mark)
+            .removeStoredMark(linkType)
+            .setMeta('preventAutolink', true);
+        },
+      }),
+    ];
+  },
+});
 
 type TableCellAlign = 'left' | 'center' | 'right' | null;
 
@@ -276,6 +382,7 @@ function looksLikeMarkdown(text: string): boolean {
     /^>\s+\S+/m.test(text) ||
     /^```/m.test(text) ||
     /\*\*[^*]+\*\*/.test(text) ||
+    /(?:^|[^![\\])\[[^[\]\n]+\]\([^\s)\n]+\)/.test(text) ||
     hasMarkdownTable(text)
   );
 }
@@ -284,12 +391,87 @@ function escapeHtmlStr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function inlineMd(s: string): string {
-  return escapeHtmlStr(s)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
+function escapeAttrStr(s: string): string {
+  return escapeHtmlStr(s).replace(/"/g, '&quot;');
+}
+
+function applyBasicInlineFormatting(s: string): string {
+  return s
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/~~([^~]+)~~/g, '<s>$1</s>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+
+function inlineMd(s: string): string {
+  const placeholders: string[] = [];
+  const stash = (html: string) => {
+    const token = `\u0000KANSO_INLINE_${placeholders.length}\u0000`;
+    placeholders.push(html);
+    return token;
+  };
+
+  // 1. Stash inline code spans first so URLs/asterisks inside `code` stay literal
+  let working = s.replace(/`([^`]+)`/g, (_m, code) =>
+    stash(`<code>${escapeHtmlStr(code)}</code>`)
+  );
+
+  // 2. Stash Markdown links [label](url)
+  working = working.replace(
+    /(\\*)\[([^[\]\n]+)\]\(([^\s)\n]+(?:\([^\s)\n]*\)[^\s)\n]*)*)\)/g,
+    (full, slashes: string, label: string, rawUrl: string) => {
+      if (slashes.length % 2 === 1) return full;
+      const safeHref = normalizeSafeUrl(rawUrl);
+      if (!safeHref) return full;
+      const formattedLabel = applyBasicInlineFormatting(escapeHtmlStr(label));
+      return (
+        slashes +
+        stash(
+          `<a href="${escapeAttrStr(safeHref)}" target="_blank" rel="noopener noreferrer" class="kanso-web-link">${formattedLabel}</a>`
+        )
+      );
+    }
+  );
+
+  // 3. Escape remaining raw text
+  working = escapeHtmlStr(working);
+
+  // 4. Auto-link bare URLs in remaining plain text
+  working = working.replace(
+    /(https?:\/\/[^\s<>"'\u0000]+|www\.[^\s<>"'\u0000]+)/gi,
+    (rawMatch) => {
+      let urlPart = rawMatch;
+      let trailing = '';
+      while (/[.,;:!?)]$/.test(urlPart)) {
+        const lastChar = urlPart.slice(-1);
+        if (lastChar === ')') {
+          const opens = (urlPart.match(/\(/g) || []).length;
+          const closes = (urlPart.match(/\)/g) || []).length;
+          if (closes <= opens) break;
+        }
+        trailing = lastChar + trailing;
+        urlPart = urlPart.slice(0, -1);
+      }
+      const unescapedUrl = urlPart
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>');
+      const safeHref = normalizeSafeUrl(unescapedUrl);
+      if (!safeHref) return rawMatch;
+      return (
+        stash(
+          `<a href="${escapeAttrStr(safeHref)}" target="_blank" rel="noopener noreferrer" class="kanso-web-link">${urlPart}</a>`
+        ) + trailing
+      );
+    }
+  );
+
+  // 5. Apply bold / strike / italic safely without touching stashed HTML attributes
+  working = applyBasicInlineFormatting(working);
+
+  // 6. Restore stashed inline tokens
+  return working.replace(/\u0000KANSO_INLINE_(\d+)\u0000/g, (_m, idx) => {
+    return placeholders[Number(idx)] ?? '';
+  });
 }
 
 function markdownToHtml(md: string): string {
@@ -544,6 +726,18 @@ type WikiCandidate =
   | { kind: 'note'; note: Entry }
   | { kind: 'create'; title: string };
 
+interface LinkPopoverState {
+  mode: 'view' | 'edit';
+  href: string;
+  text: string;
+  from: number;
+  to: number;
+  hasExistingLink: boolean;
+  top: number;
+  left: number;
+  placement: 'above' | 'below';
+}
+
 export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   docId,
   content,
@@ -565,6 +759,11 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   const [wikiIndex, setWikiIndex] = useState(0);
   const [wikiCoords, setWikiCoords] = useState<{ top: number; left: number } | null>(null);
   const [selectionBar, setSelectionBar] = useState<FloatingPos | null>(null);
+  const [linkPopover, setLinkPopover] = useState<LinkPopoverState | null>(null);
+  const [linkUrlDraft, setLinkUrlDraft] = useState('');
+  const [linkTextDraft, setLinkTextDraft] = useState('');
+  const [linkError, setLinkError] = useState('');
+  const [linkCopied, setLinkCopied] = useState(false);
   const [, forceRerender] = useState(0);
 
   const slashRangeRef = useRef<{ from: number; to: number } | null>(null);
@@ -575,6 +774,9 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   const wikiOpenRef = useRef(false);
   const wikiIndexRef = useRef(0);
   const wikiCandidatesRef = useRef<WikiCandidate[]>([]);
+  const linkPopoverRef = useRef<LinkPopoverState | null>(null);
+  linkPopoverRef.current = linkPopover;
+  const linkUrlInputRef = useRef<HTMLInputElement | null>(null);
   const allNotesRef = useRef<Entry[] | undefined>(allNotes);
   allNotesRef.current = allNotes;
   const onOpenNoteRef = useRef(onOpenNote);
@@ -692,12 +894,100 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     [variant]
   );
 
+  const computePopoverPos = useCallback((rect: DOMRect) => {
+    const popWidth = 304;
+    const popHeight = 178;
+    const clampedLeft = Math.max(
+      12,
+      Math.min(window.innerWidth - popWidth - 12, rect.left)
+    );
+    const openAbove =
+      rect.bottom + popHeight > window.innerHeight - 64 && rect.top > popHeight + 16;
+    return {
+      top: openAbove ? rect.top - 8 : rect.bottom + 8,
+      left: clampedLeft,
+      placement: (openAbove ? 'above' : 'below') as 'above' | 'below',
+    };
+  }, []);
+
+  const openLinkPopoverForEditor = useCallback(
+    (ed: Editor, mode: 'view' | 'edit' = 'edit') => {
+      const { state } = ed;
+      const linkMarkType = state.schema.marks.link;
+      let from = state.selection.from;
+      let to = state.selection.to;
+      let href = (ed.getAttributes('link')?.href as string) || '';
+      const hasExistingLink = Boolean(linkMarkType && ed.isActive('link'));
+
+      if (hasExistingLink && linkMarkType) {
+        const range = getMarkRange(state.selection.$from, linkMarkType);
+        if (range) {
+          from = range.from;
+          to = range.to;
+        }
+      }
+
+      const text = from < to ? state.doc.textBetween(from, to, ' ') : '';
+      let rect: DOMRect;
+      try {
+        const start = ed.view.coordsAtPos(from);
+        const end = ed.view.coordsAtPos(Math.max(from, to));
+        rect = new DOMRect(
+          Math.min(start.left, end.left),
+          Math.min(start.top, end.top),
+          Math.max(16, Math.abs(end.right - start.left)),
+          Math.max(18, Math.abs(end.bottom - start.top))
+        );
+      } catch {
+        rect = new DOMRect(window.innerWidth / 2 - 150, 140, 20, 20);
+      }
+      const pos = computePopoverPos(rect);
+      setSelectionBar(null);
+      setSlashOpen(false);
+      setWikiOpen(false);
+      setLinkUrlDraft(href);
+      setLinkTextDraft(text);
+      setLinkError('');
+      setLinkCopied(false);
+      setLinkPopover({
+        mode,
+        href,
+        text,
+        from,
+        to,
+        hasExistingLink,
+        ...pos,
+      });
+    },
+    [computePopoverPos]
+  );
+
+  const openLinkPopoverRef = useRef(openLinkPopoverForEditor);
+  openLinkPopoverRef.current = openLinkPopoverForEditor;
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
         codeBlock: false,
+        link: {
+          openOnClick: false,
+          autolink: true,
+          linkOnPaste: true,
+          markdownLinks: false,
+          defaultProtocol: 'https',
+          HTMLAttributes: {
+            class: 'kanso-web-link',
+            target: '_blank',
+            rel: 'noopener noreferrer',
+          },
+          isAllowedUri: (url, ctx) => {
+            if (/^\s*(javascript|data|vbscript|file):/i.test(url)) return false;
+            return ctx.defaultValidate(url);
+          },
+        },
       }),
+      MarkdownLinkInputExtension,
       CustomCodeBlock,
       Placeholder.configure({ placeholder }),
       TaskList,
@@ -715,6 +1005,55 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     ],
     content: content || '',
     editorProps: {
+      handleClick: (view, pos, event) => {
+        const targetEl = event.target;
+        const anchorEl =
+          targetEl instanceof HTMLElement
+            ? (targetEl.closest('a[href]') as HTMLAnchorElement | null)
+            : null;
+        if (!anchorEl || !view.dom.contains(anchorEl)) {
+          if (linkPopoverRef.current) setLinkPopover(null);
+          return false;
+        }
+
+        const linkMarkType = view.state.schema.marks.link;
+        const resolvedPos = view.state.doc.resolve(pos);
+        const markRange = linkMarkType ? getMarkRange(resolvedPos, linkMarkType) : undefined;
+        const rawHref = anchorEl.getAttribute('href') || '';
+        const safeHref = normalizeSafeUrl(rawHref) || rawHref;
+
+        if (event.metaKey || event.ctrlKey) {
+          event.preventDefault();
+          openExternalAnchorSafely(safeHref);
+          return true;
+        }
+
+        event.preventDefault();
+        const from = markRange?.from ?? pos;
+        const to = markRange?.to ?? pos;
+        const linkText =
+          markRange && markRange.from < markRange.to
+            ? view.state.doc.textBetween(markRange.from, markRange.to, ' ')
+            : anchorEl.textContent || '';
+        const coords = computePopoverPos(anchorEl.getBoundingClientRect());
+        setSelectionBar(null);
+        setSlashOpen(false);
+        setWikiOpen(false);
+        setLinkUrlDraft(safeHref);
+        setLinkTextDraft(linkText);
+        setLinkError('');
+        setLinkCopied(false);
+        setLinkPopover({
+          mode: 'view',
+          href: safeHref,
+          text: linkText,
+          from,
+          to,
+          hasExistingLink: true,
+          ...coords,
+        });
+        return true;
+      },
       handlePaste: (_view, event) => {
         const htmlData = event.clipboardData?.getData('text/html') || '';
         const textData = event.clipboardData?.getData('text/plain') || '';
@@ -723,10 +1062,45 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
           /<(table|thead|tbody|tr|th|td|ul|ol|li|h[1-6]|blockquote|strong|b|em|i|a)\b/i.test(
             htmlData
           );
+
+        const singleBareUrl = !hasSemanticHtml ? parseSingleBareUrl(textData) : null;
+        if (singleBareUrl && editorRef.current) {
+          event.preventDefault();
+          const activeEd = editorRef.current;
+          if (!activeEd.state.selection.empty) {
+            activeEd.chain().focus().setLink({ href: singleBareUrl }).run();
+          } else {
+            activeEd
+              .chain()
+              .focus()
+              .insertContent([
+                {
+                  type: 'text',
+                  text: textData.trim(),
+                  marks: [
+                    {
+                      type: 'link',
+                      attrs: {
+                        href: singleBareUrl,
+                        target: '_blank',
+                        rel: 'noopener noreferrer',
+                        class: 'kanso-web-link',
+                      },
+                    },
+                  ],
+                },
+                { type: 'text', text: ' ' },
+              ])
+              .run();
+          }
+          return true;
+        }
+
         if (
           textData &&
           ((!htmlData && looksLikeMarkdown(textData)) ||
-            (!hasSemanticHtml && hasMarkdownTable(textData)))
+            (!hasSemanticHtml &&
+              (hasMarkdownTable(textData) || looksLikeMarkdown(textData))))
         ) {
           event.preventDefault();
           const converted = markdownToHtml(textData);
@@ -788,6 +1162,12 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
             return true;
           }
         }
+        if (event.key === 'Escape' && linkPopoverRef.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          setLinkPopover(null);
+          return true;
+        }
         if (!slashOpenRef.current) return false;
         const items = filteredSlashRef.current;
         if (event.key === 'ArrowDown') {
@@ -808,7 +1188,11 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
             if (slashRangeRef.current) {
               activeEd.chain().focus().deleteRange(slashRangeRef.current).run();
             }
-            selected.action(activeEd);
+            if (selected.id === 'link') {
+              openLinkPopoverRef.current(activeEd, 'edit');
+            } else {
+              selected.action(activeEd);
+            }
             setSlashOpen(false);
             setSlashQuery('');
             return true;
@@ -948,15 +1332,54 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     lastEmittedHtmlRef.current = normalizedNext;
   }, [docId, editor, content]);
 
-  // Dismiss floating selection bar on scroll so it never drifts away from text
+  // Dismiss floating selection bar / link popover on scroll so it never drifts away from text
   useEffect(() => {
-    if (!selectionBar && !slashOpen) return;
+    if (!selectionBar && !slashOpen && !linkPopover) return;
     const handleScroll = () => {
       if (selectionBar) setSelectionBar(null);
+      if (linkPopover) setLinkPopover(null);
     };
     window.addEventListener('scroll', handleScroll, true);
     return () => window.removeEventListener('scroll', handleScroll, true);
-  }, [selectionBar, slashOpen]);
+  }, [selectionBar, slashOpen, linkPopover]);
+
+  // Listen for custom open-link-popover triggers from TiptapThumbToolbar
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom;
+    const onOpenLink = () => {
+      openLinkPopoverRef.current(editor, 'edit');
+    };
+    dom.addEventListener(OPEN_LINK_POPOVER_EVENT, onOpenLink);
+    return () => dom.removeEventListener(OPEN_LINK_POPOVER_EVENT, onOpenLink);
+  }, [editor]);
+
+  // Autofocus URL field when link edit popover opens; dismiss on outside click / Escape
+  useEffect(() => {
+    if (!linkPopover) return;
+    if (linkPopover.mode === 'edit') {
+      window.setTimeout(() => linkUrlInputRef.current?.focus(), 10);
+    }
+    const onMouseDown = (e: MouseEvent) => {
+      const targetEl = e.target as HTMLElement | null;
+      if (targetEl?.closest('.kanso-link-popover')) return;
+      if (targetEl?.closest('a[href]') && editor?.view.dom.contains(targetEl)) return;
+      setLinkPopover(null);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setLinkPopover(null);
+        editor?.commands.focus();
+      }
+    };
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [linkPopover, editor]);
 
   if (!editor) return null;
 
@@ -970,9 +1393,73 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     if (slashRangeRef.current) {
       editor.chain().focus().deleteRange(slashRangeRef.current).run();
     }
-    item.action(editor);
+    if (item.id === 'link') {
+      openLinkPopoverForEditor(editor, 'edit');
+    } else {
+      item.action(editor);
+    }
     setSlashOpen(false);
     setSlashQuery('');
+  };
+
+  const handleSaveLinkPopover = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!linkPopover) return;
+    const safeHref = normalizeSafeUrl(linkUrlDraft);
+    if (!safeHref) {
+      setLinkError('Enter a valid URL (e.g. https://example.com)');
+      return;
+    }
+    const label = linkTextDraft.trim() || safeHref;
+    const { from, to } = linkPopover;
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(
+        { from, to },
+        [
+          {
+            type: 'text',
+            text: label,
+            marks: [
+              {
+                type: 'link',
+                attrs: {
+                  href: safeHref,
+                  target: '_blank',
+                  rel: 'noopener noreferrer',
+                  class: 'kanso-web-link',
+                },
+              },
+            ],
+          },
+        ]
+      )
+      .unsetMark('link')
+      .run();
+    setLinkPopover(null);
+  };
+
+  const handleUnlinkPopover = () => {
+    if (!linkPopover) return;
+    editor
+      .chain()
+      .focus()
+      .setTextSelection({ from: linkPopover.from, to: linkPopover.to })
+      .unsetLink()
+      .run();
+    setLinkPopover(null);
+  };
+
+  const handleCopyLinkUrl = async () => {
+    if (!linkPopover?.href) return;
+    try {
+      await navigator.clipboard.writeText(linkPopover.href);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 1500);
+    } catch {
+      // Ignore clipboard failures
+    }
   };
 
   const applyWikiCandidate = (candidate: WikiCandidate) => {
@@ -1145,6 +1632,201 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
           </button>
         );
       })}
+    </div>
+  );
+
+  const linkPopoverNode = linkPopover && (
+    <div
+      className={`kanso-link-popover fixed z-[75] w-[304px] rounded-xl border p-2.5 ${
+        linkPopover.placement === 'above' ? '-translate-y-full' : ''
+      }`}
+      style={{
+        top: linkPopover.top,
+        left: linkPopover.left,
+        backgroundColor: 'var(--bg-elevated)',
+        borderColor: 'var(--border-strong)',
+        boxShadow: 'var(--shadow-popover)',
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {linkPopover.mode === 'view' ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Globe
+              className="w-3.5 h-3.5 shrink-0"
+              style={{ color: 'var(--accent)' }}
+            />
+            <span
+              className="text-xs font-mono truncate flex-1 min-w-0"
+              style={{ color: 'var(--text-secondary)' }}
+              title={linkPopover.href}
+            >
+              {linkPopover.href}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <a
+              href={normalizeSafeUrl(linkPopover.href) || linkPopover.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setLinkPopover(null)}
+              className="h-7 px-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+              style={{
+                backgroundColor: 'var(--accent)',
+                color: 'var(--accent-fg)',
+              }}
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>Open</span>
+            </a>
+            <button
+              type="button"
+              onClick={() => void handleCopyLinkUrl()}
+              className="h-7 px-2 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: linkCopied ? 'var(--success)' : 'var(--text-secondary)',
+              }}
+            >
+              {linkCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              <span>{linkCopied ? 'Copied' : 'Copy'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLinkUrlDraft(linkPopover.href);
+                setLinkTextDraft(linkPopover.text);
+                setLinkError('');
+                setLinkPopover({ ...linkPopover, mode: 'edit' });
+              }}
+              className="h-7 px-2 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              <Pencil className="w-3 h-3" />
+              <span>Edit</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleUnlinkPopover}
+              title="Remove link"
+              aria-label="Remove link"
+              className="h-7 w-7 ml-auto rounded-lg border flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--danger)',
+              }}
+            >
+              <Unlink className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={handleSaveLinkPopover} className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span
+              className="text-[10.5px] font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              {linkPopover.hasExistingLink ? 'Edit Link' : 'Insert Web Link'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setLinkPopover(null)}
+              aria-label="Close link editor"
+              className="h-5 w-5 rounded flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <input
+            ref={linkUrlInputRef}
+            type="text"
+            value={linkUrlDraft}
+            onChange={(e) => {
+              setLinkUrlDraft(e.target.value);
+              if (linkError) setLinkError('');
+            }}
+            placeholder="https://example.com"
+            aria-label="Link URL"
+            className="w-full h-8 px-2.5 rounded-lg border text-xs font-mono outline-none focus:border-[var(--accent)]"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
+          />
+          <input
+            type="text"
+            value={linkTextDraft}
+            onChange={(e) => setLinkTextDraft(e.target.value)}
+            placeholder="Link label (optional)"
+            aria-label="Link text"
+            className="w-full h-8 px-2.5 rounded-lg border text-xs outline-none focus:border-[var(--accent)]"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
+          />
+          {linkError && (
+            <p className="text-[11px]" style={{ color: 'var(--danger)' }}>
+              {linkError}
+            </p>
+          )}
+          <div className="flex items-center justify-between gap-1.5 pt-0.5">
+            {linkPopover.hasExistingLink ? (
+              <button
+                type="button"
+                onClick={handleUnlinkPopover}
+                className="h-7 px-2 rounded-lg border text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--danger)',
+                }}
+              >
+                <Unlink className="w-3 h-3" />
+                <span>Unlink</span>
+              </button>
+            ) : (
+              <span className="text-[10.5px]" style={{ color: 'var(--text-muted)' }}>
+                Tip: [label](url)
+              </span>
+            )}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setLinkPopover(null)}
+                className="h-7 px-2.5 rounded-lg border text-xs font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="h-7 px-3 rounded-lg text-xs font-semibold cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--accent)',
+                  color: 'var(--accent-fg)',
+                }}
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </form>
+      )}
     </div>
   );
 
@@ -1359,6 +2041,14 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
           >
             <Code className="w-3.5 h-3.5" />
           </ToolbarBtn>
+          <ToolbarBtn
+            size="sm"
+            active={editor.isActive('link')}
+            onClick={() => openLinkPopoverForEditor(editor, 'edit')}
+            label="Insert or edit web link"
+          >
+            <Link2 className="w-3.5 h-3.5" />
+          </ToolbarBtn>
 
           <span
             className="mx-1 h-4 w-px"
@@ -1547,6 +2237,14 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
             >
               <Code className="w-3.5 h-3.5" />
             </ToolbarBtn>
+            <ToolbarBtn
+              size="sm"
+              active={editor.isActive('link')}
+              onClick={() => openLinkPopoverForEditor(editor, 'edit')}
+              label="Insert or edit web link"
+            >
+              <Link2 className="w-3.5 h-3.5" />
+            </ToolbarBtn>
 
             <span
               className="mx-0.5 h-4 w-px"
@@ -1602,6 +2300,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
 
         {slashMenu}
         {wikiMenu}
+        {linkPopoverNode}
       </div>
     );
   }
@@ -1657,6 +2356,13 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
           label="Inline code"
         >
           <Code className="w-4 h-4" />
+        </ToolbarBtn>
+        <ToolbarBtn
+          active={editor.isActive('link')}
+          onClick={() => openLinkPopoverForEditor(editor, 'edit')}
+          label="Insert or edit web link"
+        >
+          <Link2 className="w-4 h-4" />
         </ToolbarBtn>
 
         <span
@@ -1776,6 +2482,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
 
       {slashMenu}
       {wikiMenu}
+      {linkPopoverNode}
     </div>
   );
 };
@@ -1882,6 +2589,15 @@ export const TiptapThumbToolbar: React.FC<TiptapThumbToolbarProps> = ({ editor, 
             label="Inline code"
           >
             <Code className="w-4 h-4" />
+          </ThumbBtn>
+          <ThumbBtn
+            active={editor?.isActive('link')}
+            onAction={() => {
+              editor?.view.dom.dispatchEvent(new CustomEvent(OPEN_LINK_POPOVER_EVENT));
+            }}
+            label="Insert or edit web link"
+          >
+            <Link2 className="w-4 h-4" />
           </ThumbBtn>
           <ThumbBtn
             active={editor?.isActive('bulletList')}
