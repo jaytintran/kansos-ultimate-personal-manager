@@ -1631,28 +1631,54 @@ if (fs.existsSync(iconsSourceDir) && fs.existsSync(androidResDir)) {
     }
   }
 
-  // Set adaptive icon background color (#B45309) in values/ic_launcher_background.xml
+  // Set adaptive icon background color (#18181B Deep Ink Charcoal) in values/ic_launcher_background.xml
   const valuesDir = path.join(androidResDir, 'values');
   fs.mkdirSync(valuesDir, { recursive: true });
   fs.writeFileSync(
     path.join(valuesDir, 'ic_launcher_background.xml'),
-    `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#B45309</color>\n</resources>\n`,
+    `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#18181B</color>\n</resources>\n`,
     'utf8'
   );
 
-  // Set adaptive icon XML in mipmap-anydpi-v26/ so Android 8+ uses our clean adaptive background & foreground
+  // Write monochrome Zen Enso vector drawable for Android 13+ Material You themed icons
+  const drawableDir = path.join(androidResDir, 'drawable');
+  fs.mkdirSync(drawableDir, { recursive: true });
+  const monochromeXml = `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="8.52632"
+        android:translateY="8.52632"
+        android:scaleX="0.17763158"
+        android:scaleY="0.17763158">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M407.17,240.11A152,152 0 1,1 302.97,111.44A18.73,18.73 0 0,1 295.76,148.19A106,106 0 1,0 368.42,237.92A19.40,19.40 0 0,1 407.17,240.11Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M224,256A32,32 0 1,0 288,256A32,32 0 1,0 224,256Z" />
+    </group>
+</vector>
+`;
+  fs.writeFileSync(path.join(drawableDir, 'ic_launcher_monochrome.xml'), monochromeXml, 'utf8');
+
+  // Set adaptive icon XML in mipmap-anydpi-v26/ so Android 8+ uses our clean adaptive background, foreground & Android 13+ monochrome layer
   const anydpiDir = path.join(androidResDir, 'mipmap-anydpi-v26');
   fs.mkdirSync(anydpiDir, { recursive: true });
   const adaptiveXml = `<?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background" />
     <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
 </adaptive-icon>
 `;
   fs.writeFileSync(path.join(anydpiDir, 'ic_launcher.xml'), adaptiveXml, 'utf8');
   fs.writeFileSync(path.join(anydpiDir, 'ic_launcher_round.xml'), adaptiveXml, 'utf8');
 
-  console.log('[Kanso Android] Installed Kanso launcher & adaptive icons across all mipmap densities.');
+  console.log('[Kanso Android] Installed Kanso Ink Enso launcher & adaptive icons across all mipmap densities.');
 }
 
 console.log('[Kanso Android] Done! Run `npm run cap:sync` and `npm run cap:open` to launch in Android Studio.');

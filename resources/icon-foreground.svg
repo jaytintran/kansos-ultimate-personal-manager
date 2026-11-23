@@ -1,12 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <g transform="translate(256 256) scale(0.72) translate(-256 -256)">
-    <rect x="148" y="130" width="48" height="252" rx="24" fill="#FAF8F5" />
+  <g transform="translate(256 256) scale(0.85) translate(-256 -256)">
     <path
-      d="M342 154L242 256L342 358"
-      stroke="#FAF8F5"
-      stroke-width="48"
-      stroke-linecap="round"
-      stroke-linejoin="round"
+      d="M 407.17 240.11 A 152 152 0 1 1 302.97 111.44 A 18.73 18.73 0 0 1 295.76 148.19 A 106 106 0 1 0 368.42 237.92 A 19.40 19.40 0 0 1 407.17 240.11 Z"
+      fill="#FAF8F5"
     />
+    <circle cx="256" cy="256" r="32" fill="#FAF8F5" />
   </g>
 </svg>
