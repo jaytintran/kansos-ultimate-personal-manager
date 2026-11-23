@@ -2327,7 +2327,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
               {target.mode === "note" && (
                 <nav
                   aria-label="Page breadcrumb"
-                  className="flex flex-wrap items-center gap-1 text-xs -mb-2"
+                  className="flex flex-wrap items-center gap-1 text-xs -mb-1"
                   style={{ color: "var(--text-muted)" }}
                 >
                   <span className="truncate max-w-[140px]">
