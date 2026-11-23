@@ -28,7 +28,7 @@ export type EntrySource =
   | "achievement";
 
 export type EventCategory = "official" | "personal";
-export type EventAttendance = "attended" | "missed" | null;
+export type EventAttendance = "attended" | "missed" | "universal" | null;
 
 export type NoteStatus =
   | "inbox"

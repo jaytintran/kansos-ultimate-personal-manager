@@ -5,6 +5,7 @@ import {
   Clock,
   Copy,
   Edit3,
+  Globe,
   Plus,
   Tag,
   Trash2,
@@ -311,6 +312,23 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
                 <XCircle className="w-3.5 h-3.5" />
                 <span>
                   {freshEntry.attendance === 'missed' ? 'Clear missed' : 'Mark missed'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEventAttendance(
+                    freshEntry.id,
+                    freshEntry.attendance === 'universal' ? null : 'universal'
+                  );
+                  onClose();
+                }}
+                className={btnCls}
+                style={{ color: 'var(--accent)' }}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>
+                  {freshEntry.attendance === 'universal' ? 'Clear universal' : 'Mark universal'}
                 </span>
               </button>
             </>

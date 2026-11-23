@@ -3,6 +3,7 @@ import {
   Calendar,
   Check,
   Filter,
+  Globe,
   LayoutGrid,
   List as ListIcon,
   MapPin,
@@ -30,12 +31,14 @@ type EventCatFilter = "all" | "official" | "personal";
 type EventTimeframeFilter = "all" | "upcoming" | "today" | "past";
 type EventSort = "date-asc" | "date-desc" | "title-asc";
 type EventsViewMode = "grid" | "list";
+type EventStatusFilter = "all" | "attended" | "missed" | "universal" | "pending";
 
 interface PersistedEventFilters {
   category: EventCatFilter;
   timeframe: EventTimeframeFilter;
   sort: EventSort;
   viewMode: EventsViewMode;
+  status: EventStatusFilter;
 }
 
 const FILTER_STORAGE_KEY = "kanso_events_filters_v1";
@@ -67,6 +70,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
           timeframe: "all",
           sort: "date-asc",
           viewMode: "grid",
+          status: "all",
           ...JSON.parse(raw),
         };
       }
@@ -78,6 +82,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
       timeframe: "all",
       sort: "date-asc",
       viewMode: "grid",
+      status: "all",
     };
   });
 
@@ -99,6 +104,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
             timeframe: "all",
             sort: "date-asc",
             viewMode: "grid",
+            status: "all",
             ...JSON.parse(raw),
           });
         }
@@ -130,6 +136,15 @@ export const EventsView: React.FC<EventsViewProps> = ({
         if (filters.timeframe === "upcoming" && dayKey < todayKey) return false;
         if (filters.timeframe === "past" && dayKey >= todayKey) return false;
 
+        // Status filter
+        const sf = (filters as PersistedEventFilters).status ?? "all";
+        if (sf !== "all") {
+          if (sf === "pending" && ev.attendance !== null) return false;
+          else if (sf === "attended" && ev.attendance !== "attended") return false;
+          else if (sf === "missed" && ev.attendance !== "missed") return false;
+          else if (sf === "universal" && ev.attendance !== "universal") return false;
+        }
+
         if (!q) return true;
         return (
           ev.title.toLowerCase().includes(q) ||
@@ -148,7 +163,8 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
   const activeFilterCount =
     (filters.category !== "all" ? 1 : 0) +
-    (filters.timeframe !== "all" ? 1 : 0);
+    (filters.timeframe !== "all" ? 1 : 0) +
+    (((filters as PersistedEventFilters).status ?? "all") !== "all" ? 1 : 0);
 
   const handleStartNewEvent = () => {
     const scheduledAt = buildDateAtTime(newEventDate || todayKey, 10, 0);
@@ -173,7 +189,9 @@ export const EventsView: React.FC<EventsViewProps> = ({
     const weekday = getDayAbbrev(dayKey);
     const isToday = dayKey === todayKey;
     const isPast = dayKey < todayKey;
-    const isUnresolved = isPast && !ev.attendance && !ev.isAchievement;
+    const isUniversal = ev.attendance === "universal";
+    // Universal events do NOT become unresolved when past
+    const isUnresolved = isPast && !ev.attendance && !ev.isAchievement && !isUniversal;
     const category = ev.eventCategory || "personal";
     const isAchievement = Boolean(ev.isAchievement);
 
@@ -189,6 +207,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
       chipBg = "color-mix(in srgb, var(--danger) 13%, transparent)";
       chipFg = "var(--danger)";
       chipBorder = "color-mix(in srgb, var(--danger) 32%, transparent)";
+    } else if (isUniversal) {
+      chipBg = "color-mix(in srgb, var(--accent) 13%, transparent)";
+      chipFg = "var(--accent)";
+      chipBorder = "color-mix(in srgb, var(--accent) 30%, transparent)";
     } else if (isToday) {
       chipBg = "var(--accent-soft)";
       chipFg = "var(--accent)";
@@ -201,6 +223,8 @@ export const EventsView: React.FC<EventsViewProps> = ({
         ? "var(--accent)"
         : "var(--color-entity-rose, var(--danger))";
     let statusLabel: string = category === "official" ? "Official" : "Personal";
+    // For Universal status, use globe icon indicator instead of dot (returned as flag)
+    let isUniversalStatus = false;
 
     if (isAchievement) {
       statusDotColor = "var(--warning)";
@@ -211,6 +235,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
     } else if (ev.attendance === "missed") {
       statusDotColor = "var(--danger)";
       statusLabel = `Missed · ${category === "official" ? "Official" : "Personal"}`;
+    } else if (isUniversal) {
+      statusDotColor = "var(--accent)";
+      statusLabel = `Universal · ${category === "official" ? "Official" : "Personal"}`;
+      isUniversalStatus = true;
     } else if (isToday) {
       statusDotColor = "var(--accent)";
       statusLabel = `Today · ${category === "official" ? "Official" : "Personal"}`;
@@ -226,6 +254,8 @@ export const EventsView: React.FC<EventsViewProps> = ({
       weekday,
       isToday,
       isUnresolved,
+      isUniversal,
+      isUniversalStatus,
       category,
       isAchievement,
       chipBg,
@@ -488,6 +518,47 @@ export const EventsView: React.FC<EventsViewProps> = ({
                   </div>
                 </div>
 
+                {/* Status */}
+                <div className="space-y-1.5">
+                  <div
+                    className="text-[11px] font-semibold uppercase tracking-wider"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Status
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {(["all", "pending", "attended", "missed", "universal"] as EventStatusFilter[]).map(
+                      (s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() =>
+                            setFilters((f) => ({ ...f, status: s } as PersistedEventFilters))
+                          }
+                          className="h-7 rounded-lg border text-xs capitalize inline-flex items-center justify-center gap-1"
+                          style={{
+                            backgroundColor:
+                              (filters as PersistedEventFilters).status === s
+                                ? "var(--accent-soft)"
+                                : "var(--bg-surface)",
+                            borderColor:
+                              (filters as PersistedEventFilters).status === s
+                                ? "var(--accent)"
+                                : "var(--border-subtle)",
+                            color:
+                              (filters as PersistedEventFilters).status === s
+                                ? "var(--accent)"
+                                : "var(--text-secondary)",
+                          }}
+                        >
+                          {s === "universal" && <Globe className="w-3 h-3" />}
+                          {s}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                </div>
+
                 {/* Sort */}
                 <div className="space-y-1.5">
                   <div
@@ -635,7 +706,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
                         e.stopPropagation();
                         cycleEventAttendance(ev.id);
                       }}
-                      title="Click to cycle attendance (Attended → Missed → Clear)"
+                      title="Click to cycle attendance (Pending → Attended → Missed → Universal → Pending)"
                       className="h-6 px-2 rounded-md border text-[11px] font-mono tabular-nums font-medium inline-flex items-center gap-1 shrink-0 transition-transform active:scale-95"
                       style={{
                         backgroundColor: p.chipBg,
@@ -648,6 +719,9 @@ export const EventsView: React.FC<EventsViewProps> = ({
                       )}
                       {ev.attendance === "missed" && (
                         <X className="w-3 h-3 shrink-0" />
+                      )}
+                      {ev.attendance === "universal" && (
+                        <Globe className="w-3 h-3 shrink-0" />
                       )}
                       <span>
                         {p.weekday} · {p.monthShort} {p.dayNum}
@@ -706,11 +780,19 @@ export const EventsView: React.FC<EventsViewProps> = ({
                   }}
                 >
                   <span className="inline-flex items-center gap-1.5 min-w-0">
-                    <span
-                      className="w-1.5 h-1.5 rounded-full shrink-0"
-                      style={{ backgroundColor: p.statusDotColor }}
-                      aria-hidden="true"
-                    />
+                    {p.isUniversalStatus ? (
+                      <Globe
+                        className="w-3 h-3 shrink-0"
+                        style={{ color: p.statusDotColor }}
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <span
+                        className="w-1.5 h-1.5 rounded-full shrink-0"
+                        style={{ backgroundColor: p.statusDotColor }}
+                        aria-hidden="true"
+                      />
+                    )}
                     <span className="truncate">{p.statusLabel}</span>
                   </span>
 
@@ -767,7 +849,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
                       e.stopPropagation();
                       cycleEventAttendance(ev.id);
                     }}
-                    title="Click to cycle attendance (Attended → Missed → Clear)"
+                    title="Click to cycle attendance (Pending → Attended → Missed → Universal → Pending)"
                     className="h-6 px-2 rounded-md border text-[11px] font-mono tabular-nums font-medium inline-flex items-center gap-1 shrink-0 transition-transform active:scale-95"
                     style={{
                       backgroundColor: p.chipBg,
@@ -780,6 +862,9 @@ export const EventsView: React.FC<EventsViewProps> = ({
                     )}
                     {ev.attendance === "missed" && (
                       <X className="w-3 h-3 shrink-0" />
+                    )}
+                    {ev.attendance === "universal" && (
+                      <Globe className="w-3 h-3 shrink-0" />
                     )}
                     <span>
                       {p.monthShort} {p.dayNum}
@@ -818,11 +903,19 @@ export const EventsView: React.FC<EventsViewProps> = ({
                     )}
                     <span className="inline-flex items-center gap-1.5">
                       <span>·</span>
-                      <span
-                        className="w-1.5 h-1.5 rounded-full shrink-0"
-                        style={{ backgroundColor: p.statusDotColor }}
-                        aria-hidden="true"
-                      />
+                      {p.isUniversalStatus ? (
+                        <Globe
+                          className="w-3 h-3 shrink-0"
+                          style={{ color: p.statusDotColor }}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <span
+                          className="w-1.5 h-1.5 rounded-full shrink-0"
+                          style={{ backgroundColor: p.statusDotColor }}
+                          aria-hidden="true"
+                        />
+                      )}
                       <span>{p.statusLabel}</span>
                     </span>
                   </div>

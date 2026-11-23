@@ -1049,6 +1049,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                       { id: null, label: "Pending" },
                       { id: "attended", label: "Attended" },
                       { id: "missed", label: "Missed" },
+                      { id: "universal", label: "Universal" },
                     ] as { id: EventAttendance; label: string }[]
                   ).map((opt) => {
                     const active = attendance === opt.id;
@@ -1071,9 +1072,11 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                               ? "var(--success)"
                               : active && opt.id === "missed"
                                 ? "var(--danger)"
-                                : active
+                                : active && opt.id === "universal"
                                   ? "var(--accent)"
-                                  : "var(--text-secondary)",
+                                  : active
+                                    ? "var(--accent)"
+                                    : "var(--text-secondary)",
                         }}
                       >
                         {opt.label}

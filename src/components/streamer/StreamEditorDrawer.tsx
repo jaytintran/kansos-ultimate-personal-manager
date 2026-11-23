@@ -156,9 +156,13 @@ export const StreamEditorDrawer: React.FC<StreamEditorDrawerProps> = ({
   }, [parsedUrl, allStreams, mode, stream?.id]);
 
   const existingTopics = useMemo(() => {
-    const set = new Set<string>(['Subliminals', 'Frequencies', 'Deep Focus', 'Sleep & Calm']);
+    const set = new Set<string>();
     for (const s of allStreams) {
-      if (s.category.trim()) set.add(s.category.trim());
+      const cat = s.category?.trim();
+      if (cat) set.add(cat);
+    }
+    if (set.size === 0) {
+      ['Subliminals', 'Frequencies', 'Deep Focus', 'Sleep & Calm'].forEach((t) => set.add(t));
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [allStreams]);
@@ -547,54 +551,75 @@ export const StreamEditorDrawer: React.FC<StreamEditorDrawerProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium block" style={{ color: 'var(--text-secondary)' }}>
-                  Channel / Creator
-                </label>
-                <input
-                  type="text"
-                  list="vault-channel-suggestions"
-                  value={channel}
-                  onChange={(e) => setChannel(e.target.value)}
-                  placeholder="e.g. Quadible Integrity, Moza Morph"
-                  className="w-full h-9 px-3 rounded-lg border text-xs outline-none"
-                  style={{
-                    backgroundColor: 'var(--bg-surface-subtle)',
-                    borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-primary)',
-                  }}
-                />
-                <datalist id="vault-channel-suggestions">
-                  {existingChannels.map((ch) => (
-                    <option key={ch} value={ch} />
-                  ))}
-                </datalist>
-              </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium block" style={{ color: 'var(--text-secondary)' }}>
+                Channel / Creator
+              </label>
+              <input
+                type="text"
+                list="vault-channel-suggestions"
+                value={channel}
+                onChange={(e) => setChannel(e.target.value)}
+                placeholder="e.g. Quadible Integrity, Moza Morph"
+                className="w-full h-9 px-3 rounded-lg border text-xs outline-none"
+                style={{
+                  backgroundColor: 'var(--bg-surface-subtle)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                }}
+              />
+              <datalist id="vault-channel-suggestions">
+                {existingChannels.map((ch) => (
+                  <option key={ch} value={ch} />
+                ))}
+              </datalist>
+            </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-medium block" style={{ color: 'var(--text-secondary)' }}>
-                  Topic / Theme
-                </label>
-                <input
-                  type="text"
-                  list="vault-topic-suggestions"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  placeholder="e.g. Abundance, Confidence, Sleep"
-                  className="w-full h-9 px-3 rounded-lg border text-xs outline-none"
-                  style={{
-                    backgroundColor: 'var(--bg-surface-subtle)',
-                    borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-primary)',
-                  }}
-                />
-                <datalist id="vault-topic-suggestions">
-                  {existingTopics.map((t) => (
-                    <option key={t} value={t} />
-                  ))}
-                </datalist>
-              </div>
+            {/* Topic / Theme - Full-width row right above Tags with clickable topic chips */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium block" style={{ color: 'var(--text-secondary)' }}>
+                Topic / Theme
+              </label>
+              <input
+                type="text"
+                list="vault-topic-suggestions"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder="e.g. Abundance, Confidence, Sleep"
+                className="w-full h-9 px-3 rounded-lg border text-xs outline-none"
+                style={{
+                  backgroundColor: 'var(--bg-surface-subtle)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                }}
+              />
+              <datalist id="vault-topic-suggestions">
+                {existingTopics.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
+              {existingTopics.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-0.5">
+                  {existingTopics.map((top) => {
+                    const active = category.trim().toLowerCase() === top.toLowerCase();
+                    return (
+                      <button
+                        key={top}
+                        type="button"
+                        onClick={() => setCategory(top)}
+                        className="h-6 px-2 rounded-md border text-[11px] font-medium transition-colors"
+                        style={{
+                          backgroundColor: active ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                          borderColor: active ? 'var(--accent)' : 'var(--border-subtle)',
+                          color: active ? 'var(--accent)' : 'var(--text-muted)',
+                        }}
+                      >
+                        {top}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Multi-Tags */}

@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import { Bookmark, FolderKanban, LayoutGrid } from "lucide-react";
+import { StreamEditorDrawer } from "../components/streamer/StreamEditorDrawer";
 import { StreamerStudioSidebar } from "../components/streamer/StreamerStudioSidebar";
 import {
   StreamerSubView,
@@ -54,6 +55,11 @@ export interface StreamerViewProps {
   isActiveView?: boolean;
   onPlaybackStateChange?: (summary: StreamerPlaybackSummary) => void;
 }
+
+const STUDIO_SIDEBAR_WIDTH_KEY = "kanso_streamer_sidebar_width_v1";
+const DEFAULT_STUDIO_SIDEBAR_WIDTH = 320;
+const MIN_STUDIO_SIDEBAR_WIDTH = 260;
+const MAX_STUDIO_SIDEBAR_WIDTH = 640;
 
 function resolveGridColumns(
   layoutMode: StreamLayoutMode,
@@ -132,6 +138,27 @@ export const StreamerView = forwardRef<
 
   const [subView, setSubView] = useState<StreamerSubView>("grid");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [studioSidebarWidth, setStudioSidebarWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return DEFAULT_STUDIO_SIDEBAR_WIDTH;
+    try {
+      const saved = localStorage.getItem(STUDIO_SIDEBAR_WIDTH_KEY);
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (
+          !Number.isNaN(parsed) &&
+          parsed >= MIN_STUDIO_SIDEBAR_WIDTH &&
+          parsed <= MAX_STUDIO_SIDEBAR_WIDTH
+        ) {
+          return parsed;
+        }
+      }
+    } catch {
+      // fallback
+    }
+    return DEFAULT_STUDIO_SIDEBAR_WIDTH;
+  });
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const [editingStreamId, setEditingStreamId] = useState<string | null>(null);
   const [isLargeViewport, setIsLargeViewport] = useState<boolean>(() =>
     typeof window !== "undefined"
       ? window.matchMedia("(min-width: 1024px)").matches
@@ -217,6 +244,54 @@ export const StreamerView = forwardRef<
     };
   }, [clearSlotDragState]);
 
+  // Resize handler for desktop right studio sidebar
+  const handleSidebarResizeStart = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setIsResizingSidebar(true);
+      const startX = e.clientX;
+      const startWidth = studioSidebarWidth;
+
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        const deltaX = startX - moveEvent.clientX;
+        const newWidth = Math.min(
+          MAX_STUDIO_SIDEBAR_WIDTH,
+          Math.max(MIN_STUDIO_SIDEBAR_WIDTH, startWidth + deltaX),
+        );
+        setStudioSidebarWidth(newWidth);
+        try {
+          localStorage.setItem(STUDIO_SIDEBAR_WIDTH_KEY, String(newWidth));
+        } catch {
+          // ignore
+        }
+      };
+
+      const onPointerUp = () => {
+        setIsResizingSidebar(false);
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerUp);
+      };
+
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerUp);
+    },
+    [studioSidebarWidth],
+  );
+
+  const handleSidebarResizeDoubleClick = useCallback(() => {
+    setStudioSidebarWidth(DEFAULT_STUDIO_SIDEBAR_WIDTH);
+    try {
+      localStorage.setItem(
+        STUDIO_SIDEBAR_WIDTH_KEY,
+        String(DEFAULT_STUDIO_SIDEBAR_WIDTH),
+      );
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // Responsive viewport listeners
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -240,6 +315,11 @@ export const StreamerView = forwardRef<
     for (const s of streams) map.set(s.id, s);
     return map;
   }, [streams]);
+
+  const editingStream = useMemo(() => {
+    if (!editingStreamId) return null;
+    return streamById.get(editingStreamId) ?? null;
+  }, [editingStreamId, streamById]);
 
   const activeSlots = useMemo<StackSlot[]>(() => {
     const rawSlots = streamerState.activeSlots ?? [];
@@ -1559,22 +1639,33 @@ export const StreamerView = forwardRef<
           {/* Desktop Collapsible Right Studio Sidebar */}
           {isLargeViewport && desktopSidebarOpen && (
             <aside
-              className="hidden lg:flex lg:flex-col w-80 shrink-0 border-l h-full overflow-hidden"
+              className="relative hidden lg:flex lg:flex-col shrink-0 border-l h-full overflow-hidden select-none"
               style={{
+                width: studioSidebarWidth,
                 backgroundColor: "var(--bg-surface)",
                 borderColor: "var(--border-subtle)",
               }}
-              aria-label="Routine Stack Presets and Quick-Add from Library"
+              aria-label="Routine Stack Presets and Quick-Add from Vault"
             >
+              {/* Left Resizing Drag Handle */}
+              <div
+                className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-20 hover:bg-[var(--accent-subtle)] active:bg-[var(--accent-primary)] transition-colors"
+                title="Drag to resize sidebar, double-click to reset"
+                onPointerDown={handleSidebarResizeStart}
+                onDoubleClick={handleSidebarResizeDoubleClick}
+              />
               <StreamerStudioSidebar
                 streams={streams}
                 folders={streamFolders}
                 presets={streamPresets}
                 activePresetId={streamerState.activePresetId}
                 activeStreamIdSet={activeStreamIdSet}
+                sidebarWidth={studioSidebarWidth}
                 onLoadPreset={(presetId) => loadStreamPreset(presetId)}
                 onDeletePreset={(presetId) => deleteStreamPreset(presetId)}
                 onStackStream={handleSidebarStackStream}
+                onEditStream={(streamId) => setEditingStreamId(streamId)}
+                onDeleteStream={(streamId) => deleteStream(streamId)}
               />
             </aside>
           )}
@@ -1589,7 +1680,7 @@ export const StreamerView = forwardRef<
               className="lg:hidden fixed inset-0 z-50 flex justify-end"
               role="dialog"
               aria-modal="true"
-              aria-label="Studio Presets and Quick-Add Library"
+              aria-label="Studio Presets and Quick-Add Vault"
             >
               <div
                 className="fixed inset-0 bg-black/45 backdrop-blur-[2px]"
@@ -1610,10 +1701,16 @@ export const StreamerView = forwardRef<
                   presets={streamPresets}
                   activePresetId={streamerState.activePresetId}
                   activeStreamIdSet={activeStreamIdSet}
+                  sidebarWidth={320}
                   onLoadPreset={(presetId) => loadStreamPreset(presetId)}
                   onDeletePreset={(presetId) => deleteStreamPreset(presetId)}
                   onStackStream={handleSidebarStackStream}
                   onCloseMobile={() => setMobileSidebarOpen(false)}
+                  onEditStream={(streamId) => {
+                    setMobileSidebarOpen(false);
+                    setEditingStreamId(streamId);
+                  }}
+                  onDeleteStream={(streamId) => deleteStream(streamId)}
                 />
               </div>
             </div>
@@ -1647,6 +1744,26 @@ export const StreamerView = forwardRef<
             onRenameFolder={(id, name) => updateStreamFolder(id, { name })}
             onDeleteFolder={deleteStreamFolder}
             onNotify={pushToast}
+          />
+        )}
+
+        {/* Global Stream Details / Edit Drawer (opened from Quick-Add or other surfaces) */}
+        {editingStream && (
+          <StreamEditorDrawer
+            stream={editingStream}
+            allStreams={streams}
+            folders={streamFolders}
+            inGrid={activeStreamIdSet.has(editingStream.id)}
+            onClose={() => setEditingStreamId(null)}
+            onUpdate={(id, updates) => {
+              updateStream(id, updates);
+            }}
+            onDelete={(id) => {
+              deleteStream(id);
+              setEditingStreamId(null);
+            }}
+            onToggleInGrid={(id) => toggleStreamInGrid(id)}
+            onStackStream={handleSidebarStackStream}
           />
         )}
       </div>

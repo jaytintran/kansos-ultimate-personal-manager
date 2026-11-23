@@ -26,6 +26,7 @@ export type VaultScope =
   | { kind: 'in-grid' }
   | { kind: 'favorites' }
   | { kind: 'top-rated' }
+  | { kind: 'channels' }
   | { kind: 'folder'; folderId: string }
   | { kind: 'topic'; topic: string }
   | { kind: 'channel'; channel: string };
@@ -81,13 +82,21 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
   const [newFolderName, setNewFolderName] = useState('');
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [channelSearch, setChannelSearch] = useState('');
   const [sectionsOpen, setSectionsOpen] = useState({
     folders: true,
     topics: true,
-    channels: true,
     tags: true,
   });
+
+  // Total channels count for smart views
+  const totalChannels = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of streams) {
+      const ch = s.channel.trim() || 'Unknown Channel';
+      set.add(ch);
+    }
+    return streams.length === 0 ? 0 : set.size;
+  }, [streams]);
 
   // Smart view counts
   const counts = useMemo(() => {
@@ -142,20 +151,6 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [streams]);
-
-  // Channels directory derived from stream.channel
-  const channels = useMemo(() => {
-    const countsMap = new Map<string, number>();
-    for (const s of streams) {
-      const ch = s.channel.trim() || 'Unknown Channel';
-      countsMap.set(ch, (countsMap.get(ch) || 0) + 1);
-    }
-    const q = channelSearch.trim().toLowerCase();
-    return Array.from(countsMap.entries())
-      .map(([name, count]) => ({ name, count }))
-      .filter((item) => (!q ? true : item.name.toLowerCase().includes(q)))
-      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  }, [streams, channelSearch]);
 
   // Multi-tags directory
   const allTags = useMemo(() => {
@@ -430,6 +425,7 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
             { id: 'in-grid' as const, label: 'In Live Grid', icon: Radio, count: counts.inGrid },
             { id: 'favorites' as const, label: 'Favorites', icon: Star, count: counts.favorites },
             { id: 'top-rated' as const, label: 'Top Rated (4+)', icon: Star, count: counts.topRated },
+            { id: 'channels' as const, label: 'Channels', icon: Tv, count: totalChannels },
           ].map((item) => {
             const Icon = item.icon;
             const active = scope.kind === item.id;
@@ -593,97 +589,6 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                   </button>
                 );
               })}
-            </div>
-          )}
-        </div>
-
-        {/* Channels Directory */}
-        <div className="space-y-1.5">
-          <button
-            type="button"
-            onClick={() => setSectionsOpen((s) => ({ ...s, channels: !s.channels }))}
-            className="w-full flex items-center justify-between px-1.5 text-[11px] font-semibold tracking-tight"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            <span className="inline-flex items-center gap-1">
-              {sectionsOpen.channels ? (
-                <ChevronDown className="w-3 h-3" />
-              ) : (
-                <ChevronRight className="w-3 h-3" />
-              )}
-              <span>Channels</span>
-            </span>
-            <span className="font-mono tabular-nums">{channels.length}</span>
-          </button>
-
-          {sectionsOpen.channels && (
-            <div className="space-y-1">
-              {streams.length >= 6 && (
-                <div className="relative px-1">
-                  <Search
-                    className="w-3 h-3 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                    style={{ color: 'var(--text-muted)' }}
-                  />
-                  <input
-                    type="text"
-                    value={channelSearch}
-                    onChange={(e) => setChannelSearch(e.target.value)}
-                    placeholder="Filter channels..."
-                    className="w-full h-7 pl-7 pr-2 rounded-md border text-[11px] outline-none"
-                    style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      borderColor: 'var(--border-subtle)',
-                      color: 'var(--text-primary)',
-                    }}
-                  />
-                </div>
-              )}
-
-              <div className="space-y-0.5">
-                {channels.map((ch) => {
-                  const active = scope.kind === 'channel' && scope.channel === ch.name;
-                  return (
-                    <div
-                      key={ch.name}
-                      className="group flex items-center gap-1 rounded-lg pr-1 transition-colors"
-                      style={{
-                        backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
-                        color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                      }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleSelectAndClose({ kind: 'channel', channel: ch.name })}
-                        className="flex-1 min-w-0 h-8 px-2.5 flex items-center gap-2 text-left text-xs font-medium"
-                      >
-                        <Tv className="w-3.5 h-3.5 shrink-0 opacity-75" />
-                        <span className="truncate">{ch.name}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onLoadChannelToGrid(ch.name);
-                        }}
-                        className="hidden group-hover:flex h-6 w-6 rounded items-center justify-center shrink-0"
-                        style={{ color: 'var(--accent)' }}
-                        title={`Load all streams from ${ch.name} to Live Grid`}
-                        aria-label={`Load ${ch.name} streams to Live Grid`}
-                      >
-                        <Play className="w-3 h-3 fill-current" />
-                      </button>
-
-                      <span
-                        className="group-hover:hidden text-[11px] font-mono tabular-nums px-1.5 shrink-0"
-                        style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
-                      >
-                        {ch.count}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
             </div>
           )}
         </div>

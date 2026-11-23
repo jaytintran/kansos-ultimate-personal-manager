@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Check,
+  CheckSquare,
+  ChevronRight,
   Folder,
   GripVertical,
   Headphones,
@@ -16,6 +18,7 @@ import {
   Search,
   Star,
   Trash2,
+  Tv,
   Volume2,
   VolumeX,
   X,
@@ -23,6 +26,8 @@ import {
 import { StreamFolder, StreamItem } from '../../types';
 import { VIEW_PREFERENCE_SYNC_EVENT } from '../../utils/viewPreferences';
 import { StreamEditorDrawer } from './StreamEditorDrawer';
+import { StreamVaultBulkBar } from './StreamVaultBulkBar';
+import { BulkModalType, StreamVaultBulkModal } from './StreamVaultBulkModal';
 import {
   getDescendantFolderIds,
   StreamVaultSidebar,
@@ -110,6 +115,35 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [brokenThumbs, setBrokenThumbs] = useState<Record<string, boolean>>({});
 
+  // Bulk edit state
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedStreamIds, setSelectedStreamIds] = useState<Set<string>>(new Set());
+  const [bulkModalType, setBulkModalType] = useState<BulkModalType>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+
+  const handleTouchStart = (streamId: string) => {
+    longPressTimerRef.current = window.setTimeout(() => {
+      setBulkMode(true);
+      setSelectedStreamIds((prev) => new Set([...prev, streamId]));
+    }, 500);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const toggleSelectStream = (streamId: string) => {
+    setSelectedStreamIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(streamId)) next.delete(streamId);
+      else next.add(streamId);
+      return next;
+    });
+  };
+
   // Drag-and-drop reorder state (Custom Order)
   const activeDragStreamIdRef = useRef<string | null>(null);
   const streamElRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -178,6 +212,24 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     return map;
   }, [folders]);
 
+  const existingTopics = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of streams) {
+      if (s.category?.trim()) set.add(s.category.trim());
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [streams]);
+
+  const existingTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of streams) {
+      for (const t of s.tags) {
+        if (t.trim()) set.add(t.trim().toLowerCase());
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [streams]);
+
   const handleToggleTag = (tag: string) => {
     setSelectedTags((prev) =>
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
@@ -239,6 +291,13 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
           description: `All saved streams grouped under the ${scope.topic} theme.`,
           canBatchLoad: true,
         };
+      case 'channels':
+        return {
+          breadcrumb: 'Vault / Channels',
+          title: 'Channels Overview',
+          description: 'Browse all creators and channels as horizontal carousels.',
+          canBatchLoad: false,
+        };
       case 'channel':
         return {
           breadcrumb: `Vault / Channels / ${scope.channel}`,
@@ -270,8 +329,79 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
 
   const isCustomSort = sortBy === 'custom';
 
+  // Channels overview data when scope.kind === 'channels'
+  const channelsOverviewData = useMemo(() => {
+    if (scope.kind !== 'channels') return [];
+    const q = searchQuery.trim().toLowerCase();
+
+    const map = new Map<string, StreamItem[]>();
+    for (const s of streams) {
+      const ch = s.channel.trim() || 'Unknown Channel';
+      const list = map.get(ch) || [];
+      list.push(s);
+      map.set(ch, list);
+    }
+
+    const result: { name: string; streams: StreamItem[] }[] = [];
+
+    for (const [chName, chStreams] of map.entries()) {
+      const channelMatchesQuery = q && chName.toLowerCase().includes(q);
+
+      const filtered = chStreams.filter((s) => {
+        if (selectedTags.length > 0) {
+          const streamTags = new Set(s.tags.map((t) => t.trim().toLowerCase()));
+          for (const req of selectedTags) {
+            if (!streamTags.has(req)) return false;
+          }
+        }
+        if (!q) return true;
+        if (channelMatchesQuery) return true;
+        const haystack = [
+          s.title,
+          s.customLabel,
+          s.channel,
+          s.category,
+          s.affirmations || '',
+          s.notes || '',
+          ...s.tags,
+        ]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(q);
+      });
+
+      if (filtered.length > 0) {
+        const sorted = [...filtered].sort((a, b) => {
+          switch (sortBy) {
+            case 'custom':
+              return customStreamOrderCompare(a, b);
+            case 'listens':
+              return (b.listenCount ?? 0) - (a.listenCount ?? 0) || b.addedAt.localeCompare(a.addedAt);
+            case 'rating':
+              return (b.rating ?? 0) - (a.rating ?? 0) || (b.listenCount ?? 0) - (a.listenCount ?? 0);
+            case 'title':
+              return (a.customLabel || a.title).localeCompare(b.customLabel || b.title);
+            case 'channel':
+              return (a.channel || 'zzz').localeCompare(b.channel || 'zzz');
+            case 'recent':
+            default:
+              return b.addedAt.localeCompare(a.addedAt);
+          }
+        });
+        result.push({ name: chName, streams: sorted });
+      }
+    }
+
+    result.sort((a, b) => b.streams.length - a.streams.length || a.name.localeCompare(b.name));
+    return result;
+  }, [scope, streams, searchQuery, selectedTags, sortBy, customStreamOrderCompare]);
+
   // Filter + sort visible streams
   const visibleStreams = useMemo(() => {
+    if (scope.kind === 'channels') {
+      return channelsOverviewData.flatMap((c) => c.streams);
+    }
+
     const q = searchQuery.trim().toLowerCase();
     const folderSubtree =
       scope.kind === 'folder' ? getDescendantFolderIds(scope.folderId, folders) : null;
@@ -336,7 +466,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       }
     });
     return sorted;
-  }, [streams, scope, folders, activeIdSet, selectedTags, searchQuery, sortBy, customStreamOrderCompare]);
+  }, [streams, scope, folders, activeIdSet, selectedTags, searchQuery, sortBy, customStreamOrderCompare, channelsOverviewData]);
 
   const handleReorderStreams = useCallback(
     (draggedId: string, targetId: string, position: 'before' | 'after') => {
@@ -445,6 +575,96 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       .map((s) => s.id);
     onLoadStreamsToGrid(ids, 'replace', channelName);
   };
+
+  const handleBulkApplyTopic = useCallback(
+    (newTopic: string) => {
+      for (const id of selectedStreamIds) {
+        onUpdateStream(id, { category: newTopic });
+      }
+      onNotify(`Updated topic for ${selectedStreamIds.size} streams`, 'success');
+      setSelectedStreamIds(new Set());
+      setBulkMode(false);
+    },
+    [selectedStreamIds, onUpdateStream, onNotify]
+  );
+
+  const handleBulkApplyTags = useCallback(
+    (tags: string[], mode: 'append' | 'replace') => {
+      for (const id of selectedStreamIds) {
+        const stream = streams.find((s) => s.id === id);
+        if (!stream) continue;
+        const nextTags =
+          mode === 'append'
+            ? Array.from(new Set([...stream.tags, ...tags]))
+            : tags;
+        onUpdateStream(id, { tags: nextTags });
+      }
+      onNotify(`Updated tags for ${selectedStreamIds.size} streams`, 'success');
+      setSelectedStreamIds(new Set());
+      setBulkMode(false);
+    },
+    [selectedStreamIds, streams, onUpdateStream, onNotify]
+  );
+
+  const handleBulkApplyFolders = useCallback(
+    (folderIds: string[], mode: 'append' | 'replace') => {
+      for (const id of selectedStreamIds) {
+        const stream = streams.find((s) => s.id === id);
+        if (!stream) continue;
+        const nextFolders =
+          mode === 'append'
+            ? Array.from(new Set([...(stream.folderIds || []), ...folderIds]))
+            : folderIds;
+        onUpdateStream(id, { folderIds: nextFolders });
+      }
+      onNotify(`Updated folders for ${selectedStreamIds.size} streams`, 'success');
+      setSelectedStreamIds(new Set());
+      setBulkMode(false);
+    },
+    [selectedStreamIds, streams, onUpdateStream, onNotify]
+  );
+
+  const handleBulkFavorite = useCallback(() => {
+    const allFav = Array.from(selectedStreamIds).every(
+      (id) => streams.find((s) => s.id === id)?.favorite
+    );
+    for (const id of selectedStreamIds) {
+      onUpdateStream(id, { favorite: !allFav });
+    }
+    onNotify(
+      allFav
+        ? `Unfavorited ${selectedStreamIds.size} streams`
+        : `Favorited ${selectedStreamIds.size} streams`,
+      'success'
+    );
+  }, [selectedStreamIds, streams, onUpdateStream, onNotify]);
+
+  const handleBulkApplyRating = useCallback(
+    (ratingVal: number) => {
+      for (const id of selectedStreamIds) {
+        onUpdateStream(id, { rating: ratingVal });
+      }
+      onNotify(`Updated rating for ${selectedStreamIds.size} streams`, 'success');
+      setSelectedStreamIds(new Set());
+      setBulkMode(false);
+    },
+    [selectedStreamIds, onUpdateStream, onNotify]
+  );
+
+  const handleBulkLoadToGrid = useCallback(() => {
+    onLoadStreamsToGrid(Array.from(selectedStreamIds), 'replace', 'Selected Streams');
+    onNotify(`Loaded ${selectedStreamIds.size} streams to Live Grid`, 'success');
+  }, [selectedStreamIds, onLoadStreamsToGrid, onNotify]);
+
+  const handleBulkConfirmDelete = useCallback(() => {
+    const count = selectedStreamIds.size;
+    for (const id of selectedStreamIds) {
+      onDeleteStream(id);
+    }
+    setSelectedStreamIds(new Set());
+    setBulkMode(false);
+    onNotify(`Deleted ${count} streams`, 'success');
+  }, [selectedStreamIds, onDeleteStream, onNotify]);
 
   const editingStream =
     drawerState.open && drawerState.mode === 'edit'
@@ -742,6 +962,38 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               </button>
             </div>
 
+            {/* Select Toggle for Bulk Edit */}
+            <button
+              type="button"
+              onClick={() => {
+                setBulkMode((prev) => {
+                  if (prev) {
+                    setSelectedStreamIds(new Set());
+                  }
+                  return !prev;
+                });
+              }}
+              className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors shrink-0"
+              style={{
+                backgroundColor: bulkMode ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                borderColor: bulkMode ? 'var(--accent)' : 'var(--border-subtle)',
+                color: bulkMode ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+              title={bulkMode ? 'Exit Select mode' : 'Select multiple streams for bulk edit'}
+              aria-pressed={bulkMode}
+            >
+              <CheckSquare className="w-3.5 h-3.5" />
+              <span>Select</span>
+              {selectedStreamIds.size > 0 && (
+                <span
+                  className="font-mono text-[11px] font-semibold px-1 rounded"
+                  style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-fg)' }}
+                >
+                  {selectedStreamIds.size}
+                </span>
+              )}
+            </button>
+
             {/* Grid / Table Segmented View Switch */}
             <div
               className="inline-flex items-center h-8 gap-0.5 p-0.5 rounded-lg border shrink-0"
@@ -817,7 +1069,240 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
 
         {/* Main Scrollable Catalog Area */}
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
-          {visibleStreams.length === 0 ? (
+          {scope.kind === 'channels' ? (
+            channelsOverviewData.length === 0 ? (
+              <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-3">
+                <div
+                  className="w-11 h-11 rounded-xl border flex items-center justify-center"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  <Tv className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-display text-sm font-bold">No channels found</h3>
+                  <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                    {searchQuery
+                      ? 'No channels or tracks match your search query.'
+                      : 'Save streams with creator channels to organize them here.'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-7 max-w-[1800px] pb-16">
+                {channelsOverviewData.map((ch) => (
+                  <section key={ch.name} className="space-y-2.5">
+                    {/* Channel Row Header */}
+                    <div className="flex items-center justify-between gap-3 px-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setScope({ kind: 'channel', channel: ch.name })}
+                          className="font-display text-sm font-bold hover:underline truncate text-left inline-flex items-center gap-1.5"
+                          style={{ color: 'var(--text-primary)' }}
+                          title={`View all streams from ${ch.name}`}
+                        >
+                          <Tv className="w-4 h-4 shrink-0" style={{ color: 'var(--accent)' }} />
+                          <span className="truncate">{ch.name}</span>
+                        </button>
+                        <span
+                          className="text-[11px] font-mono tabular-nums px-2 py-0.5 rounded-full border shrink-0"
+                          style={{
+                            backgroundColor: 'var(--bg-surface)',
+                            borderColor: 'var(--border-subtle)',
+                            color: 'var(--text-muted)',
+                          }}
+                        >
+                          {ch.streams.length} {ch.streams.length === 1 ? 'stream' : 'streams'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onLoadStreamsToGrid(
+                              ch.streams.map((s) => s.id),
+                              'replace',
+                              ch.name
+                            )
+                          }
+                          className="h-7 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] transition-colors whitespace-nowrap"
+                          style={{
+                            backgroundColor: 'var(--bg-surface)',
+                            borderColor: 'var(--border-subtle)',
+                            color: 'var(--text-primary)',
+                          }}
+                          title={`Load "${ch.name}" stack to Live Grid`}
+                        >
+                          <Play className="w-3 h-3 fill-current" style={{ color: 'var(--accent)' }} />
+                          <span>Load Stack</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setScope({ kind: 'channel', channel: ch.name })}
+                          className="h-7 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] transition-colors whitespace-nowrap"
+                          style={{
+                            backgroundColor: 'var(--bg-surface)',
+                            borderColor: 'var(--border-subtle)',
+                            color: 'var(--text-secondary)',
+                          }}
+                          title={`Open ${ch.name} channel view`}
+                        >
+                          <span>View All</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Horizontal scrollable carousel: mouse horizontal scroll and touch swipe only */}
+                    <div className="overflow-x-auto flex gap-3.5 pb-2.5 pt-0.5 scrollbar-none">
+                      {ch.streams.map((item) => {
+                        const inGrid = activeIdSet.has(item.id);
+                        const isSelected = selectedStreamIds.has(item.id);
+
+                        return (
+                          <div
+                            key={item.id}
+                            onTouchStart={() => handleTouchStart(item.id)}
+                            onTouchEnd={handleTouchEnd}
+                            className={`w-64 shrink-0 rounded-xl border flex flex-col overflow-hidden transition-all duration-150 ${
+                              isSelected ? 'ring-2 ring-[var(--accent)]' : ''
+                            }`}
+                            style={{
+                              backgroundColor: 'var(--bg-surface)',
+                              borderColor: isSelected
+                                ? 'var(--accent)'
+                                : inGrid
+                                ? 'var(--accent)'
+                                : 'var(--border-subtle)',
+                            }}
+                          >
+                            {/* Thumbnail */}
+                            <div className="relative aspect-video w-full overflow-hidden bg-[var(--bg-surface-subtle)]">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (bulkMode) {
+                                    toggleSelectStream(item.id);
+                                  } else {
+                                    setDrawerState({ open: true, mode: 'edit', streamId: item.id });
+                                  }
+                                }}
+                                className="w-full h-full text-left group"
+                              >
+                                {!brokenThumbs[item.id] ? (
+                                  <img
+                                    src={item.thumbnailUrl}
+                                    alt={item.customLabel || item.title}
+                                    referrerPolicy="no-referrer"
+                                    onError={() =>
+                                      setBrokenThumbs((prev) => ({ ...prev, [item.id]: true }))
+                                    }
+                                    className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
+                                    <MonitorPlay className="w-6 h-6" />
+                                  </div>
+                                )}
+                              </button>
+
+                              {/* Bulk checkbox */}
+                              {(bulkMode || isSelected) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleSelectStream(item.id);
+                                  }}
+                                  className="absolute top-2 left-2 w-5 h-5 rounded-md border flex items-center justify-center z-20 shadow-md cursor-pointer transition-transform active:scale-90"
+                                  style={{
+                                    backgroundColor: isSelected ? 'var(--accent)' : 'var(--bg-surface)',
+                                    borderColor: isSelected ? 'var(--accent)' : 'var(--border-strong)',
+                                    color: 'var(--accent-fg)',
+                                  }}
+                                  aria-label="Select stream"
+                                >
+                                  {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                                </button>
+                              )}
+
+                              {inGrid && !bulkMode && !isSelected && (
+                                <span
+                                  className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-tight pointer-events-none"
+                                  style={{
+                                    backgroundColor: 'var(--accent)',
+                                    color: 'var(--accent-fg)',
+                                  }}
+                                >
+                                  Stacked
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Card Content */}
+                            <div className="p-3 flex-1 flex flex-col justify-between gap-2">
+                              <div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (bulkMode) {
+                                      toggleSelectStream(item.id);
+                                    } else {
+                                      setDrawerState({ open: true, mode: 'edit', streamId: item.id });
+                                    }
+                                  }}
+                                  className="text-left w-full"
+                                >
+                                  <h4 className="text-xs font-semibold leading-snug line-clamp-2 hover:underline">
+                                    {item.customLabel || item.title}
+                                  </h4>
+                                </button>
+                                <p className="text-[11px] truncate mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                                  {item.category || 'General'}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-1 pt-1.5 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => onStackStream(item.id)}
+                                  className="h-6 px-2 rounded-md border text-[10px] font-semibold inline-flex items-center gap-1 transition-colors"
+                                  style={{
+                                    backgroundColor: inGrid ? 'var(--accent-soft)' : 'var(--bg-surface-subtle)',
+                                    borderColor: inGrid ? 'var(--accent)' : 'var(--border-subtle)',
+                                    color: inGrid ? 'var(--accent)' : 'var(--text-primary)',
+                                  }}
+                                >
+                                  <Plus className="w-2.5 h-2.5" />
+                                  <span>{inGrid ? 'Layer' : 'Stack'}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => onUpdateStream(item.id, { favorite: !item.favorite })}
+                                  className="h-6 w-6 rounded-md flex items-center justify-center"
+                                  style={{ color: item.favorite ? 'var(--warning)' : 'var(--text-muted)' }}
+                                  aria-label={item.favorite ? 'Unfavorite' : 'Favorite'}
+                                >
+                                  <Star className={`w-3 h-3 ${item.favorite ? 'fill-current' : ''}`} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )
+          ) : visibleStreams.length === 0 ? (
             <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-3">
               <div
                 className="w-11 h-11 rounded-xl border flex items-center justify-center"
@@ -968,8 +1453,12 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                       handleReorderStreams(draggedId, item.id, position);
                     }}
                     onDragEnd={clearDragState}
+                    onTouchStart={() => handleTouchStart(item.id)}
+                    onTouchEnd={handleTouchEnd}
                     className={`relative rounded-xl border flex flex-col transition-all duration-150 ${
                       isBeingDragged ? 'opacity-45 scale-[0.98]' : ''
+                    } ${
+                      selectedStreamIds.has(item.id) ? 'ring-2 ring-[var(--accent)]' : ''
                     } ${
                       isDropTarget
                         ? 'ring-1 ring-[var(--accent)]/60 ring-offset-1 ring-offset-[var(--bg-canvas)]'
@@ -978,6 +1467,8 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     style={{
                       backgroundColor: 'var(--bg-surface)',
                       borderColor: isDropTarget
+                        ? 'var(--accent)'
+                        : selectedStreamIds.has(item.id)
                         ? 'var(--accent)'
                         : inGrid
                         ? 'var(--accent)'
@@ -1009,6 +1500,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                       type="button"
                       onClick={() => {
                         if (draggingStreamId) return;
+                        if (bulkMode) {
+                          toggleSelectStream(item.id);
+                          return;
+                        }
                         setDrawerState({ open: true, mode: 'edit', streamId: item.id });
                       }}
                       className="relative aspect-video w-full overflow-hidden text-left group"
@@ -1032,9 +1527,35 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                           <MonitorPlay className="w-7 h-7" />
                         </div>
                       )}
-                      {inGrid && (
+                      {/* Checkbox for bulk edit */}
+                      {(bulkMode || selectedStreamIds.has(item.id)) && (
+                        <div
+                          role="checkbox"
+                          aria-checked={selectedStreamIds.has(item.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSelectStream(item.id);
+                          }}
+                          className="absolute top-2 left-2 w-5 h-5 rounded-md border flex items-center justify-center z-20 shadow-md cursor-pointer transition-transform active:scale-90"
+                          style={{
+                            backgroundColor: selectedStreamIds.has(item.id)
+                              ? 'var(--accent)'
+                              : 'var(--bg-surface)',
+                            borderColor: selectedStreamIds.has(item.id)
+                              ? 'var(--accent)'
+                              : 'var(--border-strong)',
+                            color: 'var(--accent-fg)',
+                          }}
+                          aria-label="Select stream"
+                        >
+                          {selectedStreamIds.has(item.id) && (
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          )}
+                        </div>
+                      )}
+                      {inGrid && !bulkMode && !selectedStreamIds.has(item.id) && (
                         <span
-                          className="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-tight"
+                          className="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-tight pointer-events-none"
                           style={{
                             backgroundColor: 'var(--accent)',
                             color: 'var(--accent-fg)',
@@ -1104,6 +1625,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             type="button"
                             onClick={() => {
                               if (draggingStreamId) return;
+                              if (bulkMode) {
+                                toggleSelectStream(item.id);
+                                return;
+                              }
                               setDrawerState({ open: true, mode: 'edit', streamId: item.id });
                             }}
                             className="text-left min-w-0 flex-1"
@@ -1322,6 +1847,8 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             if (el) streamElRefs.current.set(item.id, el);
                             else streamElRefs.current.delete(item.id);
                           }}
+                          onTouchStart={() => handleTouchStart(item.id)}
+                          onTouchEnd={handleTouchEnd}
                           draggable={isCustomSort}
                           onDragStart={(e) => {
                             if (!isCustomSort) return;
@@ -1399,13 +1926,43 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                           className={`transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02] ${
                             isBeingDragged ? 'opacity-45' : ''
                           }`}
-                          style={{ borderColor: 'var(--border-subtle)' }}
+                          style={{
+                            borderColor: 'var(--border-subtle)',
+                            backgroundColor: selectedStreamIds.has(item.id)
+                              ? 'var(--accent-soft)'
+                              : undefined,
+                          }}
                         >
                           <td
                             className="py-2 pl-3.5 pr-3 max-w-[300px]"
                             style={{ boxShadow: rowDropShadow }}
                           >
                             <div className="flex items-center gap-2 min-w-0">
+                              {/* Checkbox for bulk edit */}
+                              {(bulkMode || selectedStreamIds.has(item.id)) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleSelectStream(item.id);
+                                  }}
+                                  className="w-4 h-4 rounded border flex items-center justify-center shrink-0 cursor-pointer shadow-sm transition-transform active:scale-90"
+                                  style={{
+                                    backgroundColor: selectedStreamIds.has(item.id)
+                                      ? 'var(--accent)'
+                                      : 'var(--bg-surface)',
+                                    borderColor: selectedStreamIds.has(item.id)
+                                      ? 'var(--accent)'
+                                      : 'var(--border-strong)',
+                                    color: 'var(--accent-fg)',
+                                  }}
+                                  aria-label="Select stream"
+                                >
+                                  {selectedStreamIds.has(item.id) && (
+                                    <Check className="w-3 h-3 stroke-[3]" />
+                                  )}
+                                </button>
+                              )}
                               {isCustomSort && (
                                 <div
                                   role="button"
@@ -1468,6 +2025,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                 type="button"
                                 onClick={() => {
                                   if (draggingStreamId) return;
+                                  if (bulkMode) {
+                                    toggleSelectStream(item.id);
+                                    return;
+                                  }
                                   setDrawerState({
                                     open: true,
                                     mode: 'edit',
@@ -1507,6 +2068,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                   type="button"
                                   onClick={() => {
                                     if (draggingStreamId) return;
+                                    if (bulkMode) {
+                                      toggleSelectStream(item.id);
+                                      return;
+                                    }
                                     setDrawerState({
                                       open: true,
                                       mode: 'edit',
@@ -1803,6 +2368,42 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
           onNotify={onNotify}
         />
       )}
+
+      {/* Floating Bottom Action Bar for Bulk Edit */}
+      {bulkMode && selectedStreamIds.size > 0 && (
+        <StreamVaultBulkBar
+          selectedCount={selectedStreamIds.size}
+          totalVisibleCount={visibleStreams.length}
+          onSelectAll={() => setSelectedStreamIds(new Set(visibleStreams.map((s) => s.id)))}
+          onClearSelection={() => setSelectedStreamIds(new Set())}
+          onOpenBulkTopic={() => setBulkModalType('topic')}
+          onOpenBulkTags={() => setBulkModalType('tags')}
+          onOpenBulkFolders={() => setBulkModalType('folders')}
+          onBulkFavorite={handleBulkFavorite}
+          onOpenBulkRating={() => setBulkModalType('rating')}
+          onBulkLoadToGrid={handleBulkLoadToGrid}
+          onBulkDelete={() => setBulkModalType('delete')}
+          onCloseBulkMode={() => {
+            setBulkMode(false);
+            setSelectedStreamIds(new Set());
+          }}
+        />
+      )}
+
+      {/* Bulk Edit Modal */}
+      <StreamVaultBulkModal
+        type={bulkModalType}
+        selectedCount={selectedStreamIds.size}
+        folders={folders}
+        existingTopics={existingTopics}
+        existingTags={existingTags}
+        onClose={() => setBulkModalType(null)}
+        onApplyTopic={handleBulkApplyTopic}
+        onApplyTags={handleBulkApplyTags}
+        onApplyFolders={handleBulkApplyFolders}
+        onApplyRating={handleBulkApplyRating}
+        onConfirmDelete={handleBulkConfirmDelete}
+      />
     </div>
   );
 };

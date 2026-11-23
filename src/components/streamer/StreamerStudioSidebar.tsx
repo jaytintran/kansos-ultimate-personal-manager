@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Layers, MonitorPlay, Plus, Search, Trash2, X } from 'lucide-react';
+import { Layers, MonitorPlay, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { StreamFolder, StreamItem, StreamPreset } from '../../types';
 
 interface StreamerStudioSidebarProps {
@@ -8,9 +8,12 @@ interface StreamerStudioSidebarProps {
   presets: StreamPreset[];
   activePresetId: string | null;
   activeStreamIdSet: Set<string>;
+  sidebarWidth?: number;
   onLoadPreset: (presetId: string) => void;
   onDeletePreset: (presetId: string) => void;
   onStackStream: (streamId: string) => void;
+  onEditStream?: (streamId: string) => void;
+  onDeleteStream?: (streamId: string) => void;
   onCloseMobile?: () => void;
 }
 
@@ -20,11 +23,15 @@ export const StreamerStudioSidebar: React.FC<StreamerStudioSidebarProps> = ({
   presets,
   activePresetId,
   activeStreamIdSet,
+  sidebarWidth,
   onLoadPreset,
   onDeletePreset,
   onStackStream,
+  onEditStream,
+  onDeleteStream,
   onCloseMobile,
 }) => {
+  const showRowActions = (sidebarWidth ?? 320) > 360;
   const [routineFilter, setRoutineFilter] = useState<string>('all');
   const [folderFilter, setFolderFilter] = useState<string>('all');
   const [libraryQuery, setLibraryQuery] = useState('');
@@ -68,7 +75,7 @@ export const StreamerStudioSidebar: React.FC<StreamerStudioSidebarProps> = ({
           className="px-4 py-3 border-b flex items-center justify-between shrink-0"
           style={{ borderColor: 'var(--border-subtle)' }}
         >
-          <span className="font-display text-sm font-bold">Studio Library & Presets</span>
+          <span className="font-display text-sm font-bold">Studio Vault & Presets</span>
           <button
             type="button"
             onClick={onCloseMobile}
@@ -197,11 +204,11 @@ export const StreamerStudioSidebar: React.FC<StreamerStudioSidebarProps> = ({
           )}
         </section>
 
-        {/* Section 2: Quick-Add from Library */}
+        {/* Section 2: Quick-Add from Vault */}
         <section className="space-y-2.5 pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-xs font-semibold tracking-tight whitespace-nowrap">
-              Quick-Add from Library
+              Quick-Add from Vault
             </h2>
             <select
               value={folderFilter}
@@ -212,7 +219,7 @@ export const StreamerStudioSidebar: React.FC<StreamerStudioSidebarProps> = ({
                 borderColor: 'var(--border-subtle)',
                 color: 'var(--text-secondary)',
               }}
-              aria-label="Filter library by folder"
+              aria-label="Filter vault by folder"
             >
               <option value="all">All Folders</option>
               {folders.map((f) => (
@@ -253,7 +260,7 @@ export const StreamerStudioSidebar: React.FC<StreamerStudioSidebarProps> = ({
                 color: 'var(--text-muted)',
               }}
             >
-              No matching streams in Library.
+              No matching streams in Vault.
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -309,6 +316,44 @@ export const StreamerStudioSidebar: React.FC<StreamerStudioSidebarProps> = ({
                           .join(' · ')}
                       </div>
                     </div>
+
+                    {/* Edit & Delete icon buttons when width > 360px */}
+                    {showRowActions && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        {onEditStream && (
+                          <button
+                            type="button"
+                            onClick={() => onEditStream(stream.id)}
+                            className="h-7 w-7 rounded-lg border flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)]"
+                            style={{
+                              backgroundColor: 'var(--bg-surface)',
+                              borderColor: 'var(--border-subtle)',
+                              color: 'var(--text-secondary)',
+                            }}
+                            title="Edit stream details"
+                            aria-label={`Edit ${displayTitle}`}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {onDeleteStream && (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteStream(stream.id)}
+                            className="h-7 w-7 rounded-lg border flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)]"
+                            style={{
+                              backgroundColor: 'var(--bg-surface)',
+                              borderColor: 'var(--border-subtle)',
+                              color: 'var(--danger)',
+                            }}
+                            title="Delete stream immediately"
+                            aria-label={`Delete ${displayTitle}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     <button
                       type="button"

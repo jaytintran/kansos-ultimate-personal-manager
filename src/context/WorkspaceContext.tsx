@@ -1518,6 +1518,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       const target = workspace.entries.find((e) => e.id === id);
       if (!target) return;
       const nowIso = new Date().toISOString();
+      // Universal: anchor on scheduled/created time, mark completed false
+      if (attendance === "universal") {
+        updateEntry(id, {
+          attendance,
+          completed: false,
+          completedAt: null,
+        });
+        return;
+      }
       updateEntry(id, {
         attendance,
         completed: attendance === "attended",
@@ -1532,11 +1541,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     (id: string) => {
       const target = workspace.entries.find((e) => e.id === id);
       if (!target) return;
-      const next: EventAttendance = !target.attendance
-        ? "attended"
-        : target.attendance === "attended"
-          ? "missed"
-          : null;
+      // Cycle: null → attended → missed → universal → null
+      const next: EventAttendance =
+        !target.attendance
+          ? "attended"
+          : target.attendance === "attended"
+            ? "missed"
+            : target.attendance === "missed"
+              ? "universal"
+              : null;
       setEventAttendance(id, next);
     },
     [workspace.entries, setEventAttendance],
