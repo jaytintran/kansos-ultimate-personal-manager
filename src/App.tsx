@@ -534,11 +534,11 @@ const KansoShell: React.FC = () => {
     activeView === "streamer" ||
     activeView === "audio" ||
     activeView === "library" ||
+    activeView === "notes" ||
     activeView === "lists" ||
     activeView === "timeline" ||
     activeView === "achievements" ||
-    activeView === "contacts" ||
-    activeView === "finance";
+    activeView === "contacts";
 
   return (
     <div
@@ -1896,6 +1896,7 @@ const KansoShell: React.FC = () => {
       <DetailSheet
         target={detailTarget}
         onClose={() => setDetailTarget(null)}
+        onOpenDetail={setDetailTarget}
         onOpenTimestamps={(entryId, focus) =>
           handleOpenTimestamps(entryId, focus ?? null)
         }

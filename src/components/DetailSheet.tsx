@@ -15,16 +15,21 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Circle,
   Clock,
   Eye,
+  FileText,
   Flame,
   FolderKanban,
+  GitBranch,
   Hash,
   Link2,
   ListChecks,
   MapPin,
+  Maximize2,
+  Minimize2,
   Palette,
   Pin,
   Plus,
@@ -38,6 +43,14 @@ import {
   X,
 } from "lucide-react";
 import { useWorkspace } from "../context/WorkspaceContext";
+import {
+  getNoteAncestorChain,
+  getNoteDescendantIds,
+} from "../lib/noteGraphUtils";
+import {
+  NoteBranchActionPrompt,
+  NoteDeleteBranchModal,
+} from "./notes/NoteDeleteBranchModal";
 import {
   BookNoteLink,
   DetailSheetTarget,
@@ -143,21 +156,32 @@ const PropertyRow: React.FC<{
 interface DetailSheetProps {
   target: DetailSheetTarget | null;
   onClose: () => void;
+  onOpenDetail?: (target: DetailSheetTarget) => void;
   onOpenTimestamps: (entryId: string, focus?: TimestampFieldFocus) => void;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
 }
 
-const DetailSheetInner: React.FC<DetailSheetProps> = ({
+interface DetailSheetInnerProps extends DetailSheetProps {
+  isFullPage: boolean;
+  onToggleFullPage: () => void;
+}
+
+const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
   target,
   onClose,
+  onOpenDetail,
   onOpenTimestamps,
   onJumpToBookLocation,
+  isFullPage,
+  onToggleFullPage,
 }) => {
   const {
     workspace,
     createEntry,
     updateEntry,
     deleteEntry,
+    deleteNotePage,
+    addNotePage,
     toggleEntryCompleted,
     toggleEntryAchievement,
     setEventAttendance,
@@ -273,9 +297,15 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
   const [notebookId, setNotebookId] = useState<string | null>(
     () => initialEntrySrc?.notebookId ?? null,
   );
+  const [parentId, setParentId] = useState<string | null>(
+    () => initialEntrySrc?.parentId ?? null,
+  );
   const [bookLink, setBookLink] = useState<BookNoteLink | null>(
     () => initialEntrySrc?.bookLink ?? null,
   );
+  const [subPagesCollapsed, setSubPagesCollapsed] = useState(false);
+  const [branchPrompt, setBranchPrompt] =
+    useState<NoteBranchActionPrompt | null>(null);
 
   // Habit draft state
   const [habitPurpose, setHabitPurpose] = useState(
@@ -348,6 +378,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
             : false),
       );
       const nextNotebookId = src?.notebookId ?? null;
+      const nextParentId = src?.parentId ?? null;
       const nextBookLink = src?.bookLink ?? null;
 
       setTitle(nextTitle);
@@ -360,6 +391,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
       setListIds(nextListIds);
       setSyncToTimeline(nextSync);
       setNotebookId(nextNotebookId);
+      setParentId(nextParentId);
       setBookLink(nextBookLink);
 
       lastSavedSnapRef.current = JSON.stringify({
@@ -373,6 +405,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
         listIds: nextListIds,
         syncToTimeline: nextSync,
         notebookId: nextNotebookId,
+        parentId: nextParentId,
         bookLink: nextBookLink,
       });
     } else if (target.mode === "habit") {
@@ -436,6 +469,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
     target?.mode,
     target?.id,
     (target?.draft as Partial<Entry> | undefined)?.notebookId,
+    (target?.draft as Partial<Entry> | undefined)?.parentId,
   ]);
 
   // Flush save routine with snapshot deduplication
@@ -461,6 +495,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
         listIds,
         syncToTimeline,
         notebookId,
+        parentId,
         bookLink,
       };
       const snap = JSON.stringify(snapObj);
@@ -479,6 +514,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
         listIds,
         syncToTimeline: target.mode === "note" ? syncToTimeline : undefined,
         notebookId: target.mode === "note" ? notebookId : undefined,
+        parentId: target.mode === "note" ? parentId : undefined,
         bookLink: target.mode === "note" ? bookLink : undefined,
       };
 
@@ -580,6 +616,7 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
     listIds,
     syncToTimeline,
     notebookId,
+    parentId,
     bookLink,
     habitPurpose,
     habitColor,
@@ -685,6 +722,49 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
     return { streak, adherence, total };
   }, [liveHabit, habitRecent30]);
 
+  const allActiveNotes = useMemo(
+    () => workspace.entries.filter((e) => e.type === "note" && !e.archived),
+    [workspace.entries],
+  );
+  const noteMap = useMemo(
+    () => new Map(allActiveNotes.map((n) => [n.id, n])),
+    [allActiveNotes],
+  );
+  const descendantIds = useMemo(
+    () =>
+      activeId && target?.mode === "note"
+        ? getNoteDescendantIds(activeId, allActiveNotes)
+        : new Set<string>(),
+    [activeId, target?.mode, allActiveNotes],
+  );
+  const ancestorChain = useMemo(() => {
+    if (target?.mode !== "note") return [];
+    if (activeId) return getNoteAncestorChain(activeId, noteMap);
+    if (parentId) {
+      const p = noteMap.get(parentId);
+      return p ? [...getNoteAncestorChain(p.id, noteMap), p] : [];
+    }
+    return [];
+  }, [target?.mode, activeId, parentId, noteMap]);
+  const childSubPages = useMemo(() => {
+    if (target?.mode !== "note" || !activeId) return [];
+    return allActiveNotes
+      .filter((n) => n.parentId === activeId)
+      .sort((a, b) => {
+        const ao = typeof a.sortOrder === "number" ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+        const bo = typeof b.sortOrder === "number" ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+        if (ao !== bo) return ao - bo;
+        return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
+      });
+  }, [target?.mode, activeId, allActiveNotes]);
+  const availableParentNotes = useMemo(
+    () =>
+      allActiveNotes.filter(
+        (n) => n.id !== activeId && !descendantIds.has(n.id),
+      ),
+    [allActiveNotes, activeId, descendantIds],
+  );
+
   if (!target) return null;
 
   const liveEntry =
@@ -712,9 +792,76 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
     setTagInput("");
   };
 
+  const handleNavigateToNote = (noteId: string, linkTitle?: string) => {
+    if (!onOpenDetail) return;
+    const found =
+      noteMap.get(noteId) ??
+      (linkTitle
+        ? allActiveNotes.find(
+            (n) =>
+              (n.title || "").trim().toLowerCase() ===
+              linkTitle.trim().toLowerCase(),
+          )
+        : undefined);
+    if (!found) {
+      pushToast("Linked note not found", "neutral");
+      return;
+    }
+    if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
+    flushSave();
+    onOpenDetail({ mode: "note", id: found.id });
+  };
+
+  const handleCreateSubPage = () => {
+    if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
+    let ensuredParentId = activeId;
+    if (!ensuredParentId) {
+      const liveHtml =
+        editorInstance && !editorInstance.isDestroyed
+          ? editorInstance.getHTML()
+          : content;
+      const createdParent = addNotePage({
+        title: title.trim() || "Untitled Note",
+        content: liveHtml === "<p></p>" ? "" : liveHtml,
+        notebookId,
+        parentId,
+        syncToTimeline,
+        tags,
+      });
+      ensuredParentId = createdParent.id;
+      setCreatedId(createdParent.id);
+    } else {
+      flushSave();
+    }
+    const child = addNotePage({
+      title: "",
+      content: "",
+      notebookId,
+      parentId: ensuredParentId,
+      syncToTimeline: workspace.settings.defaultNoteTimelineSync ?? false,
+    });
+    if (onOpenDetail) {
+      onOpenDetail({ mode: "note", id: child.id });
+    }
+  };
+
   const handleDeleteCurrent = () => {
     if (isEntryMode && activeId) {
-      deleteEntry(activeId);
+      if (target.mode === "note" && descendantIds.size > 0) {
+        setBranchPrompt({
+          action: "delete",
+          noteId: activeId,
+          noteTitle: title.trim() || "Untitled Note",
+          directChildCount: childSubPages.length,
+          totalDescendantCount: descendantIds.size,
+        });
+        return;
+      }
+      if (target.mode === "note") {
+        deleteNotePage(activeId, "promote");
+      } else {
+        deleteEntry(activeId);
+      }
       pushToast(`${modeLabel[target.mode]} deleted`);
     } else if (target.mode === "habit" && activeId) {
       deleteHabit(activeId);
@@ -988,6 +1135,44 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
                       }}
                     >
                       {nb.name}
+                    </option>
+                  ))}
+                </select>
+              </PropertyRow>
+
+              <PropertyRow
+                icon={<GitBranch className="w-3.5 h-3.5" />}
+                label="Parent Page"
+              >
+                <select
+                  value={parentId || ""}
+                  onChange={(e) => setParentId(e.target.value || null)}
+                  className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
+                  style={{
+                    color: parentId
+                      ? "var(--text-primary)"
+                      : "var(--text-muted)",
+                  }}
+                >
+                  <option
+                    value=""
+                    style={{
+                      backgroundColor: "var(--bg-elevated)",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    Top-level page
+                  </option>
+                  {availableParentNotes.map((pn) => (
+                    <option
+                      key={pn.id}
+                      value={pn.id}
+                      style={{
+                        backgroundColor: "var(--bg-elevated)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {pn.title || "Untitled Note"}
                     </option>
                   ))}
                 </select>
@@ -1729,9 +1914,16 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
     );
   };
 
+  const activeNotebookObj =
+    target.mode === "note" && notebookId
+      ? (workspace.noteNotebooks || []).find((nb) => nb.id === notebookId) ?? null
+      : null;
+
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-stretch lg:items-center justify-center lg:p-6 overscroll-none"
+      className={`fixed inset-0 z-[60] flex items-stretch lg:items-center justify-center ${
+        isFullPage ? "lg:p-0" : "lg:p-6"
+      } overscroll-none`}
       role="dialog"
       aria-modal="true"
       aria-label={`${isCreateMode ? "Create" : "Edit"} ${modeLabel[target.mode]}`}
@@ -1743,19 +1935,25 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
       }}
     >
       {/* Desktop backdrop */}
-      <div
-        className="hidden lg:block fixed inset-0 bg-black/45 backdrop-blur-[2px]"
-        onClick={handleClose}
-        aria-hidden="true"
-      />
+      {!isFullPage && (
+        <div
+          className="hidden lg:block fixed inset-0 bg-black/45 backdrop-blur-[2px]"
+          onClick={handleClose}
+          aria-hidden="true"
+        />
+      )}
 
-      {/* Shell: Full-screen page on Mobile (<lg) | Wide 2-Column Modal on Desktop (lg+) */}
+      {/* Shell: Full-screen page on Mobile (<lg) | Wide Modal or Full-Page Notion Canvas on Desktop (lg+) */}
       <div
-        className="relative z-10 w-full h-dvh lg:max-w-5xl lg:h-[84dvh] lg:rounded-2xl lg:border flex flex-col overflow-hidden overscroll-none"
+        className={`relative z-10 w-full h-dvh flex flex-col overflow-hidden overscroll-none ${
+          isFullPage
+            ? "lg:max-w-none lg:w-full lg:h-dvh lg:rounded-none lg:border-0"
+            : "lg:max-w-5xl lg:h-[84dvh] lg:rounded-2xl lg:border"
+        }`}
         style={{
           backgroundColor: "var(--bg-canvas)",
           borderColor: "var(--border-strong)",
-          boxShadow: "var(--shadow-popover)",
+          boxShadow: isFullPage ? "none" : "var(--shadow-popover)",
         }}
       >
         {/* Minimal Hairline Top Bar (centered 56px row with independent safe-area top inset) */}
@@ -1900,6 +2098,27 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
                 </button>
               )}
 
+              {/* Full-Page Expand Toggle (Desktop) */}
+              <button
+                type="button"
+                onClick={onToggleFullPage}
+                className="hidden lg:flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                style={{
+                  backgroundColor: isFullPage
+                    ? "var(--accent-soft)"
+                    : "transparent",
+                  color: isFullPage ? "var(--accent)" : "var(--text-muted)",
+                }}
+                title={isFullPage ? "Exit full page" : "Open full page"}
+                aria-label={isFullPage ? "Exit full page" : "Open full page"}
+              >
+                {isFullPage ? (
+                  <Minimize2 className="w-4 h-4" />
+                ) : (
+                  <Maximize2 className="w-4 h-4" />
+                )}
+              </button>
+
               {/* Desktop Close */}
               <button
                 type="button"
@@ -1918,7 +2137,46 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
           {/* LEFT PRIMARY WRITING / ANALYTICS CANVAS */}
           <main className="flex-1 min-w-0 overflow-y-auto overscroll-none px-5 sm:px-8 lg:px-10 py-6 lg:py-8">
-            <div className="max-w-2xl mx-auto lg:mx-0 lg:max-w-none space-y-5">
+            <div
+              className={
+                isFullPage
+                  ? "max-w-3xl mx-auto space-y-5"
+                  : "max-w-2xl mx-auto lg:mx-0 lg:max-w-none space-y-5"
+              }
+            >
+              {/* Notion-style Ancestor Breadcrumb Trail for Notes */}
+              {target.mode === "note" && (
+                <nav
+                  aria-label="Page breadcrumb"
+                  className="flex flex-wrap items-center gap-1 text-xs -mb-2"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  <span className="truncate max-w-[140px]">
+                    {activeNotebookObj ? activeNotebookObj.name : "All Notes"}
+                  </span>
+                  {ancestorChain.map((anc) => (
+                    <React.Fragment key={anc.id}>
+                      <ChevronRight className="w-3 h-3 shrink-0 opacity-60" />
+                      <button
+                        type="button"
+                        onClick={() => handleNavigateToNote(anc.id)}
+                        className="truncate max-w-[160px] hover:underline cursor-pointer"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
+                        {anc.title || "Untitled Note"}
+                      </button>
+                    </React.Fragment>
+                  ))}
+                  <ChevronRight className="w-3 h-3 shrink-0 opacity-60" />
+                  <span
+                    className="truncate max-w-[200px] font-medium"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {title.trim() || "Untitled Note"}
+                  </span>
+                </nav>
+              )}
+
               {/* Borderless Auto-Growing Display Title */}
               <textarea
                 ref={titleRef}
@@ -1992,12 +2250,125 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
                     placeholder={
                       target.mode === "list_item"
                         ? "Write notes, highlights, or type / for blocks..."
-                        : "Write details, paste Markdown, or type / for blocks..."
+                        : target.mode === "note"
+                          ? "Write details, type [[ to link notes, or / for blocks..."
+                          : "Write details, paste Markdown, or type / for blocks..."
                     }
                     minHeight={300}
                     onEditorReady={setEditorInstance}
+                    allNotes={target.mode === "note" ? allActiveNotes : undefined}
+                    onOpenNote={
+                      target.mode === "note" ? handleNavigateToNote : undefined
+                    }
+                    onCreateLinkedNote={
+                      target.mode === "note"
+                        ? (linkTitle) =>
+                            addNotePage({
+                              title: linkTitle,
+                              notebookId,
+                            })
+                        : undefined
+                    }
                   />
                 </div>
+              )}
+
+              {/* Collapsible Inline Sub-Pages Block inside Note Canvas */}
+              {target.mode === "note" && (
+                <section
+                  className="pt-3 border-t space-y-2"
+                  style={{ borderColor: "var(--border-subtle)" }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSubPagesCollapsed((v) => !v)}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold hover:opacity-85 cursor-pointer"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      {subPagesCollapsed ? (
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
+                      <span>Sub-pages</span>
+                      <span
+                        className="font-mono tabular-nums text-[11px]"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {childSubPages.length}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCreateSubPage}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                      style={{ color: "var(--accent)" }}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add sub-page</span>
+                    </button>
+                  </div>
+
+                  {!subPagesCollapsed && (
+                    childSubPages.length > 0 ? (
+                      <div className="space-y-1">
+                        {childSubPages.map((child) => {
+                          const grandChildrenCount = allActiveNotes.filter(
+                            (n) => n.parentId === child.id,
+                          ).length;
+                          return (
+                            <button
+                              key={child.id}
+                              type="button"
+                              onClick={() => handleNavigateToNote(child.id)}
+                              className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg border text-left transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                              style={{
+                                backgroundColor: "var(--bg-surface)",
+                                borderColor: "var(--border-subtle)",
+                              }}
+                            >
+                              <span className="flex items-center gap-2 min-w-0">
+                                <FileText
+                                  className="w-3.5 h-3.5 shrink-0"
+                                  style={{ color: "var(--accent)" }}
+                                />
+                                <span
+                                  className="text-xs font-medium truncate"
+                                  style={{ color: "var(--text-primary)" }}
+                                >
+                                  {child.title || "Untitled Note"}
+                                </span>
+                              </span>
+                              <span className="flex items-center gap-2 shrink-0">
+                                {grandChildrenCount > 0 && (
+                                  <span
+                                    className="text-[11px] font-mono tabular-nums"
+                                    style={{ color: "var(--text-muted)" }}
+                                  >
+                                    {grandChildrenCount} sub
+                                  </span>
+                                )}
+                                <ChevronRight
+                                  className="w-3.5 h-3.5"
+                                  style={{ color: "var(--text-muted)" }}
+                                />
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p
+                        className="text-xs py-1"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        No sub-pages yet. Nest related pages directly inside this note.
+                      </p>
+                    )
+                  )}
+                </section>
               )}
 
               {/* Habit Analytics & Interactive 30-Day Matrix Punchstrip */}
@@ -2231,14 +2602,34 @@ const DetailSheetInner: React.FC<DetailSheetProps> = ({
           </div>
         )}
       </div>
+
+      <NoteDeleteBranchModal
+        prompt={branchPrompt}
+        onCancel={() => setBranchPrompt(null)}
+        onChoose={(mode) => {
+          if (branchPrompt) {
+            deleteNotePage(branchPrompt.noteId, mode);
+            pushToast("Note deleted");
+          }
+          setBranchPrompt(null);
+          onClose();
+        }}
+      />
     </div>
   );
 };
 
 export const DetailSheet: React.FC<DetailSheetProps> = (props) => {
   const { target } = props;
+  const [isFullPage, setIsFullPage] = useState(false);
+
   if (!target) return null;
   return (
-    <DetailSheetInner key={`${target.mode}:${target.id ?? "new"}`} {...props} />
+    <DetailSheetInner
+      key={`${target.mode}:${target.id ?? "new"}`}
+      {...props}
+      isFullPage={isFullPage}
+      onToggleFullPage={() => setIsFullPage((v) => !v)}
+    />
   );
 };

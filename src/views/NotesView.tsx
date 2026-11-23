@@ -1,25 +1,51 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Archive,
   ArrowUpRight,
   BookOpen,
+  ChevronRight,
   FileText,
   FolderOpen,
+  GitBranch,
   GripVertical,
   LayoutGrid,
   Library,
   List as ListIcon,
   MoreVertical,
+  Network,
+  PanelLeftOpen,
   Pencil,
   Pin,
   Plus,
+  RotateCcw,
   Search,
   Trash2,
   X,
 } from "lucide-react";
 import { DynamicIcon, LIST_ICON_KEYS } from "../components/IconLibrary";
 import { BookCover } from "../components/library/BookCover";
+import {
+  NoteBranchActionPrompt,
+  NoteDeleteBranchModal,
+} from "../components/notes/NoteDeleteBranchModal";
+import {
+  ConnectionMapMode,
+  NotesConnectionMap,
+} from "../components/notes/NotesConnectionMap";
+import {
+  DEFAULT_NOTES_SIDEBAR_WIDTH,
+  MAX_NOTES_SIDEBAR_WIDTH,
+  MIN_NOTES_SIDEBAR_WIDTH,
+  NotesLeftSidebar,
+  NotesScope,
+} from "../components/notes/NotesLeftSidebar";
 import { RichContent } from "../components/RichContent";
 import { useWorkspace } from "../context/WorkspaceContext";
+import {
+  getNoteAncestorChain,
+  getNoteDescendantIds,
+  wouldCreateParentCycle,
+} from "../lib/noteGraphUtils";
 import {
   BookNoteLink,
   BookRecord,
@@ -38,9 +64,12 @@ import { VIEW_PREFERENCE_SYNC_EVENT } from "../utils/viewPreferences";
 type NoteSort = "custom" | "pinned" | "updated" | "created" | "title";
 type NotesViewMode = "grid" | "list";
 
-const BOOK_NOTES_TAB_ID = "__book_notes__";
 const SORT_STORAGE_KEY = "kanso_notes_sort_v1";
 const VIEW_MODE_STORAGE_KEY = "kanso_notes_view_mode_v1";
+const SIDEBAR_WIDTH_KEY = "kanso_notes_sidebar_width_v1";
+const SIDEBAR_COLLAPSED_KEY = "kanso_notes_sidebar_collapsed_v1";
+const CONN_OPEN_KEY = "kanso_notes_conn_open_v1";
+const CONN_MODE_KEY = "kanso_notes_conn_mode_v1";
 
 const LEGACY_EMOJI_ICON_MAP: Record<string, string> = {
   "📚": "BookOpen",
@@ -85,6 +114,9 @@ export const NotesView: React.FC<NotesViewProps> = ({
     workspace,
     pushToast,
     updateEntry,
+    addNotePage,
+    deleteNotePage,
+    archiveNotePage,
     addNoteNotebook,
     updateNoteNotebook,
     deleteNoteNotebook,
@@ -97,11 +129,12 @@ export const NotesView: React.FC<NotesViewProps> = ({
     [workspace.noteNotebooks],
   );
 
-  const [selectedNotebookId, setSelectedNotebookId] = useState<
-    "all" | "unfiled" | string
-  >("all");
+  const [scope, setScope] = useState<NotesScope>({ kind: "all" });
+  const [drilledParentId, setDrilledParentId] = useState<string | null>(null);
+  const [focusedNoteId, setFocusedNoteId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedTag, setSelectedTag] = useState<string>("all");
+
   const [sortBy, setSortBy] = useState<NoteSort>(() => {
     try {
       const saved = localStorage.getItem(SORT_STORAGE_KEY) as NoteSort | null;
@@ -121,6 +154,46 @@ export const NotesView: React.FC<NotesViewProps> = ({
     }
   });
 
+  // Left sidebar & right connection map layout preferences
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    try {
+      const raw = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+      if (Number.isFinite(raw) && raw >= MIN_NOTES_SIDEBAR_WIDTH && raw <= MAX_NOTES_SIDEBAR_WIDTH) {
+        return raw;
+      }
+    } catch {
+      // Ignore
+    }
+    return DEFAULT_NOTES_SIDEBAR_WIDTH;
+  });
+  const [sidebarCollapsedDesktop, setSidebarCollapsedDesktop] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [mobileTreeOpen, setMobileTreeOpen] = useState(false);
+
+  const [connOpenDesktop, setConnOpenDesktop] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(CONN_OPEN_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [mobileConnOpen, setMobileConnOpen] = useState(false);
+  const [connMode, setConnMode] = useState<ConnectionMapMode>(() => {
+    try {
+      return localStorage.getItem(CONN_MODE_KEY) === "graph" ? "graph" : "tree";
+    } catch {
+      return "tree";
+    }
+  });
+
+  const [branchPrompt, setBranchPrompt] =
+    useState<NoteBranchActionPrompt | null>(null);
+
   const [notebookModal, setNotebookModal] = useState<{
     mode: "create" | "edit";
     notebook?: NoteNotebook;
@@ -128,7 +201,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
     icon: string;
   } | null>(null);
 
-  // Drag & drop state (Note reordering, Note -> Notebook filing, Notebook tab reordering)
+  // Drag & drop state (Note reordering, Note -> Notebook filing on mobile tab strip)
   const activeDragNoteIdRef = useRef<string | null>(null);
   const activeDragNotebookIdRef = useRef<string | null>(null);
   const noteElRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -188,11 +261,45 @@ export const NotesView: React.FC<NotesViewProps> = ({
   }, [viewMode]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+    } catch {
+      // Ignore
+    }
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsedDesktop));
+    } catch {
+      // Ignore
+    }
+  }, [sidebarCollapsedDesktop]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CONN_OPEN_KEY, String(connOpenDesktop));
+    } catch {
+      // Ignore
+    }
+  }, [connOpenDesktop]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CONN_MODE_KEY, connMode);
+    } catch {
+      // Ignore
+    }
+  }, [connMode]);
+
+  useEffect(() => {
     const onSynced = () => {
       try {
         const savedSort = localStorage.getItem(SORT_STORAGE_KEY) as NoteSort | null;
         setSortBy(savedSort || "pinned");
-        const savedView = localStorage.getItem(VIEW_MODE_STORAGE_KEY) as NotesViewMode | null;
+        const savedView = localStorage.getItem(
+          VIEW_MODE_STORAGE_KEY,
+        ) as NotesViewMode | null;
         setViewMode(savedView === "list" ? "list" : "grid");
       } catch {
         // Ignore
@@ -207,14 +314,13 @@ export const NotesView: React.FC<NotesViewProps> = ({
   // Reset to 'all' if the selected notebook is deleted
   useEffect(() => {
     if (
-      selectedNotebookId !== "all" &&
-      selectedNotebookId !== "unfiled" &&
-      selectedNotebookId !== BOOK_NOTES_TAB_ID &&
-      !notebooks.some((nb) => nb.id === selectedNotebookId)
+      scope.kind === "notebook" &&
+      !notebooks.some((nb) => nb.id === scope.notebookId)
     ) {
-      setSelectedNotebookId("all");
+      setScope({ kind: "all" });
+      setDrilledParentId(null);
     }
-  }, [notebooks, selectedNotebookId]);
+  }, [notebooks, scope]);
 
   const notebookMap = useMemo(() => {
     const map = new Map<string, NoteNotebook>();
@@ -228,11 +334,34 @@ export const NotesView: React.FC<NotesViewProps> = ({
     return map;
   }, [workspace.books]);
 
-  // Aggregate standalone + Timeline-born active notes
   const allNotes = useMemo(
     () => workspace.entries.filter((e) => e.type === "note" && !e.archived),
     [workspace.entries],
   );
+
+  const archivedNotes = useMemo(
+    () => workspace.entries.filter((e) => e.type === "note" && Boolean(e.archived)),
+    [workspace.entries],
+  );
+
+  const noteById = useMemo(() => new Map(allNotes.map((n) => [n.id, n])), [allNotes]);
+
+  const directChildCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const n of allNotes) {
+      if (n.parentId && noteById.has(n.parentId) && n.parentId !== n.id) {
+        counts.set(n.parentId, (counts.get(n.parentId) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [allNotes, noteById]);
+
+  // Clear drill-down if parent note no longer exists
+  useEffect(() => {
+    if (drilledParentId && !noteById.has(drilledParentId)) {
+      setDrilledParentId(null);
+    }
+  }, [drilledParentId, noteById]);
 
   const bookNotes = useMemo(
     () => allNotes.filter((n) => Boolean(n.bookLink)),
@@ -253,15 +382,16 @@ export const NotesView: React.FC<NotesViewProps> = ({
   }, [allNotes, notebookMap]);
 
   const notesInScope = useMemo(() => {
-    if (selectedNotebookId === "all") return allNotes;
-    if (selectedNotebookId === BOOK_NOTES_TAB_ID) return bookNotes;
-    if (selectedNotebookId === "unfiled") {
+    if (scope.kind === "archive") return archivedNotes;
+    if (scope.kind === "all") return allNotes;
+    if (scope.kind === "book_notes") return bookNotes;
+    if (scope.kind === "unfiled") {
       return allNotes.filter(
         (n) => !n.notebookId || !notebookMap.has(n.notebookId),
       );
     }
-    return allNotes.filter((n) => n.notebookId === selectedNotebookId);
-  }, [allNotes, bookNotes, selectedNotebookId, notebookMap]);
+    return allNotes.filter((n) => n.notebookId === scope.notebookId);
+  }, [allNotes, archivedNotes, bookNotes, scope, notebookMap]);
 
   const scopeTags = useMemo(() => {
     const set = new Set<string>();
@@ -269,7 +399,6 @@ export const NotesView: React.FC<NotesViewProps> = ({
     return Array.from(set).sort();
   }, [notesInScope]);
 
-  // Reset tag filter if the active notebook doesn't have the selected tag
   useEffect(() => {
     if (selectedTag !== "all" && !scopeTags.includes(selectedTag)) {
       setSelectedTag("all");
@@ -299,27 +428,45 @@ export const NotesView: React.FC<NotesViewProps> = ({
   }, []);
 
   const isCustomSort = sortBy === "custom";
+  const hasActiveSearchOrTag = Boolean(search.trim()) || selectedTag !== "all";
 
   const filteredNotes = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const scopeIds = new Set(notesInScope.map((n) => n.id));
+
     return notesInScope
       .filter((note) => {
         if (selectedTag !== "all" && !(note.tags || []).includes(selectedTag))
           return false;
-        if (!q) return true;
-        return (
-          note.title.toLowerCase().includes(q) ||
-          note.content.toLowerCase().includes(q) ||
-          (note.tags || []).some((t) => t.toLowerCase().includes(q)) ||
-          Boolean(note.bookLink?.bookTitle.toLowerCase().includes(q)) ||
-          Boolean(note.bookLink?.bookAuthor?.toLowerCase().includes(q)) ||
-          Boolean(note.bookLink?.locationLabel.toLowerCase().includes(q))
-        );
+
+        if (q) {
+          return (
+            note.title.toLowerCase().includes(q) ||
+            note.content.toLowerCase().includes(q) ||
+            (note.tags || []).some((t) => t.toLowerCase().includes(q)) ||
+            Boolean(note.bookLink?.bookTitle.toLowerCase().includes(q)) ||
+            Boolean(note.bookLink?.bookAuthor?.toLowerCase().includes(q)) ||
+            Boolean(note.bookLink?.locationLabel.toLowerCase().includes(q))
+          );
+        }
+
+        // Hierarchy filtering when not searching/tag-filtering & not in book_notes/archive
+        if (
+          !hasActiveSearchOrTag &&
+          scope.kind !== "book_notes" &&
+          scope.kind !== "archive"
+        ) {
+          if (drilledParentId) {
+            return note.parentId === drilledParentId;
+          }
+          // Root level within scope
+          return !note.parentId || !scopeIds.has(note.parentId) || note.parentId === note.id;
+        }
+
+        return true;
       })
       .sort((a, b) => {
-        if (sortBy === "custom") {
-          return customNoteOrderCompare(a, b);
-        }
+        if (sortBy === "custom") return customNoteOrderCompare(a, b);
         if (sortBy === "pinned") {
           if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
           return (
@@ -340,10 +487,19 @@ export const NotesView: React.FC<NotesViewProps> = ({
         }
         return a.title.localeCompare(b.title);
       });
-  }, [notesInScope, search, selectedTag, sortBy, customNoteOrderCompare]);
+  }, [
+    notesInScope,
+    search,
+    selectedTag,
+    hasActiveSearchOrTag,
+    scope.kind,
+    drilledParentId,
+    sortBy,
+    customNoteOrderCompare,
+  ]);
 
   const groupedBookNotes = useMemo(() => {
-    if (selectedNotebookId !== BOOK_NOTES_TAB_ID) return [];
+    if (scope.kind !== "book_notes") return [];
     const groups = new Map<
       string,
       {
@@ -377,7 +533,82 @@ export const NotesView: React.FC<NotesViewProps> = ({
     }
 
     return Array.from(groups.values());
-  }, [selectedNotebookId, filteredNotes, bookById]);
+  }, [scope.kind, filteredNotes, bookById]);
+
+  const handleSelectScope = useCallback((nextScope: NotesScope) => {
+    setScope(nextScope);
+    setDrilledParentId(null);
+  }, []);
+
+  const handleOpenNoteById = useCallback(
+    (noteId: string) => {
+      setFocusedNoteId(noteId);
+      onOpenDetail({ mode: "note", id: noteId });
+    },
+    [onOpenDetail],
+  );
+
+  const handleCreateNoteDirect = useCallback(
+    (options: { notebookId?: string | null; parentId?: string | null }) => {
+      const created = addNotePage({
+        title: "",
+        content: "",
+        notebookId: options.notebookId ?? null,
+        parentId: options.parentId ?? null,
+        syncToTimeline: workspace.settings.defaultNoteTimelineSync ?? false,
+      });
+      setFocusedNoteId(created.id);
+      onOpenDetail({ mode: "note", id: created.id });
+    },
+    [addNotePage, workspace.settings.defaultNoteTimelineSync, onOpenDetail],
+  );
+
+  const handleNestNoteUnderParent = useCallback(
+    (draggedNoteId: string, newParentId: string | null) => {
+      if (newParentId && wouldCreateParentCycle(draggedNoteId, newParentId, allNotes)) {
+        pushToast("Cannot move a note inside its own sub-page", "neutral");
+        return;
+      }
+      const parentNote = newParentId ? noteById.get(newParentId) : null;
+      updateEntry(draggedNoteId, {
+        parentId: newParentId,
+        ...(parentNote ? { notebookId: parentNote.notebookId ?? null } : {}),
+      });
+      pushToast(
+        parentNote
+          ? `Nested under "${parentNote.title || "Untitled Note"}"`
+          : "Moved to top level",
+        "success",
+      );
+    },
+    [allNotes, noteById, updateEntry, pushToast],
+  );
+
+  const handleMoveNoteToNotebook = useCallback(
+    (noteId: string, targetNotebookId: string | null) => {
+      const note = allNotes.find((n) => n.id === noteId);
+      if (!note) return;
+      const patch: Partial<Entry> = { notebookId: targetNotebookId };
+      // If note had a parent in a different notebook, detach parent so it appears cleanly in target notebook
+      if (note.parentId) {
+        const parent = noteById.get(note.parentId);
+        if (!parent || (parent.notebookId ?? null) !== targetNotebookId) {
+          patch.parentId = null;
+        }
+      }
+      updateEntry(noteId, patch);
+      if (targetNotebookId === null) {
+        pushToast("Moved note to Unfiled", "success");
+      } else {
+        const nb = notebookMap.get(targetNotebookId);
+        pushToast(
+          nb ? `Moved to "${nb.name}"` : "Moved note to notebook",
+          "success",
+        );
+      }
+    },
+    [allNotes, noteById, notebookMap, updateEntry, pushToast],
+  );
 
   const handleReorderNotes = useCallback(
     (draggedId: string, targetNoteId: string, position: "before" | "after") => {
@@ -428,25 +659,27 @@ export const NotesView: React.FC<NotesViewProps> = ({
     [filteredNotes, allNotes, customNoteOrderCompare, reorderNoteEntries],
   );
 
-  const handleFileNoteToNotebook = useCallback(
-    (noteId: string, targetNotebookId: string | null) => {
-      const note = allNotes.find((n) => n.id === noteId);
-      if (!note) return;
-      const currentNbId = note.notebookId ?? null;
-      if (currentNbId === targetNotebookId) return;
-
-      updateEntry(noteId, { notebookId: targetNotebookId });
-      if (targetNotebookId === null) {
-        pushToast("Moved note to Unfiled", "success");
+  const requestDeleteOrArchiveNote = useCallback(
+    (note: Entry, action: "delete" | "archive") => {
+      const descendants = getNoteDescendantIds(note.id, allNotes);
+      if (!note.archived && descendants.size > 0) {
+        setBranchPrompt({
+          action,
+          noteId: note.id,
+          noteTitle: note.title || "Untitled Note",
+          directChildCount: directChildCounts.get(note.id) || 0,
+          totalDescendantCount: descendants.size,
+        });
+        return;
+      }
+      if (action === "archive") {
+        archiveNotePage(note.id, true, "promote");
       } else {
-        const nb = notebookMap.get(targetNotebookId);
-        pushToast(
-          nb ? `Moved to "${nb.name}"` : "Moved note to notebook",
-          "success",
-        );
+        deleteNotePage(note.id, "promote");
+        pushToast("Note deleted");
       }
     },
-    [allNotes, notebookMap, updateEntry, pushToast],
+    [allNotes, directChildCounts, archiveNotePage, deleteNotePage, pushToast],
   );
 
   const isSingleColumnGrid = useCallback(() => {
@@ -513,11 +746,20 @@ export const NotesView: React.FC<NotesViewProps> = ({
   );
 
   const activeNotebook =
-    selectedNotebookId !== "all" &&
-    selectedNotebookId !== "unfiled" &&
-    selectedNotebookId !== BOOK_NOTES_TAB_ID
-      ? notebookMap.get(selectedNotebookId) || null
+    scope.kind === "notebook"
+      ? notebookMap.get(scope.notebookId) || null
       : null;
+
+  const drilledParentNote = drilledParentId
+    ? noteById.get(drilledParentId) || null
+    : null;
+  const drilledAncestors = useMemo(
+    () =>
+      drilledParentNote
+        ? [...getNoteAncestorChain(drilledParentNote.id, noteById), drilledParentNote]
+        : [],
+    [drilledParentNote, noteById],
+  );
 
   const handleSaveNotebookModal = (e: React.FormEvent) => {
     e.preventDefault();
@@ -527,7 +769,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
         notebookModal.name.trim(),
         notebookModal.icon,
       );
-      setSelectedNotebookId(created.id);
+      handleSelectScope({ kind: "notebook", notebookId: created.id });
     } else if (notebookModal.notebook) {
       updateNoteNotebook(notebookModal.notebook.id, {
         name: notebookModal.name.trim(),
@@ -537,747 +779,1200 @@ export const NotesView: React.FC<NotesViewProps> = ({
     setNotebookModal(null);
   };
 
-  const handleDeleteActiveNotebook = () => {
-    if (!activeNotebook) return;
-    deleteNoteNotebook(activeNotebook.id);
-    setSelectedNotebookId("all");
+  const handleDeleteNotebook = (nb: NoteNotebook) => {
+    deleteNoteNotebook(nb.id);
+    if (scope.kind === "notebook" && scope.notebookId === nb.id) {
+      handleSelectScope({ kind: "all" });
+    }
   };
 
-  return (
-    <div className="mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-20 space-y-4">
-      {/* Header */}
-      <header
-        className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b mb-0"
-        style={{ borderColor: "var(--border-subtle)" }}
-      >
-        <div className="flex items-baseline gap-2.5 min-w-0">
-          <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight truncate">
-            {activeNotebook
-              ? activeNotebook.name
-              : selectedNotebookId === BOOK_NOTES_TAB_ID
-                ? "Book Notes"
-                : selectedNotebookId === "unfiled"
-                  ? "Unfiled Notes"
-                  : "Notes"}
-          </h1>
-          <span
-            className="text-xs font-mono tabular-nums shrink-0"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {notesInScope.length}
-          </span>
-        </div>
+  const scopeTitle = activeNotebook
+    ? activeNotebook.name
+    : scope.kind === "book_notes"
+      ? "Book Notes"
+      : scope.kind === "unfiled"
+        ? "Unfiled Notes"
+        : scope.kind === "archive"
+          ? "Archived Notes"
+          : "Notes";
 
-        <div className="flex items-center gap-1.5">
-          {activeNotebook && (
-            <>
+  return (
+    <div className="h-full flex-1 min-h-0 lg:h-dvh flex overflow-hidden">
+      {/* Desktop Resizable/Collapsible Left Sidebar + Mobile Slide-Over Tree Drawer */}
+      <NotesLeftSidebar
+        allNotes={allNotes}
+        archivedNotesCount={archivedNotes.length}
+        bookNotesCount={bookNotes.length}
+        notebooks={notebooks}
+        scope={scope}
+        focusedNoteId={focusedNoteId}
+        sidebarWidth={sidebarWidth}
+        isCollapsedDesktop={sidebarCollapsedDesktop}
+        isOpenMobile={mobileTreeOpen}
+        onCloseMobile={() => setMobileTreeOpen(false)}
+        onCollapseDesktop={() => setSidebarCollapsedDesktop(true)}
+        onSidebarWidthChange={setSidebarWidth}
+        onSelectScope={handleSelectScope}
+        onOpenNote={handleOpenNoteById}
+        onCreateNote={handleCreateNoteDirect}
+        onCreateNotebook={() =>
+          setNotebookModal({
+            mode: "create",
+            name: "",
+            icon: "BookOpen",
+          })
+        }
+        onEditNotebook={(nb) =>
+          setNotebookModal({
+            mode: "edit",
+            notebook: nb,
+            name: nb.name,
+            icon: resolveNotebookIconName(nb.icon),
+          })
+        }
+        onDeleteNotebook={handleDeleteNotebook}
+        onNestNoteUnderParent={handleNestNoteUnderParent}
+        onMoveNoteToNotebook={handleMoveNoteToNotebook}
+        onReorderNotebook={reorderNoteNotebooks}
+      />
+
+      {/* Center Notes Studio Canvas */}
+      <div className="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 lg:px-8 pt-5 pb-20 space-y-4">
+          {/* Header */}
+          <header
+            className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b mb-0"
+            style={{ borderColor: "var(--border-subtle)" }}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              {/* Desktop collapsed sidebar reopen */}
+              {sidebarCollapsedDesktop && (
+                <button
+                  type="button"
+                  onClick={() => setSidebarCollapsedDesktop(false)}
+                  title="Show notes sidebar"
+                  aria-label="Show notes sidebar"
+                  className="hidden lg:flex h-8 w-8 items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <PanelLeftOpen className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Mobile tree drawer trigger */}
               <button
                 type="button"
-                onClick={() =>
-                  setNotebookModal({
-                    mode: "edit",
-                    notebook: activeNotebook,
-                    name: activeNotebook.name,
-                    icon: resolveNotebookIconName(activeNotebook.icon),
-                  })
-                }
-                className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-subtle)]"
+                onClick={() => setMobileTreeOpen(true)}
+                title="Page tree & notebooks"
+                aria-label="Open page tree"
+                className="lg:hidden h-8 w-8 flex items-center justify-center rounded-lg border shrink-0"
                 style={{
                   backgroundColor: "var(--bg-surface)",
                   borderColor: "var(--border-subtle)",
                   color: "var(--text-secondary)",
                 }}
-                title="Rename notebook"
               >
-                <Pencil className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Edit</span>
+                <PanelLeftOpen className="w-4 h-4" />
               </button>
+
+              <div className="flex items-baseline gap-2.5 min-w-0">
+                <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight truncate">
+                  {scopeTitle}
+                </h1>
+                <span
+                  className="text-xs font-mono tabular-nums shrink-0"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {notesInScope.length}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {activeNotebook && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setNotebookModal({
+                        mode: "edit",
+                        notebook: activeNotebook,
+                        name: activeNotebook.name,
+                        icon: resolveNotebookIconName(activeNotebook.icon),
+                      })
+                    }
+                    className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-secondary)",
+                    }}
+                    title="Rename notebook"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Edit</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteNotebook(activeNotebook)}
+                    className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--danger)",
+                    }}
+                    title="Delete notebook (notes are preserved)"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Delete</span>
+                  </button>
+                </>
+              )}
+
+              {/* Connection Map Toggle (Desktop & Mobile) */}
               <button
                 type="button"
-                onClick={handleDeleteActiveNotebook}
-                className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-subtle)]"
+                onClick={() => setConnOpenDesktop((v) => !v)}
+                aria-pressed={connOpenDesktop}
+                title={
+                  connOpenDesktop
+                    ? "Hide connection map"
+                    : "Show connection map (Tree & Graph)"
+                }
+                className="hidden lg:inline-flex h-8 px-2.5 rounded-lg border text-xs font-medium items-center gap-1.5 transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                style={{
+                  backgroundColor: connOpenDesktop
+                    ? "var(--accent-soft)"
+                    : "var(--bg-surface)",
+                  borderColor: connOpenDesktop
+                    ? "var(--accent)"
+                    : "var(--border-subtle)",
+                  color: connOpenDesktop
+                    ? "var(--accent)"
+                    : "var(--text-secondary)",
+                }}
+              >
+                <Network className="w-3.5 h-3.5" />
+                <span>Connections</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMobileConnOpen(true)}
+                aria-label="Open connections map"
+                title="Connections map"
+                className="lg:hidden h-8 w-8 flex items-center justify-center rounded-lg border"
                 style={{
                   backgroundColor: "var(--bg-surface)",
                   borderColor: "var(--border-subtle)",
-                  color: "var(--danger)",
+                  color: "var(--text-secondary)",
                 }}
-                title="Delete notebook (notes are preserved)"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Delete</span>
+                <Network className="w-4 h-4" />
               </button>
-            </>
-          )}
 
-          <button
-            type="button"
-            onClick={() =>
-              onOpenDetail({
-                mode: "note",
-                draft: {
-                  type: "note",
-                  title: "",
-                  content: "",
-                  notebookId: activeNotebook ? activeNotebook.id : null,
-                  syncToTimeline:
-                    workspace.settings.defaultNoteTimelineSync ?? false,
-                },
-              })
-            }
-            className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5"
-            style={{
-              backgroundColor: "var(--accent)",
-              color: "var(--accent-fg)",
-            }}
+              {scope.kind !== "archive" && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onOpenDetail({
+                      mode: "note",
+                      draft: {
+                        type: "note",
+                        title: "",
+                        content: "",
+                        notebookId: activeNotebook ? activeNotebook.id : null,
+                        parentId: drilledParentNote ? drilledParentNote.id : null,
+                        syncToTimeline:
+                          workspace.settings.defaultNoteTimelineSync ?? false,
+                      },
+                    })
+                  }
+                  className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                  style={{
+                    backgroundColor: "var(--accent)",
+                    color: "var(--accent-fg)",
+                  }}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{drilledParentNote ? "Sub-page" : "New Note"}</span>
+                </button>
+              )}
+            </div>
+          </header>
+
+          {/* MOBILE ONLY (< lg): Horizontal Scrolling Notebooks Strip */}
+          <nav
+            aria-label="Notebooks"
+            className="lg:hidden flex items-center gap-1 overflow-x-auto no-scrollbar border-b"
+            style={{ borderColor: "var(--border-subtle)" }}
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New Note</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Horizontal Scrolling Notebooks Strip */}
-      <nav
-        aria-label="Notebooks"
-        className="flex items-center gap-1 overflow-x-auto no-scrollbar border-b"
-        style={{ borderColor: "var(--border-subtle)" }}
-      >
-        <button
-          type="button"
-          onClick={() => setSelectedNotebookId("all")}
-          className="h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-colors whitespace-nowrap"
-          style={{
-            borderColor:
-              selectedNotebookId === "all" ? "var(--accent)" : "transparent",
-            color:
-              selectedNotebookId === "all"
-                ? "var(--text-primary)"
-                : "var(--text-secondary)",
-            backgroundColor:
-              selectedNotebookId === "all"
-                ? "var(--accent-soft)"
-                : "transparent",
-          }}
-        >
-          <BookOpen
-            className="w-3.5 h-3.5 shrink-0"
-            style={{
-              color:
-                selectedNotebookId === "all"
-                  ? "var(--accent)"
-                  : "var(--text-muted)",
-            }}
-          />
-          <span className={selectedNotebookId === "all" ? "font-semibold" : ""}>
-            All Notes
-          </span>
-          <span
-            className="font-mono tabular-nums text-[11px] opacity-75"
-            style={{
-              color:
-                selectedNotebookId === "all"
-                  ? "var(--accent)"
-                  : "var(--text-muted)",
-            }}
-          >
-            {allNotes.length}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSelectedNotebookId(BOOK_NOTES_TAB_ID)}
-          className="h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-colors whitespace-nowrap"
-          style={{
-            borderColor:
-              selectedNotebookId === BOOK_NOTES_TAB_ID
-                ? "var(--accent)"
-                : "transparent",
-            color:
-              selectedNotebookId === BOOK_NOTES_TAB_ID
-                ? "var(--text-primary)"
-                : "var(--text-secondary)",
-            backgroundColor:
-              selectedNotebookId === BOOK_NOTES_TAB_ID
-                ? "var(--accent-soft)"
-                : "transparent",
-          }}
-        >
-          <Library
-            className="w-3.5 h-3.5 shrink-0"
-            style={{
-              color:
-                selectedNotebookId === BOOK_NOTES_TAB_ID
-                  ? "var(--accent)"
-                  : "var(--text-muted)",
-            }}
-          />
-          <span
-            className={
-              selectedNotebookId === BOOK_NOTES_TAB_ID ? "font-semibold" : ""
-            }
-          >
-            Book Notes
-          </span>
-          <span
-            className="font-mono tabular-nums text-[11px] opacity-75"
-            style={{
-              color:
-                selectedNotebookId === BOOK_NOTES_TAB_ID
-                  ? "var(--accent)"
-                  : "var(--text-muted)",
-            }}
-          >
-            {bookNotes.length}
-          </span>
-        </button>
-
-        {notebooks.map((nb) => {
-          const active = selectedNotebookId === nb.id;
-          const count = notebookCounts.counts.get(nb.id) || 0;
-          const iconName = resolveNotebookIconName(nb.icon);
-          const isBeingDragged = draggingNotebookId === nb.id;
-          const isNoteDropHover = noteFileDropTargetId === nb.id;
-          const isNbDropTarget = notebookDropTarget?.notebookId === nb.id;
-
-          return (
             <button
-              key={nb.id}
-              ref={(el) => {
-                if (el) notebookTabRefs.current.set(nb.id, el);
-                else notebookTabRefs.current.delete(nb.id);
-              }}
               type="button"
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData("application/x-kanso-notebook-id", nb.id);
-                e.dataTransfer.effectAllowed = "move";
-                activeDragNotebookIdRef.current = nb.id;
-                setDraggingNotebookId(nb.id);
-              }}
-              onDragEnd={clearAllDragStates}
-              onDragOver={(e) => {
-                const types = e.dataTransfer.types;
-                if (types.includes("application/x-kanso-note-id")) {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  setNoteFileDropTargetId(nb.id);
-                  return;
-                }
-                if (types.includes("application/x-kanso-notebook-id")) {
-                  if (activeDragNotebookIdRef.current === nb.id) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const position: "before" | "after" =
-                    e.clientX < rect.left + rect.width / 2 ? "before" : "after";
-                  setNotebookDropTarget((prev) =>
-                    prev?.notebookId === nb.id && prev.position === position
-                      ? prev
-                      : { notebookId: nb.id, position },
-                  );
-                }
-              }}
-              onDragLeave={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                  setNoteFileDropTargetId((prev) =>
-                    prev === nb.id ? null : prev,
-                  );
-                  setNotebookDropTarget((prev) =>
-                    prev?.notebookId === nb.id ? null : prev,
-                  );
-                }
-              }}
-              onDrop={(e) => {
-                const types = e.dataTransfer.types;
-                if (types.includes("application/x-kanso-note-id")) {
-                  const noteId =
-                    e.dataTransfer.getData("application/x-kanso-note-id") ||
-                    activeDragNoteIdRef.current;
-                  clearAllDragStates();
-                  if (!noteId) return;
-                  e.preventDefault();
-                  handleFileNoteToNotebook(noteId, nb.id);
-                  return;
-                }
-                if (types.includes("application/x-kanso-notebook-id")) {
-                  const draggedNbId =
-                    e.dataTransfer.getData(
-                      "application/x-kanso-notebook-id",
-                    ) || activeDragNotebookIdRef.current;
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const position: "before" | "after" =
-                    e.clientX < rect.left + rect.width / 2 ? "before" : "after";
-                  clearAllDragStates();
-                  if (!draggedNbId || draggedNbId === nb.id) return;
-                  e.preventDefault();
-                  reorderNoteNotebooks(draggedNbId, nb.id, position);
-                }
-              }}
-              onClick={() => setSelectedNotebookId(nb.id)}
-              title="Click to open · Drag to reorder · Drop notes here to file"
-              className={`relative h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-                isBeingDragged ? "opacity-45" : ""
-              } ${
-                isNoteDropHover
-                  ? "ring-1 ring-inset ring-[var(--accent)] rounded-t-md"
-                  : ""
-              }`}
+              onClick={() => handleSelectScope({ kind: "all" })}
+              className="h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-colors whitespace-nowrap"
               style={{
                 borderColor:
-                  isNoteDropHover || active ? "var(--accent)" : "transparent",
+                  scope.kind === "all" ? "var(--accent)" : "transparent",
                 color:
-                  isNoteDropHover || active
+                  scope.kind === "all"
                     ? "var(--text-primary)"
                     : "var(--text-secondary)",
-                backgroundColor: isNoteDropHover
-                  ? "var(--accent-soft)"
-                  : active
-                    ? "var(--accent-soft)"
-                    : "transparent",
+                backgroundColor:
+                  scope.kind === "all" ? "var(--accent-soft)" : "transparent",
               }}
             >
-              {isNbDropTarget && (
-                <span
-                  aria-hidden="true"
-                  className={`pointer-events-none absolute top-1.5 bottom-1.5 w-[2.5px] rounded-full bg-[var(--accent)] shadow-[0_0_6px_var(--accent)] z-20 ${
-                    notebookDropTarget.position === "before"
-                      ? "left-0"
-                      : "right-0"
-                  }`}
-                />
-              )}
-              <DynamicIcon
-                name={iconName}
+              <BookOpen
                 className="w-3.5 h-3.5 shrink-0"
                 style={{
                   color:
-                    isNoteDropHover || active
+                    scope.kind === "all"
                       ? "var(--accent)"
                       : "var(--text-muted)",
                 }}
               />
-              <span className={active ? "font-semibold" : ""}>{nb.name}</span>
-              <span
-                className="font-mono tabular-nums text-[11px] opacity-75"
+              <span className={scope.kind === "all" ? "font-semibold" : ""}>
+                All Notes
+              </span>
+              <span className="font-mono tabular-nums text-[11px] opacity-75">
+                {allNotes.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSelectScope({ kind: "book_notes" })}
+              className="h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-colors whitespace-nowrap"
+              style={{
+                borderColor:
+                  scope.kind === "book_notes" ? "var(--accent)" : "transparent",
+                color:
+                  scope.kind === "book_notes"
+                    ? "var(--text-primary)"
+                    : "var(--text-secondary)",
+                backgroundColor:
+                  scope.kind === "book_notes"
+                    ? "var(--accent-soft)"
+                    : "transparent",
+              }}
+            >
+              <Library
+                className="w-3.5 h-3.5 shrink-0"
                 style={{
                   color:
-                    isNoteDropHover || active
+                    scope.kind === "book_notes"
                       ? "var(--accent)"
                       : "var(--text-muted)",
                 }}
-              >
-                {count}
+              />
+              <span className={scope.kind === "book_notes" ? "font-semibold" : ""}>
+                Book Notes
+              </span>
+              <span className="font-mono tabular-nums text-[11px] opacity-75">
+                {bookNotes.length}
               </span>
             </button>
-          );
-        })}
 
-        {(notebookCounts.unfiled > 0 || draggingNoteId !== null) && (
-          <button
-            ref={(el) => {
-              if (el) notebookTabRefs.current.set("__unfiled__", el);
-              else notebookTabRefs.current.delete("__unfiled__");
-            }}
-            type="button"
-            onDragOver={(e) => {
-              if (
-                !e.dataTransfer.types.includes("application/x-kanso-note-id")
-              ) {
-                return;
-              }
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-              setNoteFileDropTargetId("__unfiled__");
-            }}
-            onDragLeave={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                setNoteFileDropTargetId((prev) =>
-                  prev === "__unfiled__" ? null : prev,
-                );
-              }
-            }}
-            onDrop={(e) => {
-              if (
-                !e.dataTransfer.types.includes("application/x-kanso-note-id")
-              ) {
-                return;
-              }
-              const noteId =
-                e.dataTransfer.getData("application/x-kanso-note-id") ||
-                activeDragNoteIdRef.current;
-              clearAllDragStates();
-              if (!noteId) return;
-              e.preventDefault();
-              handleFileNoteToNotebook(noteId, null);
-            }}
-            onClick={() => setSelectedNotebookId("unfiled")}
-            title="Unfiled notes · Drop a note here to remove it from its notebook"
-            className={`h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-all whitespace-nowrap ${
-              noteFileDropTargetId === "__unfiled__"
-                ? "ring-1 ring-inset ring-[var(--accent)] rounded-t-md"
-                : ""
-            }`}
-            style={{
-              borderColor:
-                noteFileDropTargetId === "__unfiled__" ||
-                selectedNotebookId === "unfiled"
-                  ? "var(--accent)"
-                  : "transparent",
-              color:
-                noteFileDropTargetId === "__unfiled__" ||
-                selectedNotebookId === "unfiled"
-                  ? "var(--text-primary)"
-                  : "var(--text-secondary)",
-              backgroundColor:
-                noteFileDropTargetId === "__unfiled__" ||
-                selectedNotebookId === "unfiled"
-                  ? "var(--accent-soft)"
-                  : "transparent",
-            }}
-          >
-            <FolderOpen
-              className="w-3.5 h-3.5 shrink-0"
-              style={{
-                color:
-                  noteFileDropTargetId === "__unfiled__" ||
-                  selectedNotebookId === "unfiled"
-                    ? "var(--accent)"
-                    : "var(--text-muted)",
-              }}
-            />
-            <span
-              className={
-                selectedNotebookId === "unfiled" ? "font-semibold" : ""
-              }
-            >
-              Unfiled
-            </span>
-            <span
-              className="font-mono tabular-nums text-[11px] opacity-75"
-              style={{
-                color:
-                  noteFileDropTargetId === "__unfiled__" ||
-                  selectedNotebookId === "unfiled"
-                    ? "var(--accent)"
-                    : "var(--text-muted)",
-              }}
-            >
-              {notebookCounts.unfiled}
-            </span>
-          </button>
-        )}
+            {notebooks.map((nb) => {
+              const active =
+                scope.kind === "notebook" && scope.notebookId === nb.id;
+              const count = notebookCounts.counts.get(nb.id) || 0;
+              const iconName = resolveNotebookIconName(nb.icon);
+              const isBeingDragged = draggingNotebookId === nb.id;
+              const isNoteDropHover = noteFileDropTargetId === nb.id;
+              const isNbDropTarget = notebookDropTarget?.notebookId === nb.id;
 
-        <button
-          type="button"
-          onClick={() =>
-            setNotebookModal({
-              mode: "create",
-              name: "",
-              icon: "BookOpen",
-            })
-          }
-          className="h-8 px-2.5 ml-1 my-1 rounded-lg text-xs font-medium inline-flex items-center gap-1 shrink-0 transition-colors hover:bg-[var(--bg-surface-subtle)]"
-          style={{ color: "var(--text-muted)" }}
-          title="New notebook"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>New</span>
-        </button>
-      </nav>
+              return (
+                <button
+                  key={nb.id}
+                  ref={(el) => {
+                    if (el) notebookTabRefs.current.set(nb.id, el);
+                    else notebookTabRefs.current.delete(nb.id);
+                  }}
+                  type="button"
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("application/x-kanso-notebook-id", nb.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    activeDragNotebookIdRef.current = nb.id;
+                    setDraggingNotebookId(nb.id);
+                  }}
+                  onDragEnd={clearAllDragStates}
+                  onDragOver={(e) => {
+                    const types = e.dataTransfer.types;
+                    if (types.includes("application/x-kanso-note-id")) {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      setNoteFileDropTargetId(nb.id);
+                      return;
+                    }
+                    if (types.includes("application/x-kanso-notebook-id")) {
+                      if (activeDragNotebookIdRef.current === nb.id) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const position: "before" | "after" =
+                        e.clientX < rect.left + rect.width / 2 ? "before" : "after";
+                      setNotebookDropTarget((prev) =>
+                        prev?.notebookId === nb.id && prev.position === position
+                          ? prev
+                          : { notebookId: nb.id, position },
+                      );
+                    }
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setNoteFileDropTargetId((prev) =>
+                        prev === nb.id ? null : prev,
+                      );
+                      setNotebookDropTarget((prev) =>
+                        prev?.notebookId === nb.id ? null : prev,
+                      );
+                    }
+                  }}
+                  onDrop={(e) => {
+                    const types = e.dataTransfer.types;
+                    if (types.includes("application/x-kanso-note-id")) {
+                      const noteId =
+                        e.dataTransfer.getData("application/x-kanso-note-id") ||
+                        activeDragNoteIdRef.current;
+                      clearAllDragStates();
+                      if (!noteId) return;
+                      e.preventDefault();
+                      handleMoveNoteToNotebook(noteId, nb.id);
+                      return;
+                    }
+                    if (types.includes("application/x-kanso-notebook-id")) {
+                      const draggedNbId =
+                        e.dataTransfer.getData("application/x-kanso-notebook-id") ||
+                        activeDragNotebookIdRef.current;
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const position: "before" | "after" =
+                        e.clientX < rect.left + rect.width / 2 ? "before" : "after";
+                      clearAllDragStates();
+                      if (!draggedNbId || draggedNbId === nb.id) return;
+                      e.preventDefault();
+                      reorderNoteNotebooks(draggedNbId, nb.id, position);
+                    }
+                  }}
+                  onClick={() =>
+                    handleSelectScope({ kind: "notebook", notebookId: nb.id })
+                  }
+                  className={`relative h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
+                    isBeingDragged ? "opacity-45" : ""
+                  } ${
+                    isNoteDropHover
+                      ? "ring-1 ring-inset ring-[var(--accent)] rounded-t-md"
+                      : ""
+                  }`}
+                  style={{
+                    borderColor:
+                      isNoteDropHover || active ? "var(--accent)" : "transparent",
+                    color:
+                      isNoteDropHover || active
+                        ? "var(--text-primary)"
+                        : "var(--text-secondary)",
+                    backgroundColor:
+                      isNoteDropHover || active
+                        ? "var(--accent-soft)"
+                        : "transparent",
+                  }}
+                >
+                  {isNbDropTarget && (
+                    <span
+                      aria-hidden="true"
+                      className={`pointer-events-none absolute top-1.5 bottom-1.5 w-[2.5px] rounded-full bg-[var(--accent)] z-20 ${
+                        notebookDropTarget.position === "before"
+                          ? "left-0"
+                          : "right-0"
+                      }`}
+                    />
+                  )}
+                  <DynamicIcon name={iconName} className="w-3.5 h-3.5 shrink-0" />
+                  <span className={active ? "font-semibold" : ""}>{nb.name}</span>
+                  <span className="font-mono tabular-nums text-[11px] opacity-75">
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
 
-      {/* Unified 32px Toolbar: Search, Tag Filter, Sort, Grid/List Toggle */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div
-          className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border flex-1 min-w-[200px]"
-          style={{
-            backgroundColor: "var(--bg-surface)",
-            borderColor: "var(--border-subtle)",
-          }}
-        >
-          <Search
-            className="w-3.5 h-3.5 shrink-0"
-            style={{ color: "var(--text-muted)" }}
-          />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={
-              activeNotebook
-                ? `Search in ${activeNotebook.name}...`
-                : selectedNotebookId === BOOK_NOTES_TAB_ID
-                  ? "Search book notes, titles, or pages..."
-                  : "Search notes..."
-            }
-            className="flex-1 min-w-0 bg-transparent text-xs outline-none"
-            style={{ color: "var(--text-primary)" }}
-          />
-          {search && (
+            {(notebookCounts.unfiled > 0 || draggingNoteId !== null) && (
+              <button
+                ref={(el) => {
+                  if (el) notebookTabRefs.current.set("__unfiled__", el);
+                  else notebookTabRefs.current.delete("__unfiled__");
+                }}
+                type="button"
+                onClick={() => handleSelectScope({ kind: "unfiled" })}
+                className="h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-all whitespace-nowrap"
+                style={{
+                  borderColor:
+                    scope.kind === "unfiled" ? "var(--accent)" : "transparent",
+                  color:
+                    scope.kind === "unfiled"
+                      ? "var(--text-primary)"
+                      : "var(--text-secondary)",
+                  backgroundColor:
+                    scope.kind === "unfiled" ? "var(--accent-soft)" : "transparent",
+                }}
+              >
+                <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+                <span className={scope.kind === "unfiled" ? "font-semibold" : ""}>
+                  Unfiled
+                </span>
+                <span className="font-mono tabular-nums text-[11px] opacity-75">
+                  {notebookCounts.unfiled}
+                </span>
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => setSearch("")}
-              aria-label="Clear search"
-              className="opacity-70 hover:opacity-100"
+              onClick={() => handleSelectScope({ kind: "archive" })}
+              className="h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-all whitespace-nowrap"
+              style={{
+                borderColor:
+                  scope.kind === "archive" ? "var(--accent)" : "transparent",
+                color:
+                  scope.kind === "archive"
+                    ? "var(--text-primary)"
+                    : "var(--text-secondary)",
+                backgroundColor:
+                  scope.kind === "archive" ? "var(--accent-soft)" : "transparent",
+              }}
             >
-              <X className="w-3.5 h-3.5" />
+              <Archive className="w-3.5 h-3.5 shrink-0" />
+              <span>Archive</span>
+              <span className="font-mono tabular-nums text-[11px] opacity-75">
+                {archivedNotes.length}
+              </span>
             </button>
-          )}
-        </div>
 
-        <select
-          value={selectedTag}
-          onChange={(e) => setSelectedTag(e.target.value)}
-          aria-label="Filter by tag"
-          className="h-8 px-2.5 rounded-lg border text-xs outline-none"
-          style={{
-            backgroundColor: "var(--bg-surface)",
-            borderColor: "var(--border-subtle)",
-            color: "var(--text-secondary)",
-          }}
-        >
-          <option value="all">All Tags</option>
-          {scopeTags.map((t) => (
-            <option key={t} value={t}>
-              #{t}
-            </option>
-          ))}
-        </select>
+            <button
+              type="button"
+              onClick={() =>
+                setNotebookModal({
+                  mode: "create",
+                  name: "",
+                  icon: "BookOpen",
+                })
+              }
+              className="h-8 px-2.5 ml-1 my-1 rounded-lg text-xs font-medium inline-flex items-center gap-1 shrink-0 transition-colors hover:bg-[var(--bg-surface-subtle)]"
+              style={{ color: "var(--text-muted)" }}
+              title="New notebook"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New</span>
+            </button>
+          </nav>
 
-        <div className="flex items-center gap-1">
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as NoteSort)}
-            aria-label="Sort notes"
-            className="h-8 px-2.5 rounded-lg border text-xs outline-none cursor-pointer"
-            style={{
-              backgroundColor: "var(--bg-surface)",
-              borderColor: "var(--border-subtle)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            <option value="custom">Sort: Custom Order</option>
-            <option value="pinned">Sort: Pinned First</option>
-            <option value="updated">Sort: Recently Updated</option>
-            <option value="created">Sort: Recently Created</option>
-            <option value="title">Sort: Title A–Z</option>
-          </select>
-
-          <button
-            type="button"
-            onClick={() =>
-              setSortBy((prev) => (prev === "custom" ? "pinned" : "custom"))
-            }
-            title={
-              isCustomSort
-                ? "Custom order active — drag cards or rows to rearrange (click to switch back)"
-                : "Enable Custom Order (drag & drop)"
-            }
-            aria-label={
-              isCustomSort
-                ? "Custom drag order active"
-                : "Switch to Custom Order"
-            }
-            aria-pressed={isCustomSort}
-            className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
-            style={{
-              backgroundColor: isCustomSort
-                ? "var(--accent-soft)"
-                : "var(--bg-surface)",
-              borderColor: isCustomSort
-                ? "var(--accent)"
-                : "var(--border-subtle)",
-              color: isCustomSort ? "var(--accent)" : "var(--text-secondary)",
-            }}
-          >
-            <GripVertical className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Grid / List View Mode Toggle */}
-        <div
-          className="inline-flex items-center h-8 p-0.5 rounded-lg border shrink-0"
-          style={{
-            backgroundColor: "var(--bg-surface)",
-            borderColor: "var(--border-subtle)",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setViewMode("grid")}
-            title="Card grid"
-            aria-label="Card grid view"
-            aria-pressed={viewMode === "grid"}
-            className="h-6.5 w-7 flex items-center justify-center rounded-md transition-colors"
-            style={{
-              backgroundColor:
-                viewMode === "grid" ? "var(--accent-soft)" : "transparent",
-              color:
-                viewMode === "grid" ? "var(--accent)" : "var(--text-muted)",
-            }}
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("list")}
-            title="Quiet list"
-            aria-label="Quiet list view"
-            aria-pressed={viewMode === "list"}
-            className="h-6.5 w-7 flex items-center justify-center rounded-md transition-colors"
-            style={{
-              backgroundColor:
-                viewMode === "list" ? "var(--accent-soft)" : "transparent",
-              color:
-                viewMode === "list" ? "var(--accent)" : "var(--text-muted)",
-            }}
-          >
-            <ListIcon className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Notes Content: Grouped Book Notes OR Unified 2-3 Col Compact Hairline Cards OR Quiet List */}
-      {(() => {
-        const renderGridCard = (note: Entry, compactBookLocationOnly = false) => {
-          const words = countWordsFromHtml(note.content);
-          const updatedDay = formatCompactDayHeading(
-            toLocalDateKey(note.updatedAt || note.createdAt),
-          );
-          const noteNotebook = note.notebookId
-            ? notebookMap.get(note.notebookId)
-            : null;
-          const isBeingDragged = draggingNoteId === note.id;
-          const isDropTarget = noteDropTarget?.noteId === note.id;
-          const singleCol = isSingleColumnGrid();
-          const link = note.bookLink ?? null;
-          const liveLinkedBook =
-            link?.bookId ? bookById.get(link.bookId) ?? null : null;
-
-          return (
-            <article
-              key={note.id}
-              ref={(el) => {
-                if (el) noteElRefs.current.set(note.id, el);
-                else noteElRefs.current.delete(note.id);
-              }}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData("application/x-kanso-note-id", note.id);
-                e.dataTransfer.effectAllowed = "move";
-                activeDragNoteIdRef.current = note.id;
-                setDraggingNoteId(note.id);
-              }}
-              onDragEnd={clearAllDragStates}
-              onDragOver={(e) => {
-                if (!isCustomSort) return;
-                if (
-                  !e.dataTransfer.types.includes(
-                    "application/x-kanso-note-id",
-                  )
-                ) {
-                  return;
-                }
-                if (activeDragNoteIdRef.current === note.id) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-                const rect = e.currentTarget.getBoundingClientRect();
-                const position: "before" | "after" = singleCol
-                  ? e.clientY < rect.top + rect.height / 2
-                    ? "before"
-                    : "after"
-                  : e.clientX < rect.left + rect.width / 2
-                    ? "before"
-                    : "after";
-                setNoteDropTarget((prev) =>
-                  prev?.noteId === note.id && prev.position === position
-                    ? prev
-                    : { noteId: note.id, position },
-                );
-              }}
-              onDragLeave={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                  setNoteDropTarget((prev) =>
-                    prev?.noteId === note.id ? null : prev,
-                  );
-                }
-              }}
-              onDrop={(e) => {
-                if (!isCustomSort) return;
-                if (
-                  !e.dataTransfer.types.includes(
-                    "application/x-kanso-note-id",
-                  )
-                ) {
-                  return;
-                }
-                const draggedId =
-                  e.dataTransfer.getData("application/x-kanso-note-id") ||
-                  activeDragNoteIdRef.current;
-                const rect = e.currentTarget.getBoundingClientRect();
-                const position: "before" | "after" = singleCol
-                  ? e.clientY < rect.top + rect.height / 2
-                    ? "before"
-                    : "after"
-                  : e.clientX < rect.left + rect.width / 2
-                    ? "before"
-                    : "after";
-                clearAllDragStates();
-                if (!draggedId || draggedId === note.id) return;
-                e.preventDefault();
-                handleReorderNotes(draggedId, note.id, position);
-              }}
-              onClick={() => {
-                if (draggingNoteId) return;
-                onOpenDetail({ mode: "note", id: note.id });
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                onOpenContextMenu({ kind: "entry", entry: note }, e);
-              }}
-              className={`relative rounded-xl border p-3 flex flex-col justify-between gap-2.5 cursor-pointer transition-all duration-150 hover:border-[var(--border-strong)] min-h-[156px] ${
-                isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
-              } ${isBeingDragged ? "opacity-45 scale-[0.98]" : ""} ${
-                isDropTarget
-                  ? "ring-1 ring-[var(--accent)]/60 ring-offset-1 ring-offset-[var(--bg-canvas)]"
-                  : ""
-              }`}
+          {/* Sub-page Drill-Down Breadcrumb Bar */}
+          {drilledParentNote && !hasActiveSearchOrTag && (
+            <div
+              className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border text-xs"
               style={{
                 backgroundColor: "var(--bg-surface)",
-                borderColor: isDropTarget
-                  ? "var(--accent)"
-                  : "var(--border-subtle)",
+                borderColor: "var(--border-subtle)",
               }}
             >
-              {/* Insertion line indicator when reordering */}
-              {isDropTarget && (
-                <div
-                  aria-hidden="true"
-                  className={
-                    singleCol
-                      ? `pointer-events-none absolute inset-x-2 h-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
-                          noteDropTarget.position === "before"
-                            ? "-top-1.5"
-                            : "-bottom-1.5"
-                        }`
-                      : `pointer-events-none absolute top-1 bottom-1 w-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
-                          noteDropTarget.position === "before"
-                            ? "-left-1.5"
-                            : "-right-1.5"
-                        }`
-                  }
-                />
-              )}
+              <div className="flex items-center gap-1 flex-wrap min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setDrilledParentId(null)}
+                  className="hover:underline font-medium cursor-pointer"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {scopeTitle}
+                </button>
+                {drilledAncestors.map((anc, idx) => {
+                  const isLast = idx === drilledAncestors.length - 1;
+                  return (
+                    <React.Fragment key={anc.id}>
+                      <ChevronRight
+                        className="w-3.5 h-3.5 shrink-0 opacity-60"
+                        style={{ color: "var(--text-muted)" }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          isLast
+                            ? handleOpenNoteById(anc.id)
+                            : setDrilledParentId(anc.id)
+                        }
+                        className={`truncate max-w-[180px] hover:underline cursor-pointer ${
+                          isLast ? "font-semibold" : ""
+                        }`}
+                        style={{
+                          color: isLast
+                            ? "var(--text-primary)"
+                            : "var(--text-secondary)",
+                        }}
+                      >
+                        {anc.title || "Untitled Note"}
+                      </button>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
 
-              <div className="space-y-1.5 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-start gap-1.5 min-w-0 flex-1">
-                    {isCustomSort && (
+              <button
+                type="button"
+                onClick={() => handleOpenNoteById(drilledParentNote.id)}
+                className="text-[11px] font-medium inline-flex items-center gap-1 hover:underline shrink-0 cursor-pointer"
+                style={{ color: "var(--accent)" }}
+              >
+                <span>Open Parent</span>
+                <ArrowUpRight className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
+          {/* Unified 32px Toolbar: Search, Tag Filter, Sort, Grid/List Toggle */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border flex-1 min-w-[200px]"
+              style={{
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+              }}
+            >
+              <Search
+                className="w-3.5 h-3.5 shrink-0"
+                style={{ color: "var(--text-muted)" }}
+              />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={
+                  activeNotebook
+                    ? `Search in ${activeNotebook.name}...`
+                    : scope.kind === "book_notes"
+                      ? "Search book notes, titles, or pages..."
+                      : scope.kind === "archive"
+                        ? "Search archived notes..."
+                        : "Search all notes & sub-pages..."
+                }
+                className="flex-1 min-w-0 bg-transparent text-xs outline-none"
+                style={{ color: "var(--text-primary)" }}
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  aria-label="Clear search"
+                  className="opacity-70 hover:opacity-100 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <select
+              value={selectedTag}
+              onChange={(e) => setSelectedTag(e.target.value)}
+              aria-label="Filter by tag"
+              className="h-8 px-2.5 rounded-lg border text-xs outline-none"
+              style={{
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <option value="all">All Tags</option>
+              {scopeTags.map((t) => (
+                <option key={t} value={t}>
+                  #{t}
+                </option>
+              ))}
+            </select>
+
+            <div className="flex items-center gap-1">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as NoteSort)}
+                aria-label="Sort notes"
+                className="h-8 px-2.5 rounded-lg border text-xs outline-none cursor-pointer"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <option value="custom">Sort: Custom Order</option>
+                <option value="pinned">Sort: Pinned First</option>
+                <option value="updated">Sort: Recently Updated</option>
+                <option value="created">Sort: Recently Created</option>
+                <option value="title">Sort: Title A–Z</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setSortBy((prev) => (prev === "custom" ? "pinned" : "custom"))
+                }
+                title={
+                  isCustomSort
+                    ? "Custom order active — drag cards or rows to rearrange"
+                    : "Enable Custom Order (drag & drop)"
+                }
+                aria-label="Toggle custom drag order"
+                aria-pressed={isCustomSort}
+                className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
+                style={{
+                  backgroundColor: isCustomSort
+                    ? "var(--accent-soft)"
+                    : "var(--bg-surface)",
+                  borderColor: isCustomSort
+                    ? "var(--accent)"
+                    : "var(--border-subtle)",
+                  color: isCustomSort ? "var(--accent)" : "var(--text-secondary)",
+                }}
+              >
+                <GripVertical className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Grid / List View Mode Toggle */}
+            <div
+              className="inline-flex items-center h-8 p-0.5 rounded-lg border shrink-0"
+              style={{
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setViewMode("grid")}
+                title="Card grid"
+                aria-label="Card grid view"
+                aria-pressed={viewMode === "grid"}
+                className="h-6.5 w-7 flex items-center justify-center rounded-md transition-colors cursor-pointer"
+                style={{
+                  backgroundColor:
+                    viewMode === "grid" ? "var(--accent-soft)" : "transparent",
+                  color:
+                    viewMode === "grid" ? "var(--accent)" : "var(--text-muted)",
+                }}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("list")}
+                title="Quiet list"
+                aria-label="Quiet list view"
+                aria-pressed={viewMode === "list"}
+                className="h-6.5 w-7 flex items-center justify-center rounded-md transition-colors cursor-pointer"
+                style={{
+                  backgroundColor:
+                    viewMode === "list" ? "var(--accent-soft)" : "transparent",
+                  color:
+                    viewMode === "list" ? "var(--accent)" : "var(--text-muted)",
+                }}
+              >
+                <ListIcon className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Notes Content */}
+          {(() => {
+            const renderGridCard = (note: Entry, compactBookLocationOnly = false) => {
+              const words = countWordsFromHtml(note.content);
+              const updatedDay = formatCompactDayHeading(
+                toLocalDateKey(note.updatedAt || note.createdAt),
+              );
+              const noteNotebook = note.notebookId
+                ? notebookMap.get(note.notebookId)
+                : null;
+              const parentNote = note.parentId ? noteById.get(note.parentId) : null;
+              const subCount = directChildCounts.get(note.id) || 0;
+              const isBeingDragged = draggingNoteId === note.id;
+              const isDropTarget = noteDropTarget?.noteId === note.id;
+              const singleCol = isSingleColumnGrid();
+              const link = note.bookLink ?? null;
+              const liveLinkedBook =
+                link?.bookId ? bookById.get(link.bookId) ?? null : null;
+
+              return (
+                <article
+                  key={note.id}
+                  ref={(el) => {
+                    if (el) noteElRefs.current.set(note.id, el);
+                    else noteElRefs.current.delete(note.id);
+                  }}
+                  draggable={!note.archived}
+                  onDragStart={(e) => {
+                    if (note.archived) return;
+                    e.dataTransfer.setData("application/x-kanso-note-id", note.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    activeDragNoteIdRef.current = note.id;
+                    setDraggingNoteId(note.id);
+                  }}
+                  onDragEnd={clearAllDragStates}
+                  onDragOver={(e) => {
+                    if (!isCustomSort || note.archived) return;
+                    if (
+                      !e.dataTransfer.types.includes("application/x-kanso-note-id")
+                    ) {
+                      return;
+                    }
+                    if (activeDragNoteIdRef.current === note.id) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const position: "before" | "after" = singleCol
+                      ? e.clientY < rect.top + rect.height / 2
+                        ? "before"
+                        : "after"
+                      : e.clientX < rect.left + rect.width / 2
+                        ? "before"
+                        : "after";
+                    setNoteDropTarget((prev) =>
+                      prev?.noteId === note.id && prev.position === position
+                        ? prev
+                        : { noteId: note.id, position },
+                    );
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setNoteDropTarget((prev) =>
+                        prev?.noteId === note.id ? null : prev,
+                      );
+                    }
+                  }}
+                  onDrop={(e) => {
+                    if (!isCustomSort || note.archived) return;
+                    if (
+                      !e.dataTransfer.types.includes("application/x-kanso-note-id")
+                    ) {
+                      return;
+                    }
+                    const draggedId =
+                      e.dataTransfer.getData("application/x-kanso-note-id") ||
+                      activeDragNoteIdRef.current;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const position: "before" | "after" = singleCol
+                      ? e.clientY < rect.top + rect.height / 2
+                        ? "before"
+                        : "after"
+                      : e.clientX < rect.left + rect.width / 2
+                        ? "before"
+                        : "after";
+                    clearAllDragStates();
+                    if (!draggedId || draggedId === note.id) return;
+                    e.preventDefault();
+                    handleReorderNotes(draggedId, note.id, position);
+                  }}
+                  onClick={() => {
+                    if (draggingNoteId) return;
+                    handleOpenNoteById(note.id);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setFocusedNoteId(note.id);
+                    onOpenContextMenu({ kind: "entry", entry: note }, e);
+                  }}
+                  className={`relative rounded-xl border p-3 flex flex-col justify-between gap-2.5 cursor-pointer transition-all duration-150 hover:border-[var(--border-strong)] min-h-[156px] ${
+                    isCustomSort && !note.archived ? "cursor-grab active:cursor-grabbing" : ""
+                  } ${isBeingDragged ? "opacity-45 scale-[0.98]" : ""} ${
+                    isDropTarget
+                      ? "ring-1 ring-[var(--accent)]/60 ring-offset-1 ring-offset-[var(--bg-canvas)]"
+                      : ""
+                  }`}
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: isDropTarget
+                      ? "var(--accent)"
+                      : "var(--border-subtle)",
+                  }}
+                >
+                  {isDropTarget && (
+                    <div
+                      aria-hidden="true"
+                      className={
+                        singleCol
+                          ? `pointer-events-none absolute inset-x-2 h-[3px] rounded-full bg-[var(--accent)] z-20 ${
+                              noteDropTarget.position === "before"
+                                ? "-top-1.5"
+                                : "-bottom-1.5"
+                            }`
+                          : `pointer-events-none absolute top-1 bottom-1 w-[3px] rounded-full bg-[var(--accent)] z-20 ${
+                              noteDropTarget.position === "before"
+                                ? "-left-1.5"
+                                : "-right-1.5"
+                            }`
+                      }
+                    />
+                  )}
+
+                  <div className="space-y-1.5 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                        {isCustomSort && !note.archived && (
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Reorder ${note.title || "Untitled Note"}`}
+                            onClick={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => {
+                              if (e.pointerType === "mouse") return;
+                              e.stopPropagation();
+                              e.currentTarget.setPointerCapture(e.pointerId);
+                              activeDragNoteIdRef.current = note.id;
+                              setDraggingNoteId(note.id);
+                              setNoteDropTarget(null);
+                              setNoteFileDropTargetId(null);
+                            }}
+                            onPointerMove={(e) => {
+                              if (
+                                e.pointerType === "mouse" ||
+                                draggingNoteId !== note.id
+                              ) {
+                                return;
+                              }
+                              const resolved = resolveTouchDrop(
+                                e.clientX,
+                                e.clientY,
+                                note.id,
+                              );
+                              setNoteDropTarget(resolved.noteTarget);
+                              setNoteFileDropTargetId(resolved.notebookTargetId);
+                            }}
+                            onPointerUp={(e) => {
+                              if (e.pointerType === "mouse") return;
+                              e.stopPropagation();
+                              if (draggingNoteId === note.id) {
+                                const resolved = resolveTouchDrop(
+                                  e.clientX,
+                                  e.clientY,
+                                  note.id,
+                                );
+                                const nbTarget =
+                                  resolved.notebookTargetId ?? noteFileDropTargetId;
+                                const cardTarget =
+                                  resolved.noteTarget ?? noteDropTarget;
+                                clearAllDragStates();
+                                if (nbTarget) {
+                                  handleMoveNoteToNotebook(
+                                    note.id,
+                                    nbTarget === "__unfiled__" ? null : nbTarget,
+                                  );
+                                } else if (
+                                  cardTarget &&
+                                  cardTarget.noteId !== note.id
+                                ) {
+                                  handleReorderNotes(
+                                    note.id,
+                                    cardTarget.noteId,
+                                    cardTarget.position,
+                                  );
+                                }
+                              } else {
+                                clearAllDragStates();
+                              }
+                            }}
+                            onPointerCancel={clearAllDragStates}
+                            className="touch-none select-none w-6 h-6 -ml-1 -mt-0.5 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-grab active:cursor-grabbing shrink-0"
+                          >
+                            <GripVertical className="w-3.5 h-3.5" />
+                          </div>
+                        )}
+
+                        <div className="min-w-0 flex-1">
+                          <h2
+                            className="text-sm font-medium leading-snug line-clamp-2 min-w-0"
+                            style={{ color: "var(--text-primary)" }}
+                          >
+                            {note.title || "Untitled Note"}
+                          </h2>
+                          {hasActiveSearchOrTag && parentNote && (
+                            <div
+                              className="text-[11px] truncate mt-0.5"
+                              style={{ color: "var(--text-muted)" }}
+                            >
+                              in {parentNote.title || "Untitled Note"}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-0.5 shrink-0 -mr-1 -mt-0.5">
+                        {note.archived ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                archiveNotePage(note.id, false, "promote");
+                                pushToast("Note restored", "success");
+                              }}
+                              title="Restore note"
+                              aria-label="Restore note"
+                              className="h-6 px-1.5 flex items-center gap-1 rounded-md text-[11px] font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                              style={{ color: "var(--accent)" }}
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>Restore</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteNotePage(note.id, "promote");
+                                pushToast("Note permanently deleted");
+                              }}
+                              title="Delete permanently"
+                              aria-label="Delete permanently"
+                              className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                              style={{ color: "var(--danger)" }}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {note.pinned && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  updateEntry(note.id, { pinned: false });
+                                }}
+                                className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)]"
+                                style={{ color: "var(--accent)" }}
+                                title="Pinned note (click to unpin)"
+                                aria-label="Unpin note"
+                              >
+                                <Pin className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setFocusedNoteId(note.id);
+                                onOpenContextMenu({ kind: "entry", entry: note }, e);
+                              }}
+                              className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)]"
+                              style={{ color: "var(--text-muted)" }}
+                              aria-label="Note actions"
+                            >
+                              <MoreVertical className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {note.content ? (
+                      <RichContent
+                        html={note.content}
+                        className="line-clamp-5 text-xs"
+                        fade
+                      />
+                    ) : (
+                      <p
+                        className="text-xs italic"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Empty note...
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5 min-w-0">
+                    {subCount > 0 && !note.archived && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSearch("");
+                          setSelectedTag("all");
+                          setDrilledParentId(note.id);
+                        }}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-medium hover:underline cursor-pointer"
+                        style={{ color: "var(--accent)" }}
+                      >
+                        <GitBranch className="w-3 h-3 shrink-0" />
+                        <span className="font-mono tabular-nums">
+                          {subCount} {subCount === 1 ? "sub-page" : "sub-pages"}
+                        </span>
+                        <ChevronRight className="w-3 h-3 shrink-0" />
+                      </button>
+                    )}
+
+                    {link && (
+                      liveLinkedBook && onJumpToBookLocation ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onJumpToBookLocation(link);
+                          }}
+                          title={`Jump to ${liveLinkedBook.title} (${link.locationLabel})`}
+                          className="w-full inline-flex items-center justify-between gap-1.5 py-1 text-[11px] font-medium text-[var(--accent)] hover:underline text-left min-w-0 cursor-pointer"
+                        >
+                          <span className="inline-flex items-center gap-1.5 min-w-0">
+                            <BookOpen className="w-3 h-3 shrink-0" />
+                            <span className="truncate">
+                              {compactBookLocationOnly
+                                ? link.locationLabel
+                                : `${liveLinkedBook.title} · ${link.locationLabel}`}
+                            </span>
+                          </span>
+                          <ArrowUpRight className="w-3 h-3 shrink-0 opacity-85" />
+                        </button>
+                      ) : (
+                        <div
+                          className="inline-flex items-center gap-1.5 py-0.5 text-[11px] min-w-0 max-w-full truncate"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          <BookOpen className="w-3 h-3 shrink-0 opacity-75" />
+                          <span className="truncate">
+                            {compactBookLocationOnly
+                              ? `${link.locationLabel} · Removed from library`
+                              : `${link.bookTitle} · ${link.locationLabel} (Removed)`}
+                          </span>
+                        </div>
+                      )
+                    )}
+
+                    {/* Unified Bottom Hairline Monospace Metadata Footer */}
+                    <div
+                      className="pt-2 border-t text-[11px] font-mono tabular-nums truncate"
+                      style={{
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      <span>{updatedDay}</span>
+                      <span> · {words}w</span>
+                      {scope.kind === "all" && noteNotebook && (
+                        <span> · {noteNotebook.name}</span>
+                      )}
+                      {note.tags.length > 0 && (
+                        <span> · {note.tags.map((t) => `#${t}`).join(" ")}</span>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              );
+            };
+
+            const renderListRow = (note: Entry, compactBookLocationOnly = false) => {
+              const words = countWordsFromHtml(note.content);
+              const updatedDay = formatCompactDayHeading(
+                toLocalDateKey(note.updatedAt || note.createdAt),
+              );
+              const noteNotebook = note.notebookId
+                ? notebookMap.get(note.notebookId)
+                : null;
+              const subCount = directChildCounts.get(note.id) || 0;
+              const plainSnippet = note.content
+                ? stripHtmlPreview(note.content)
+                : "";
+              const isBeingDragged = draggingNoteId === note.id;
+              const isDropTarget = noteDropTarget?.noteId === note.id;
+              const link = note.bookLink ?? null;
+              const liveLinkedBook =
+                link?.bookId ? bookById.get(link.bookId) ?? null : null;
+
+              return (
+                <div
+                  key={note.id}
+                  ref={(el) => {
+                    if (el) noteElRefs.current.set(note.id, el);
+                    else noteElRefs.current.delete(note.id);
+                  }}
+                  draggable={!note.archived}
+                  onDragStart={(e) => {
+                    if (note.archived) return;
+                    e.dataTransfer.setData("application/x-kanso-note-id", note.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    activeDragNoteIdRef.current = note.id;
+                    setDraggingNoteId(note.id);
+                  }}
+                  onDragEnd={clearAllDragStates}
+                  onDragOver={(e) => {
+                    if (!isCustomSort || note.archived) return;
+                    if (
+                      !e.dataTransfer.types.includes("application/x-kanso-note-id")
+                    ) {
+                      return;
+                    }
+                    if (activeDragNoteIdRef.current === note.id) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const position: "before" | "after" =
+                      e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                    setNoteDropTarget((prev) =>
+                      prev?.noteId === note.id && prev.position === position
+                        ? prev
+                        : { noteId: note.id, position },
+                    );
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setNoteDropTarget((prev) =>
+                        prev?.noteId === note.id ? null : prev,
+                      );
+                    }
+                  }}
+                  onDrop={(e) => {
+                    if (!isCustomSort || note.archived) return;
+                    if (
+                      !e.dataTransfer.types.includes("application/x-kanso-note-id")
+                    ) {
+                      return;
+                    }
+                    const draggedId =
+                      e.dataTransfer.getData("application/x-kanso-note-id") ||
+                      activeDragNoteIdRef.current;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const position: "before" | "after" =
+                      e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                    clearAllDragStates();
+                    if (!draggedId || draggedId === note.id) return;
+                    e.preventDefault();
+                    handleReorderNotes(draggedId, note.id, position);
+                  }}
+                  onClick={() => {
+                    if (draggingNoteId) return;
+                    handleOpenNoteById(note.id);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setFocusedNoteId(note.id);
+                    onOpenContextMenu({ kind: "entry", entry: note }, e);
+                  }}
+                  style={
+                    isDropTarget
+                      ? {
+                          boxShadow:
+                            noteDropTarget.position === "before"
+                              ? "inset 0 2px 0 var(--accent)"
+                              : "inset 0 -2px 0 var(--accent)",
+                        }
+                      : undefined
+                  }
+                  className={`py-2.5 px-2 -mx-2 rounded-lg flex items-center justify-between gap-3 cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]/75 ${
+                    isCustomSort && !note.archived ? "cursor-grab active:cursor-grabbing" : ""
+                  } ${isBeingDragged ? "opacity-50 bg-[var(--accent-soft)]" : ""}`}
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {isCustomSort && !note.archived && (
                       <div
                         role="button"
                         tabIndex={0}
                         aria-label={`Reorder ${note.title || "Untitled Note"}`}
-                        title="Drag to reorder or drop onto a notebook tab"
                         onClick={(e) => e.stopPropagation()}
                         onPointerDown={(e) => {
                           if (e.pointerType === "mouse") return;
@@ -1313,24 +2008,19 @@ export const NotesView: React.FC<NotesViewProps> = ({
                               note.id,
                             );
                             const nbTarget =
-                              resolved.notebookTargetId ??
-                              noteFileDropTargetId;
-                            const cardTarget =
-                              resolved.noteTarget ?? noteDropTarget;
+                              resolved.notebookTargetId ?? noteFileDropTargetId;
+                            const rowTarget = resolved.noteTarget ?? noteDropTarget;
                             clearAllDragStates();
                             if (nbTarget) {
-                              handleFileNoteToNotebook(
+                              handleMoveNoteToNotebook(
                                 note.id,
                                 nbTarget === "__unfiled__" ? null : nbTarget,
                               );
-                            } else if (
-                              cardTarget &&
-                              cardTarget.noteId !== note.id
-                            ) {
+                            } else if (rowTarget && rowTarget.noteId !== note.id) {
                               handleReorderNotes(
                                 note.id,
-                                cardTarget.noteId,
-                                cardTarget.position,
+                                rowTarget.noteId,
+                                rowTarget.position,
                               );
                             }
                           } else {
@@ -1338,576 +2028,380 @@ export const NotesView: React.FC<NotesViewProps> = ({
                           }
                         }}
                         onPointerCancel={clearAllDragStates}
-                        className="touch-none select-none w-6 h-6 -ml-1 -mt-0.5 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+                        className="touch-none select-none min-w-[32px] min-h-[36px] -ml-1 flex items-center justify-center rounded-md text-[var(--text-muted)] cursor-grab active:cursor-grabbing shrink-0"
                       >
-                        <GripVertical className="w-3.5 h-3.5" />
+                        <GripVertical className="w-4 h-4" />
                       </div>
                     )}
 
-                    <h2
-                      className="text-sm font-medium leading-snug line-clamp-2 min-w-0"
-                      style={{ color: "var(--text-primary)" }}
-                    >
-                      {note.title || "Untitled Note"}
-                    </h2>
-                  </div>
-
-                  {/* Always-visible Pin indicator & Action trigger */}
-                  <div className="flex items-center gap-0.5 shrink-0 -mr-1 -mt-0.5">
-                    {note.pinned && (
+                    {note.pinned && !note.archived && (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           updateEntry(note.id, { pinned: false });
                         }}
-                        className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)]"
+                        className="h-5 w-5 flex items-center justify-center rounded shrink-0 hover:bg-[var(--bg-surface-hover)]"
                         style={{ color: "var(--accent)" }}
-                        title="Pinned note (click to unpin)"
+                        title="Unpin note"
                         aria-label="Unpin note"
                       >
                         <Pin className="w-3.5 h-3.5" />
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenContextMenu({ kind: "entry", entry: note }, e);
-                      }}
-                      className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)]"
-                      style={{ color: "var(--text-muted)" }}
-                      aria-label="Note actions"
+                    <span
+                      className="text-sm font-medium leading-snug truncate"
+                      style={{ color: "var(--text-primary)" }}
                     >
-                      <MoreVertical className="w-3.5 h-3.5" />
-                    </button>
+                      {note.title || "Untitled Note"}
+                    </span>
+                    {subCount > 0 && !note.archived && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSearch("");
+                          setSelectedTag("all");
+                          setDrilledParentId(note.id);
+                        }}
+                        className="inline-flex items-center gap-1 text-[11px] font-mono tabular-nums hover:underline shrink-0 cursor-pointer"
+                        style={{ color: "var(--accent)" }}
+                      >
+                        <GitBranch className="w-3 h-3" />
+                        <span>{subCount}</span>
+                      </button>
+                    )}
+                    {plainSnippet && (
+                      <span
+                        className="hidden md:inline text-xs truncate flex-1"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        — {plainSnippet}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {link && (
+                      liveLinkedBook && onJumpToBookLocation ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onJumpToBookLocation(link);
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--accent)] hover:underline whitespace-nowrap shrink-0 cursor-pointer max-w-[200px]"
+                        >
+                          <BookOpen className="w-3 h-3 shrink-0" />
+                          <span className="truncate">
+                            {compactBookLocationOnly
+                              ? link.locationLabel
+                              : `${liveLinkedBook.title} · ${link.locationLabel}`}
+                          </span>
+                          <ArrowUpRight className="w-3 h-3 shrink-0" />
+                        </button>
+                      ) : (
+                        <span
+                          className="hidden sm:inline-flex items-center gap-1 text-[11px] truncate max-w-[180px]"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          <BookOpen className="w-3 h-3 shrink-0 opacity-75" />
+                          <span className="truncate">
+                            {compactBookLocationOnly
+                              ? `${link.locationLabel} (Removed)`
+                              : `${link.bookTitle} (Removed)`}
+                          </span>
+                        </span>
+                      )
+                    )}
+
+                    <div
+                      className="hidden sm:flex items-center gap-1.5 text-[11px] font-mono tabular-nums"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {scope.kind === "all" && noteNotebook && (
+                        <span>{noteNotebook.name} ·</span>
+                      )}
+                      {note.tags.length > 0 && (
+                        <span className="max-w-[140px] truncate">
+                          {note.tags.map((t) => `#${t}`).join(" ")} ·
+                        </span>
+                      )}
+                      <span>{words}w ·</span>
+                      <span>{updatedDay}</span>
+                    </div>
+
+                    {note.archived ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            archiveNotePage(note.id, false, "promote");
+                            pushToast("Note restored", "success");
+                          }}
+                          className="h-6 px-2 rounded text-[11px] font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                          style={{ color: "var(--accent)" }}
+                        >
+                          Restore
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteNotePage(note.id, "promote");
+                            pushToast("Note deleted");
+                          }}
+                          aria-label="Delete permanently"
+                          className="h-6 w-6 flex items-center justify-center rounded hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                          style={{ color: "var(--danger)" }}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFocusedNoteId(note.id);
+                          onOpenContextMenu({ kind: "entry", entry: note }, e);
+                        }}
+                        className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)]"
+                        style={{ color: "var(--text-muted)" }}
+                        aria-label="Note actions"
+                      >
+                        <MoreVertical className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
+              );
+            };
 
-                {note.content ? (
-                  <RichContent
-                    html={note.content}
-                    className="line-clamp-5 text-xs"
-                    fade
-                  />
-                ) : (
-                  <p
-                    className="text-xs italic"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    Empty note...
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-1.5 min-w-0">
-                {link && (
-                  liveLinkedBook && onJumpToBookLocation ? (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onJumpToBookLocation(link);
-                      }}
-                      title={`Jump to ${liveLinkedBook.title} (${link.locationLabel})`}
-                      className="w-full inline-flex items-center justify-between gap-1.5 py-1 text-[11px] font-medium text-[var(--accent)] hover:underline text-left min-w-0 cursor-pointer"
-                    >
-                      <span className="inline-flex items-center gap-1.5 min-w-0">
-                        <BookOpen className="w-3 h-3 shrink-0" />
-                        <span className="truncate">
-                          {compactBookLocationOnly
-                            ? link.locationLabel
-                            : `${liveLinkedBook.title} · ${link.locationLabel}`}
-                        </span>
-                      </span>
-                      <ArrowUpRight className="w-3 h-3 shrink-0 opacity-85" />
-                    </button>
-                  ) : (
-                    <div
-                      className="inline-flex items-center gap-1.5 py-0.5 text-[11px] min-w-0 max-w-full truncate"
-                      style={{ color: "var(--text-muted)" }}
-                    >
-                      <BookOpen className="w-3 h-3 shrink-0 opacity-75" />
-                      <span className="truncate">
-                        {compactBookLocationOnly
-                          ? `${link.locationLabel} · Removed from library`
-                          : `${link.bookTitle} · ${link.locationLabel} (Removed)`}
-                      </span>
-                    </div>
-                  )
-                )}
-
-                {/* Unified Bottom Hairline Monospace Metadata Footer */}
+            if (filteredNotes.length === 0) {
+              return (
                 <div
-                  className="pt-2 border-t text-[11px] font-mono tabular-nums truncate"
+                  className="rounded-xl border border-dashed py-14 px-4 text-center space-y-2"
                   style={{
                     borderColor: "var(--border-subtle)",
                     color: "var(--text-muted)",
                   }}
                 >
-                  <span>{updatedDay}</span>
-                  <span> · {words}w</span>
-                  {selectedNotebookId === "all" && noteNotebook && (
-                    <span> · {noteNotebook.name}</span>
-                  )}
-                  {note.tags.length > 0 && (
-                    <span> · {note.tags.map((t) => `#${t}`).join(" ")}</span>
-                  )}
+                  <FileText className="w-6 h-6 mx-auto opacity-50" />
+                  <p
+                    className="text-sm font-medium"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {drilledParentNote
+                      ? `No sub-pages inside ${drilledParentNote.title || "Untitled Note"}`
+                      : activeNotebook
+                        ? `No notes in ${activeNotebook.name}`
+                        : scope.kind === "archive"
+                          ? "Archive is empty"
+                          : scope.kind === "book_notes"
+                            ? bookNotes.length === 0
+                              ? "No book-linked notes yet"
+                              : "No matching book notes"
+                            : "No matching notes"}
+                  </p>
+                  <p className="text-xs max-w-md mx-auto">
+                    {scope.kind === "book_notes" && bookNotes.length === 0
+                      ? "Open any book in Library and write notes inside the Study Studio panel, or link any existing note to a book from its Details modal."
+                      : scope.kind === "archive"
+                        ? "Archived notes appear here so you can restore or remove them anytime."
+                        : "Create a fresh note or adjust your notebook, search, and tag filters."}
+                  </p>
                 </div>
-              </div>
-            </article>
-          );
-        };
+              );
+            }
 
-        const renderListRow = (note: Entry, compactBookLocationOnly = false) => {
-          const words = countWordsFromHtml(note.content);
-          const updatedDay = formatCompactDayHeading(
-            toLocalDateKey(note.updatedAt || note.createdAt),
-          );
-          const noteNotebook = note.notebookId
-            ? notebookMap.get(note.notebookId)
-            : null;
-          const plainSnippet = note.content
-            ? stripHtmlPreview(note.content)
-            : "";
-          const isBeingDragged = draggingNoteId === note.id;
-          const isDropTarget = noteDropTarget?.noteId === note.id;
-          const link = note.bookLink ?? null;
-          const liveLinkedBook =
-            link?.bookId ? bookById.get(link.bookId) ?? null : null;
+            if (scope.kind === "book_notes") {
+              return (
+                <div className="space-y-6">
+                  {groupedBookNotes.map((group) => {
+                    const firstLink = group.notes[0]?.bookLink;
+                    const openTargetBook = group.liveBook;
 
-          return (
-            <div
-              key={note.id}
-              ref={(el) => {
-                if (el) noteElRefs.current.set(note.id, el);
-                else noteElRefs.current.delete(note.id);
-              }}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData("application/x-kanso-note-id", note.id);
-                e.dataTransfer.effectAllowed = "move";
-                activeDragNoteIdRef.current = note.id;
-                setDraggingNoteId(note.id);
-              }}
-              onDragEnd={clearAllDragStates}
-              onDragOver={(e) => {
-                if (!isCustomSort) return;
-                if (
-                  !e.dataTransfer.types.includes(
-                    "application/x-kanso-note-id",
-                  )
-                ) {
-                  return;
-                }
-                if (activeDragNoteIdRef.current === note.id) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-                const rect = e.currentTarget.getBoundingClientRect();
-                const position: "before" | "after" =
-                  e.clientY < rect.top + rect.height / 2 ? "before" : "after";
-                setNoteDropTarget((prev) =>
-                  prev?.noteId === note.id && prev.position === position
-                    ? prev
-                    : { noteId: note.id, position },
-                );
-              }}
-              onDragLeave={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                  setNoteDropTarget((prev) =>
-                    prev?.noteId === note.id ? null : prev,
-                  );
-                }
-              }}
-              onDrop={(e) => {
-                if (!isCustomSort) return;
-                if (
-                  !e.dataTransfer.types.includes(
-                    "application/x-kanso-note-id",
-                  )
-                ) {
-                  return;
-                }
-                const draggedId =
-                  e.dataTransfer.getData("application/x-kanso-note-id") ||
-                  activeDragNoteIdRef.current;
-                const rect = e.currentTarget.getBoundingClientRect();
-                const position: "before" | "after" =
-                  e.clientY < rect.top + rect.height / 2 ? "before" : "after";
-                clearAllDragStates();
-                if (!draggedId || draggedId === note.id) return;
-                e.preventDefault();
-                handleReorderNotes(draggedId, note.id, position);
-              }}
-              onClick={() => {
-                if (draggingNoteId) return;
-                onOpenDetail({ mode: "note", id: note.id });
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                onOpenContextMenu({ kind: "entry", entry: note }, e);
-              }}
-              style={
-                isDropTarget
-                  ? {
-                      boxShadow:
-                        noteDropTarget.position === "before"
-                          ? "inset 0 2px 0 var(--accent)"
-                          : "inset 0 -2px 0 var(--accent)",
-                    }
-                  : undefined
-              }
-              className={`py-2.5 px-2 -mx-2 rounded-lg flex items-center justify-between gap-3 cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]/75 ${
-                isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
-              } ${isBeingDragged ? "opacity-50 bg-[var(--accent-soft)]" : ""}`}
-            >
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                {isCustomSort && (
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Reorder ${note.title || "Untitled Note"}`}
-                    title="Drag to reorder or drop onto a notebook tab"
-                    onClick={(e) => e.stopPropagation()}
-                    onPointerDown={(e) => {
-                      if (e.pointerType === "mouse") return;
-                      e.stopPropagation();
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      activeDragNoteIdRef.current = note.id;
-                      setDraggingNoteId(note.id);
-                      setNoteDropTarget(null);
-                      setNoteFileDropTargetId(null);
-                    }}
-                    onPointerMove={(e) => {
-                      if (
-                        e.pointerType === "mouse" ||
-                        draggingNoteId !== note.id
-                      ) {
-                        return;
-                      }
-                      const resolved = resolveTouchDrop(
-                        e.clientX,
-                        e.clientY,
-                        note.id,
-                      );
-                      setNoteDropTarget(resolved.noteTarget);
-                      setNoteFileDropTargetId(resolved.notebookTargetId);
-                    }}
-                    onPointerUp={(e) => {
-                      if (e.pointerType === "mouse") return;
-                      e.stopPropagation();
-                      if (draggingNoteId === note.id) {
-                        const resolved = resolveTouchDrop(
-                          e.clientX,
-                          e.clientY,
-                          note.id,
-                        );
-                        const nbTarget =
-                          resolved.notebookTargetId ?? noteFileDropTargetId;
-                        const rowTarget =
-                          resolved.noteTarget ?? noteDropTarget;
-                        clearAllDragStates();
-                        if (nbTarget) {
-                          handleFileNoteToNotebook(
-                            note.id,
-                            nbTarget === "__unfiled__" ? null : nbTarget,
-                          );
-                        } else if (rowTarget && rowTarget.noteId !== note.id) {
-                          handleReorderNotes(
-                            note.id,
-                            rowTarget.noteId,
-                            rowTarget.position,
-                          );
-                        }
-                      } else {
-                        clearAllDragStates();
-                      }
-                    }}
-                    onPointerCancel={clearAllDragStates}
-                    className="touch-none select-none min-w-[32px] min-h-[36px] -ml-1 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
-                  >
-                    <GripVertical className="w-4 h-4" />
-                  </div>
-                )}
+                    return (
+                      <section
+                        key={group.key}
+                        className="space-y-3 pb-4 border-b last:border-b-0"
+                        style={{ borderColor: "var(--border-subtle)" }}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            {openTargetBook ? (
+                              <div className="w-8 shrink-0">
+                                <BookCover
+                                  title={openTargetBook.title}
+                                  author={openTargetBook.author}
+                                  format={openTargetBook.format}
+                                  coverDataUrl={openTargetBook.coverDataUrl}
+                                  paletteIndex={openTargetBook.coverPaletteIndex}
+                                  coverStyle={openTargetBook.coverStyle}
+                                  size="sm"
+                                />
+                              </div>
+                            ) : (
+                              <div
+                                className="w-8 h-11 rounded border flex items-center justify-center shrink-0"
+                                style={{
+                                  backgroundColor: "var(--bg-surface-subtle)",
+                                  borderColor: "var(--border-subtle)",
+                                  color: "var(--text-muted)",
+                                }}
+                              >
+                                <BookOpen className="w-4 h-4" />
+                              </div>
+                            )}
 
-                {note.pinned && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateEntry(note.id, { pinned: false });
-                    }}
-                    className="h-5 w-5 flex items-center justify-center rounded shrink-0 hover:bg-[var(--bg-surface-hover)]"
-                    style={{ color: "var(--accent)" }}
-                    title="Unpin note"
-                    aria-label="Unpin note"
-                  >
-                    <Pin className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                <span
-                  className="text-sm font-medium leading-snug truncate"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {note.title || "Untitled Note"}
-                </span>
-                {plainSnippet && (
-                  <span
-                    className="hidden md:inline text-xs truncate flex-1"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    — {plainSnippet}
-                  </span>
-                )}
-              </div>
+                            <div className="min-w-0">
+                              <div className="flex items-baseline gap-2 min-w-0">
+                                <h2
+                                  className="font-display text-sm font-semibold truncate"
+                                  style={{ color: "var(--text-primary)" }}
+                                >
+                                  {group.title}
+                                </h2>
+                                <span
+                                  className="text-xs font-mono tabular-nums shrink-0"
+                                  style={{ color: "var(--text-muted)" }}
+                                >
+                                  {group.notes.length}{" "}
+                                  {group.notes.length === 1 ? "note" : "notes"}
+                                </span>
+                              </div>
+                              <div
+                                className="text-xs truncate flex items-center gap-1.5"
+                                style={{ color: "var(--text-muted)" }}
+                              >
+                                {group.author && (
+                                  <span className="truncate">{group.author}</span>
+                                )}
+                                {!openTargetBook && (
+                                  <>
+                                    {group.author && <span aria-hidden="true">·</span>}
+                                    <span>Removed from library</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                {link && (
-                  liveLinkedBook && onJumpToBookLocation ? (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onJumpToBookLocation(link);
-                      }}
-                      title={`Jump to ${liveLinkedBook.title} (${link.locationLabel})`}
-                      className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--accent)] hover:underline whitespace-nowrap shrink-0 cursor-pointer max-w-[200px]"
-                    >
-                      <BookOpen className="w-3 h-3 shrink-0" />
-                      <span className="truncate">
-                        {compactBookLocationOnly
-                          ? link.locationLabel
-                          : `${liveLinkedBook.title} · ${link.locationLabel}`}
-                      </span>
-                      <ArrowUpRight className="w-3 h-3 shrink-0" />
-                    </button>
-                  ) : (
-                    <span
-                      className="hidden sm:inline-flex items-center gap-1 text-[11px] truncate max-w-[180px]"
-                      style={{ color: "var(--text-muted)" }}
-                    >
-                      <BookOpen className="w-3 h-3 shrink-0 opacity-75" />
-                      <span className="truncate">
-                        {compactBookLocationOnly
-                          ? `${link.locationLabel} (Removed)`
-                          : `${link.bookTitle} (Removed)`}
-                      </span>
-                    </span>
-                  )
-                )}
+                          {openTargetBook && onJumpToBookLocation && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onJumpToBookLocation({
+                                  bookId: openTargetBook.id,
+                                  bookTitle: openTargetBook.title,
+                                  bookAuthor: openTargetBook.author,
+                                  bookFormat: openTargetBook.format,
+                                  unitIndex:
+                                    openTargetBook.currentLocation?.unitIndex ??
+                                    firstLink?.unitIndex ??
+                                    (openTargetBook.format === "pdf" ? 1 : 0),
+                                  scrollRatio:
+                                    openTargetBook.currentLocation?.scrollRatio ??
+                                    firstLink?.scrollRatio ??
+                                    0,
+                                  locationLabel:
+                                    openTargetBook.currentLocation?.label ||
+                                    firstLink?.locationLabel ||
+                                    "Current Position",
+                                });
+                              }}
+                              className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] whitespace-nowrap shrink-0 cursor-pointer"
+                              style={{
+                                backgroundColor: "var(--bg-surface)",
+                                borderColor: "var(--border-subtle)",
+                                color: "var(--text-primary)",
+                              }}
+                            >
+                              <BookOpen className="w-3.5 h-3.5" />
+                              <span>Open Book</span>
+                            </button>
+                          )}
+                        </div>
 
-                <div
-                  className="hidden sm:flex items-center gap-1.5 text-[11px] font-mono tabular-nums"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {selectedNotebookId === "all" && noteNotebook && (
-                    <span>{noteNotebook.name} ·</span>
-                  )}
-                  {note.tags.length > 0 && (
-                    <span className="max-w-[140px] truncate">
-                      {note.tags.map((t) => `#${t}`).join(" ")} ·
-                    </span>
-                  )}
-                  <span>{words}w ·</span>
-                  <span>{updatedDay}</span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenContextMenu({ kind: "entry", entry: note }, e);
-                  }}
-                  className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)]"
-                  style={{ color: "var(--text-muted)" }}
-                  aria-label="Note actions"
-                >
-                  <MoreVertical className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          );
-        };
-
-        if (filteredNotes.length === 0) {
-          return (
-            <div
-              className="rounded-xl border border-dashed py-14 px-4 text-center space-y-2"
-              style={{
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-muted)",
-              }}
-            >
-              <FileText className="w-6 h-6 mx-auto opacity-50" />
-              <p
-                className="text-sm font-medium"
-                style={{ color: "var(--text-primary)" }}
-              >
-                {activeNotebook
-                  ? `No notes in ${activeNotebook.name}`
-                  : selectedNotebookId === BOOK_NOTES_TAB_ID
-                    ? bookNotes.length === 0
-                      ? "No book-linked notes yet"
-                      : "No matching book notes"
-                    : "No matching notes"}
-              </p>
-              <p className="text-xs max-w-md mx-auto">
-                {selectedNotebookId === BOOK_NOTES_TAB_ID && bookNotes.length === 0
-                  ? "Open any book in Library and write notes inside the Study Studio panel, or link any existing note to a book from its Details modal."
-                  : "Create a fresh note or adjust your notebook, search, and tag filters."}
-              </p>
-            </div>
-          );
-        }
-
-        if (selectedNotebookId === BOOK_NOTES_TAB_ID) {
-          return (
-            <div className="space-y-6">
-              {groupedBookNotes.map((group) => {
-                const firstLink = group.notes[0]?.bookLink;
-                const openTargetBook = group.liveBook;
-
-                return (
-                  <section
-                    key={group.key}
-                    className="space-y-3 pb-4 border-b last:border-b-0"
-                    style={{ borderColor: "var(--border-subtle)" }}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        {openTargetBook ? (
-                          <div className="w-8 shrink-0">
-                            <BookCover
-                              title={openTargetBook.title}
-                              author={openTargetBook.author}
-                              format={openTargetBook.format}
-                              coverDataUrl={openTargetBook.coverDataUrl}
-                              paletteIndex={openTargetBook.coverPaletteIndex}
-                              coverStyle={openTargetBook.coverStyle}
-                              size="sm"
-                            />
+                        {viewMode === "grid" ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {group.notes.map((note) => renderGridCard(note, true))}
                           </div>
                         ) : (
                           <div
-                            className="w-8 h-11 rounded border flex items-center justify-center shrink-0"
-                            style={{
-                              backgroundColor: "var(--bg-surface-subtle)",
-                              borderColor: "var(--border-subtle)",
-                              color: "var(--text-muted)",
-                            }}
+                            className="divide-y border-y"
+                            style={{ borderColor: "var(--border-subtle)" }}
                           >
-                            <BookOpen className="w-4 h-4" />
+                            {group.notes.map((note) => renderListRow(note, true))}
                           </div>
                         )}
+                      </section>
+                    );
+                  })}
+                </div>
+              );
+            }
 
-                        <div className="min-w-0">
-                          <div className="flex items-baseline gap-2 min-w-0">
-                            <h2
-                              className="font-display text-sm font-semibold truncate"
-                              style={{ color: "var(--text-primary)" }}
-                            >
-                              {group.title}
-                            </h2>
-                            <span
-                              className="text-xs font-mono tabular-nums shrink-0"
-                              style={{ color: "var(--text-muted)" }}
-                            >
-                              {group.notes.length}{" "}
-                              {group.notes.length === 1 ? "note" : "notes"}
-                            </span>
-                          </div>
-                          <div
-                            className="text-xs truncate flex items-center gap-1.5"
-                            style={{ color: "var(--text-muted)" }}
-                          >
-                            {group.author && (
-                              <span className="truncate">{group.author}</span>
-                            )}
-                            {!openTargetBook && (
-                              <>
-                                {group.author && <span aria-hidden="true">·</span>}
-                                <span>Removed from library</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+            if (viewMode === "grid") {
+              return (
+                <div
+                  ref={gridRef}
+                  className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"
+                >
+                  {filteredNotes.map((note) => renderGridCard(note, false))}
+                </div>
+              );
+            }
 
-                      {openTargetBook && onJumpToBookLocation && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onJumpToBookLocation({
-                              bookId: openTargetBook.id,
-                              bookTitle: openTargetBook.title,
-                              bookAuthor: openTargetBook.author,
-                              bookFormat: openTargetBook.format,
-                              unitIndex:
-                                openTargetBook.currentLocation?.unitIndex ??
-                                firstLink?.unitIndex ??
-                                (openTargetBook.format === "pdf" ? 1 : 0),
-                              scrollRatio:
-                                openTargetBook.currentLocation?.scrollRatio ??
-                                firstLink?.scrollRatio ??
-                                0,
-                              locationLabel:
-                                openTargetBook.currentLocation?.label ||
-                                firstLink?.locationLabel ||
-                                "Current Position",
-                            });
-                          }}
-                          className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] whitespace-nowrap shrink-0 cursor-pointer"
-                          style={{
-                            backgroundColor: "var(--bg-surface)",
-                            borderColor: "var(--border-subtle)",
-                            color: "var(--text-primary)",
-                          }}
-                        >
-                          <BookOpen className="w-3.5 h-3.5" />
-                          <span>Open Book</span>
-                        </button>
-                      )}
-                    </div>
+            return (
+              <div
+                className="divide-y border-y"
+                style={{ borderColor: "var(--border-subtle)" }}
+              >
+                {filteredNotes.map((note) => renderListRow(note, false))}
+              </div>
+            );
+          })()}
+        </div>
+      </div>
 
-                    {viewMode === "grid" ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {group.notes.map((note) => renderGridCard(note, true))}
-                      </div>
-                    ) : (
-                      <div
-                        className="divide-y border-y"
-                        style={{ borderColor: "var(--border-subtle)" }}
-                      >
-                        {group.notes.map((note) => renderListRow(note, true))}
-                      </div>
-                    )}
-                  </section>
-                );
-              })}
-            </div>
-          );
-        }
+      {/* Right Docked Connection Map (Tree & Anytype Graph) */}
+      <NotesConnectionMap
+        allNotes={allNotes}
+        notebooks={notebooks}
+        focusedNoteId={focusedNoteId}
+        isOpenDesktop={connOpenDesktop}
+        isOpenMobile={mobileConnOpen}
+        mode={connMode}
+        onModeChange={setConnMode}
+        onFocusNote={setFocusedNoteId}
+        onOpenNote={handleOpenNoteById}
+        onUpdateNoteContent={(noteId, nextHtml, targetTitle) => {
+          updateEntry(noteId, { content: nextHtml });
+          pushToast(`Linked "${targetTitle}"`, "success");
+        }}
+        onCloseDesktop={() => setConnOpenDesktop(false)}
+        onCloseMobile={() => setMobileConnOpen(false)}
+      />
 
-        if (viewMode === "grid") {
-          return (
-            <div
-              ref={gridRef}
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
-            >
-              {filteredNotes.map((note) => renderGridCard(note, false))}
-            </div>
-          );
-        }
-
-        return (
-          <div
-            className="divide-y border-y"
-            style={{ borderColor: "var(--border-subtle)" }}
-          >
-            {filteredNotes.map((note) => renderListRow(note, false))}
-          </div>
-        );
-      })()}
+      {/* Safe Branch Delete/Archive Confirmation */}
+      <NoteDeleteBranchModal
+        prompt={branchPrompt}
+        onCancel={() => setBranchPrompt(null)}
+        onChoose={(mode) => {
+          if (branchPrompt) {
+            if (branchPrompt.action === "archive") {
+              archiveNotePage(branchPrompt.noteId, true, mode);
+            } else {
+              deleteNotePage(branchPrompt.noteId, mode);
+              pushToast("Note deleted");
+            }
+          }
+          setBranchPrompt(null);
+        }}
+      />
 
       {/* Create / Edit Notebook Modal */}
       {notebookModal && (

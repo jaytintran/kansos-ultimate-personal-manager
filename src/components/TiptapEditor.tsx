@@ -18,14 +18,17 @@ import {
   Bold,
   CheckSquare,
   Code,
+  FileText,
   Heading1,
   Heading2,
   Heading3,
   Italic,
+  Link2,
   List,
   ListOrdered,
   Minus,
   PanelTop,
+  Plus,
   Quote,
   Redo2,
   Slash,
@@ -35,6 +38,8 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react';
+import type { Entry } from '../types';
+import { WikiLinkNode } from './notes/NoteTiptapExtensions';
 
 export const CODE_LANGUAGES = [
   'plaintext',
@@ -530,7 +535,14 @@ interface TiptapEditorProps {
   minHeight?: number;
   variant?: 'default' | 'borderless';
   onEditorReady?: (editor: Editor | null) => void;
+  allNotes?: Entry[];
+  onOpenNote?: (noteId: string, title?: string) => void;
+  onCreateLinkedNote?: (title: string) => Entry;
 }
+
+type WikiCandidate =
+  | { kind: 'note'; note: Entry }
+  | { kind: 'create'; title: string };
 
 export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   docId,
@@ -540,11 +552,18 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   minHeight = 200,
   variant = 'default',
   onEditorReady,
+  allNotes,
+  onOpenNote,
+  onCreateLinkedNote,
 }) => {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashCoords, setSlashCoords] = useState<{ top: number; left: number } | null>(null);
+  const [wikiOpen, setWikiOpen] = useState(false);
+  const [wikiQuery, setWikiQuery] = useState('');
+  const [wikiIndex, setWikiIndex] = useState(0);
+  const [wikiCoords, setWikiCoords] = useState<{ top: number; left: number } | null>(null);
   const [selectionBar, setSelectionBar] = useState<FloatingPos | null>(null);
   const [, forceRerender] = useState(0);
 
@@ -552,6 +571,17 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   const slashOpenRef = useRef(false);
   const slashIndexRef = useRef(0);
   const filteredSlashRef = useRef<SlashItem[]>(SLASH_ITEMS);
+  const wikiRangeRef = useRef<{ from: number; to: number } | null>(null);
+  const wikiOpenRef = useRef(false);
+  const wikiIndexRef = useRef(0);
+  const wikiCandidatesRef = useRef<WikiCandidate[]>([]);
+  const allNotesRef = useRef<Entry[] | undefined>(allNotes);
+  allNotesRef.current = allNotes;
+  const onOpenNoteRef = useRef(onOpenNote);
+  onOpenNoteRef.current = onOpenNote;
+  const onCreateLinkedNoteRef = useRef(onCreateLinkedNote);
+  onCreateLinkedNoteRef.current = onCreateLinkedNote;
+
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const onChangeRef = useRef(onChange);
@@ -559,20 +589,57 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   const lastEmittedHtmlRef = useRef<string>(content || '');
   const prevDocIdRef = useRef<string>(docId);
 
+  const allSlashItems = useMemo(() => {
+    if (!allNotes) return SLASH_ITEMS;
+    const linkItem: SlashItem = {
+      id: 'wikilink',
+      label: 'Link to Note [[',
+      description: 'Reference or create a linked note',
+      keywords: 'wikilink link note reference [[ connection',
+      icon: Link2,
+      action: (ed) => {
+        ed.chain().focus().insertContent('[[').run();
+      },
+    };
+    return [...SLASH_ITEMS, linkItem];
+  }, [allNotes]);
+
   const filteredSlash = useMemo(() => {
     const q = slashQuery.trim().toLowerCase();
-    if (!q) return SLASH_ITEMS;
-    return SLASH_ITEMS.filter(
+    if (!q) return allSlashItems;
+    return allSlashItems.filter(
       (item) =>
         item.label.toLowerCase().includes(q) ||
         item.keywords.includes(q) ||
         item.description.toLowerCase().includes(q)
     );
-  }, [slashQuery]);
+  }, [slashQuery, allSlashItems]);
+
+  const wikiCandidates = useMemo<WikiCandidate[]>(() => {
+    if (!allNotes) return [];
+    const q = wikiQuery.trim();
+    const qLower = q.toLowerCase();
+    const matches = allNotes
+      .filter((n) => n.id !== docId && !n.archived)
+      .filter((n) => !qLower || (n.title || 'Untitled Note').toLowerCase().includes(qLower))
+      .slice(0, 8)
+      .map((note): WikiCandidate => ({ kind: 'note', note }));
+
+    const exactExists =
+      qLower.length > 0 &&
+      allNotes.some((n) => !n.archived && (n.title || '').trim().toLowerCase() === qLower);
+    if (q && !exactExists && onCreateLinkedNote) {
+      matches.push({ kind: 'create', title: q });
+    }
+    return matches;
+  }, [allNotes, wikiQuery, docId, onCreateLinkedNote]);
 
   slashOpenRef.current = slashOpen;
   slashIndexRef.current = slashIndex;
   filteredSlashRef.current = filteredSlash;
+  wikiOpenRef.current = wikiOpen;
+  wikiIndexRef.current = wikiIndex;
+  wikiCandidatesRef.current = wikiCandidates;
 
   const updateSelectionToolbar = useCallback(
     (ed: Editor) => {
@@ -644,6 +711,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
           lastColumnResizable: true,
         },
       }),
+      WikiLinkNode,
     ],
     content: content || '',
     editorProps: {
@@ -668,6 +736,58 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
         return false;
       },
       handleKeyDown: (_view, event) => {
+        if (wikiOpenRef.current) {
+          const items = wikiCandidatesRef.current;
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setWikiIndex((i) => (items.length ? (i + 1) % items.length : 0));
+            return true;
+          }
+          if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setWikiIndex((i) => (items.length ? (i - 1 + items.length) % items.length : 0));
+            return true;
+          }
+          if (event.key === 'Enter') {
+            const selected = items[wikiIndexRef.current];
+            const activeEd = editorRef.current;
+            if (selected && activeEd) {
+              event.preventDefault();
+              let targetNote: Entry | null = null;
+              if (selected.kind === 'note') {
+                targetNote = selected.note;
+              } else if (onCreateLinkedNoteRef.current) {
+                targetNote = onCreateLinkedNoteRef.current(selected.title);
+              }
+              if (targetNote) {
+                const chain = activeEd.chain().focus();
+                if (wikiRangeRef.current) chain.deleteRange(wikiRangeRef.current);
+                chain
+                  .insertContent([
+                    {
+                      type: 'wikiLink',
+                      attrs: {
+                        noteId: targetNote.id,
+                        title: targetNote.title || 'Untitled Note',
+                      },
+                    },
+                    { type: 'text', text: ' ' },
+                  ])
+                  .run();
+              }
+              setWikiOpen(false);
+              setWikiQuery('');
+              return true;
+            }
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            setWikiOpen(false);
+            setWikiQuery('');
+            return true;
+          }
+        }
         if (!slashOpenRef.current) return false;
         const items = filteredSlashRef.current;
         if (event.key === 'ArrowDown') {
@@ -722,9 +842,43 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
       lastEmittedHtmlRef.current = normalized;
       onChangeRef.current(normalized);
 
-      // Detect slash command token at cursor
       const { from } = ed.state.selection;
-      const textBefore = ed.state.doc.textBetween(Math.max(0, from - 30), from, '\n');
+      const textBefore = ed.state.doc.textBetween(Math.max(0, from - 48), from, '\n');
+
+      // Detect [[wikilink token at cursor
+      const wikiMatch = allNotesRef.current ? textBefore.match(/\[\[([^\]\n]*)$/) : null;
+      if (wikiMatch && !ed.isActive('codeBlock')) {
+        const query = wikiMatch[1] || '';
+        wikiRangeRef.current = { from: from - query.length - 2, to: from };
+        setWikiQuery(query);
+        setWikiIndex(0);
+        try {
+          const coords = ed.view.coordsAtPos(from);
+          const menuWidth = 264;
+          const menuHeight = 280;
+          const clampedLeft = Math.max(
+            12,
+            Math.min(window.innerWidth - menuWidth - 12, coords.left)
+          );
+          const openAbove = coords.bottom + menuHeight > window.innerHeight - 72;
+          setWikiCoords({
+            left: clampedLeft,
+            top: openAbove
+              ? Math.max(12, coords.top - menuHeight - 8)
+              : coords.bottom + 6,
+          });
+        } catch {
+          setWikiCoords(null);
+        }
+        setWikiOpen(true);
+        setSlashOpen(false);
+        updateSelectionToolbar(ed);
+        return;
+      } else {
+        setWikiOpen(false);
+      }
+
+      // Detect slash command token at cursor
       const match = textBefore.match(/(?:^|\s)\/([a-z0-9]*)$/i);
       if (match && !ed.isActive('codeBlock')) {
         const query = match[1] || '';
@@ -758,6 +912,18 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   });
 
   editorRef.current = editor;
+
+  useEffect(() => {
+    if (!editor) return;
+    const wikiStorage = (
+      editor.storage as { wikiLink?: { onNavigate?: (id: string, title: string) => void } }
+    ).wikiLink;
+    if (wikiStorage) {
+      wikiStorage.onNavigate = (targetId, linkTitle) => {
+        onOpenNoteRef.current?.(targetId, linkTitle);
+      };
+    }
+  }, [editor]);
 
   useEffect(() => {
     onEditorReady?.(editor ?? null);
@@ -809,6 +975,33 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     setSlashQuery('');
   };
 
+  const applyWikiCandidate = (candidate: WikiCandidate) => {
+    let targetNote: Entry | null = null;
+    if (candidate.kind === 'note') {
+      targetNote = candidate.note;
+    } else if (onCreateLinkedNote) {
+      targetNote = onCreateLinkedNote(candidate.title);
+    }
+    if (targetNote) {
+      const chain = editor.chain().focus();
+      if (wikiRangeRef.current) chain.deleteRange(wikiRangeRef.current);
+      chain
+        .insertContent([
+          {
+            type: 'wikiLink',
+            attrs: {
+              noteId: targetNote.id,
+              title: targetNote.title || 'Untitled Note',
+            },
+          },
+          { type: 'text', text: ' ' },
+        ])
+        .run();
+    }
+    setWikiOpen(false);
+    setWikiQuery('');
+  };
+
   const ToolbarBtn: React.FC<{
     active?: boolean;
     disabled?: boolean;
@@ -836,6 +1029,63 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     >
       {children}
     </button>
+  );
+
+  const wikiMenu = wikiOpen && wikiCandidates.length > 0 && (
+    <div
+      className={`${
+        wikiCoords ? 'fixed' : 'absolute left-2 bottom-2'
+      } z-[70] w-66 rounded-xl border p-1.5 space-y-0.5 max-h-[280px] overflow-y-auto`}
+      style={{
+        ...(wikiCoords ? { top: wikiCoords.top, left: wikiCoords.left } : {}),
+        backgroundColor: 'var(--bg-elevated)',
+        borderColor: 'var(--border-strong)',
+        boxShadow: 'var(--shadow-popover)',
+      }}
+    >
+      <div
+        className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider flex items-center justify-between"
+        style={{ color: 'var(--text-muted)' }}
+      >
+        <span>Link to Note</span>
+        <span className="font-mono text-[10px] opacity-70">↵</span>
+      </div>
+      {wikiCandidates.map((cand, idx) => {
+        const active = idx === wikiIndex;
+        const key = cand.kind === 'note' ? cand.note.id : `create:${cand.title}`;
+        return (
+          <button
+            key={key}
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              applyWikiCandidate(cand);
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-colors"
+            style={{
+              backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
+              color: active ? 'var(--accent)' : 'var(--text-primary)',
+            }}
+          >
+            {cand.kind === 'note' ? (
+              <>
+                <FileText className="w-3.5 h-3.5 shrink-0 opacity-80" />
+                <span className="text-xs font-medium truncate">
+                  {cand.note.title || 'Untitled Note'}
+                </span>
+              </>
+            ) : (
+              <>
+                <Plus className="w-3.5 h-3.5 shrink-0" />
+                <span className="text-xs font-medium truncate">
+                  Create &ldquo;{cand.title}&rdquo;
+                </span>
+              </>
+            )}
+          </button>
+        );
+      })}
+    </div>
   );
 
   const slashMenu = slashOpen && filteredSlash.length > 0 && (
@@ -1351,6 +1601,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
         </div>
 
         {slashMenu}
+        {wikiMenu}
       </div>
     );
   }
@@ -1524,6 +1775,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
       </div>
 
       {slashMenu}
+      {wikiMenu}
     </div>
   );
 };

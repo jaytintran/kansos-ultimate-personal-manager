@@ -383,15 +383,29 @@ export const FinanceView: React.FC = () => {
     categoryFilter !== "all";
 
   return (
-    <div className="h-full min-h-0 flex flex-col overflow-y-auto">
-      <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4">
+    <div className="min-h-full flex flex-col">
+      <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-12 space-y-4">
         {/* Top Header */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="font-display text-2xl font-bold tracking-tight">
                 Finance
               </h1>
+              <button
+                type="button"
+                onClick={() => setCsvModalOpen(true)}
+                className="h-8 w-8 rounded-lg border inline-flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-subtle)] shrink-0 cursor-pointer"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+                title="Import / Export CSV"
+                aria-label="Import / Export CSV"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+              </button>
               <span
                 className="text-xs font-mono tabular-nums"
                 style={{ color: "var(--text-muted)" }}
@@ -442,20 +456,6 @@ export const FinanceView: React.FC = () => {
                 );
               })}
             </div>
-
-            <button
-              type="button"
-              onClick={() => setCsvModalOpen(true)}
-              className="h-9 px-3 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-subtle)] whitespace-nowrap shrink-0 cursor-pointer"
-              style={{
-                backgroundColor: "var(--bg-surface)",
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-secondary)",
-              }}
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>CSV</span>
-            </button>
 
             <button
               type="button"

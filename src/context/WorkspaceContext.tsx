@@ -567,7 +567,12 @@ interface WorkspaceContextValue {
     bookLink?: BookNoteLink | null;
   }) => Entry;
   duplicateNotePage: (id: string) => Entry | null;
-  archiveNotePage: (id: string, archived: boolean) => void;
+  deleteNotePage: (id: string, childMode?: "promote" | "cascade") => void;
+  archiveNotePage: (
+    id: string,
+    archived: boolean,
+    childMode?: "promote" | "cascade",
+  ) => void;
   addNoteNotebook: (name: string, icon?: string) => NoteNotebook;
   updateNoteNotebook: (id: string, patch: Partial<NoteNotebook>) => void;
   deleteNoteNotebook: (id: string) => void;
@@ -1893,14 +1898,67 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [workspace.entries, mutateWorkspace, pushToast],
   );
 
-  const archiveNotePage = useCallback(
-    (id: string, archived: boolean) => {
+  const deleteNotePage = useCallback(
+    (id: string, childMode: "promote" | "cascade" = "cascade") => {
+      if (childMode === "cascade") {
+        deleteEntry(id);
+        pushToast("Note deleted");
+        return;
+      }
       const nowIso = new Date().toISOString();
-      mutateWorkspace((prev) => ({
-        ...prev,
-        entries: prev.entries.map((e) =>
-          e.id === id
-            ? {
+      mutateWorkspace((prev) => {
+        const target = prev.entries.find((e) => e.id === id);
+        const fallbackParentId = target?.parentId ?? null;
+        return {
+          ...prev,
+          entries: prev.entries
+            .filter((e) => e.id !== id)
+            .map((e) =>
+              e.parentId === id
+                ? { ...e, parentId: fallbackParentId, updatedAt: nowIso }
+                : e,
+            ),
+        };
+      });
+      pushToast("Note deleted · Sub-pages promoted up", "success");
+    },
+    [deleteEntry, mutateWorkspace, pushToast],
+  );
+
+  const archiveNotePage = useCallback(
+    (
+      id: string,
+      archived: boolean,
+      childMode: "promote" | "cascade" = "promote",
+    ) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => {
+        const target = prev.entries.find((e) => e.id === id);
+        const fallbackParentId = target?.parentId ?? null;
+
+        const branchIds = new Set<string>([id]);
+        if (childMode === "cascade") {
+          let added = true;
+          while (added) {
+            added = false;
+            for (const e of prev.entries) {
+              if (
+                e.parentId &&
+                branchIds.has(e.parentId) &&
+                !branchIds.has(e.id)
+              ) {
+                branchIds.add(e.id);
+                added = true;
+              }
+            }
+          }
+        }
+
+        return {
+          ...prev,
+          entries: prev.entries.map((e) => {
+            if (branchIds.has(e.id)) {
+              return {
                 ...e,
                 archived,
                 noteStatus: archived
@@ -1909,11 +1967,26 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
                     ? "active"
                     : (e.noteStatus ?? "active"),
                 updatedAt: nowIso,
-              }
-            : e,
-        ),
-      }));
-      pushToast(archived ? "Moved note to Archive" : "Restored from Archive");
+              };
+            }
+            if (archived && childMode === "promote" && e.parentId === id) {
+              return {
+                ...e,
+                parentId: fallbackParentId,
+                updatedAt: nowIso,
+              };
+            }
+            return e;
+          }),
+        };
+      });
+      pushToast(
+        archived
+          ? childMode === "cascade"
+            ? "Moved branch to Archive"
+            : "Moved note to Archive"
+          : "Restored from Archive",
+      );
     },
     [mutateWorkspace, pushToast],
   );
@@ -5093,6 +5166,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         deleteCustomTab,
         addNotePage,
         duplicateNotePage,
+        deleteNotePage,
         archiveNotePage,
         addNoteNotebook,
         updateNoteNotebook,

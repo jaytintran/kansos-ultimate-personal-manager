@@ -115,20 +115,32 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   const timeFormat = workspace.settings.timeFormat;
   const displayMode = workspace.settings.timelineDisplayMode || "default";
 
-  // Keyboard shortcuts: Cmd/Ctrl+K or '/' focuses search, Escape clears
+  // Keyboard shortcuts: Cmd/Ctrl+K or '/' focuses search, Escape clears, A/D steps days
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      const isInput =
+      const isEditable = Boolean(
         target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable);
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.tagName === "SELECT" ||
+            target.isContentEditable ||
+            target.closest('[contenteditable="true"]')),
+      );
+      const activeEl = document.activeElement as HTMLElement | null;
+      const activeIsEditable = Boolean(
+        activeEl &&
+          (activeEl.tagName === "INPUT" ||
+            activeEl.tagName === "TEXTAREA" ||
+            activeEl.tagName === "SELECT" ||
+            activeEl.isContentEditable ||
+            activeEl.closest('[contenteditable="true"]')),
+      );
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         searchInputRef.current?.focus();
-      } else if (e.key === "/" && !isInput) {
+      } else if (e.key === "/" && !isEditable && !activeIsEditable) {
         e.preventDefault();
         searchInputRef.current?.focus();
       } else if (
@@ -138,11 +150,29 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         e.preventDefault();
         setSearchQuery("");
         searchInputRef.current?.blur();
+      } else if (
+        !isEditable &&
+        !activeIsEditable &&
+        !calendarPopoverOpen &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        !document.querySelector('[role="dialog"]')
+      ) {
+        const keyLower = e.key.toLowerCase();
+        if (keyLower === "a") {
+          e.preventDefault();
+          setSelectedDateKey((prev) => addDaysToKey(prev, -1));
+        } else if (keyLower === "d") {
+          e.preventDefault();
+          setSelectedDateKey((prev) => addDaysToKey(prev, 1));
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [calendarPopoverOpen]);
 
   const visibleEntries = useMemo(
     () => workspace.entries.filter((e) => isVisibleOnTimeline(e)),
@@ -733,18 +763,65 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         style={{ borderColor: "var(--border-subtle)" }}
       >
         <div className="flex items-center justify-between gap-2">
-          {/* Interactive Title-like Date Scrubber */}
-          <div className="relative flex items-center gap-3 shrink-0 min-w-0">
-            <button
-              type="button"
-              onClick={() => setCalendarPopoverOpen((v) => !v)}
-              className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 focus:outline-none"
-              style={{ color: "var(--text-primary)" }}
-              title="Change date"
-            >
-              <span>{formatCompactDayHeading(selectedDateKey)}</span>
-              <ChevronDown className="w-4 h-4 opacity-50 shrink-0 mt-0.5" />
-            </button>
+          {/* Interactive Title-like Date Scrubber with Flanking Chevrons */}
+          <div className="relative flex items-center gap-1.5 shrink-0 min-w-0">
+            <div className="flex items-center gap-0.5 min-w-0">
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedDateKey((prev) => addDaysToKey(prev, -1))
+                }
+                className="h-8 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                style={{ color: "var(--text-secondary)" }}
+                title="Previous day (A)"
+                aria-label="Previous day"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCalendarPopoverOpen((v) => !v)}
+                className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1 px-1 py-0.5 rounded-lg hover:bg-[var(--bg-surface-subtle)] focus:outline-none"
+                style={{ color: "var(--text-primary)" }}
+                title="Change date"
+              >
+                <span>{formatCompactDayHeading(selectedDateKey)}</span>
+                <ChevronDown className="w-4 h-4 opacity-50 shrink-0 mt-0.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedDateKey((prev) => addDaysToKey(prev, 1))
+                }
+                className="h-8 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                style={{ color: "var(--text-secondary)" }}
+                title="Next day (D)"
+                aria-label="Next day"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            {selectedDateKey !== todayKey && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDateKey(todayKey);
+                  setCalendarPopoverOpen(false);
+                }}
+                className="h-7 px-2 rounded-lg border text-[11px] font-semibold transition-colors hover:bg-[var(--accent-soft)] cursor-pointer shrink-0"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--accent)",
+                }}
+                title="Jump back to Today"
+              >
+                Today
+              </button>
+            )}
 
             {/* Calendar Dropdown (Theme-Integrated react-day-picker) */}
             {calendarPopoverOpen && (

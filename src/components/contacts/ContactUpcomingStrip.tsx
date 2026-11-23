@@ -68,16 +68,22 @@ export const ContactUpcomingStrip: React.FC<ContactUpcomingStripProps> = ({
 
   return (
     <section
-      className="rounded-2xl border px-3.5 py-2.5 flex items-center gap-3 overflow-x-auto"
+      className="rounded-2xl border px-2.5 py-2 sm:px-3.5 sm:py-2.5 flex items-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar"
       style={{
         backgroundColor: "var(--bg-surface)",
         borderColor: "var(--border-subtle)",
       }}
       aria-label="Upcoming birthdays and anniversaries"
     >
-      <div className="flex items-center gap-1.5 shrink-0 pr-2 border-r" style={{ borderColor: "var(--border-subtle)" }}>
+      <div
+        className="hidden sm:flex items-center gap-1.5 shrink-0 pr-2 border-r"
+        style={{ borderColor: "var(--border-subtle)" }}
+      >
         <Gift className="w-4 h-4" style={{ color: "var(--accent)" }} />
-        <span className="text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+        <span
+          className="text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
+          style={{ color: "var(--text-secondary)" }}
+        >
           Upcoming Milestones
         </span>
       </div>

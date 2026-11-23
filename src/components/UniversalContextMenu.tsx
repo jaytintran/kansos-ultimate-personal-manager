@@ -13,8 +13,13 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
+import { getNoteDescendantIds } from '../lib/noteGraphUtils';
 import { ContextMenuRecord, DetailSheetTarget } from '../types';
 import { addDaysToKey, getTodayKey } from '../utils/date';
+import {
+  NoteBranchActionPrompt,
+  NoteDeleteBranchModal,
+} from './notes/NoteDeleteBranchModal';
 
 export interface ContextMenuState {
   record: ContextMenuRecord;
@@ -43,12 +48,14 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
     duplicateEntry,
     moveEntryToDate,
     deleteEntry,
+    deleteNotePage,
     updateListItem,
     deleteListItem,
   } = useWorkspace();
 
   const [subPanel, setSubPanel] = useState<'none' | 'reschedule' | 'tags'>('none');
   const [tagDraft, setTagDraft] = useState('');
+  const [branchPrompt, setBranchPrompt] = useState<NoteBranchActionPrompt | null>(null);
 
   useEffect(() => {
     setSubPanel('none');
@@ -68,7 +75,20 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [state, subPanel, onClose]);
 
-  if (!state) return null;
+  const branchModal = (
+    <NoteDeleteBranchModal
+      prompt={branchPrompt}
+      onCancel={() => setBranchPrompt(null)}
+      onChoose={(mode) => {
+        if (branchPrompt) {
+          deleteNotePage(branchPrompt.noteId, mode);
+        }
+        setBranchPrompt(null);
+      }}
+    />
+  );
+
+  if (!state) return branchModal;
 
   const { record } = state;
   // Pull fresh entity from workspace so inline tag edits stay live
@@ -137,8 +157,35 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
   };
 
   const handleDelete = () => {
-    if (freshEntry) deleteEntry(freshEntry.id);
-    else if (freshListItem) deleteListItem(freshListItem.id);
+    if (freshEntry) {
+      if (freshEntry.type === 'note' && !freshEntry.archived) {
+        const activeNotes = workspace.entries.filter(
+          (e) => e.type === 'note' && !e.archived
+        );
+        const descendants = getNoteDescendantIds(freshEntry.id, activeNotes);
+        if (descendants.size > 0) {
+          const directChildCount = activeNotes.filter(
+            (e) => e.parentId === freshEntry.id
+          ).length;
+          setBranchPrompt({
+            action: 'delete',
+            noteId: freshEntry.id,
+            noteTitle: freshEntry.title || 'Untitled Note',
+            directChildCount,
+            totalDescendantCount: descendants.size,
+          });
+          onClose();
+          return;
+        }
+      }
+      if (freshEntry.type === 'note') {
+        deleteNotePage(freshEntry.id, 'promote');
+      } else {
+        deleteEntry(freshEntry.id);
+      }
+    } else if (freshListItem) {
+      deleteListItem(freshListItem.id);
+    }
     onClose();
   };
 
@@ -457,6 +504,7 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
         </div>
         {menuContent}
       </div>
+      {branchModal}
     </div>
   );
 };

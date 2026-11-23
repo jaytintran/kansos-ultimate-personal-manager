@@ -6,9 +6,11 @@ import {
   LayoutGrid,
   Mail,
   MapPin,
+  MoreVertical,
   Phone,
   Plus,
   Search,
+  SlidersHorizontal,
   Star,
   Table2,
   Trash2,
@@ -101,10 +103,19 @@ export const ContactsView: React.FC = () => {
     () => contacts[0]?.id ?? null,
   );
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
+  const [mobileHeaderMenuOpen, setMobileHeaderMenuOpen] = useState(false);
+  const [mobileFilterSheetOpen, setMobileFilterSheetOpen] = useState(false);
   const [importExportOpen, setImportExportOpen] = useState(false);
   const [circlesModalOpen, setCirclesModalOpen] = useState(false);
   const [newCircleName, setNewCircleName] = useState("");
   const [newCircleColor, setNewCircleColor] = useState(CIRCLE_SWATCHES[0]);
+
+  const activeFilterCount =
+    (onlyFavorites ? 1 : 0) +
+    (selectedCircleId !== "all" ? 1 : 0) +
+    (selectedTier !== "all" ? 1 : 0) +
+    (selectedTag !== "all" ? 1 : 0) +
+    (prefs.sortBy !== "name" ? 1 : 0);
 
   useEffect(() => {
     try {
@@ -245,14 +256,14 @@ export const ContactsView: React.FC = () => {
 
   return (
     <div className="h-full min-h-0 flex flex-col lg:flex-row overflow-hidden">
-      {/* Main Directory Column */}
-      <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-        <div className="p-4 sm:p-6 pb-3 space-y-3.5 shrink-0">
+      {/* Main Directory Column: Single vertical scroll on mobile so header/filters scroll cleanly; split fixed header on desktop */}
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden">
+        <div className="px-4 pt-3 pb-2.5 sm:p-6 sm:pb-3 space-y-2.5 sm:space-y-3.5 shrink-0">
           {/* Header Row */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="flex items-baseline gap-2.5">
-                <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight">
+          <div className="flex items-center justify-between gap-2 sm:gap-3">
+            <div className="min-w-0">
+              <div className="flex items-baseline gap-2">
+                <h1 className="font-display text-xl sm:text-3xl font-bold tracking-tight">
                   Contacts
                 </h1>
                 <span
@@ -265,12 +276,112 @@ export const ContactsView: React.FC = () => {
                     : ""}
                 </span>
               </div>
-              <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+              <p
+                className="hidden sm:block text-xs mt-0.5"
+                style={{ color: "var(--text-muted)" }}
+              >
                 Personal CRM · Relationships, addresses, milestones &amp; rich context
               </p>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
+            {/* Mobile Compact Header Actions (+ Add + Overflow Menu) */}
+            <div className="flex sm:hidden items-center gap-1.5 relative shrink-0">
+              <button
+                type="button"
+                onClick={handleNewContact}
+                className="h-8 px-2.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
+                style={{
+                  backgroundColor: "var(--accent)",
+                  color: "var(--accent-fg)",
+                }}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMobileHeaderMenuOpen((v) => !v)}
+                className="h-8 w-8 rounded-xl border flex items-center justify-center cursor-pointer"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+                aria-label="More contact actions"
+                aria-expanded={mobileHeaderMenuOpen}
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+
+              {mobileHeaderMenuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-30"
+                    onClick={() => setMobileHeaderMenuOpen(false)}
+                    aria-hidden="true"
+                  />
+                  <div
+                    className="absolute right-0 top-10 z-40 w-48 rounded-xl border p-1.5 space-y-0.5"
+                    style={{
+                      backgroundColor: "var(--bg-elevated)",
+                      borderColor: "var(--border-strong)",
+                      boxShadow: "var(--shadow-popover)",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPrefs((p) => ({
+                          ...p,
+                          layoutMode: p.layoutMode === "grid" ? "table" : "grid",
+                        }));
+                        setMobileHeaderMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs font-medium hover:bg-[var(--bg-surface-subtle)] text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        {prefs.layoutMode === "grid" ? (
+                          <Table2 className="w-3.5 h-3.5" />
+                        ) : (
+                          <LayoutGrid className="w-3.5 h-3.5" />
+                        )}
+                        <span>
+                          {prefs.layoutMode === "grid"
+                            ? "Switch to Table"
+                            : "Switch to Grid"}
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileHeaderMenuOpen(false);
+                        setCirclesModalOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium hover:bg-[var(--bg-surface-subtle)] text-left"
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      <span>Manage Circles</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileHeaderMenuOpen(false);
+                        setImportExportOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium hover:bg-[var(--bg-surface-subtle)] text-left"
+                    >
+                      <FileUp className="w-3.5 h-3.5" />
+                      <span>Import / Export</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Desktop Full Header Controls */}
+            <div className="hidden sm:flex items-center gap-2 flex-wrap">
               <div
                 className="inline-flex items-center p-0.5 rounded-xl border"
                 style={{
@@ -297,7 +408,7 @@ export const ContactsView: React.FC = () => {
                   aria-label="Card grid view"
                 >
                   <LayoutGrid className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Grid</span>
+                  <span>Grid</span>
                 </button>
                 <button
                   type="button"
@@ -318,7 +429,7 @@ export const ContactsView: React.FC = () => {
                   aria-label="Table view"
                 >
                   <Table2 className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Table</span>
+                  <span>Table</span>
                 </button>
               </div>
 
@@ -347,7 +458,7 @@ export const ContactsView: React.FC = () => {
                 }}
               >
                 <FileUp className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Import / Export</span>
+                <span>Import / Export</span>
               </button>
 
               <button
@@ -372,8 +483,74 @@ export const ContactsView: React.FC = () => {
             onSelectContact={handleSelectContact}
           />
 
-          {/* Search & Filters Bar */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Mobile Search + Filter Bottom Sheet Trigger */}
+          <div className="flex sm:hidden items-center gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Search
+                className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                style={{ color: "var(--text-muted)" }}
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search contacts..."
+                className="w-full h-9 pl-8 pr-8 rounded-xl border text-xs outline-none focus:border-[var(--accent)]"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                }}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-[var(--bg-surface-subtle)]"
+                  style={{ color: "var(--text-muted)" }}
+                  aria-label="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setMobileFilterSheetOpen(true)}
+              className="h-9 px-3 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+              style={{
+                backgroundColor:
+                  activeFilterCount > 0
+                    ? "var(--accent-soft)"
+                    : "var(--bg-surface)",
+                borderColor:
+                  activeFilterCount > 0
+                    ? "var(--accent)"
+                    : "var(--border-subtle)",
+                color:
+                  activeFilterCount > 0
+                    ? "var(--accent)"
+                    : "var(--text-secondary)",
+              }}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>Filter</span>
+              {activeFilterCount > 0 && (
+                <span
+                  className="min-w-[16px] h-4 px-1 rounded-full text-[10px] font-mono font-bold inline-flex items-center justify-center"
+                  style={{
+                    backgroundColor: "var(--accent)",
+                    color: "var(--accent-fg)",
+                  }}
+                >
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Desktop Search & Inline Filters Bar */}
+          <div className="hidden sm:flex flex-wrap items-center gap-2">
             <div className="relative flex-1 min-w-[200px]">
               <Search
                 className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
@@ -503,8 +680,8 @@ export const ContactsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Scrollable Directory Content */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 pb-8">
+        {/* Directory Content (scrolls cleanly with header on mobile; independently scrollable on desktop) */}
+        <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto px-4 sm:px-6 pb-8">
           {filteredContacts.length === 0 ? (
             <div
               className="mt-6 p-8 rounded-2xl border text-center space-y-3"
@@ -602,7 +779,7 @@ export const ContactsView: React.FC = () => {
                     key={c.id}
                     type="button"
                     onClick={() => handleSelectContact(c.id)}
-                    className="p-4 rounded-2xl border text-left transition-all flex flex-col justify-between gap-3 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    className="p-3 sm:p-4 rounded-2xl border text-left transition-all flex flex-col justify-between gap-2 sm:gap-3 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
                     style={{
                       backgroundColor: isSelected
                         ? "var(--accent-soft)"
@@ -612,9 +789,9 @@ export const ContactsView: React.FC = () => {
                         : "var(--border-subtle)",
                     }}
                   >
-                    <div className="space-y-2.5">
+                    <div className="space-y-1.5 sm:space-y-2.5">
                       <div className="flex items-start justify-between gap-2.5">
-                        <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                           <ContactAvatar contact={c} size="md" />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
@@ -650,7 +827,7 @@ export const ContactsView: React.FC = () => {
                       </div>
 
                       <div
-                        className="space-y-1 text-xs"
+                        className="space-y-0.5 sm:space-y-1 text-xs"
                         style={{ color: "var(--text-secondary)" }}
                       >
                         {primaryPhone && (
@@ -675,7 +852,7 @@ export const ContactsView: React.FC = () => {
                     </div>
 
                     <div
-                      className="pt-2.5 border-t flex items-center justify-between gap-2 text-[11px]"
+                      className="pt-2 sm:pt-2.5 border-t flex items-center justify-between gap-2 text-[11px]"
                       style={{
                         borderColor: "var(--border-subtle)",
                         color: "var(--text-muted)",
@@ -1030,6 +1207,223 @@ export const ContactsView: React.FC = () => {
                   );
                 })}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Filters Bottom Sheet */}
+      {mobileFilterSheetOpen && (
+        <div
+          className="sm:hidden fixed inset-0 z-50 flex items-end overscroll-none"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Filter and sort contacts"
+        >
+          <div
+            className="fixed inset-0 bg-black/45 backdrop-blur-[2px]"
+            onClick={() => setMobileFilterSheetOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            className="relative z-10 w-full rounded-t-2xl border-t pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pt-2.5 px-4 space-y-4"
+            style={{
+              backgroundColor: "var(--bg-elevated)",
+              borderColor: "var(--border-strong)",
+              boxShadow: "var(--shadow-popover)",
+            }}
+          >
+            <div className="flex justify-center">
+              <span
+                className="w-10 h-1 rounded-full"
+                style={{ backgroundColor: "var(--border-strong)" }}
+                aria-hidden="true"
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-sm font-bold">
+                Filter &amp; Sort Contacts
+              </h2>
+              <button
+                type="button"
+                onClick={() => setMobileFilterSheetOpen(false)}
+                className="h-8 w-8 flex items-center justify-center rounded-lg"
+                style={{ color: "var(--text-muted)" }}
+                aria-label="Close filters"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 max-h-[65dvh] overflow-y-auto">
+              <button
+                type="button"
+                onClick={() => setOnlyFavorites((v) => !v)}
+                className="w-full h-10 px-3 rounded-xl border text-xs font-medium flex items-center justify-between cursor-pointer"
+                style={{
+                  backgroundColor: onlyFavorites
+                    ? "var(--accent-soft)"
+                    : "var(--bg-surface)",
+                  borderColor: onlyFavorites
+                    ? "var(--accent)"
+                    : "var(--border-subtle)",
+                  color: onlyFavorites ? "var(--accent)" : "var(--text-primary)",
+                }}
+              >
+                <span className="flex items-center gap-2">
+                  <Star
+                    className={`w-3.5 h-3.5 ${onlyFavorites ? "fill-current" : ""}`}
+                  />
+                  <span>Favorites Only</span>
+                </span>
+                <span className="text-[11px] font-mono">
+                  {onlyFavorites ? "ON" : "OFF"}
+                </span>
+              </button>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label
+                    className="text-[11px] font-semibold uppercase tracking-wider"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Circle
+                  </label>
+                  <select
+                    value={selectedCircleId}
+                    onChange={(e) => setSelectedCircleId(e.target.value)}
+                    className="w-full h-9 px-2.5 rounded-xl border text-xs outline-none"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    <option value="all">All Circles</option>
+                    {circles.map((cir) => (
+                      <option key={cir.id} value={cir.id}>
+                        {cir.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label
+                    className="text-[11px] font-semibold uppercase tracking-wider"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Closeness
+                  </label>
+                  <select
+                    value={selectedTier}
+                    onChange={(e) =>
+                      setSelectedTier(e.target.value as ContactClosenessTier | "all")
+                    }
+                    className="w-full h-9 px-2.5 rounded-xl border text-xs outline-none"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    <option value="all">All Closeness</option>
+                    <option value="inner">Inner Circle</option>
+                    <option value="close">Close</option>
+                    <option value="regular">Regular</option>
+                    <option value="acquaintance">Acquaintance</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                {allTags.length > 0 && (
+                  <div className="space-y-1">
+                    <label
+                      className="text-[11px] font-semibold uppercase tracking-wider"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      Tag
+                    </label>
+                    <select
+                      value={selectedTag}
+                      onChange={(e) => setSelectedTag(e.target.value)}
+                      className="w-full h-9 px-2.5 rounded-xl border text-xs outline-none"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                      }}
+                    >
+                      <option value="all">All Tags</option>
+                      {allTags.map((t) => (
+                        <option key={t} value={t}>
+                          #{t}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className={`space-y-1 ${allTags.length === 0 ? "col-span-2" : ""}`}>
+                  <label
+                    className="text-[11px] font-semibold uppercase tracking-wider"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Sort By
+                  </label>
+                  <select
+                    value={prefs.sortBy}
+                    onChange={(e) =>
+                      setPrefs((p) => ({
+                        ...p,
+                        sortBy: e.target.value as ContactsSortKey,
+                      }))
+                    }
+                    className="w-full h-9 px-2.5 rounded-xl border text-xs outline-none"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    <option value="name">Name (A–Z)</option>
+                    <option value="closeness">Closeness</option>
+                    <option value="lastContacted">Last Contacted</option>
+                    <option value="birthday">Upcoming Birthday</option>
+                    <option value="recent">Recently Added</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setOnlyFavorites(false);
+                  setSelectedCircleId("all");
+                  setSelectedTier("all");
+                  setSelectedTag("all");
+                  setPrefs((p) => ({ ...p, sortBy: "name" }));
+                }}
+                className="h-10 px-4 rounded-xl border text-xs font-medium cursor-pointer"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                Reset
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileFilterSheetOpen(false)}
+                className="flex-1 h-10 rounded-xl text-xs font-semibold cursor-pointer"
+                style={{
+                  backgroundColor: "var(--accent)",
+                  color: "var(--accent-fg)",
+                }}
+              >
+                Apply ({filteredContacts.length})
+              </button>
             </div>
           </div>
         </div>
