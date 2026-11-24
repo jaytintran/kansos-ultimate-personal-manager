@@ -7,6 +7,7 @@ import {
   Star,
 } from "lucide-react";
 import React, { useRef, useState } from "react";
+import type { LibraryPointerDropTarget } from "../../hooks/useLibraryBookDrag";
 import type {
   BookRecord,
   CardDetailOptions,
@@ -21,6 +22,10 @@ interface MobileBookListProps {
   selectedIds: Set<string>;
   isSelectionMode: boolean;
   isCustomSort?: boolean;
+  activeDragBookIds?: Set<string>;
+  activePointerDropTarget?: LibraryPointerDropTarget | null;
+  onBookPointerDown?: (bookId: string, e: React.PointerEvent) => void;
+  shouldSuppressClick?: () => boolean;
   onReorderBooks?: (
     draggedIds: string[],
     targetBookId: string,
@@ -40,6 +45,10 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
   selectedIds,
   isSelectionMode,
   isCustomSort = false,
+  activeDragBookIds,
+  activePointerDropTarget,
+  onBookPointerDown,
+  shouldSuppressClick,
   onReorderBooks,
   onOpenBook,
   onQuickAction,
@@ -83,8 +92,18 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
     <div className="divide-y divide-[var(--border-subtle)] border-y border-[var(--border-subtle)] bg-[var(--bg-surface)] -mx-4 sm:mx-0 sm:rounded-lg sm:border">
       {books.map((book) => {
         const isSelected = selectedIds.has(book.id);
-        const isDragging = draggingId === book.id;
-        const isDropTarget = dropTarget?.bookId === book.id;
+        const isDragging =
+          draggingId === book.id || Boolean(activeDragBookIds?.has(book.id));
+        const pointerReorderTarget =
+          activePointerDropTarget?.kind === "book-reorder" &&
+          activePointerDropTarget.bookId === book.id
+            ? activePointerDropTarget
+            : null;
+        const resolvedDropPos =
+          dropTarget?.bookId === book.id
+            ? dropTarget.position
+            : pointerReorderTarget?.position ?? null;
+        const isDropTarget = resolvedDropPos !== null;
         const categoryName = book.categoryId
           ? categoryNameById.get(book.categoryId)
           : null;
@@ -102,8 +121,11 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
               if (el) rowRefs.current.set(book.id, el);
               else rowRefs.current.delete(book.id);
             }}
+            data-library-reorder-id={isCustomSort ? book.id : undefined}
+            data-library-reorder-axis={isCustomSort ? "y" : undefined}
+            onPointerDown={(e) => onBookPointerDown?.(book.id, e)}
             onClick={() => {
-              if (draggingId) return;
+              if (draggingId || shouldSuppressClick?.()) return;
               if (isSelectionMode) {
                 onToggleSelect(book.id, false);
               } else {
@@ -111,10 +133,10 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
               }
             }}
             style={
-              isDropTarget
+              isDropTarget && resolvedDropPos
                 ? {
                     boxShadow:
-                      dropTarget.position === "before"
+                      resolvedDropPos === "before"
                         ? "inset 0 2px 0 var(--accent)"
                         : "inset 0 -2px 0 var(--accent)",
                   }
@@ -133,6 +155,7 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
               <div
                 role="button"
                 tabIndex={0}
+                data-no-book-drag="true"
                 aria-label={`Reorder ${book.title}`}
                 onClick={(e) => e.stopPropagation()}
                 onPointerDown={(e) => {
@@ -172,6 +195,7 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
             {isSelectionMode && (
               <button
                 type="button"
+                data-no-book-drag="true"
                 aria-label={
                   isSelected ? `Deselect ${book.title}` : `Select ${book.title}`
                 }
@@ -253,6 +277,7 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
               {missingBookIds?.has(book.id) && (
                 <button
                   type="button"
+                  data-no-book-drag="true"
                   onClick={(e) => {
                     e.stopPropagation();
                     onRelinkBook?.(book);
@@ -272,6 +297,7 @@ export const MobileBookList: React.FC<MobileBookListProps> = ({
             {!isSelectionMode && (
               <button
                 type="button"
+                data-no-book-drag="true"
                 aria-label={`Actions for ${book.title}`}
                 onClick={(e) => {
                   e.stopPropagation();

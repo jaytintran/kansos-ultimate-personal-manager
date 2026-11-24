@@ -10,7 +10,8 @@ import {
   Pencil,
   Star,
 } from "lucide-react";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo } from "react";
+import type { LibraryPointerDropTarget } from "../../hooks/useLibraryBookDrag";
 import {
   flattenFoldersHierarchy,
   formatShortDate,
@@ -36,6 +37,10 @@ interface BookTableProps {
   sortField: SortField;
   sortDirection: SortDirection;
   isCustomSort?: boolean;
+  activeDragBookIds?: Set<string>;
+  activePointerDropTarget?: LibraryPointerDropTarget | null;
+  onBookPointerDown?: (bookId: string, e: React.PointerEvent) => void;
+  shouldSuppressClick?: () => boolean;
   missingBookIds?: Set<string>;
   onReorderBooks?: (
     draggedIds: string[],
@@ -64,8 +69,11 @@ export const BookTable: React.FC<BookTableProps> = ({
   sortField,
   sortDirection,
   isCustomSort = false,
+  activeDragBookIds,
+  activePointerDropTarget,
+  onBookPointerDown,
+  shouldSuppressClick,
   missingBookIds,
-  onReorderBooks,
   onSortChange,
   onToggleSelect,
   onToggleSelectAll,
@@ -90,39 +98,6 @@ export const BookTable: React.FC<BookTableProps> = ({
       ),
     [folders],
   );
-
-  const activeDragIdsRef = useRef<string[]>([]);
-  const [draggingIds, setDraggingIds] = useState<string[]>([]);
-  const [dropTarget, setDropTarget] = useState<{
-    bookId: string;
-    position: "before" | "after";
-  } | null>(null);
-
-  const clearDragState = () => {
-    activeDragIdsRef.current = [];
-    setDraggingIds([]);
-    setDropTarget(null);
-  };
-
-  const extractDraggedIds = (dt: DataTransfer): string[] => {
-    const multi = dt.getData("application/x-folio-book-ids");
-    if (multi) {
-      try {
-        const parsed = JSON.parse(multi);
-        if (Array.isArray(parsed)) {
-          const ids = parsed.filter(
-            (id): id is string => typeof id === "string",
-          );
-          if (ids.length > 0) return ids;
-        }
-      } catch {
-        // Ignore parse failure
-      }
-    }
-    const single = dt.getData("application/x-folio-book-id");
-    if (single) return [single];
-    return activeDragIdsRef.current;
-  };
 
   const renderSortIcon = (field: SortField) => {
     if (sortField !== field) return null;
@@ -220,91 +195,37 @@ export const BookTable: React.FC<BookTableProps> = ({
             const folder =
               folderNames.length > 0 ? folderNames.join(" · ") : "—";
 
-            const isBeingDragged = draggingIds.includes(book.id);
-            const isDropTarget = dropTarget?.bookId === book.id;
+            const isBeingDragged = Boolean(activeDragBookIds?.has(book.id));
+            const pointerReorderTarget =
+              activePointerDropTarget?.kind === "book-reorder" &&
+              activePointerDropTarget.bookId === book.id
+                ? activePointerDropTarget
+                : null;
+            const isDropTarget = pointerReorderTarget !== null;
 
             return (
               <tr
                 key={book.id}
-                draggable
-                onDragStart={(e) => {
-                  const dragIds =
-                    selectedIds.has(book.id) && selectedIds.size > 1
-                      ? Array.from(selectedIds)
-                      : [book.id];
-                  e.dataTransfer.setData(
-                    "application/x-folio-book-id",
-                    book.id,
-                  );
-                  e.dataTransfer.setData(
-                    "application/x-folio-book-ids",
-                    JSON.stringify(dragIds),
-                  );
-                  e.dataTransfer.effectAllowed = "move";
-                  activeDragIdsRef.current = dragIds;
-                  setDraggingIds(dragIds);
-                }}
-                onDragEnd={clearDragState}
-                onDragOver={(e) => {
-                  if (!isCustomSort || !onReorderBooks) return;
-                  const types = e.dataTransfer.types;
-                  if (
-                    !types.includes("application/x-folio-book-id") &&
-                    !types.includes("application/x-folio-book-ids")
-                  ) {
-                    return;
-                  }
-                  if (activeDragIdsRef.current.includes(book.id)) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const position: "before" | "after" =
-                    e.clientY < rect.top + rect.height / 2 ? "before" : "after";
-                  setDropTarget((prev) =>
-                    prev?.bookId === book.id && prev.position === position
-                      ? prev
-                      : { bookId: book.id, position },
-                  );
-                }}
-                onDragLeave={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                    setDropTarget((prev) =>
-                      prev?.bookId === book.id ? null : prev,
-                    );
-                  }
-                }}
-                onDrop={(e) => {
-                  if (!isCustomSort || !onReorderBooks) return;
-                  const types = e.dataTransfer.types;
-                  if (
-                    !types.includes("application/x-folio-book-id") &&
-                    !types.includes("application/x-folio-book-ids")
-                  ) {
-                    return;
-                  }
-                  const dragIds = extractDraggedIds(e.dataTransfer);
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const position: "before" | "after" =
-                    e.clientY < rect.top + rect.height / 2 ? "before" : "after";
-                  clearDragState();
-                  if (dragIds.length === 0 || dragIds.includes(book.id)) return;
-                  e.preventDefault();
-                  onReorderBooks(dragIds, book.id, position);
-                }}
+                data-library-reorder-id={isCustomSort ? book.id : undefined}
+                data-library-reorder-axis={isCustomSort ? "y" : undefined}
+                onPointerDown={(e) => onBookPointerDown?.(book.id, e)}
                 onContextMenu={(e) => {
                   if (!onContextMenuBook) return;
                   e.preventDefault();
                   onContextMenuBook(book, e);
                 }}
                 onClick={() => {
+                  if (shouldSuppressClick?.()) return;
                   if (inspectorOpen) onInspectBook(book);
                 }}
-                onDoubleClick={() => onOpenBook(book)}
+                onDoubleClick={() => {
+                  if (!shouldSuppressClick?.()) onOpenBook(book);
+                }}
                 style={
-                  isDropTarget
+                  isDropTarget && pointerReorderTarget
                     ? {
                         boxShadow:
-                          dropTarget.position === "before"
+                          pointerReorderTarget.position === "before"
                             ? "inset 0 2px 0 var(--accent)"
                             : "inset 0 -2px 0 var(--accent)",
                       }
@@ -318,7 +239,11 @@ export const BookTable: React.FC<BookTableProps> = ({
                     : "hover:bg-[var(--bg-surface-hover)]"
                 }`}
               >
-                <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                <td
+                  className="px-3 py-2"
+                  data-no-book-drag="true"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <div className="flex items-center gap-1.5">
                     {isCustomSort && (
                       <GripVertical
@@ -362,6 +287,7 @@ export const BookTable: React.FC<BookTableProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (shouldSuppressClick?.()) return;
                           if (inspectorOpen) onInspectBook(book);
                           else onOpenBook(book);
                         }}
@@ -380,6 +306,7 @@ export const BookTable: React.FC<BookTableProps> = ({
                       {missingBookIds?.has(book.id) && (
                         <button
                           type="button"
+                          data-no-book-drag="true"
                           onClick={(e) => {
                             e.stopPropagation();
                             onRelinkBook?.(book);
@@ -437,6 +364,7 @@ export const BookTable: React.FC<BookTableProps> = ({
                 </td>
 
                 <td
+                  data-no-book-drag="true"
                   className="px-3 py-2 text-right whitespace-nowrap"
                   onClick={(e) => e.stopPropagation()}
                 >

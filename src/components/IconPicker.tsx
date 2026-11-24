@@ -209,6 +209,13 @@ interface IconPickerPopoverProps {
   title?: string;
 }
 
+function isAnchorVisibleInLayout(anchor: HTMLElement | null | undefined): boolean {
+  if (!anchor || !anchor.isConnected) return false;
+  if (anchor.getClientRects().length === 0) return false;
+  const rect = anchor.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
 export const IconPickerPopover: React.FC<IconPickerPopoverProps> = ({
   open,
   onClose,
@@ -225,17 +232,24 @@ export const IconPickerPopover: React.FC<IconPickerPopoverProps> = ({
   const placeholderRef = useRef<HTMLSpanElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const [anchorVisible, setAnchorVisible] = useState(false);
 
   useLayoutEffect(() => {
     if (!open) {
       setCoords(null);
+      setAnchorVisible(false);
       return;
     }
 
     const updatePosition = () => {
       const anchor = placeholderRef.current?.parentElement;
-      if (!anchor) return;
-      const rect = anchor.getBoundingClientRect();
+      if (!isAnchorVisibleInLayout(anchor)) {
+        setAnchorVisible(false);
+        setCoords(null);
+        return;
+      }
+      setAnchorVisible(true);
+      const rect = anchor!.getBoundingClientRect();
       const popWidth = containerRef.current?.offsetWidth || (window.innerWidth >= 640 ? 316 : 288);
       const popHeight = containerRef.current?.offsetHeight || 340;
       const margin = 12;
@@ -265,7 +279,7 @@ export const IconPickerPopover: React.FC<IconPickerPopoverProps> = ({
   }, [open, align]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !anchorVisible) return;
     const handlePointerDown = (e: MouseEvent | TouchEvent) => {
       const targetNode = e.target as Node;
       if (containerRef.current?.contains(targetNode)) return;
@@ -286,12 +300,14 @@ export const IconPickerPopover: React.FC<IconPickerPopoverProps> = ({
       document.removeEventListener('touchstart', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open, onClose]);
+  }, [open, anchorVisible, onClose]);
 
   return (
     <>
       <span ref={placeholderRef} className="hidden" aria-hidden="true" />
       {open &&
+        anchorVisible &&
+        coords &&
         typeof document !== 'undefined' &&
         createPortal(
           <div
@@ -301,8 +317,8 @@ export const IconPickerPopover: React.FC<IconPickerPopoverProps> = ({
             onClick={(e) => e.stopPropagation()}
             className={`fixed z-[90] ${widthClass} rounded-xl border p-3`}
             style={{
-              top: coords ? `${coords.top}px` : '-9999px',
-              left: coords ? `${coords.left}px` : '-9999px',
+              top: `${coords.top}px`,
+              left: `${coords.left}px`,
               backgroundColor: 'var(--bg-elevated)',
               borderColor: 'var(--border-strong)',
               boxShadow: 'var(--shadow-popover)',

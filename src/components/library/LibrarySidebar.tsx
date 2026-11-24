@@ -20,9 +20,10 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { DynamicIcon } from "../IconLibrary";
 import { IconPickerPopover } from "../IconPicker";
+import type { LibraryPointerDropTarget } from "../../hooks/useLibraryBookDrag";
 import {
   DEFAULT_SIDEBAR_WIDTH,
   MAX_SIDEBAR_WIDTH,
@@ -94,6 +95,8 @@ interface LibrarySidebarProps {
   onCollapseDesktop?: () => void;
   isOpenMobile: boolean;
   onCloseMobile: () => void;
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+  activePointerDropTarget?: LibraryPointerDropTarget | null;
 }
 
 function extractDraggedBookIds(dt: DataTransfer): string[] {
@@ -154,6 +157,8 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
   onCollapseDesktop,
   isOpenMobile,
   onCloseMobile,
+  scrollContainerRef,
+  activePointerDropTarget,
 }) => {
   // Root or nested folder creation state
   const [addingFolderParentId, setAddingFolderParentId] = useState<
@@ -189,6 +194,27 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
 
   // Drag-over highlight target
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+
+  const [isLgViewport, setIsLgViewport] = useState<boolean>(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(min-width: 1024px)").matches
+      : true,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => {
+      setIsLgViewport(mq.matches);
+      setNewFolderIconOpen(false);
+      setEditingFolderIconOpen(false);
+      setNewCategoryIconOpen(false);
+      setEditingCategoryIconOpen(false);
+    };
+    setIsLgViewport(mq.matches);
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   // Resizing state
   const [isResizing, setIsResizing] = useState(false);
@@ -472,7 +498,10 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
       const count = folderBookCountMap.get(folder.id) ?? 0;
       const isEditing = editingFolderId === folder.id;
       const dropKey = `folder:${folder.id}`;
-      const isDragOver = dragOverKey === dropKey;
+      const isDragOver =
+        dragOverKey === dropKey ||
+        (activePointerDropTarget?.kind === "sidebar-folder" &&
+          activePointerDropTarget.id === folder.id);
       const accentHex = getFolderColorHex(folder.color);
       const editingHex = getFolderColorHex(editingFolderColor) ?? undefined;
 
@@ -530,6 +559,9 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
             </form>
           ) : (
             <div
+              data-library-drop-kind="sidebar-folder"
+              data-library-drop-id={folder.id}
+              data-library-drop-label={folder.name}
               onDragOver={(e) => {
                 if (hasDraggedBookPayload(e.dataTransfer)) {
                   e.preventDefault();
@@ -723,7 +755,10 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
       </div>
 
       {/* Scrollable Navigation Sections (Compact 12px Scale) */}
-      <div className="flex-1 overflow-y-auto px-2.5 py-3.5 space-y-4">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto overscroll-contain px-2.5 py-3.5 space-y-4"
+      >
         {/* Smart Library Views */}
         <div>
           <button
@@ -745,12 +780,24 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                 const active =
                   activeFilter.kind === "smart" && activeFilter.id === item.id;
                 const dropKey = `smart:${item.id}`;
-                const isDragOver = item.acceptsDrop && dragOverKey === dropKey;
+                const isDragOver =
+                  item.acceptsDrop &&
+                  (dragOverKey === dropKey ||
+                    (item.id === "favorites" &&
+                      activePointerDropTarget?.kind === "sidebar-favorites"));
 
                 return (
                   <button
                     key={item.id}
                     type="button"
+                    data-library-drop-kind={
+                      item.acceptsDrop && item.id === "favorites"
+                        ? "sidebar-favorites"
+                        : undefined
+                    }
+                    data-library-drop-label={
+                      item.acceptsDrop ? item.label : undefined
+                    }
                     onClick={() =>
                       selectAndClose({ kind: "smart", id: item.id })
                     }
@@ -941,7 +988,10 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     (b) => b.categoryId === cat.id,
                   ).length;
                   const dropKey = `category:${cat.id}`;
-                  const isDragOver = dragOverKey === dropKey;
+                  const isDragOver =
+                    dragOverKey === dropKey ||
+                    (activePointerDropTarget?.kind === "sidebar-category" &&
+                      activePointerDropTarget.id === cat.id);
                   const isEditingCat = editingCategoryId === cat.id;
 
                   if (isEditingCat) {
@@ -1002,6 +1052,9 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                   return (
                     <div
                       key={cat.id}
+                      data-library-drop-kind="sidebar-category"
+                      data-library-drop-id={cat.id}
+                      data-library-drop-label={cat.name}
                       onDragOver={(e) => {
                         if (hasDraggedBookPayload(e.dataTransfer)) {
                           e.preventDefault();
@@ -1132,12 +1185,18 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                 {allTags.map((tag) => {
                   const isSelected = selectedTags.includes(tag.name);
                   const dropKey = `tag:${tag.name}`;
-                  const isDragOver = dragOverKey === dropKey;
+                  const isDragOver =
+                    dragOverKey === dropKey ||
+                    (activePointerDropTarget?.kind === "sidebar-tag" &&
+                      activePointerDropTarget.id === tag.name);
 
                   return (
                     <button
                       key={tag.name}
                       type="button"
+                      data-library-drop-kind="sidebar-tag"
+                      data-library-drop-id={tag.name}
+                      data-library-drop-label={tag.name}
                       onClick={() => onToggleTag(tag.name)}
                       onDragOver={(e) => {
                         if (hasDraggedBookPayload(e.dataTransfer)) {
@@ -1251,14 +1310,14 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
   return (
     <>
       {/* Desktop collapsible resizable sidebar */}
-      {!isCollapsedDesktop && (
+      {isLgViewport && !isCollapsedDesktop && (
         <div className="hidden lg:block h-full shrink-0">
           {sidebarContent(true)}
         </div>
       )}
 
       {/* Mobile / narrow viewport slide-over sidebar */}
-      {isOpenMobile && (
+      {!isLgViewport && isOpenMobile && (
         <div
           className="fixed inset-0 z-50 lg:hidden flex bg-black/50 backdrop-blur-[1px] overscroll-none"
           onClick={onCloseMobile}

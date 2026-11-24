@@ -1,5 +1,6 @@
 import { ArrowLeft, Folder, FolderMinus } from "lucide-react";
 import React, { useMemo, useState } from "react";
+import type { LibraryPointerDropTarget } from "../../hooks/useLibraryBookDrag";
 import {
   flattenFoldersHierarchy,
   getFolderColorHex,
@@ -16,6 +17,8 @@ interface FloatingFolderDropDockProps {
     id: string;
     name: string;
   } | null;
+  dockScrollRef?: React.RefObject<HTMLDivElement | null>;
+  activePointerDropTarget?: LibraryPointerDropTarget | null;
   onDropToViewFolder: (bookIds: string[], folderId: string) => void;
   onDropToSidebarFolder: (bookIds: string[], folderId: string) => void;
   onDropToRemoveFromCurrentFolder: (bookIds: string[]) => void;
@@ -53,6 +56,8 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
   currentViewFolders,
   sidebarFolders,
   activeFolderRemovalTarget,
+  dockScrollRef,
+  activePointerDropTarget,
   onDropToViewFolder,
   onDropToSidebarFolder,
   onDropToRemoveFromCurrentFolder,
@@ -81,17 +86,26 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
     setHoveredKey((curr) => (curr === key ? null : curr));
   };
 
+  const isRemoveOver =
+    hoveredKey === "__remove__" ||
+    activePointerDropTarget?.kind === "dock-remove";
+
   return (
     <div
       aria-label="Quick folder drop dock"
       className="sticky top-0 z-30 h-0 overflow-visible pointer-events-none"
     >
       <div className="px-4 sm:px-5 lg:px-8 pt-3">
-        <div className="pointer-events-auto rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)]/96 backdrop-blur-md shadow-xl px-4 py-3 max-h-[55vh] overflow-y-auto transition-all duration-150 ease-out">
+        <div
+          ref={dockScrollRef}
+          className="pointer-events-auto rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)]/96 backdrop-blur-md shadow-xl px-4 py-3 max-h-[42vh] overflow-y-auto overscroll-contain transition-all duration-150 ease-out"
+        >
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Contextual Remove Target when inside a folder */}
             {activeFolderRemovalTarget && (
               <div
+                data-library-drop-kind="dock-remove"
+                data-library-drop-label={`Remove from "${activeFolderRemovalTarget.name}"`}
                 onDragOver={handleDragOver("__remove__")}
                 onDragLeave={handleDragLeave("__remove__")}
                 onDrop={(e) => {
@@ -103,12 +117,12 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
                   setHoveredKey(null);
                 }}
                 className={`shrink-0 min-h-[42px] inline-flex items-center gap-2 px-4 py-2 rounded-md border text-[13px] font-medium transition-all duration-150 whitespace-nowrap ${
-                  hoveredKey === "__remove__"
+                  isRemoveOver
                     ? "border-[var(--accent)] ring-2 ring-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)] scale-[1.02]"
                     : "border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-primary)]"
                 }`}
               >
-                {hoveredKey === "__remove__" ? (
+                {isRemoveOver ? (
                   <FolderMinus className="w-4 h-4 shrink-0" />
                 ) : (
                   <ArrowLeft className="w-4 h-4 shrink-0" />
@@ -127,10 +141,16 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
                 </span>
                 {currentViewFolders.map((vf) => {
                   const key = `view:${vf.id}`;
-                  const isOver = hoveredKey === key;
+                  const isOver =
+                    hoveredKey === key ||
+                    (activePointerDropTarget?.kind === "dock-view-folder" &&
+                      activePointerDropTarget.id === vf.id);
                   return (
                     <div
                       key={vf.id}
+                      data-library-drop-kind="dock-view-folder"
+                      data-library-drop-id={vf.id}
+                      data-library-drop-label={vf.name}
                       onDragOver={handleDragOver(key)}
                       onDragLeave={handleDragLeave(key)}
                       onDrop={(e) => {
@@ -170,12 +190,18 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
                 </span>
                 {flatSidebarFolders.map(({ folder, pathLabel }) => {
                   const key = `sidebar:${folder.id}`;
-                  const isOver = hoveredKey === key;
+                  const isOver =
+                    hoveredKey === key ||
+                    (activePointerDropTarget?.kind === "dock-sidebar-folder" &&
+                      activePointerDropTarget.id === folder.id);
                   const hex = getFolderColorHex(folder.color);
                   return (
                     <div
                       key={folder.id}
                       title={pathLabel}
+                      data-library-drop-kind="dock-sidebar-folder"
+                      data-library-drop-id={folder.id}
+                      data-library-drop-label={folder.name}
                       onDragOver={handleDragOver(key)}
                       onDragLeave={handleDragLeave(key)}
                       onDrop={(e) => {

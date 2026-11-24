@@ -21,6 +21,7 @@ import type {
   FolderRecord,
   SmartView,
 } from "../../types/library";
+import type { LibraryPointerDropTarget } from "../../hooks/useLibraryBookDrag";
 import type { ActiveLibraryFilter } from "./LibrarySidebar";
 import { LibraryStatusDropdown } from "./LibraryStatusDropdown";
 import { DynamicIcon } from "../IconLibrary";
@@ -31,6 +32,8 @@ interface LibraryShelfStripProps {
   categories: CategoryRecord[];
   totalHighlightsCount: number;
   activeFilter: ActiveLibraryFilter;
+  stripRef?: React.RefObject<HTMLElement | null>;
+  activePointerDropTarget?: LibraryPointerDropTarget | null;
   onSelectFilter: (filter: ActiveLibraryFilter) => void;
   onRequestCreateFolder: () => void;
   onDropBooksToFolder: (bookIds: string[], folderId: string) => void;
@@ -68,6 +71,8 @@ export const LibraryShelfStrip: React.FC<LibraryShelfStripProps> = ({
   categories,
   totalHighlightsCount,
   activeFilter,
+  stripRef,
+  activePointerDropTarget,
   onSelectFilter,
   onRequestCreateFolder,
   onDropBooksToFolder,
@@ -177,6 +182,7 @@ export const LibraryShelfStrip: React.FC<LibraryShelfStripProps> = ({
 
   return (
     <nav
+      ref={stripRef}
       aria-label="Library shelves and folders"
       className="flex items-center gap-0.5 overflow-x-auto no-scrollbar border-b px-4 sm:px-6 bg-[var(--bg-canvas)] shrink-0"
       style={{ borderColor: "var(--border-subtle)" }}
@@ -193,12 +199,21 @@ export const LibraryShelfStrip: React.FC<LibraryShelfStripProps> = ({
         const active =
           activeFilter.kind === "smart" && activeFilter.id === item.id;
         const dropKey = `smart:${item.id}`;
-        const isDragOver = dragOverKey === dropKey;
+        const isDragOver =
+          dragOverKey === dropKey ||
+          (item.id === "favorites" &&
+            activePointerDropTarget?.kind === "sidebar-favorites");
 
         return (
           <button
             key={item.id}
             type="button"
+            data-library-drop-kind={
+              item.acceptsDrop && item.id === "favorites"
+                ? "sidebar-favorites"
+                : undefined
+            }
+            data-library-drop-label={item.acceptsDrop ? item.label : undefined}
             onClick={() => onSelectFilter({ kind: "smart", id: item.id })}
             onDragOver={(e) => {
               if (!item.acceptsDrop || !hasDraggedBookPayload(e.dataTransfer))
@@ -263,7 +278,10 @@ export const LibraryShelfStrip: React.FC<LibraryShelfStripProps> = ({
               activeFilter.kind === "folder" && activeFilter.id === folder.id;
             const count = folderBookCountMap.get(folder.id) ?? 0;
             const dropKey = `folder:${folder.id}`;
-            const isDragOver = dragOverKey === dropKey;
+            const isDragOver =
+              dragOverKey === dropKey ||
+              (activePointerDropTarget?.kind === "sidebar-folder" &&
+                activePointerDropTarget.id === folder.id);
             const dotColor = getFolderColorHex(folder.color);
 
             return (
@@ -271,6 +289,9 @@ export const LibraryShelfStrip: React.FC<LibraryShelfStripProps> = ({
                 key={folder.id}
                 type="button"
                 title={pathLabel}
+                data-library-drop-kind="sidebar-folder"
+                data-library-drop-id={folder.id}
+                data-library-drop-label={folder.name}
                 onClick={() =>
                   onSelectFilter({ kind: "folder", id: folder.id })
                 }
@@ -347,12 +368,18 @@ export const LibraryShelfStrip: React.FC<LibraryShelfStripProps> = ({
               activeFilter.kind === "category" && activeFilter.id === cat.id;
             const count = categoryBookCountMap.get(cat.id) ?? 0;
             const dropKey = `category:${cat.id}`;
-            const isDragOver = dragOverKey === dropKey;
+            const isDragOver =
+              dragOverKey === dropKey ||
+              (activePointerDropTarget?.kind === "sidebar-category" &&
+                activePointerDropTarget.id === cat.id);
 
             return (
               <button
                 key={cat.id}
                 type="button"
+                data-library-drop-kind="sidebar-category"
+                data-library-drop-id={cat.id}
+                data-library-drop-label={cat.name}
                 onClick={() => onSelectFilter({ kind: "category", id: cat.id })}
                 onDragOver={(e) => {
                   if (!hasDraggedBookPayload(e.dataTransfer)) return;

@@ -240,6 +240,24 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
   const activeId = target?.id || createdId;
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
   const [mobilePropsCollapsed, setMobilePropsCollapsed] = useState(false);
+  const [isLgViewport, setIsLgViewport] = useState<boolean>(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(min-width: 1024px)").matches
+      : true,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => {
+      setIsLgViewport(mq.matches);
+      setHabitIconPickerOpen(false);
+      setNoteIconPickerOpen(false);
+    };
+    setIsLgViewport(mq.matches);
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   const activeLists = useMemo(() => workspace.lists, [workspace.lists]);
   const sessionDraftDocIdRef = useRef(
@@ -2523,30 +2541,32 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
               )}
 
               {/* MOBILE ONLY (<lg): Notion-style borderless property rows directly beneath title */}
-              <section
-                className="lg:hidden border-y py-2.5"
-                style={{ borderColor: "var(--border-subtle)" }}
-              >
-                {!mobilePropsCollapsed && renderPropertyRows()}
-                <button
-                  type="button"
-                  onClick={() => setMobilePropsCollapsed((v) => !v)}
-                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium py-0.5"
-                  style={{ color: "var(--text-muted)" }}
+              {!isLgViewport && (
+                <section
+                  className="lg:hidden border-y py-2.5"
+                  style={{ borderColor: "var(--border-subtle)" }}
                 >
-                  {mobilePropsCollapsed ? (
-                    <>
-                      <ChevronDown className="w-3.5 h-3.5" />
-                      <span>Show properties</span>
-                    </>
-                  ) : (
-                    <>
-                      <ChevronUp className="w-3.5 h-3.5" />
-                      <span>Hide properties</span>
-                    </>
-                  )}
-                </button>
-              </section>
+                  {!mobilePropsCollapsed && renderPropertyRows()}
+                  <button
+                    type="button"
+                    onClick={() => setMobilePropsCollapsed((v) => !v)}
+                    className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium py-0.5"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {mobilePropsCollapsed ? (
+                      <>
+                        <ChevronDown className="w-3.5 h-3.5" />
+                        <span>Show properties</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronUp className="w-3.5 h-3.5" />
+                        <span>Hide properties</span>
+                      </>
+                    )}
+                  </button>
+                </section>
+              )}
 
               {/* Borderless Rich Text Canvas (Entry & ListItem modes) */}
               {hasRichEditor && (
@@ -2842,21 +2862,22 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
           </main>
 
           {/* RIGHT PROPERTIES RAIL — DESKTOP ONLY (lg+) */}
-          <aside
-            className="hidden lg:flex lg:flex-col w-80 xl:w-[340px] shrink-0 border-l overflow-y-auto px-5 py-6"
-            style={{
-              backgroundColor: "var(--bg-surface-subtle)",
-              borderColor: "var(--border-subtle)",
-            }}
-          >
-            <div
-              className="text-[10.5px] font-semibold uppercase tracking-wider mb-3 px-1"
-              style={{ color: "var(--text-muted)" }}
+          {isLgViewport && (
+            <aside
+              className="hidden lg:flex lg:flex-col w-80 xl:w-[340px] shrink-0 border-l overflow-y-auto px-5 py-6"
+              style={{
+                backgroundColor: "var(--bg-surface-subtle)",
+                borderColor: "var(--border-subtle)",
+              }}
             >
-              Properties
-            </div>
+              <div
+                className="text-[10.5px] font-semibold uppercase tracking-wider mb-3 px-1"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Properties
+              </div>
 
-            {renderPropertyRows()}
+              {renderPropertyRows()}
 
             {/* Quick Actions Footer inside Desktop Rail */}
             {liveEntry && (
@@ -2890,7 +2911,8 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                 </button>
               </div>
             )}
-          </aside>
+            </aside>
+          )}
         </div>
 
         {/* MOBILE THUMB-ZONE BOTTOM TOOLBAR */}

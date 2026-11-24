@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
+import type { LibraryPointerDropTarget } from "../../hooks/useLibraryBookDrag";
 import { COVER_PALETTES } from "../../lib/formatters";
 import type {
   BookRecord,
@@ -34,6 +35,9 @@ interface ViewFoldersSectionProps {
   coverSize: CoverSize;
   inspectorOpen: boolean;
   inspectedBookId: string | null;
+  activePointerDropTarget?: LibraryPointerDropTarget | null;
+  onBookPointerDown?: (bookId: string, e: React.PointerEvent) => void;
+  shouldSuppressClick?: () => boolean;
   onDisplayModeChange: (mode: ViewFolderDisplayMode) => void;
   onCardLayoutChange: (layout: ViewFolderCardLayout) => void;
   onToggleHideFiled: () => void;
@@ -210,6 +214,8 @@ interface CarouselRowProps {
   onOpenBook: (book: BookRecord) => void;
   onInspectBook: (book: BookRecord) => void;
   onRemoveBook: (bookId: string) => void;
+  onBookPointerDown?: (bookId: string, e: React.PointerEvent) => void;
+  shouldSuppressClick?: () => boolean;
 }
 
 const FolderCarouselRow: React.FC<CarouselRowProps> = ({
@@ -234,6 +240,8 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
   onOpenBook,
   onInspectBook,
   onRemoveBook,
+  onBookPointerDown,
+  shouldSuppressClick,
 }) => {
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -246,6 +254,9 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
 
   return (
     <div
+      data-library-drop-kind="view-folder"
+      data-library-drop-id={folder.id}
+      data-library-drop-label={folder.name}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
@@ -384,25 +395,18 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
             return (
               <div
                 key={book.id}
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData(
-                    "application/x-folio-book-id",
-                    book.id,
-                  );
-                  e.dataTransfer.setData(
-                    "application/x-folio-book-ids",
-                    JSON.stringify([book.id]),
-                  );
-                  e.dataTransfer.effectAllowed = "move";
-                }}
+                onPointerDown={(e) => onBookPointerDown?.(book.id, e)}
                 className={`group shrink-0 flex flex-col ${CAROUSEL_BOOK_WIDTH_BY_SIZE[coverSize]}`}
               >
                 <div
-                  onClick={() =>
-                    inspectorOpen ? onInspectBook(book) : onOpenBook(book)
-                  }
-                  onDoubleClick={() => onOpenBook(book)}
+                  onClick={() => {
+                    if (shouldSuppressClick?.()) return;
+                    if (inspectorOpen) onInspectBook(book);
+                    else onOpenBook(book);
+                  }}
+                  onDoubleClick={() => {
+                    if (!shouldSuppressClick?.()) onOpenBook(book);
+                  }}
                   className={`relative cursor-pointer rounded-[5px] transition-transform duration-150 group-hover:-translate-y-0.5 ${
                     isInspected
                       ? "ring-2 ring-[var(--text-primary)]/45 ring-offset-2 ring-offset-[var(--bg-surface)]"
@@ -432,6 +436,7 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
 
                   <button
                     type="button"
+                    data-no-book-drag="true"
                     title={`Remove from "${folder.name}"`}
                     aria-label={`Remove ${book.title} from ${folder.name}`}
                     onClick={(e) => {
@@ -446,10 +451,14 @@ const FolderCarouselRow: React.FC<CarouselRowProps> = ({
 
                 <button
                   type="button"
-                  onClick={() =>
-                    inspectorOpen ? onInspectBook(book) : onOpenBook(book)
-                  }
-                  onDoubleClick={() => onOpenBook(book)}
+                  onClick={() => {
+                    if (shouldSuppressClick?.()) return;
+                    if (inspectorOpen) onInspectBook(book);
+                    else onOpenBook(book);
+                  }}
+                  onDoubleClick={() => {
+                    if (!shouldSuppressClick?.()) onOpenBook(book);
+                  }}
                   className="mt-2 text-left font-sans text-xs font-medium leading-snug text-[var(--text-primary)] hover:text-[var(--accent)] line-clamp-2 cursor-pointer"
                   title={book.title}
                 >
@@ -620,6 +629,9 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({
 
   return (
     <article
+      data-library-drop-kind="view-folder"
+      data-library-drop-id={folder.id}
+      data-library-drop-label={folder.name}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
@@ -871,6 +883,9 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
   coverSize,
   inspectorOpen,
   inspectedBookId,
+  activePointerDropTarget,
+  onBookPointerDown,
+  shouldSuppressClick,
   onDisplayModeChange,
   onCardLayoutChange,
   onToggleHideFiled,
@@ -1087,7 +1102,11 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
                   booksInFolder={booksInFolder}
                   cardLayout={cardLayout}
                   coverSize={coverSize}
-                  isDragOver={dragOverFolderId === folder.id}
+                  isDragOver={
+                    dragOverFolderId === folder.id ||
+                    (activePointerDropTarget?.kind === "view-folder" &&
+                      activePointerDropTarget.id === folder.id)
+                  }
                   isEditing={editingFolderId === folder.id}
                   editingName={editingName}
                   onEditingNameChange={setEditingName}
@@ -1146,7 +1165,11 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
                   inspectedBookId={inspectedBookId}
                   isEditing={editingFolderId === folder.id}
                   editingName={editingName}
-                  isDragOver={dragOverFolderId === folder.id}
+                  isDragOver={
+                    dragOverFolderId === folder.id ||
+                    (activePointerDropTarget?.kind === "view-folder" &&
+                      activePointerDropTarget.id === folder.id)
+                  }
                   onEditingNameChange={setEditingName}
                   onStartRename={() => {
                     setEditingFolderId(folder.id);
@@ -1180,6 +1203,8 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
                   onRemoveBook={(bookId) =>
                     onRemoveBookFromViewFolder(bookId, folder.id)
                   }
+                  onBookPointerDown={onBookPointerDown}
+                  shouldSuppressClick={shouldSuppressClick}
                 />
               );
             })}

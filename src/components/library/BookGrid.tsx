@@ -9,7 +9,8 @@ import {
   Star,
   X,
 } from "lucide-react";
-import React, { useRef, useState } from "react";
+import React from "react";
+import type { LibraryPointerDropTarget } from "../../hooks/useLibraryBookDrag";
 import type {
   BookRecord,
   CardDetailOptions,
@@ -28,6 +29,10 @@ interface BookGridProps {
   inspectorOpen: boolean;
   inspectedBookId: string | null;
   isCustomSort?: boolean;
+  activeDragBookIds?: Set<string>;
+  activePointerDropTarget?: LibraryPointerDropTarget | null;
+  onBookPointerDown?: (bookId: string, e: React.PointerEvent) => void;
+  shouldSuppressClick?: () => boolean;
   onReorderBooks?: (
     draggedIds: string[],
     targetBookId: string,
@@ -64,7 +69,10 @@ export const BookGrid: React.FC<BookGridProps> = ({
   inspectorOpen,
   inspectedBookId,
   isCustomSort = false,
-  onReorderBooks,
+  activeDragBookIds,
+  activePointerDropTarget,
+  onBookPointerDown,
+  shouldSuppressClick,
   onOpenBook,
   onInspectBook,
   onEditBook,
@@ -77,40 +85,13 @@ export const BookGrid: React.FC<BookGridProps> = ({
   onRelinkBook,
 }) => {
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
-  const activeDragIdsRef = useRef<string[]>([]);
-  const [draggingIds, setDraggingIds] = useState<string[]>([]);
-  const [dropTarget, setDropTarget] = useState<{
-    bookId: string;
-    position: "before" | "after";
-  } | null>(null);
-
-  const clearDragState = () => {
-    activeDragIdsRef.current = [];
-    setDraggingIds([]);
-    setDropTarget(null);
-  };
-
-  const extractDraggedIds = (dt: DataTransfer): string[] => {
-    const multi = dt.getData("application/x-folio-book-ids");
-    if (multi) {
-      try {
-        const parsed = JSON.parse(multi);
-        if (Array.isArray(parsed)) {
-          const ids = parsed.filter(
-            (id): id is string => typeof id === "string",
-          );
-          if (ids.length > 0) return ids;
-        }
-      } catch {
-        // Ignore parse failure
-      }
-    }
-    const single = dt.getData("application/x-folio-book-id");
-    if (single) return [single];
-    return activeDragIdsRef.current;
-  };
 
   const handleCardPrimaryClick = (book: BookRecord, e: React.MouseEvent) => {
+    if (shouldSuppressClick?.()) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (isSelectionMode || e.shiftKey || e.metaKey || e.ctrlKey) {
       e.preventDefault();
       onToggleSelect(book.id, e.shiftKey);
@@ -163,74 +144,20 @@ export const BookGrid: React.FC<BookGridProps> = ({
           );
         }
 
-        const isBeingDragged = draggingIds.includes(book.id);
-        const isDropTarget = dropTarget?.bookId === book.id;
+        const isBeingDragged = Boolean(activeDragBookIds?.has(book.id));
+        const pointerReorderTarget =
+          activePointerDropTarget?.kind === "book-reorder" &&
+          activePointerDropTarget.bookId === book.id
+            ? activePointerDropTarget
+            : null;
+        const isDropTarget = pointerReorderTarget !== null;
 
         return (
           <article
             key={book.id}
-            draggable
-            onDragStart={(e) => {
-              const dragIds =
-                selectedIds.has(book.id) && selectedIds.size > 1
-                  ? Array.from(selectedIds)
-                  : [book.id];
-              e.dataTransfer.setData("application/x-folio-book-id", book.id);
-              e.dataTransfer.setData(
-                "application/x-folio-book-ids",
-                JSON.stringify(dragIds),
-              );
-              e.dataTransfer.effectAllowed = "move";
-              activeDragIdsRef.current = dragIds;
-              setDraggingIds(dragIds);
-            }}
-            onDragEnd={clearDragState}
-            onDragOver={(e) => {
-              if (!isCustomSort || !onReorderBooks) return;
-              const types = e.dataTransfer.types;
-              if (
-                !types.includes("application/x-folio-book-id") &&
-                !types.includes("application/x-folio-book-ids")
-              ) {
-                return;
-              }
-              if (activeDragIdsRef.current.includes(book.id)) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-              const rect = e.currentTarget.getBoundingClientRect();
-              const position: "before" | "after" =
-                e.clientX < rect.left + rect.width / 2 ? "before" : "after";
-              setDropTarget((prev) =>
-                prev?.bookId === book.id && prev.position === position
-                  ? prev
-                  : { bookId: book.id, position },
-              );
-            }}
-            onDragLeave={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                setDropTarget((prev) =>
-                  prev?.bookId === book.id ? null : prev,
-                );
-              }
-            }}
-            onDrop={(e) => {
-              if (!isCustomSort || !onReorderBooks) return;
-              const types = e.dataTransfer.types;
-              if (
-                !types.includes("application/x-folio-book-id") &&
-                !types.includes("application/x-folio-book-ids")
-              ) {
-                return;
-              }
-              const dragIds = extractDraggedIds(e.dataTransfer);
-              const rect = e.currentTarget.getBoundingClientRect();
-              const position: "before" | "after" =
-                e.clientX < rect.left + rect.width / 2 ? "before" : "after";
-              clearDragState();
-              if (dragIds.length === 0 || dragIds.includes(book.id)) return;
-              e.preventDefault();
-              onReorderBooks(dragIds, book.id, position);
-            }}
+            data-library-reorder-id={isCustomSort ? book.id : undefined}
+            data-library-reorder-axis={isCustomSort ? "x" : undefined}
+            onPointerDown={(e) => onBookPointerDown?.(book.id, e)}
             onContextMenu={(e) => {
               if (!onContextMenuBook) return;
               e.preventDefault();
@@ -241,11 +168,11 @@ export const BookGrid: React.FC<BookGridProps> = ({
             } ${isBeingDragged ? "opacity-45 scale-[0.98]" : ""}`}
           >
             {/* Insertion line indicator when reordering */}
-            {isDropTarget && (
+            {isDropTarget && pointerReorderTarget && (
               <div
                 aria-hidden="true"
                 className={`pointer-events-none absolute top-0 bottom-10 w-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
-                  dropTarget.position === "before"
+                  pointerReorderTarget.position === "before"
                     ? "-left-2 sm:-left-3"
                     : "-right-2 sm:-right-3"
                 }`}
@@ -255,7 +182,9 @@ export const BookGrid: React.FC<BookGridProps> = ({
             {/* 3:4 Cover Container */}
             <div
               onClick={(e) => handleCardPrimaryClick(book, e)}
-              onDoubleClick={() => onOpenBook(book)}
+              onDoubleClick={() => {
+                if (!shouldSuppressClick?.()) onOpenBook(book);
+              }}
               className={`relative cursor-pointer rounded-[5px] transition-transform duration-150 ease-out group-hover:-translate-y-0.5 ${
                 isSelected
                   ? "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-canvas)]"
@@ -294,6 +223,7 @@ export const BookGrid: React.FC<BookGridProps> = ({
               {/* Selection Checkbox (top-left) */}
               <button
                 type="button"
+                data-no-book-drag="true"
                 aria-label={
                   isSelected ? `Deselect ${book.title}` : `Select ${book.title}`
                 }
@@ -314,6 +244,7 @@ export const BookGrid: React.FC<BookGridProps> = ({
 
               {/* Desktop Hover Quick Actions (top-right, lg+ only) */}
               <div
+                data-no-book-drag="true"
                 className={`hidden lg:flex absolute top-2 right-2 items-center gap-1 transition-opacity ${
                   book.isFavorite
                     ? "opacity-100"
@@ -388,6 +319,7 @@ export const BookGrid: React.FC<BookGridProps> = ({
               {onQuickAction && !isSelectionMode && (
                 <button
                   type="button"
+                  data-no-book-drag="true"
                   aria-label={`More actions for ${book.title}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -428,7 +360,9 @@ export const BookGrid: React.FC<BookGridProps> = ({
               <button
                 type="button"
                 onClick={(e) => handleCardPrimaryClick(book, e)}
-                onDoubleClick={() => onOpenBook(book)}
+                onDoubleClick={() => {
+                  if (!shouldSuppressClick?.()) onOpenBook(book);
+                }}
                 className="text-left w-full font-sans text-sm font-medium leading-snug text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors line-clamp-2 cursor-pointer"
               >
                 {book.title}
@@ -473,6 +407,7 @@ export const BookGrid: React.FC<BookGridProps> = ({
               {missingBookIds?.has(book.id) && (
                 <button
                   type="button"
+                  data-no-book-drag="true"
                   onClick={(e) => {
                     e.stopPropagation();
                     onRelinkBook?.(book);

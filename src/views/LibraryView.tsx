@@ -79,6 +79,7 @@ import { ViewFoldersSection } from "../components/library/ViewFoldersSection";
 import { ReaderTabStrip } from "../components/reader/ReaderTabStrip";
 import { ReaderView } from "../components/reader/ReaderView";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { useLibraryBookDrag } from "../hooks/useLibraryBookDrag";
 import { useLibraryPreferences } from "../hooks/usePreferences";
 import {
   exportLibraryBackupZip,
@@ -261,10 +262,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   );
 
   // Drag & Drop (Books → Folders, External Files → Import)
-  const [isDraggingBooks, setIsDraggingBooks] = useState(false);
   const [isFileDragActive, setIsFileDragActive] = useState(false);
   const [pendingFolderDrop, setPendingFolderDrop] =
     useState<PendingFolderDrop | null>(null);
+  const isDraggingBooksRef = useRef(false);
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+  const sidebarScrollRef = useRef<HTMLDivElement>(null);
+  const dockScrollRef = useRef<HTMLDivElement>(null);
+  const shelfStripRef = useRef<HTMLElement>(null);
 
   // Import, Deduplication & Backup ZIP states
   const [isImporting, setIsImporting] = useState(false);
@@ -392,42 +397,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     selectedIds.size,
   ]);
 
-  // Track internal book drag state synchronously + for FloatingFolderDropDock
-  const isInternalBookDragRef = useRef(false);
-
-  useEffect(() => {
-    if (!isActiveView) return;
-
-    const onDragStart = (e: DragEvent) => {
-      const types = e.dataTransfer?.types;
-      if (
-        types &&
-        (types.includes("application/x-folio-book-id") ||
-          types.includes("application/x-folio-book-ids"))
-      ) {
-        isInternalBookDragRef.current = true;
-        setIsFileDragActive(false);
-        setIsDraggingBooks(true);
-      }
-    };
-    const onDragEnd = () => {
-      isInternalBookDragRef.current = false;
-      setIsDraggingBooks(false);
-      setIsFileDragActive(false);
-    };
-    window.addEventListener("dragstart", onDragStart);
-    window.addEventListener("dragend", onDragEnd);
-    window.addEventListener("drop", onDragEnd);
-    return () => {
-      window.removeEventListener("dragstart", onDragStart);
-      window.removeEventListener("dragend", onDragEnd);
-      window.removeEventListener("drop", onDragEnd);
-    };
-  }, [isActiveView]);
-
   const isPureExternalFileDrag = useCallback(
     (dt: DataTransfer | null): boolean => {
-      if (!dt || isInternalBookDragRef.current) return false;
+      if (!dt || isDraggingBooksRef.current) return false;
       const types = dt.types;
       if (
         types.includes("application/x-folio-book-id") ||
@@ -2346,6 +2318,74 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     ],
   );
 
+  const handleDropBooksToCategory = useCallback(
+    (bookIds: string[], categoryId: string) => {
+      const set = new Set(bookIds);
+      updateLibraryState((prev) => ({
+        books: prev.books.map((b) =>
+          set.has(b.id) ? { ...b, categoryId } : b,
+        ),
+      }));
+      notify("Category updated", "success");
+    },
+    [updateLibraryState, notify],
+  );
+
+  const handleDropBooksToTag = useCallback(
+    (bookIds: string[], tagName: string) => {
+      const set = new Set(bookIds);
+      updateLibraryState((prev) => ({
+        books: prev.books.map((b) =>
+          set.has(b.id) && !b.tags.includes(tagName)
+            ? { ...b, tags: [...b.tags, tagName] }
+            : b,
+        ),
+      }));
+      notify(`Tagged "${tagName}"`, "success");
+    },
+    [updateLibraryState, notify],
+  );
+
+  const handleDropBooksToFavorites = useCallback(
+    (bookIds: string[]) => {
+      const set = new Set(bookIds);
+      updateLibraryState((prev) => ({
+        books: prev.books.map((b) =>
+          set.has(b.id) ? { ...b, isFavorite: true } : b,
+        ),
+      }));
+      notify("Added to Favorites", "success");
+    },
+    [updateLibraryState, notify],
+  );
+
+  const {
+    isDraggingBooks,
+    activeDropTarget,
+    activeDragBookIds,
+    handleBookPointerDown,
+    shouldSuppressClick,
+    renderDragPreview,
+  } = useLibraryBookDrag({
+    enabled: isActiveView && !activeBook,
+    books,
+    selectedIds,
+    isCustomSort: prefs.sortField === "custom",
+    mainScrollRef,
+    sidebarScrollRef,
+    dockScrollRef,
+    shelfStripRef,
+    onDropToViewFolder: handleDropBooksToViewFolder,
+    onDropToSidebarFolder: handleDropBooksToSidebarFolder,
+    onDropToCategory: handleDropBooksToCategory,
+    onDropToTag: handleDropBooksToTag,
+    onDropToFavorites: handleDropBooksToFavorites,
+    onDropToRemoveFromCurrentFolder: handleRemoveBooksFromCurrentFolder,
+    onReorderBooks: handleReorderBooks,
+  });
+
+  isDraggingBooksRef.current = isDraggingBooks;
+
   const hasActiveFilters =
     formatFilter !== "all" ||
     selectedTags.length > 0 ||
@@ -2535,35 +2575,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           onUpdateCategory={handleUpdateCategory}
           onDeleteCategory={handleDeleteCategory}
           onDropBooksToFolder={handleDropBooksToSidebarFolder}
-          onDropBooksToCategory={(bookIds, categoryId) => {
-            const set = new Set(bookIds);
-            updateLibraryState((prev) => ({
-              books: prev.books.map((b) =>
-                set.has(b.id) ? { ...b, categoryId } : b,
-              ),
-            }));
-            notify("Category updated", "success");
-          }}
-          onDropBooksToTag={(bookIds, tagName) => {
-            const set = new Set(bookIds);
-            updateLibraryState((prev) => ({
-              books: prev.books.map((b) =>
-                set.has(b.id) && !b.tags.includes(tagName)
-                  ? { ...b, tags: [...b.tags, tagName] }
-                  : b,
-              ),
-            }));
-            notify(`Tagged "${tagName}"`, "success");
-          }}
-          onDropBooksToFavorites={(bookIds) => {
-            const set = new Set(bookIds);
-            updateLibraryState((prev) => ({
-              books: prev.books.map((b) =>
-                set.has(b.id) ? { ...b, isFavorite: true } : b,
-              ),
-            }));
-            notify("Added to Favorites", "success");
-          }}
+          onDropBooksToCategory={handleDropBooksToCategory}
+          onDropBooksToTag={handleDropBooksToTag}
+          onDropBooksToFavorites={handleDropBooksToFavorites}
           onExportBackup={() => void handleExportBackup()}
           onSelectImportBackupFile={(file) => void handleSelectBackupFile(file)}
           onOpenStorageManager={() => setStorageManagerOpen(true)}
@@ -2573,6 +2587,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           }
           isOpenMobile={false}
           onCloseMobile={() => {}}
+          scrollContainerRef={sidebarScrollRef}
+          activePointerDropTarget={activeDropTarget}
         />
 
         {/* Center Library Workspace */}
@@ -2786,30 +2802,16 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               categories={categories}
               totalHighlightsCount={highlights.length}
               activeFilter={activeFilter}
+              stripRef={shelfStripRef}
+              activePointerDropTarget={activeDropTarget}
               onSelectFilter={(filter) => {
                 setDrilledViewFolderId(null);
                 setActiveFilter(filter);
               }}
               onRequestCreateFolder={() => setFolderModal({ mode: "create" })}
               onDropBooksToFolder={handleDropBooksToSidebarFolder}
-              onDropBooksToCategory={(bookIds, categoryId) => {
-                const set = new Set(bookIds);
-                updateLibraryState((prev) => ({
-                  books: prev.books.map((b) =>
-                    set.has(b.id) ? { ...b, categoryId } : b,
-                  ),
-                }));
-                notify("Category updated", "success");
-              }}
-              onDropBooksToFavorites={(bookIds) => {
-                const set = new Set(bookIds);
-                updateLibraryState((prev) => ({
-                  books: prev.books.map((b) =>
-                    set.has(b.id) ? { ...b, isFavorite: true } : b,
-                  ),
-                }));
-                notify("Added to Favorites", "success");
-              }}
+              onDropBooksToCategory={handleDropBooksToCategory}
+              onDropBooksToFavorites={handleDropBooksToFavorites}
             />
           </div>
 
@@ -3124,7 +3126,23 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           )}
 
           {/* Main Scrollable Content Area */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-none">
+          <div
+            ref={mainScrollRef}
+            className="flex-1 min-h-0 overflow-y-auto overscroll-none relative"
+          >
+            {/* Floating Drag-to-Folder Dock (sticky inside main scroll viewport) */}
+            <FloatingFolderDropDock
+              visible={isDraggingBooks}
+              activeViewLabel={activeViewLabel}
+              currentViewFolders={currentViewFolders}
+              sidebarFolders={folders}
+              activeFolderRemovalTarget={activeFolderRemovalTarget}
+              dockScrollRef={dockScrollRef}
+              activePointerDropTarget={activeDropTarget}
+              onDropToViewFolder={handleDropBooksToViewFolder}
+              onDropToSidebarFolder={handleDropBooksToSidebarFolder}
+              onDropToRemoveFromCurrentFolder={handleRemoveBooksFromCurrentFolder}
+            />
             {activeFilter.kind === "smart" &&
             activeFilter.id === "highlights" ? (
               <HighlightsHubView
@@ -3182,6 +3200,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     coverSize={prefs.coverSize}
                     inspectorOpen={inspectorOpen}
                     inspectedBookId={inspectedBookId}
+                    activePointerDropTarget={activeDropTarget}
+                    onBookPointerDown={handleBookPointerDown}
+                    shouldSuppressClick={shouldSuppressClick}
                     onDisplayModeChange={(viewFolderDisplayMode) =>
                       updateUiPrefs({ viewFolderDisplayMode })
                     }
@@ -3272,6 +3293,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                               sortField={prefs.sortField}
                               sortDirection={prefs.sortDirection}
                               isCustomSort={prefs.sortField === "custom"}
+                              activeDragBookIds={activeDragBookIds}
+                              activePointerDropTarget={activeDropTarget}
+                              onBookPointerDown={handleBookPointerDown}
+                              shouldSuppressClick={shouldSuppressClick}
                               missingBookIds={missingBookIds}
                               onReorderBooks={handleReorderBooks}
                               onSortChange={(field) => {
@@ -3339,6 +3364,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                               inspectorOpen={inspectorOpen}
                               inspectedBookId={inspectedBookId}
                               isCustomSort={prefs.sortField === "custom"}
+                              activeDragBookIds={activeDragBookIds}
+                              activePointerDropTarget={activeDropTarget}
+                              onBookPointerDown={handleBookPointerDown}
+                              shouldSuppressClick={shouldSuppressClick}
                               missingBookIds={missingBookIds}
                               onReorderBooks={handleReorderBooks}
                               onOpenBook={(book) => handleOpenBook(book)}
@@ -3392,6 +3421,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                             selectedIds={selectedIds}
                             isSelectionMode={selectedIds.size > 0}
                             isCustomSort={prefs.sortField === "custom"}
+                            activeDragBookIds={activeDragBookIds}
+                            activePointerDropTarget={activeDropTarget}
+                            onBookPointerDown={handleBookPointerDown}
+                            shouldSuppressClick={shouldSuppressClick}
                             missingBookIds={missingBookIds}
                             onReorderBooks={handleReorderBooks}
                             onOpenBook={(book) => handleOpenBook(book)}
@@ -3459,17 +3492,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         </div>
       )}
 
-      {/* Floating Drag-to-Folder Dock */}
-      <FloatingFolderDropDock
-        visible={isDraggingBooks}
-        activeViewLabel={activeViewLabel}
-        currentViewFolders={currentViewFolders}
-        sidebarFolders={folders}
-        activeFolderRemovalTarget={activeFolderRemovalTarget}
-        onDropToViewFolder={handleDropBooksToViewFolder}
-        onDropToSidebarFolder={handleDropBooksToSidebarFolder}
-        onDropToRemoveFromCurrentFolder={handleRemoveBooksFromCurrentFolder}
-      />
+      {/* Floating Drag-to-Folder Dock rendered sticky inside mainScrollRef */}
 
       {/* Right-Click Context Menu */}
       <BookContextMenu
@@ -3843,6 +3866,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           />
         </>
       )}
+
+      {renderDragPreview()}
     </div>
   );
 };
