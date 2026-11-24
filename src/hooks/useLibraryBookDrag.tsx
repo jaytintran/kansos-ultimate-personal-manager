@@ -381,7 +381,7 @@ export function useLibraryBookDrag({
     [dockScrollRef, mainScrollRef, sidebarScrollRef],
   );
 
-  // Global pointer, wheel, keyboard (A/D), and rAF auto-scroll loop while dragging or pending
+  // Global pointer, wheel, keyboard (W/S), and rAF auto-scroll loop while dragging or pending
   useEffect(() => {
     if (!enabled) {
       stopActiveDrag(false);
@@ -537,10 +537,10 @@ export function useLibraryBookDrag({
       }
 
       const lower = e.key.toLowerCase();
-      if (e.code === "KeyA" || lower === "a") {
+      if (e.code === "KeyW" || lower === "w") {
         e.preventDefault();
         heldKeysRef.current.up = true;
-      } else if (e.code === "KeyD" || lower === "d") {
+      } else if (e.code === "KeyS" || lower === "s") {
         e.preventDefault();
         heldKeysRef.current.down = true;
       }
@@ -548,9 +548,9 @@ export function useLibraryBookDrag({
 
     const onKeyUp = (e: KeyboardEvent) => {
       const lower = e.key.toLowerCase();
-      if (e.code === "KeyA" || lower === "a") {
+      if (e.code === "KeyW" || lower === "w") {
         heldKeysRef.current.up = false;
-      } else if (e.code === "KeyD" || lower === "d") {
+      } else if (e.code === "KeyS" || lower === "s") {
         heldKeysRef.current.down = false;
       }
     };
@@ -603,7 +603,7 @@ export function useLibraryBookDrag({
     updateDropTarget,
   ]);
 
-  // Smooth rAF loop for edge auto-scrolling & held A/D keyboard scrolling
+  // Smooth rAF loop for edge auto-scrolling & held W/S keyboard scrolling
   const isDragging = dragState !== null;
   useEffect(() => {
     if (!isDragging) return;
@@ -643,7 +643,7 @@ export function useLibraryBookDrag({
         }
       }
 
-      // 2. Vertical edge auto-scroll + keyboard A/D scroll
+      // 2. Vertical edge auto-scroll + keyboard W/S scroll
       const keyDir =
         (heldKeysRef.current.down ? 1 : 0) - (heldKeysRef.current.up ? 1 : 0);
 
@@ -904,7 +904,7 @@ export function useLibraryBookDrag({
               ) : dragState.pointerType === "touch" ? (
                 "Drag to edge to scroll · Drop on folder"
               ) : (
-                "Scroll: Wheel · A / D keys · Edges"
+                "Scroll: Wheel · W / S keys · Edges"
               )}
             </div>
           </div>
