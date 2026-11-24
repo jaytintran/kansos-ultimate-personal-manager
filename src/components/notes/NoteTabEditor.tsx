@@ -15,6 +15,7 @@ import {
   Hash,
   Link2,
   ListChecks,
+  ListTree,
   Maximize2,
   Network,
   PanelLeftOpen,
@@ -44,6 +45,7 @@ import { NotePageIcon } from "../IconLibrary";
 import { IconPickerPopover } from "../IconPicker";
 
 const PROPS_OPEN_STORAGE_KEY = "kanso_note_tab_props_open_v1";
+const PROPS_TOC_OPEN_STORAGE_KEY = "kanso_note_tab_toc_open_v1";
 
 function loadPropsOpenPref(): boolean {
   try {
@@ -51,6 +53,23 @@ function loadPropsOpenPref(): boolean {
   } catch {
     return false;
   }
+}
+
+function loadTocOpenPref(): boolean {
+  try {
+    return localStorage.getItem(PROPS_TOC_OPEN_STORAGE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+interface TocHeadingItem {
+  id: string;
+  index: number;
+  level: number;
+  depth: number;
+  text: string;
+  pos: number | null;
 }
 
 const PropertyRow: React.FC<{
@@ -65,7 +84,7 @@ const PropertyRow: React.FC<{
     } gap-2 py-1 min-h-[32px] text-xs`}
   >
     <div
-      className={`w-[104px] shrink-0 flex items-center gap-2 select-none ${
+      className={`w-[126px] shrink-0 flex items-center gap-2 select-none ${
         alignTop ? "pt-1" : ""
       }`}
       style={{ color: "var(--text-muted)" }}
@@ -163,10 +182,12 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   );
 
   const [propsExpanded, setPropsExpanded] = useState<boolean>(loadPropsOpenPref);
+  const [tocExpanded, setTocExpanded] = useState<boolean>(loadTocOpenPref);
   const [subPagesCollapsed, setSubPagesCollapsed] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "saving">("saved");
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
 
+  const canvasScrollRef = useRef<HTMLDivElement | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const debounceTimerRef = useRef<number | null>(null);
@@ -477,6 +498,110 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   const timeFormat = workspace.settings.timeFormat;
   const wordCount = useMemo(() => countWordsFromHtml(content), [content]);
 
+  const tocHeadings = useMemo<TocHeadingItem[]>(() => {
+    const raw: Array<{ index: number; level: number; text: string; pos: number | null }> = [];
+    let domIndex = 0;
+
+    if (editorInstance && !editorInstance.isDestroyed) {
+      editorInstance.state.doc.descendants((node, pos) => {
+        if (node.type.name === "heading") {
+          const idx = domIndex++;
+          const text = node.textContent.trim();
+          const level =
+            typeof node.attrs?.level === "number" ? node.attrs.level : 1;
+          if (text) {
+            raw.push({ index: idx, level, text, pos });
+          }
+          return false;
+        }
+        return true;
+      });
+    } else if (content && typeof DOMParser !== "undefined") {
+      try {
+        const doc = new DOMParser().parseFromString(content, "text/html");
+        doc.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((el) => {
+          const idx = domIndex++;
+          const text = (el.textContent || "").trim();
+          const level = Number(el.tagName.slice(1)) || 1;
+          if (text) {
+            raw.push({ index: idx, level, text, pos: null });
+          }
+        });
+      } catch {
+        // Ignore DOMParser errors
+      }
+    }
+
+    const levelStack: number[] = [];
+    return raw.map((item, i) => {
+      while (
+        levelStack.length > 0 &&
+        levelStack[levelStack.length - 1] >= item.level
+      ) {
+        levelStack.pop();
+      }
+      const depth = levelStack.length;
+      levelStack.push(item.level);
+      return {
+        id: `${item.index}-${item.level}-${i}`,
+        index: item.index,
+        level: item.level,
+        depth,
+        text: item.text,
+        pos: item.pos,
+      };
+    });
+  }, [content, editorInstance]);
+
+  const handleJumpToHeading = useCallback(
+    (item: TocHeadingItem) => {
+      const container = canvasScrollRef.current;
+      if (!container) return;
+
+      let targetEl: HTMLElement | null = null;
+      if (editorInstance && !editorInstance.isDestroyed) {
+        if (item.pos !== null) {
+          const dom = editorInstance.view.nodeDOM(item.pos);
+          if (dom instanceof HTMLElement) {
+            targetEl = dom;
+          }
+        }
+        if (!targetEl) {
+          const headings =
+            editorInstance.view.dom.querySelectorAll<HTMLElement>(
+              "h1, h2, h3, h4, h5, h6",
+            );
+          targetEl = headings[item.index] ?? null;
+        }
+      } else {
+        const headings = container.querySelectorAll<HTMLElement>(
+          ".ProseMirror h1, .ProseMirror h2, .ProseMirror h3, .ProseMirror h4, .ProseMirror h5, .ProseMirror h6",
+        );
+        targetEl = headings[item.index] ?? null;
+      }
+
+      if (!targetEl) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = targetEl.getBoundingClientRect();
+      const nextTop =
+        container.scrollTop + (targetRect.top - containerRect.top) - 16;
+
+      container.scrollTo({
+        top: Math.max(0, nextTop),
+        behavior: "smooth",
+      });
+
+      targetEl.classList.remove("folio-anchor-flash");
+      void targetEl.offsetWidth;
+      targetEl.classList.add("folio-anchor-flash");
+      window.setTimeout(() => {
+        targetEl?.classList.remove("folio-anchor-flash");
+      }, 1650);
+    },
+    [editorInstance],
+  );
+
   const handleAddTag = (raw: string) => {
     const clean = raw.trim().replace(/^#/, "").toLowerCase();
     if (!clean || tags.includes(clean)) {
@@ -747,7 +872,10 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
       )}
 
       {/* Main Writing Canvas */}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-none px-5 sm:px-8 lg:px-10 py-6 lg:py-8 pb-24 lg:pb-12">
+      <div
+        ref={canvasScrollRef}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-none px-5 sm:px-8 lg:px-10 py-6 lg:py-8 pb-24 lg:pb-12"
+      >
         <div className="max-w-3xl mx-auto space-y-5">
           {/* Page Icon + Clean Auto-Growing Display Title */}
           <div className="flex items-start gap-2.5 sm:gap-3">
@@ -1383,6 +1511,119 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
                       flushSave();
                     }}
                   />
+                </PropertyRow>
+
+                {/* Collapsible Table of Contents */}
+                <PropertyRow
+                  icon={<ListTree className="w-3.5 h-3.5" />}
+                  label="Table of Contents"
+                  alignTop
+                >
+                  <div className="-mx-1 px-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTocExpanded((prev) => {
+                          const next = !prev;
+                          try {
+                            localStorage.setItem(
+                              PROPS_TOC_OPEN_STORAGE_KEY,
+                              String(next),
+                            );
+                          } catch {
+                            // Ignore storage errors
+                          }
+                          return next;
+                        });
+                      }}
+                      aria-expanded={tocExpanded}
+                      className="w-full flex items-center justify-between gap-2 rounded-md px-2 py-1 -mx-1 text-left transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    >
+                      <span className="inline-flex items-center gap-1.5 min-w-0">
+                        {tocExpanded ? (
+                          <ChevronDown
+                            className="w-3.5 h-3.5 shrink-0"
+                            style={{ color: "var(--text-muted)" }}
+                          />
+                        ) : (
+                          <ChevronRight
+                            className="w-3.5 h-3.5 shrink-0"
+                            style={{ color: "var(--text-muted)" }}
+                          />
+                        )}
+                        <span
+                          className="font-medium truncate"
+                          style={{
+                            color:
+                              tocHeadings.length > 0
+                                ? "var(--text-primary)"
+                                : "var(--text-muted)",
+                          }}
+                        >
+                          {tocHeadings.length === 0
+                            ? "No headings yet"
+                            : `${tocHeadings.length} ${
+                                tocHeadings.length === 1 ? "heading" : "headings"
+                              }`}
+                        </span>
+                      </span>
+                    </button>
+
+                    {tocExpanded &&
+                      (tocHeadings.length > 0 ? (
+                        <nav
+                          aria-label="Table of Contents"
+                          className="mt-1 max-h-[220px] overflow-y-auto overscroll-contain space-y-0.5"
+                        >
+                          {tocHeadings.map((h) => (
+                            <button
+                              key={h.id}
+                              type="button"
+                              onClick={() => handleJumpToHeading(h)}
+                              className="w-full flex items-center gap-2 py-1 pr-2 rounded-md text-left transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer group"
+                              style={{ paddingLeft: `${h.depth * 14 + 6}px` }}
+                              title={h.text}
+                            >
+                              <span
+                                className="font-mono tabular-nums text-[10px] shrink-0 opacity-65 group-hover:opacity-100"
+                                style={{
+                                  color:
+                                    h.depth === 0
+                                      ? "var(--accent)"
+                                      : "var(--text-muted)",
+                                }}
+                              >
+                                H{h.level}
+                              </span>
+                              <span
+                                className={`truncate ${
+                                  h.depth === 0
+                                    ? "text-xs font-medium"
+                                    : h.depth === 1
+                                      ? "text-xs font-normal"
+                                      : "text-[11px] font-normal"
+                                }`}
+                                style={{
+                                  color:
+                                    h.depth === 0
+                                      ? "var(--text-primary)"
+                                      : "var(--text-secondary)",
+                                }}
+                              >
+                                {h.text}
+                              </span>
+                            </button>
+                          ))}
+                        </nav>
+                      ) : (
+                        <p
+                          className="px-2 pt-0.5 pb-1 text-[11px]"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          Add headings (H1–H3) inside the note to jump between sections.
+                        </p>
+                      ))}
+                  </div>
                 </PropertyRow>
               </div>
             )}
