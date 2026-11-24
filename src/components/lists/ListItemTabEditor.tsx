@@ -914,17 +914,12 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
           </div>
 
           {/* Linked Notes Section */}
-          <div
-            className="pt-4 border-t"
-            style={{ borderColor: "var(--border-subtle)" }}
-          >
-            <ListItemLinkedNotesSection
-              item={item}
-              list={currentListCollection}
-              onBeforeJump={flushSave}
-              onJumpToNote={onJumpToNote}
-            />
-          </div>
+          <ListItemLinkedNotesSection
+            item={item}
+            list={currentListCollection}
+            onBeforeJump={flushSave}
+            onJumpToNote={onJumpToNote}
+          />
         </div>
       </div>
 
