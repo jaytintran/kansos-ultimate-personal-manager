@@ -56,6 +56,7 @@ import {
   ListCollection,
   ListCollectionType,
   ListItem,
+  ListItemNoteLink,
   ListItemStatus,
   NoteNotebook,
   NoteStatus,
@@ -93,6 +94,10 @@ import {
 import { syncNativeStatusBar } from "../utils/nativeStatusBar";
 import { extractUrlFromListInput, parseNlpInput } from "../utils/nlp";
 import { removeListItemBookLinks } from "../utils/listBookLinks";
+import {
+  buildListItemNoteLink,
+  normalizeListItemNoteLinks,
+} from "../utils/listItemLinks";
 import { applySyncedViewPreferences } from "../utils/viewPreferences";
 
 const STORAGE_WORKSPACE_KEY = "kanso_workspace_v1";
@@ -272,6 +277,9 @@ function migrateEntries(rawEntries: Entry[]): Entry[] {
       source,
       tags: Array.isArray(e.tags) ? e.tags : [],
       listIds: Array.isArray(e.listIds) ? e.listIds : [],
+      listItemLinks: Array.isArray(e.listItemLinks)
+        ? normalizeListItemNoteLinks(e.listItemLinks)
+        : undefined,
     };
   });
 }
@@ -619,6 +627,7 @@ interface WorkspaceContextValue {
     syncToTimeline?: boolean;
     scheduledAt?: string | null;
     bookLink?: BookNoteLink | null;
+    listItemLinks?: ListItemNoteLink[];
   }) => Entry;
   duplicateNotePage: (id: string) => Entry | null;
   deleteNotePage: (id: string, childMode?: "promote" | "cascade") => void;
@@ -663,7 +672,11 @@ interface WorkspaceContextValue {
   ) => ListCollection;
   updateList: (id: string, patch: Partial<ListCollection>) => void;
   renameList: (id: string, title: string, icon?: string) => void;
-  deleteList: (id: string, moveItemsToListId?: string) => void;
+  deleteList: (
+    id: string,
+    moveItemsToListId?: string,
+    linkedNotesBehavior?: "keep" | "delete",
+  ) => void;
   reorderLists: (
     draggedId: string,
     targetId: string,
@@ -679,7 +692,25 @@ interface WorkspaceContextValue {
     sortOrderById: Record<string, number>,
     statusPatch?: { id: string; status: ListItemStatus },
   ) => void;
-  deleteListItem: (id: string) => void;
+  deleteListItem: (
+    id: string,
+    linkedNotesBehavior?: "keep" | "delete",
+  ) => void;
+  deleteListItems: (
+    ids: string[],
+    linkedNotesBehavior?: "keep" | "delete",
+  ) => void;
+  linkNoteToListItem: (
+    noteId: string,
+    itemId: string,
+    quote?: string,
+  ) => void;
+  unlinkNoteFromListItem: (noteId: string, itemId: string) => void;
+  updateNoteListItemLinkQuote: (
+    noteId: string,
+    itemId: string,
+    quote: string,
+  ) => void;
 
   // Library Studio actions (Gist-synced metadata + IndexedDB annotations)
   addBook: (
@@ -1949,6 +1980,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       syncToTimeline?: boolean;
       scheduledAt?: string | null;
       bookLink?: BookNoteLink | null;
+      listItemLinks?: ListItemNoteLink[];
     }): Entry => {
       const nowIso = new Date().toISOString();
       const note: Entry = {
@@ -1977,6 +2009,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         editorWidth: "normal",
         editorFont: "sans",
         bookLink: options?.bookLink ?? null,
+        listItemLinks: options?.listItemLinks
+          ? normalizeListItemNoteLinks(options.listItemLinks)
+          : undefined,
       };
       mutateWorkspace((prev) => ({
         ...prev,
@@ -2455,8 +2490,97 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [updateList],
   );
 
+  const applyListItemDeletionToEntries = useCallback(
+    (
+      entries: Entry[],
+      deletedItemIds: Set<string>,
+      linkedNotesBehavior: "keep" | "delete",
+      nowIso: string,
+    ): Entry[] => {
+      if (deletedItemIds.size === 0) return entries;
+
+      if (linkedNotesBehavior === "delete") {
+        const directDeletedNoteIds = new Set<string>();
+        for (const e of entries) {
+          if (e.type !== "note") continue;
+          const links = e.listItemLinks || [];
+          const touchesDeleted = links.some(
+            (l) => l.listItemId && deletedItemIds.has(l.listItemId),
+          );
+          if (!touchesDeleted) continue;
+          const hasSurvivingItem = links.some(
+            (l) => l.listItemId && !deletedItemIds.has(l.listItemId),
+          );
+          const hasBookLink = Boolean(e.bookLink);
+          if (!hasSurvivingItem && !hasBookLink) {
+            directDeletedNoteIds.add(e.id);
+          }
+        }
+
+        // Also cascade direct/nested sub-pages under deleted notes
+        let added = true;
+        while (added) {
+          added = false;
+          for (const e of entries) {
+            if (
+              e.type === "note" &&
+              e.parentId &&
+              directDeletedNoteIds.has(e.parentId) &&
+              !directDeletedNoteIds.has(e.id)
+            ) {
+              directDeletedNoteIds.add(e.id);
+              added = true;
+            }
+          }
+        }
+
+        return entries
+          .filter((e) => !directDeletedNoteIds.has(e.id))
+          .map((e) => {
+            if (e.type !== "note" || !e.listItemLinks?.length) return e;
+            const filtered = e.listItemLinks.filter(
+              (l) => !(l.listItemId && deletedItemIds.has(l.listItemId)),
+            );
+            if (filtered.length === e.listItemLinks.length) return e;
+            return {
+              ...e,
+              listItemLinks: filtered.length > 0 ? filtered : undefined,
+              updatedAt: nowIso,
+            };
+          });
+      }
+
+      return entries.map((e) => {
+        if (e.type !== "note" || !e.listItemLinks?.length) return e;
+        let changed = false;
+        const nextLinks = e.listItemLinks.map((l) => {
+          if (l.listItemId && deletedItemIds.has(l.listItemId)) {
+            changed = true;
+            return {
+              ...l,
+              listItemId: null,
+              itemRemoved: true,
+            };
+          }
+          return l;
+        });
+        if (!changed) return e;
+        return {
+          ...e,
+          listItemLinks: nextLinks,
+          updatedAt: nowIso,
+        };
+      });
+    },
+    [],
+  );
+
   const deleteList = useCallback(
-    (id: string, moveItemsToListId?: string) => {
+    (
+      id: string,
+      moveItemsToListId?: string,
+      linkedNotesBehavior: "keep" | "delete" = "keep",
+    ) => {
       const nowIso = new Date().toISOString();
       const targetMoveId =
         moveItemsToListId && moveItemsToListId !== id ? moveItemsToListId : null;
@@ -2467,6 +2591,25 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
             .filter((item) => item.listId === id)
             .map((item) => item.id);
         }
+        const deleteSet = new Set(deletedIds);
+        const entriesWithoutListId = prev.entries.map((entry) =>
+          entry.listIds && entry.listIds.includes(id)
+            ? {
+                ...entry,
+                listIds: entry.listIds.filter((lid) => lid !== id),
+                updatedAt: nowIso,
+              }
+            : entry,
+        );
+        const finalEntries = targetMoveId
+          ? entriesWithoutListId
+          : applyListItemDeletionToEntries(
+              entriesWithoutListId,
+              deleteSet,
+              linkedNotesBehavior,
+              nowIso,
+            );
+
         return {
           ...prev,
           lists: prev.lists.filter((l) => l.id !== id),
@@ -2477,15 +2620,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
                   : item,
               )
             : prev.listItems.filter((item) => item.listId !== id),
-          entries: prev.entries.map((entry) =>
-            entry.listIds && entry.listIds.includes(id)
-              ? {
-                  ...entry,
-                  listIds: entry.listIds.filter((lid) => lid !== id),
-                  updatedAt: nowIso,
-                }
-              : entry,
-          ),
+          entries: finalEntries,
         };
       });
       if (deletedIds.length > 0) {
@@ -2495,7 +2630,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         targetMoveId ? "Items moved and list deleted" : "List deleted",
       );
     },
-    [mutateWorkspace, pushToast],
+    [mutateWorkspace, pushToast, applyListItemDeletionToEntries],
   );
 
   const addListItem = useCallback(
@@ -2634,12 +2769,128 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace],
   );
 
-  const deleteListItem = useCallback(
-    (id: string) => {
-      removeListItemBookLinks([id]);
+  const deleteListItems = useCallback(
+    (ids: string[], linkedNotesBehavior: "keep" | "delete" = "keep") => {
+      const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+      if (uniqueIds.length === 0) return;
+      const deleteSet = new Set(uniqueIds);
+      const nowIso = new Date().toISOString();
+      removeListItemBookLinks(uniqueIds);
       mutateWorkspace((prev) => ({
         ...prev,
-        listItems: prev.listItems.filter((item) => item.id !== id),
+        listItems: prev.listItems.filter((item) => !deleteSet.has(item.id)),
+        entries: applyListItemDeletionToEntries(
+          prev.entries,
+          deleteSet,
+          linkedNotesBehavior,
+          nowIso,
+        ),
+      }));
+    },
+    [mutateWorkspace, applyListItemDeletionToEntries],
+  );
+
+  const deleteListItem = useCallback(
+    (id: string, linkedNotesBehavior: "keep" | "delete" = "keep") => {
+      deleteListItems([id], linkedNotesBehavior);
+    },
+    [deleteListItems],
+  );
+
+  const linkNoteToListItem = useCallback(
+    (noteId: string, itemId: string, quote?: string) => {
+      if (!noteId || !itemId) return;
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => {
+        const item = prev.listItems.find((i) => i.id === itemId);
+        if (!item) return prev;
+        const parentList =
+          prev.lists.find((l) => l.id === item.listId) ?? null;
+        return {
+          ...prev,
+          entries: prev.entries.map((entry) => {
+            if (entry.id !== noteId || entry.type !== "note") return entry;
+            const currentLinks = normalizeListItemNoteLinks(
+              entry.listItemLinks,
+            );
+            const existingIdx = currentLinks.findIndex(
+              (l) => l.listItemId === itemId,
+            );
+            if (existingIdx !== -1) {
+              if (quote === undefined) return entry;
+              const updatedLinks = currentLinks.map((l, idx) =>
+                idx === existingIdx
+                  ? { ...l, quote: quote.trim() || undefined }
+                  : l,
+              );
+              return {
+                ...entry,
+                listItemLinks: updatedLinks,
+                updatedAt: nowIso,
+              };
+            }
+            const nextLink = buildListItemNoteLink(item, parentList, quote);
+            return {
+              ...entry,
+              listItemLinks: [...currentLinks, nextLink],
+              updatedAt: nowIso,
+            };
+          }),
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const unlinkNoteFromListItem = useCallback(
+    (noteId: string, itemId: string) => {
+      if (!noteId || !itemId) return;
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: prev.entries.map((entry) => {
+          if (entry.id !== noteId || entry.type !== "note") return entry;
+          const currentLinks = normalizeListItemNoteLinks(entry.listItemLinks);
+          const nextLinks = currentLinks.filter(
+            (l) => l.listItemId !== itemId,
+          );
+          if (nextLinks.length === currentLinks.length) return entry;
+          return {
+            ...entry,
+            listItemLinks: nextLinks.length > 0 ? nextLinks : undefined,
+            updatedAt: nowIso,
+          };
+        }),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const updateNoteListItemLinkQuote = useCallback(
+    (noteId: string, itemId: string, quote: string) => {
+      if (!noteId || !itemId) return;
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: prev.entries.map((entry) => {
+          if (entry.id !== noteId || entry.type !== "note") return entry;
+          const currentLinks = normalizeListItemNoteLinks(entry.listItemLinks);
+          let changed = false;
+          const nextLinks = currentLinks.map((l) => {
+            if (l.listItemId !== itemId) return l;
+            changed = true;
+            return {
+              ...l,
+              quote: quote.trim() ? quote : undefined,
+            };
+          });
+          if (!changed) return entry;
+          return {
+            ...entry,
+            listItemLinks: nextLinks,
+            updatedAt: nowIso,
+          };
+        }),
       }));
     },
     [mutateWorkspace],
@@ -5426,6 +5677,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       updateListItem,
       reorderListItems,
       deleteListItem,
+      deleteListItems,
+      linkNoteToListItem,
+      unlinkNoteFromListItem,
+      updateNoteListItemLinkQuote,
       addBook,
       updateBook,
       deleteBook,
@@ -5575,6 +5830,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       updateListItem,
       reorderListItems,
       deleteListItem,
+      deleteListItems,
+      linkNoteToListItem,
+      unlinkNoteFromListItem,
+      updateNoteListItemLinkQuote,
       addBook,
       updateBook,
       deleteBook,

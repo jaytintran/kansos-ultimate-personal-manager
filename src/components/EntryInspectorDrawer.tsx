@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Calendar, CheckCircle2, Clock, Link2, MapPin, Pin, Plus, Trash2, X } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { Entry, EntryType, ListItem, ListItemStatus } from '../types';
@@ -8,8 +8,10 @@ import {
   toLocalDateKey,
   toTimeInputValue,
 } from '../utils/date';
+import { countLinkedNotesForListItems } from '../utils/listItemLinks';
 import { EntryScheduleEditor } from './EntryScheduleEditor';
 import { ENTRY_TYPE_META, EntryTypeIcon } from './IconLibrary';
+import { DeleteListItemsConfirmModal } from './lists/DeleteListItemsConfirmModal';
 import { TiptapEditor } from './TiptapEditor';
 
 const ENTRY_TYPES: EntryType[] = ['log', 'task', 'event', 'note', 'timeblock'];
@@ -35,6 +37,11 @@ export const EntryInspectorDrawer: React.FC<EntryInspectorDrawerProps> = ({
   const { workspace, updateEntry, deleteEntry, toggleEntryCompleted, updateListItem, deleteListItem } =
     useWorkspace();
   const [tagDraft, setTagDraft] = useState('');
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    setDeleteConfirmOpen(false);
+  }, [entryId, listItemId]);
 
   const entry: Entry | undefined = entryId
     ? workspace.entries.find((e) => e.id === entryId)
@@ -143,9 +150,20 @@ export const EntryInspectorDrawer: React.FC<EntryInspectorDrawerProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (entry) deleteEntry(entry.id);
-                if (listItem) deleteListItem(listItem.id);
-                onClose();
+                if (entry) {
+                  deleteEntry(entry.id);
+                  onClose();
+                  return;
+                }
+                if (listItem) {
+                  const impact = countLinkedNotesForListItems(workspace.entries, [listItem.id]);
+                  if (impact.totalAffectedNotes > 0) {
+                    setDeleteConfirmOpen(true);
+                    return;
+                  }
+                  deleteListItem(listItem.id, 'keep');
+                  onClose();
+                }
               }}
               className="h-9 w-9 flex items-center justify-center rounded-lg transition-colors"
               style={{ color: 'var(--danger)' }}
@@ -489,6 +507,25 @@ export const EntryInspectorDrawer: React.FC<EntryInspectorDrawerProps> = ({
           )}
         </div>
       </div>
+
+      {listItem && deleteConfirmOpen && (() => {
+        const impact = countLinkedNotesForListItems(workspace.entries, [listItem.id]);
+        return (
+          <DeleteListItemsConfirmModal
+            open={deleteConfirmOpen}
+            itemCount={1}
+            itemTitle={listItem.title || 'Untitled Item'}
+            exclusivelyLinkedNotesCount={impact.exclusivelyLinkedNotes}
+            sharedNotesCount={impact.sharedNotes}
+            onCancel={() => setDeleteConfirmOpen(false)}
+            onConfirm={(linkedNotesBehavior) => {
+              deleteListItem(listItem.id, linkedNotesBehavior);
+              setDeleteConfirmOpen(false);
+              onClose();
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };

@@ -19,6 +19,7 @@ import { Entry, NoteNotebook } from "../../types";
 export type NotesScope =
   | { type: "all" }
   | { type: "favorites" }
+  | { type: "list_notes" }
   | { type: "notebook"; notebookId: string }
   | { type: "archive" };
 

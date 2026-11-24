@@ -46,6 +46,8 @@ import {
   BookNoteLink,
   ContextMenuRecord,
   DetailSheetTarget,
+  ListItemJumpRequest,
+  NoteJumpRequest,
   ViewId,
 } from "./types";
 import { formatAudioDuration } from "./lib/audioFormatters";
@@ -187,6 +189,10 @@ const KansoShell: React.FC = () => {
     useState<SettingsModalTab>("appearance");
   const [bookJumpRequest, setBookJumpRequest] =
     useState<BookJumpRequest | null>(null);
+  const [noteJumpRequest, setNoteJumpRequest] =
+    useState<NoteJumpRequest | null>(null);
+  const [listItemJumpRequest, setListItemJumpRequest] =
+    useState<ListItemJumpRequest | null>(null);
   const [isMobileKeyboardOpen, setIsMobileKeyboardOpen] = useState(false);
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState<boolean>(
     () => {
@@ -199,6 +205,8 @@ const KansoShell: React.FC = () => {
   );
   const [railTooltip, setRailTooltip] = useState<RailTooltipState | null>(null);
   const bookJumpNonceRef = useRef(0);
+  const noteJumpNonceRef = useRef(0);
+  const listItemJumpNonceRef = useRef(0);
   const mainRef = useRef<HTMLElement>(null);
   const listsSelectItemHandlerRef = useRef<((itemId: string) => void) | null>(
     null,
@@ -378,6 +386,46 @@ const KansoShell: React.FC = () => {
       });
     },
     [workspace.books, pushToast],
+  );
+
+  const handleJumpToNote = useCallback(
+    (noteId: string) => {
+      const targetNote = workspace.entries.find(
+        (e) => e.id === noteId && e.type === "note",
+      );
+      if (!targetNote) {
+        pushToast("This note is no longer in Notes", "error");
+        return;
+      }
+      setDetailTarget(null);
+      setMoreSheetOpen(false);
+      setActiveView("notes");
+      noteJumpNonceRef.current += 1;
+      setNoteJumpRequest({
+        noteId: targetNote.id,
+        nonce: noteJumpNonceRef.current,
+      });
+    },
+    [workspace.entries, pushToast],
+  );
+
+  const handleJumpToListItem = useCallback(
+    (listItemId: string) => {
+      const targetItem = workspace.listItems.find((i) => i.id === listItemId);
+      if (!targetItem) {
+        pushToast("This list item is no longer in Lists", "error");
+        return;
+      }
+      setDetailTarget(null);
+      setMoreSheetOpen(false);
+      setActiveView("lists");
+      listItemJumpNonceRef.current += 1;
+      setListItemJumpRequest({
+        listItemId: targetItem.id,
+        nonce: listItemJumpNonceRef.current,
+      });
+    },
+    [workspace.listItems, pushToast],
   );
 
   const handleMuteBackgroundStreamer = useCallback(() => {
@@ -1356,6 +1404,8 @@ const KansoShell: React.FC = () => {
             onOpenDetail={setDetailTarget}
             onOpenContextMenu={handleOpenContextMenu}
             onJumpToBookLocation={handleJumpToBookLocation}
+            onJumpToListItem={handleJumpToListItem}
+            noteJumpRequest={noteJumpRequest}
             onOpenTimestamps={handleOpenTimestamps}
           />
         )}
@@ -1370,6 +1420,8 @@ const KansoShell: React.FC = () => {
             onOpenDetail={setDetailTarget}
             onOpenContextMenu={handleOpenContextMenu}
             onJumpToBookLocation={handleJumpToBookLocation}
+            onJumpToNote={handleJumpToNote}
+            listItemJumpRequest={listItemJumpRequest}
             selectItemHandlerRef={listsSelectItemHandlerRef}
             isSelectedItemRef={listsIsSelectedRef}
           />
@@ -1912,6 +1964,8 @@ const KansoShell: React.FC = () => {
           handleOpenTimestamps(entryId, focus ?? null)
         }
         onJumpToBookLocation={handleJumpToBookLocation}
+        onJumpToNote={handleJumpToNote}
+        onJumpToListItem={handleJumpToListItem}
       />
 
       {/* Universal Context Menu */}

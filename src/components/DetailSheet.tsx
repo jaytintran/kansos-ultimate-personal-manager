@@ -62,6 +62,7 @@ import {
   HabitFrequencyType,
   ListCollectionType,
   ListItem,
+  ListItemNoteLink,
   ListItemStatus,
 } from "../types";
 import {
@@ -91,6 +92,13 @@ import {
   openExternalUrlSafely,
   setListItemBookLink,
 } from "../utils/listBookLinks";
+import {
+  countLinkedNotesForListItems,
+  normalizeListItemNoteLinks,
+} from "../utils/listItemLinks";
+import { DeleteListItemsConfirmModal } from "./lists/DeleteListItemsConfirmModal";
+import { ListItemLinkedNotesSection } from "./lists/ListItemLinkedNotesSection";
+import { ListItemLinksPicker } from "./lists/ListItemLinksPicker";
 
 const HABIT_COLOR_PRESETS = [
   "#b45309",
@@ -169,6 +177,8 @@ interface DetailSheetProps {
   onOpenDetail?: (target: DetailSheetTarget) => void;
   onOpenTimestamps: (entryId: string, focus?: TimestampFieldFocus) => void;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
+  onJumpToNote?: (noteId: string) => void;
+  onJumpToListItem?: (listItemId: string) => void;
 }
 
 interface DetailSheetInnerProps extends DetailSheetProps {
@@ -182,6 +192,8 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
   onOpenDetail,
   onOpenTimestamps,
   onJumpToBookLocation,
+  onJumpToNote,
+  onJumpToListItem,
   isFullPage,
   onToggleFullPage,
 }) => {
@@ -336,6 +348,11 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
   const [bookLink, setBookLink] = useState<BookNoteLink | null>(
     () => initialEntrySrc?.bookLink ?? null,
   );
+  const [listItemLinks, setListItemLinks] = useState<ListItemNoteLink[]>(() =>
+    normalizeListItemNoteLinks(initialEntrySrc?.listItemLinks),
+  );
+  const [deleteListItemConfirmOpen, setDeleteListItemConfirmOpen] =
+    useState(false);
   const [subPagesCollapsed, setSubPagesCollapsed] = useState(false);
   const [branchPrompt, setBranchPrompt] =
     useState<NoteBranchActionPrompt | null>(null);
@@ -399,6 +416,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
     setCreatedId(null);
     setTagInput("");
     setMobilePropsCollapsed(false);
+    setDeleteListItemConfirmOpen(false);
     if (!target) return;
 
     if (isEntryMode) {
@@ -421,6 +439,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
       const nextNotebookId = src?.notebookId ?? null;
       const nextParentId = src?.parentId ?? null;
       const nextBookLink = src?.bookLink ?? null;
+      const nextListItemLinks = normalizeListItemNoteLinks(src?.listItemLinks);
 
       setTitle(nextTitle);
       setNoteIcon(nextNoteIcon);
@@ -436,6 +455,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
       setNotebookId(nextNotebookId);
       setParentId(nextParentId);
       setBookLink(nextBookLink);
+      setListItemLinks(nextListItemLinks);
 
       lastSavedSnapRef.current = JSON.stringify({
         title: nextTitle,
@@ -451,6 +471,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         notebookId: nextNotebookId,
         parentId: nextParentId,
         bookLink: nextBookLink,
+        listItemLinks: nextListItemLinks,
       });
     } else if (target.mode === "habit") {
       const src = existingHabit || (target.draft as Partial<Habit> | undefined);
@@ -548,6 +569,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         notebookId,
         parentId,
         bookLink,
+        listItemLinks,
       };
       const snap = JSON.stringify(snapObj);
       if (snap === lastSavedSnapRef.current) return;
@@ -571,6 +593,12 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         notebookId: target.mode === "note" ? notebookId : undefined,
         parentId: target.mode === "note" ? parentId : undefined,
         bookLink: target.mode === "note" ? bookLink : undefined,
+        listItemLinks:
+          target.mode === "note"
+            ? listItemLinks.length > 0
+              ? listItemLinks
+              : undefined
+            : undefined,
       };
 
       if (activeId) {
@@ -690,6 +718,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
     notebookId,
     parentId,
     bookLink,
+    listItemLinks,
     habitPurpose,
     habitColor,
     habitIcon,
@@ -942,7 +971,12 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
     } else if (target.mode === "habit" && activeId) {
       deleteHabit(activeId);
     } else if (target.mode === "list_item" && activeId) {
-      deleteListItem(activeId);
+      const impact = countLinkedNotesForListItems(workspace.entries, [activeId]);
+      if (impact.totalAffectedNotes > 0) {
+        setDeleteListItemConfirmOpen(true);
+        return;
+      }
+      deleteListItem(activeId, "keep");
       pushToast("List item deleted");
     }
     onClose();
@@ -1647,6 +1681,27 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                 </div>
               </PropertyRow>
             )}
+
+          {/* Linked List Items (Notes) */}
+          {target.mode === "note" && (
+            <PropertyRow
+              icon={<ListChecks className="w-3.5 h-3.5" />}
+              label="List Items"
+              alignTop
+            >
+              <ListItemLinksPicker
+                links={listItemLinks}
+                onChangeLinks={setListItemLinks}
+                onJumpToListItem={onJumpToListItem}
+                onBeforeJump={() => {
+                  if (debounceTimerRef.current) {
+                    window.clearTimeout(debounceTimerRef.current);
+                  }
+                  flushSave();
+                }}
+              />
+            </PropertyRow>
+          )}
         </div>
       );
     }
@@ -2602,6 +2657,39 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                 </div>
               )}
 
+              {/* Linked Notes Section inside List Item Canvas */}
+              {target.mode === "list_item" && (() => {
+                const liveListItem = activeId
+                  ? workspace.listItems.find((i) => i.id === activeId) || existingListItem
+                  : null;
+                if (!liveListItem) {
+                  return (
+                    <section
+                      className="pt-3 border-t"
+                      style={{ borderColor: "var(--border-subtle)" }}
+                    >
+                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                        Enter a title or content to start linking notes to this list item.
+                      </p>
+                    </section>
+                  );
+                }
+                return (
+                  <ListItemLinkedNotesSection
+                    item={liveListItem}
+                    list={currentListCollection ?? null}
+                    onBeforeJump={() => {
+                      if (debounceTimerRef.current) {
+                        window.clearTimeout(debounceTimerRef.current);
+                      }
+                      flushSave();
+                    }}
+                    onJumpToNote={onJumpToNote}
+                    onOpenDetail={onOpenDetail}
+                  />
+                );
+              })()}
+
               {/* Collapsible Inline Sub-Pages Block inside Note Canvas */}
               {target.mode === "note" && (
                 <section
@@ -2958,6 +3046,30 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
           onClose();
         }}
       />
+
+      {target.mode === "list_item" && activeId && deleteListItemConfirmOpen && (() => {
+        const impact = countLinkedNotesForListItems(workspace.entries, [activeId]);
+        return (
+          <DeleteListItemsConfirmModal
+            open={deleteListItemConfirmOpen}
+            itemCount={1}
+            itemTitle={title.trim() || "Untitled Item"}
+            exclusivelyLinkedNotesCount={impact.exclusivelyLinkedNotes}
+            sharedNotesCount={impact.sharedNotes}
+            onCancel={() => setDeleteListItemConfirmOpen(false)}
+            onConfirm={(linkedNotesBehavior) => {
+              deleteListItem(activeId, linkedNotesBehavior);
+              setDeleteListItemConfirmOpen(false);
+              pushToast(
+                linkedNotesBehavior === "delete"
+                  ? "List item and linked notes deleted"
+                  : "List item deleted",
+              );
+              onClose();
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };

@@ -7,6 +7,7 @@ import {
   FileText,
   FolderOpen,
   Library,
+  ListChecks,
   PanelLeftClose,
   Pencil,
   Plus,
@@ -24,6 +25,7 @@ export const MAX_NOTES_SIDEBAR_WIDTH = 380;
 export type NotesScope =
   | { kind: "all" }
   | { kind: "book_notes" }
+  | { kind: "list_notes" }
   | { kind: "unfiled" }
   | { kind: "archive" }
   | { kind: "notebook"; notebookId: string };
@@ -32,6 +34,7 @@ interface NotesLeftSidebarProps {
   allNotes: Entry[];
   archivedNotesCount: number;
   bookNotesCount: number;
+  listNotesCount: number;
   notebooks: NoteNotebook[];
   scope: NotesScope;
   focusedNoteId: string | null;
@@ -71,6 +74,7 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
   allNotes,
   archivedNotesCount,
   bookNotesCount,
+  listNotesCount,
   notebooks,
   scope,
   focusedNoteId,
@@ -440,6 +444,12 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
                     label: "Book Notes",
                     count: bookNotesCount,
                     icon: Library,
+                  },
+                  {
+                    kind: "list_notes" as const,
+                    label: "From Lists",
+                    count: listNotesCount,
+                    icon: ListChecks,
                   },
                   {
                     kind: "unfiled" as const,

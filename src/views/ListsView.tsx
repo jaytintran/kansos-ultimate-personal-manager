@@ -40,6 +40,7 @@ import { IconPicker } from "../components/IconPicker";
 import { NlpInputBar } from "../components/NlpInputBar";
 import { RichContent } from "../components/RichContent";
 import { ListItemInspector } from "../components/lists/ListItemInspector";
+import { DeleteListItemsConfirmModal } from "../components/lists/DeleteListItemsConfirmModal";
 import {
   buildKanbanColumnsForList,
   buildKanbanColumnsForSmartTab,
@@ -69,6 +70,7 @@ import {
   ListCollection,
   ListCollectionType,
   ListItem,
+  ListItemJumpRequest,
   ListItemStatus,
 } from "../types";
 import {
@@ -85,6 +87,7 @@ import {
   removeListItemBookLinks,
   useListItemBookLinks,
 } from "../utils/listBookLinks";
+import { countLinkedNotesForListItems } from "../utils/listItemLinks";
 import { VIEW_PREFERENCE_SYNC_EVENT } from "../utils/viewPreferences";
 
 type ListsSubTab = "items" | "notes" | "events";
@@ -297,6 +300,8 @@ interface ListsViewProps {
   onOpenDetail: (target: DetailSheetTarget) => void;
   onOpenContextMenu: (record: ContextMenuRecord, e: React.MouseEvent) => void;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
+  onJumpToNote?: (noteId: string) => void;
+  listItemJumpRequest?: ListItemJumpRequest | null;
   selectItemHandlerRef?: React.MutableRefObject<((itemId: string) => void) | null>;
   isSelectedItemRef?: React.MutableRefObject<((itemId: string) => boolean) | null>;
 }
@@ -305,6 +310,8 @@ export const ListsView: React.FC<ListsViewProps> = ({
   onOpenDetail,
   onOpenContextMenu,
   onJumpToBookLocation,
+  onJumpToNote,
+  listItemJumpRequest,
   selectItemHandlerRef,
   isSelectedItemRef,
 }) => {
@@ -318,6 +325,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
     addListItem,
     updateListItem,
     deleteListItem,
+    deleteListItems,
     reorderListItems,
     updateEntry,
   } = useWorkspace();
@@ -370,6 +378,9 @@ export const ListsView: React.FC<ListsViewProps> = ({
   // Modals: Safe delete, Attach linked entries, List Create/Edit
   const [deleteTargetList, setDeleteTargetList] =
     useState<ListCollection | null>(null);
+  const [pendingBulkDeleteIds, setPendingBulkDeleteIds] = useState<string[] | null>(
+    null,
+  );
   const [attachModalKind, setAttachModalKind] = useState<
     "notes" | "events" | null
   >(null);
@@ -394,6 +405,45 @@ export const ListsView: React.FC<ListsViewProps> = ({
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
+
+  const lastConsumedItemJumpNonceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!listItemJumpRequest) return;
+    if (lastConsumedItemJumpNonceRef.current === listItemJumpRequest.nonce) {
+      return;
+    }
+    lastConsumedItemJumpNonceRef.current = listItemJumpRequest.nonce;
+    const targetItem = workspace.listItems.find(
+      (it) => it.id === listItemJumpRequest.listItemId,
+    );
+    if (!targetItem) {
+      pushToast("Linked list item no longer exists", "neutral");
+      return;
+    }
+
+    setSearch("");
+    setLocalState((prev) => ({
+      ...prev,
+      scope: { kind: "list", listId: targetItem.listId },
+      statusFilter: "all",
+      tagFilter: "all",
+      subTab: "items",
+      rightPaneMode: "inspector",
+      selectedItemId: targetItem.id,
+      droppedCollapsed:
+        targetItem.status === "dropped" ? false : prev.droppedCollapsed,
+      collapsedGroups: {
+        ...prev.collapsedGroups,
+        [`status:${targetItem.status}`]: false,
+      },
+    }));
+
+    if (isDesktop) {
+      setPrefs((prev) => ({ ...prev, splitOpen: true }));
+    } else {
+      onOpenDetail({ mode: "list_item", id: targetItem.id });
+    }
+  }, [listItemJumpRequest, workspace.listItems, isDesktop, onOpenDetail, pushToast]);
 
   // Persist prefs (global fallback + splitOpen)
   useEffect(() => {
@@ -1119,15 +1169,32 @@ export const ListsView: React.FC<ListsViewProps> = ({
     setBulkTagOpen(false);
   };
 
-  const handleBulkDelete = () => {
-    if (selectedIds.size === 0) return;
-    const count = selectedIds.size;
-    const ids = Array.from(selectedIds);
+  const commitBulkDelete = (
+    ids: string[],
+    linkedNotesBehavior: "keep" | "delete",
+  ) => {
+    const count = ids.length;
     removeListItemBookLinks(ids);
-    ids.forEach((id) => deleteListItem(id));
-    pushToast(`Deleted ${count} ${count === 1 ? "item" : "items"}`);
+    deleteListItems(ids, linkedNotesBehavior);
+    pushToast(
+      linkedNotesBehavior === "delete"
+        ? `Deleted ${count} ${count === 1 ? "item" : "items"} & linked notes`
+        : `Deleted ${count} ${count === 1 ? "item" : "items"}`,
+    );
     setSelectedIds(new Set());
     setSelectionMode(false);
+    setPendingBulkDeleteIds(null);
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    const counts = countLinkedNotesForListItems(workspace.entries, ids);
+    if (counts.totalAffectedNotes > 0) {
+      setPendingBulkDeleteIds(ids);
+      return;
+    }
+    commitBulkDelete(ids, "keep");
   };
 
   const handleSaveListModal = (e: React.FormEvent) => {
@@ -4264,6 +4331,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
                       onOpenDetail({ mode: "list_item", id: itemId })
                     }
                     onJumpToBookLocation={onJumpToBookLocation}
+                    onJumpToNote={onJumpToNote}
                   />
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-2.5">
@@ -4358,25 +4426,64 @@ export const ListsView: React.FC<ListsViewProps> = ({
       )}
 
       {/* Safe List Delete Confirmation Modal */}
-      <DeleteListConfirmModal
-        list={deleteTargetList}
-        itemCount={
-          deleteTargetList
-            ? listItemCountsByCollection.get(deleteTargetList.id) || 0
-            : 0
-        }
-        otherLists={
-          deleteTargetList
-            ? activeLists.filter((l) => l.id !== deleteTargetList.id)
-            : []
-        }
-        onCancel={() => setDeleteTargetList(null)}
-        onDelete={(moveToId) => {
-          if (!deleteTargetList) return;
-          deleteList(deleteTargetList.id, moveToId);
-          setDeleteTargetList(null);
-        }}
-      />
+      {(() => {
+        const deleteListItemIds = deleteTargetList
+          ? workspace.listItems
+              .filter((it) => it.listId === deleteTargetList.id)
+              .map((it) => it.id)
+          : [];
+        const listLinkedStats = countLinkedNotesForListItems(
+          workspace.entries,
+          deleteListItemIds,
+        );
+        return (
+          <DeleteListConfirmModal
+            list={deleteTargetList}
+            itemCount={
+              deleteTargetList
+                ? listItemCountsByCollection.get(deleteTargetList.id) || 0
+                : 0
+            }
+            linkedNotesCount={listLinkedStats.totalAffectedNotes}
+            exclusivelyLinkedNotesCount={
+              listLinkedStats.exclusivelyLinkedNotes
+            }
+            sharedNotesCount={listLinkedStats.sharedNotes}
+            otherLists={
+              deleteTargetList
+                ? activeLists.filter((l) => l.id !== deleteTargetList.id)
+                : []
+            }
+            onCancel={() => setDeleteTargetList(null)}
+            onDelete={(moveToId, linkedNotesBehavior) => {
+              if (!deleteTargetList) return;
+              deleteList(deleteTargetList.id, moveToId, linkedNotesBehavior);
+              setDeleteTargetList(null);
+            }}
+          />
+        );
+      })()}
+
+      {/* Bulk Delete Linked Notes Confirmation Modal */}
+      {(() => {
+        const bulkCounts = pendingBulkDeleteIds
+          ? countLinkedNotesForListItems(workspace.entries, pendingBulkDeleteIds)
+          : { exclusivelyLinkedNotes: 0, sharedNotes: 0, totalAffectedNotes: 0 };
+        return (
+          <DeleteListItemsConfirmModal
+            open={Boolean(pendingBulkDeleteIds && pendingBulkDeleteIds.length > 0)}
+            itemCount={pendingBulkDeleteIds?.length ?? 0}
+            exclusivelyLinkedNotesCount={bulkCounts.exclusivelyLinkedNotes}
+            sharedNotesCount={bulkCounts.sharedNotes}
+            onCancel={() => setPendingBulkDeleteIds(null)}
+            onConfirm={(behavior) => {
+              if (pendingBulkDeleteIds) {
+                commitBulkDelete(pendingBulkDeleteIds, behavior);
+              }
+            }}
+          />
+        );
+      })()}
 
       {/* Attach Existing Notes / Events Modal */}
       <AttachLinkedEntriesModal

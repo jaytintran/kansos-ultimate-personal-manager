@@ -29,7 +29,10 @@ import {
   openExternalUrlSafely,
   setListItemBookLink,
 } from "../../utils/listBookLinks";
+import { countLinkedNotesForListItems } from "../../utils/listItemLinks";
 import { TiptapEditor } from "../TiptapEditor";
+import { DeleteListItemsConfirmModal } from "./DeleteListItemsConfirmModal";
+import { ListItemLinkedNotesSection } from "./ListItemLinkedNotesSection";
 
 const STATUS_OPTIONS: { id: ListItemStatus; label: string }[] = [
   { id: "inbox", label: "Inbox" },
@@ -96,6 +99,7 @@ interface ListItemInspectorProps {
   onClose: () => void;
   onOpenModal: (itemId: string) => void;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
+  onJumpToNote?: (noteId: string) => void;
 }
 
 function buildSnapshot(src: {
@@ -118,9 +122,11 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
   onClose,
   onOpenModal,
   onJumpToBookLocation,
+  onJumpToNote,
 }) => {
   const { workspace, updateListItem, deleteListItem, pushToast } =
     useWorkspace();
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const [title, setTitle] = useState(() => item.title ?? "");
   const [subtitle, setSubtitle] = useState(() => item.subtitle ?? "");
@@ -353,6 +359,10 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
   };
 
   const validOpenUrl = normalizeExternalUrl(url);
+  const linkedNotesCounts = useMemo(
+    () => countLinkedNotesForListItems(workspace.entries, [item.id]),
+    [workspace.entries, item.id],
+  );
 
   return (
     <div
@@ -393,6 +403,10 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
           <button
             type="button"
             onClick={() => {
+              if (linkedNotesCounts.totalAffectedNotes > 0) {
+                setDeleteConfirmOpen(true);
+                return;
+              }
               deleteListItem(item.id);
               pushToast("List item deleted");
               onClose();
@@ -761,7 +775,34 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
             onEditorReady={setEditorInstance}
           />
         </div>
+
+        {/* Linked Notes Section */}
+        <ListItemLinkedNotesSection
+          item={item}
+          list={currentListCollection}
+          onBeforeJump={flushSave}
+          onJumpToNote={onJumpToNote}
+        />
       </div>
+
+      <DeleteListItemsConfirmModal
+        open={deleteConfirmOpen}
+        itemCount={1}
+        itemTitle={title.trim() || item.title}
+        exclusivelyLinkedNotesCount={linkedNotesCounts.exclusivelyLinkedNotes}
+        sharedNotesCount={linkedNotesCounts.sharedNotes}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onConfirm={(behavior) => {
+          setDeleteConfirmOpen(false);
+          deleteListItem(item.id, behavior);
+          pushToast(
+            behavior === "delete"
+              ? "List item & linked notes deleted"
+              : "List item deleted (notes kept)",
+          );
+          onClose();
+        }}
+      />
     </div>
   );
 };

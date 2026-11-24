@@ -14,6 +14,7 @@ import {
   GitBranch,
   Hash,
   Link2,
+  ListChecks,
   Maximize2,
   Network,
   PanelLeftOpen,
@@ -28,13 +29,15 @@ import {
   getNoteAncestorChain,
   getNoteDescendantIds,
 } from "../../lib/noteGraphUtils";
-import type { BookNoteLink, Entry } from "../../types";
+import type { BookNoteLink, Entry, ListItemNoteLink } from "../../types";
 import {
   countWordsFromHtml,
   formatCompactDayHeading,
   formatTime,
   getEntryDayKey,
 } from "../../utils/date";
+import { normalizeListItemNoteLinks } from "../../utils/listItemLinks";
+import { ListItemLinksPicker } from "../lists/ListItemLinksPicker";
 import type { TimestampFieldFocus } from "../TimestampsModal";
 import { TiptapEditor, TiptapThumbToolbar } from "../TiptapEditor";
 import { NotePageIcon } from "../IconLibrary";
@@ -92,6 +95,7 @@ interface NoteTabEditorProps {
   onOpenInModal: (noteId: string) => void;
   onOpenTimestamps?: (entryId: string, focus?: TimestampFieldFocus) => void;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
+  onJumpToListItem?: (listItemId: string) => void;
   onRequestArchive: (note: Entry) => void;
   onRequestDelete: (note: Entry) => void;
   onRestoreNote: (noteId: string) => void;
@@ -108,6 +112,7 @@ function buildNoteSnapshot(src: {
   notebookId: string | null;
   parentId: string | null;
   bookLink: BookNoteLink | null;
+  listItemLinks: ListItemNoteLink[];
 }): string {
   return JSON.stringify(src);
 }
@@ -126,6 +131,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   onOpenInModal,
   onOpenTimestamps,
   onJumpToBookLocation,
+  onJumpToListItem,
   onRequestArchive,
   onRequestDelete,
   onRestoreNote,
@@ -152,6 +158,9 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   const [bookLink, setBookLink] = useState<BookNoteLink | null>(
     () => note.bookLink ?? null,
   );
+  const [listItemLinks, setListItemLinks] = useState<ListItemNoteLink[]>(() =>
+    normalizeListItemNoteLinks(note.listItemLinks),
+  );
 
   const [propsExpanded, setPropsExpanded] = useState<boolean>(loadPropsOpenPref);
   const [subPagesCollapsed, setSubPagesCollapsed] = useState(false);
@@ -175,6 +184,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
       notebookId: note.notebookId ?? null,
       parentId: note.parentId ?? null,
       bookLink: note.bookLink ?? null,
+      listItemLinks: normalizeListItemNoteLinks(note.listItemLinks),
     }),
   );
 
@@ -190,6 +200,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
     notebookId,
     parentId,
     bookLink,
+    listItemLinks,
   });
 
   latestDraftRef.current = {
@@ -204,6 +215,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
     notebookId,
     parentId,
     bookLink,
+    listItemLinks,
   };
 
   useEffect(() => {
@@ -229,6 +241,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
 
   // Sync external mutations (sidebar move, context menu pin, connection map link, modal edit)
   useEffect(() => {
+    const incomingListItemLinks = normalizeListItemNoteLinks(note.listItemLinks);
     const incomingSnap = buildNoteSnapshot({
       title: note.title ?? "",
       icon: note.icon ?? "",
@@ -240,6 +253,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
       notebookId: note.notebookId ?? null,
       parentId: note.parentId ?? null,
       bookLink: note.bookLink ?? null,
+      listItemLinks: incomingListItemLinks,
     });
     if (incomingSnap === lastSavedSnapRef.current) return;
 
@@ -254,6 +268,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
       notebookId: latestDraftRef.current.notebookId,
       parentId: latestDraftRef.current.parentId,
       bookLink: latestDraftRef.current.bookLink,
+      listItemLinks: latestDraftRef.current.listItemLinks,
     });
 
     if (currentLocalSnap === lastSavedSnapRef.current) {
@@ -268,6 +283,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
       setNotebookId(note.notebookId ?? null);
       setParentId(note.parentId ?? null);
       setBookLink(note.bookLink ?? null);
+      setListItemLinks(incomingListItemLinks);
       lastSavedSnapRef.current = incomingSnap;
     }
   }, [
@@ -282,6 +298,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
     note.notebookId,
     note.parentId,
     note.bookLink,
+    note.listItemLinks,
   ]);
 
   const flushSave = useCallback(() => {
@@ -302,6 +319,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
       notebookId: draft.notebookId,
       parentId: draft.parentId,
       bookLink: draft.bookLink,
+      listItemLinks: draft.listItemLinks,
     });
     if (snap === lastSavedSnapRef.current) {
       setSaveState("saved");
@@ -319,6 +337,8 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
       notebookId: draft.notebookId,
       parentId: draft.parentId,
       bookLink: draft.bookLink,
+      listItemLinks:
+        draft.listItemLinks.length > 0 ? draft.listItemLinks : undefined,
     });
     lastSavedSnapRef.current = snap;
     setSaveState("saved");
@@ -337,6 +357,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
       notebookId,
       parentId,
       bookLink,
+      listItemLinks,
     });
     if (currentSnap === lastSavedSnapRef.current) return;
 
@@ -362,6 +383,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
     notebookId,
     parentId,
     bookLink,
+    listItemLinks,
     flushSave,
   ]);
 
@@ -820,6 +842,11 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
                   {bookLink && (
                     <span className="truncate max-w-[160px]" style={{ color: "var(--accent)" }}>
                       · {linkedBook ? linkedBook.title : bookLink.bookTitle}
+                    </span>
+                  )}
+                  {listItemLinks.length > 0 && (
+                    <span className="truncate max-w-[160px]" style={{ color: "var(--accent)" }}>
+                      · {listItemLinks.length} list {listItemLinks.length === 1 ? "item" : "items"}
                     </span>
                   )}
                   {tags.length > 0 && (
@@ -1338,6 +1365,25 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
                     </div>
                   </PropertyRow>
                 )}
+
+                {/* Linked List Items */}
+                <PropertyRow
+                  icon={<ListChecks className="w-3.5 h-3.5" />}
+                  label="List Items"
+                  alignTop
+                >
+                  <ListItemLinksPicker
+                    links={listItemLinks}
+                    onChangeLinks={setListItemLinks}
+                    onJumpToListItem={onJumpToListItem}
+                    onBeforeJump={() => {
+                      if (debounceTimerRef.current) {
+                        window.clearTimeout(debounceTimerRef.current);
+                      }
+                      flushSave();
+                    }}
+                  />
+                </PropertyRow>
               </div>
             )}
           </section>

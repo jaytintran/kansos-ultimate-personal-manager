@@ -10,6 +10,7 @@ import {
   GripVertical,
   LayoutGrid,
   Library,
+  ListChecks,
   List as ListIcon,
   MoreVertical,
   Network,
@@ -56,6 +57,9 @@ import {
   ContextMenuRecord,
   DetailSheetTarget,
   Entry,
+  ListCollection,
+  ListItem,
+  NoteJumpRequest,
   NoteNotebook,
 } from "../types";
 import {
@@ -89,6 +93,7 @@ function isValidNotesScope(raw: unknown): raw is NotesScope {
   if (
     candidate.kind === "all" ||
     candidate.kind === "book_notes" ||
+    candidate.kind === "list_notes" ||
     candidate.kind === "unfiled" ||
     candidate.kind === "archive"
   ) {
@@ -164,6 +169,8 @@ interface NotesViewProps {
   onOpenDetail: (target: DetailSheetTarget) => void;
   onOpenContextMenu: (record: ContextMenuRecord, e: React.MouseEvent) => void;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
+  onJumpToListItem?: (listItemId: string) => void;
+  noteJumpRequest?: NoteJumpRequest | null;
   onOpenTimestamps?: (entryId: string, focus?: TimestampFieldFocus) => void;
 }
 
@@ -171,6 +178,8 @@ export const NotesView: React.FC<NotesViewProps> = ({
   onOpenDetail,
   onOpenContextMenu,
   onJumpToBookLocation,
+  onJumpToListItem,
+  noteJumpRequest,
   onOpenTimestamps,
 }) => {
   const {
@@ -409,6 +418,18 @@ export const NotesView: React.FC<NotesViewProps> = ({
     return map;
   }, [workspace.books]);
 
+  const listById = useMemo(() => {
+    const map = new Map<string, ListCollection>();
+    (workspace.lists || []).forEach((l) => map.set(l.id, l));
+    return map;
+  }, [workspace.lists]);
+
+  const listItemById = useMemo(() => {
+    const map = new Map<string, ListItem>();
+    (workspace.listItems || []).forEach((it) => map.set(it.id, it));
+    return map;
+  }, [workspace.listItems]);
+
   const allNotes = useMemo(
     () => workspace.entries.filter((e) => e.type === "note" && !e.archived),
     [workspace.entries],
@@ -507,6 +528,11 @@ export const NotesView: React.FC<NotesViewProps> = ({
     [allNotes],
   );
 
+  const listNotes = useMemo(
+    () => allNotes.filter((n) => (n.listItemLinks || []).length > 0),
+    [allNotes],
+  );
+
   const notebookCounts = useMemo(() => {
     const counts = new Map<string, number>();
     let unfiled = 0;
@@ -524,13 +550,14 @@ export const NotesView: React.FC<NotesViewProps> = ({
     if (scope.kind === "archive") return archivedNotes;
     if (scope.kind === "all") return allNotes;
     if (scope.kind === "book_notes") return bookNotes;
+    if (scope.kind === "list_notes") return listNotes;
     if (scope.kind === "unfiled") {
       return allNotes.filter(
         (n) => !n.notebookId || !notebookMap.has(n.notebookId),
       );
     }
     return allNotes.filter((n) => n.notebookId === scope.notebookId);
-  }, [allNotes, archivedNotes, bookNotes, scope, notebookMap]);
+  }, [allNotes, archivedNotes, bookNotes, listNotes, scope, notebookMap]);
 
   const scopeTags = useMemo(() => {
     const set = new Set<string>();
@@ -579,20 +606,39 @@ export const NotesView: React.FC<NotesViewProps> = ({
           return false;
 
         if (q) {
+          const matchesListItemLinks = (note.listItemLinks || []).some((l) => {
+            const liveItem = l.listItemId
+              ? listItemById.get(l.listItemId)
+              : undefined;
+            const liveList = liveItem
+              ? listById.get(liveItem.listId)
+              : l.listId
+                ? listById.get(l.listId)
+                : undefined;
+            return (
+              l.itemTitle.toLowerCase().includes(q) ||
+              Boolean(liveItem?.title.toLowerCase().includes(q)) ||
+              Boolean(l.listTitle?.toLowerCase().includes(q)) ||
+              Boolean(liveList?.title.toLowerCase().includes(q)) ||
+              Boolean(l.quote?.toLowerCase().includes(q))
+            );
+          });
           return (
             note.title.toLowerCase().includes(q) ||
             note.content.toLowerCase().includes(q) ||
             (note.tags || []).some((t) => t.toLowerCase().includes(q)) ||
             Boolean(note.bookLink?.bookTitle.toLowerCase().includes(q)) ||
             Boolean(note.bookLink?.bookAuthor?.toLowerCase().includes(q)) ||
-            Boolean(note.bookLink?.locationLabel.toLowerCase().includes(q))
+            Boolean(note.bookLink?.locationLabel.toLowerCase().includes(q)) ||
+            matchesListItemLinks
           );
         }
 
-        // Hierarchy filtering when not searching/tag-filtering & not in book_notes/archive
+        // Hierarchy filtering when not searching/tag-filtering & not in book_notes/list_notes/archive
         if (
           !hasActiveSearchOrTag &&
           scope.kind !== "book_notes" &&
+          scope.kind !== "list_notes" &&
           scope.kind !== "archive"
         ) {
           if (drilledParentId) {
@@ -635,6 +681,8 @@ export const NotesView: React.FC<NotesViewProps> = ({
     drilledParentId,
     sortBy,
     customNoteOrderCompare,
+    listItemById,
+    listById,
   ]);
 
   const groupedBookNotes = useMemo(() => {
@@ -674,6 +722,63 @@ export const NotesView: React.FC<NotesViewProps> = ({
     return Array.from(groups.values());
   }, [scope.kind, filteredNotes, bookById]);
 
+  const groupedListNotes = useMemo(() => {
+    if (scope.kind !== "list_notes") return [];
+    const groups = new Map<
+      string,
+      {
+        key: string;
+        liveItem: ListItem | null;
+        liveList: ListCollection | null;
+        itemTitle: string;
+        listTitle?: string;
+        listColor?: string;
+        isRemoved: boolean;
+        notes: Array<{ note: Entry; quote?: string }>;
+        seenNoteIds: Set<string>;
+      }
+    >();
+
+    for (const note of filteredNotes) {
+      for (const link of note.listItemLinks || []) {
+        const liveItem = link.listItemId
+          ? listItemById.get(link.listItemId) ?? null
+          : null;
+        const liveList = liveItem
+          ? listById.get(liveItem.listId) ?? null
+          : link.listId
+            ? listById.get(link.listId) ?? null
+            : null;
+        const isRemoved = !liveItem || Boolean(link.itemRemoved);
+        const itemTitle = liveItem?.title || link.itemTitle || "Untitled Item";
+        const groupKey = liveItem
+          ? `live:${liveItem.id}`
+          : `removed:${link.listId || ""}:${itemTitle.toLowerCase()}`;
+        let group = groups.get(groupKey);
+        if (!group) {
+          group = {
+            key: groupKey,
+            liveItem,
+            liveList,
+            itemTitle,
+            listTitle: liveList?.title || link.listTitle,
+            listColor: liveList?.color || link.listColor,
+            isRemoved,
+            notes: [],
+            seenNoteIds: new Set<string>(),
+          };
+          groups.set(groupKey, group);
+        }
+        if (!group.seenNoteIds.has(note.id)) {
+          group.seenNoteIds.add(note.id);
+          group.notes.push({ note, quote: link.quote });
+        }
+      }
+    }
+
+    return Array.from(groups.values());
+  }, [scope.kind, filteredNotes, listItemById, listById]);
+
   const handleSelectScope = useCallback((nextScope: NotesScope) => {
     setScope(nextScope);
     setDrilledParentId(null);
@@ -691,6 +796,24 @@ export const NotesView: React.FC<NotesViewProps> = ({
     },
     [anyNoteById],
   );
+
+  const lastConsumedNoteJumpNonceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!noteJumpRequest) return;
+    if (lastConsumedNoteJumpNonceRef.current === noteJumpRequest.nonce) return;
+    lastConsumedNoteJumpNonceRef.current = noteJumpRequest.nonce;
+    if (!anyNoteById.has(noteJumpRequest.noteId)) {
+      pushToast("Linked note no longer exists", "neutral");
+      return;
+    }
+    setFocusedNoteId(noteJumpRequest.noteId);
+    setOpenTabIds((prev) =>
+      prev.includes(noteJumpRequest.noteId)
+        ? prev
+        : [...prev, noteJumpRequest.noteId],
+    );
+    setActiveTabId(noteJumpRequest.noteId);
+  }, [noteJumpRequest, anyNoteById, pushToast]);
 
   const handleCloseNoteTab = useCallback(
     (noteId: string) => {
@@ -986,11 +1109,13 @@ export const NotesView: React.FC<NotesViewProps> = ({
     ? activeNotebook.name
     : scope.kind === "book_notes"
       ? "Book Notes"
-      : scope.kind === "unfiled"
-        ? "Unfiled Notes"
-        : scope.kind === "archive"
-          ? "Archived Notes"
-          : "Notes";
+      : scope.kind === "list_notes"
+        ? "From Lists"
+        : scope.kind === "unfiled"
+          ? "Unfiled Notes"
+          : scope.kind === "archive"
+            ? "Archived Notes"
+            : "Notes";
 
   const homeTabMeta = useMemo(() => {
     if (drilledParentNote) {
@@ -1008,6 +1133,8 @@ export const NotesView: React.FC<NotesViewProps> = ({
     switch (scope.kind) {
       case "book_notes":
         return { label: "Book Notes", icon: "Library" };
+      case "list_notes":
+        return { label: "From Lists", icon: "ListChecks" };
       case "unfiled":
         return { label: "Unfiled Notes", icon: "FolderOpen" };
       case "archive":
@@ -1025,6 +1152,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
         allNotes={allNotes}
         archivedNotesCount={archivedNotes.length}
         bookNotesCount={bookNotes.length}
+        listNotesCount={listNotes.length}
         notebooks={notebooks}
         scope={scope}
         focusedNoteId={focusedNoteId}
@@ -1100,6 +1228,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
             }
             onOpenTimestamps={onOpenTimestamps}
             onJumpToBookLocation={onJumpToBookLocation}
+            onJumpToListItem={onJumpToListItem}
             onRequestArchive={(n) => requestDeleteOrArchiveNote(n, "archive")}
             onRequestDelete={(n) => requestDeleteOrArchiveNote(n, "delete")}
             onRestoreNote={(noteId) => {
@@ -1336,6 +1465,40 @@ export const NotesView: React.FC<NotesViewProps> = ({
               </span>
               <span className="font-mono tabular-nums text-[11px] opacity-75">
                 {bookNotes.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSelectScope({ kind: "list_notes" })}
+              className="h-10 px-3 inline-flex items-center gap-2 text-xs font-medium shrink-0 border-b-2 transition-colors whitespace-nowrap"
+              style={{
+                borderColor:
+                  scope.kind === "list_notes" ? "var(--accent)" : "transparent",
+                color:
+                  scope.kind === "list_notes"
+                    ? "var(--text-primary)"
+                    : "var(--text-secondary)",
+                backgroundColor:
+                  scope.kind === "list_notes"
+                    ? "var(--accent-soft)"
+                    : "transparent",
+              }}
+            >
+              <ListChecks
+                className="w-3.5 h-3.5 shrink-0"
+                style={{
+                  color:
+                    scope.kind === "list_notes"
+                      ? "var(--accent)"
+                      : "var(--text-muted)",
+                }}
+              />
+              <span className={scope.kind === "list_notes" ? "font-semibold" : ""}>
+                From Lists
+              </span>
+              <span className="font-mono tabular-nums text-[11px] opacity-75">
+                {listNotes.length}
               </span>
             </button>
 
@@ -1616,9 +1779,11 @@ export const NotesView: React.FC<NotesViewProps> = ({
                     ? `Search in ${activeNotebook.name}...`
                     : scope.kind === "book_notes"
                       ? "Search book notes, titles, or pages..."
-                      : scope.kind === "archive"
-                        ? "Search archived notes..."
-                        : "Search all notes & sub-pages..."
+                      : scope.kind === "list_notes"
+                        ? "Search list-linked notes, items, or quotes..."
+                        : scope.kind === "archive"
+                          ? "Search archived notes..."
+                          : "Search all notes & sub-pages..."
                 }
                 className="flex-1 min-w-0 bg-transparent text-xs outline-none"
                 style={{ color: "var(--text-primary)" }}
@@ -1745,7 +1910,11 @@ export const NotesView: React.FC<NotesViewProps> = ({
 
           {/* Notes Content */}
           {(() => {
-            const renderGridCard = (note: Entry, compactBookLocationOnly = false) => {
+            const renderGridCard = (
+              note: Entry,
+              compactBookLocationOnly = false,
+              listGroupContext?: { itemId?: string; quote?: string },
+            ) => {
               const words = countWordsFromHtml(note.content);
               const updatedDay = formatCompactDayHeading(
                 toLocalDateKey(note.updatedAt || note.createdAt),
@@ -1761,6 +1930,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
               const link = note.bookLink ?? null;
               const liveLinkedBook =
                 link?.bookId ? bookById.get(link.bookId) ?? null : null;
+              const itemLinks = note.listItemLinks || [];
 
               return (
                 <article
@@ -2116,6 +2286,109 @@ export const NotesView: React.FC<NotesViewProps> = ({
                       )
                     )}
 
+                    {listGroupContext?.quote && (
+                      <blockquote
+                        className="border-l-2 pl-2 text-[11px] italic line-clamp-2"
+                        style={{
+                          borderColor: "var(--accent)",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        “{listGroupContext.quote}”
+                      </blockquote>
+                    )}
+
+                    {itemLinks.length > 0 && !listGroupContext && (
+                      itemLinks.length > 3 ? (
+                        <div
+                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium max-w-full"
+                          style={{
+                            backgroundColor: "var(--accent-soft)",
+                            color: "var(--accent)",
+                          }}
+                          title={itemLinks
+                            .map((l) => {
+                              const live = l.listItemId
+                                ? listItemById.get(l.listItemId)
+                                : undefined;
+                              return live?.title || l.itemTitle;
+                            })
+                            .join(", ")}
+                        >
+                          <ListChecks className="w-3 h-3 shrink-0" />
+                          <span className="font-mono tabular-nums">
+                            {itemLinks.length} linked list items
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-1">
+                          {itemLinks.map((itemLink, idx) => {
+                            const liveItem = itemLink.listItemId
+                              ? listItemById.get(itemLink.listItemId) ?? null
+                              : null;
+                            const liveList = liveItem
+                              ? listById.get(liveItem.listId) ?? null
+                              : itemLink.listId
+                                ? listById.get(itemLink.listId) ?? null
+                                : null;
+                            const isRemoved = !liveItem || Boolean(itemLink.itemRemoved);
+                            const title =
+                              liveItem?.title || itemLink.itemTitle || "Untitled Item";
+                            const listName = liveList?.title || itemLink.listTitle;
+                            const listColor = liveList?.color || itemLink.listColor;
+
+                            return !isRemoved && liveItem && onJumpToListItem ? (
+                              <button
+                                key={itemLink.listItemId || idx}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onJumpToListItem(liveItem.id);
+                                }}
+                                title={`Open "${title}" in Lists`}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[11px] font-medium max-w-full hover:border-[var(--accent)] transition-colors cursor-pointer"
+                                style={{
+                                  backgroundColor: "var(--bg-surface-subtle)",
+                                  borderColor: "var(--border-subtle)",
+                                  color: "var(--text-primary)",
+                                }}
+                              >
+                                {listColor && (
+                                  <span
+                                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                                    style={{ backgroundColor: listColor }}
+                                  />
+                                )}
+                                <span className="truncate max-w-[170px]">
+                                  {listName ? `${listName} · ${title}` : title}
+                                </span>
+                                <ArrowUpRight
+                                  className="w-3 h-3 shrink-0"
+                                  style={{ color: "var(--accent)" }}
+                                />
+                              </button>
+                            ) : (
+                              <span
+                                key={itemLink.listItemId || `removed-${idx}`}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[11px] max-w-full"
+                                style={{
+                                  backgroundColor: "var(--bg-surface-subtle)",
+                                  borderColor: "var(--border-subtle)",
+                                  color: "var(--text-muted)",
+                                }}
+                              >
+                                <ListChecks className="w-3 h-3 shrink-0 opacity-75" />
+                                <span className="truncate max-w-[170px]">
+                                  {title}
+                                  {isRemoved ? " (Removed)" : ""}
+                                </span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )
+                    )}
+
                     {/* Unified Bottom Hairline Monospace Metadata Footer */}
                     <div
                       className="pt-2 border-t text-[11px] font-mono tabular-nums truncate"
@@ -2138,7 +2411,11 @@ export const NotesView: React.FC<NotesViewProps> = ({
               );
             };
 
-            const renderListRow = (note: Entry, compactBookLocationOnly = false) => {
+            const renderListRow = (
+              note: Entry,
+              compactBookLocationOnly = false,
+              listGroupContext?: { itemId?: string; quote?: string },
+            ) => {
               const words = countWordsFromHtml(note.content);
               const updatedDay = formatCompactDayHeading(
                 toLocalDateKey(note.updatedAt || note.createdAt),
@@ -2155,6 +2432,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
               const link = note.bookLink ?? null;
               const liveLinkedBook =
                 link?.bookId ? bookById.get(link.bookId) ?? null : null;
+              const itemLinks = note.listItemLinks || [];
 
               return (
                 <div
@@ -2352,13 +2630,22 @@ export const NotesView: React.FC<NotesViewProps> = ({
                         <span>{subCount}</span>
                       </button>
                     )}
-                    {plainSnippet && (
+                    {listGroupContext?.quote ? (
                       <span
-                        className="hidden md:inline text-xs truncate flex-1"
+                        className="hidden md:inline text-xs italic truncate flex-1"
                         style={{ color: "var(--text-muted)" }}
                       >
-                        — {plainSnippet}
+                        — “{listGroupContext.quote}”
                       </span>
+                    ) : (
+                      plainSnippet && (
+                        <span
+                          className="hidden md:inline text-xs truncate flex-1"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          — {plainSnippet}
+                        </span>
+                      )
                     )}
                   </div>
 
@@ -2393,6 +2680,61 @@ export const NotesView: React.FC<NotesViewProps> = ({
                               : `${link.bookTitle} (Removed)`}
                           </span>
                         </span>
+                      )
+                    )}
+
+                    {itemLinks.length > 0 && !listGroupContext && (
+                      itemLinks.length > 3 ? (
+                        <span
+                          className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-mono tabular-nums"
+                          style={{
+                            backgroundColor: "var(--accent-soft)",
+                            color: "var(--accent)",
+                          }}
+                        >
+                          <ListChecks className="w-3 h-3 shrink-0" />
+                          <span>{itemLinks.length} items</span>
+                        </span>
+                      ) : (
+                        <div className="hidden sm:flex items-center gap-1 max-w-[260px]">
+                          {itemLinks.map((itemLink, idx) => {
+                            const liveItem = itemLink.listItemId
+                              ? listItemById.get(itemLink.listItemId) ?? null
+                              : null;
+                            const title =
+                              liveItem?.title || itemLink.itemTitle || "Untitled Item";
+                            const isRemoved = !liveItem || Boolean(itemLink.itemRemoved);
+                            return !isRemoved && liveItem && onJumpToListItem ? (
+                              <button
+                                key={itemLink.listItemId || idx}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onJumpToListItem(liveItem.id);
+                                }}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium hover:underline truncate max-w-[120px] cursor-pointer"
+                                style={{
+                                  backgroundColor: "var(--bg-surface-subtle)",
+                                  color: "var(--accent)",
+                                }}
+                              >
+                                <ListChecks className="w-3 h-3 shrink-0" />
+                                <span className="truncate">{title}</span>
+                              </button>
+                            ) : (
+                              <span
+                                key={itemLink.listItemId || `removed-${idx}`}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] truncate max-w-[120px]"
+                                style={{
+                                  backgroundColor: "var(--bg-surface-subtle)",
+                                  color: "var(--text-muted)",
+                                }}
+                              >
+                                <span className="truncate">{title}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
                       )
                     )}
 
@@ -2484,15 +2826,132 @@ export const NotesView: React.FC<NotesViewProps> = ({
                             ? bookNotes.length === 0
                               ? "No book-linked notes yet"
                               : "No matching book notes"
-                            : "No matching notes"}
+                            : scope.kind === "list_notes"
+                              ? listNotes.length === 0
+                                ? "No list-linked notes yet"
+                                : "No matching list notes"
+                              : "No matching notes"}
                   </p>
                   <p className="text-xs max-w-md mx-auto">
                     {scope.kind === "book_notes" && bookNotes.length === 0
                       ? "Open any book in Library and write notes inside the Study Studio panel, or link any existing note to a book from its Details modal."
-                      : scope.kind === "archive"
-                        ? "Archived notes appear here so you can restore or remove them anytime."
-                        : "Create a fresh note or adjust your notebook, search, and tag filters."}
+                      : scope.kind === "list_notes" && listNotes.length === 0
+                        ? "Open any item in Lists and create or attach notes, or link existing notes to list items from Note Properties."
+                        : scope.kind === "archive"
+                          ? "Archived notes appear here so you can restore or remove them anytime."
+                          : "Create a fresh note or adjust your notebook, search, and tag filters."}
                   </p>
+                </div>
+              );
+            }
+
+            if (scope.kind === "list_notes") {
+              return (
+                <div className="space-y-6">
+                  {groupedListNotes.map((group) => (
+                    <section
+                      key={group.key}
+                      className="space-y-3 pb-4 border-b last:border-b-0"
+                      style={{ borderColor: "var(--border-subtle)" }}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className="w-8 h-8 rounded-lg border flex items-center justify-center shrink-0"
+                            style={{
+                              backgroundColor: "var(--bg-surface-subtle)",
+                              borderColor: "var(--border-subtle)",
+                              color: group.isRemoved
+                                ? "var(--text-muted)"
+                                : "var(--accent)",
+                            }}
+                          >
+                            <ListChecks className="w-4 h-4" />
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex items-baseline gap-2 min-w-0">
+                              <h2
+                                className="font-display text-sm font-semibold truncate"
+                                style={{ color: "var(--text-primary)" }}
+                              >
+                                {group.itemTitle}
+                              </h2>
+                              <span
+                                className="text-xs font-mono tabular-nums shrink-0"
+                                style={{ color: "var(--text-muted)" }}
+                              >
+                                {group.notes.length}{" "}
+                                {group.notes.length === 1 ? "note" : "notes"}
+                              </span>
+                            </div>
+                            <div
+                              className="text-xs truncate flex items-center gap-1.5"
+                              style={{ color: "var(--text-muted)" }}
+                            >
+                              {group.listTitle && (
+                                <span className="inline-flex items-center gap-1.5 truncate">
+                                  <span
+                                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                                    style={{
+                                      backgroundColor:
+                                        group.listColor || "var(--accent)",
+                                    }}
+                                  />
+                                  <span className="truncate">{group.listTitle}</span>
+                                </span>
+                              )}
+                              {group.isRemoved && (
+                                <>
+                                  {group.listTitle && <span aria-hidden="true">·</span>}
+                                  <span>Removed from lists</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {!group.isRemoved && group.liveItem && onJumpToListItem && (
+                          <button
+                            type="button"
+                            onClick={() => onJumpToListItem(group.liveItem!.id)}
+                            className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] whitespace-nowrap shrink-0 cursor-pointer"
+                            style={{
+                              backgroundColor: "var(--bg-surface)",
+                              borderColor: "var(--border-subtle)",
+                              color: "var(--text-primary)",
+                            }}
+                          >
+                            <ListChecks className="w-3.5 h-3.5" />
+                            <span>Open Item</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {viewMode === "grid" ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {group.notes.map(({ note, quote }) =>
+                            renderGridCard(note, false, {
+                              itemId: group.liveItem?.id,
+                              quote,
+                            }),
+                          )}
+                        </div>
+                      ) : (
+                        <div
+                          className="divide-y border-y"
+                          style={{ borderColor: "var(--border-subtle)" }}
+                        >
+                          {group.notes.map(({ note, quote }) =>
+                            renderListRow(note, false, {
+                              itemId: group.liveItem?.id,
+                              quote,
+                            }),
+                          )}
+                        </div>
+                      )}
+                    </section>
+                  ))}
                 </div>
               );
             }

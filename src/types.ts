@@ -65,6 +65,26 @@ export interface BookJumpRequest {
   nonce: number;
 }
 
+export interface ListItemNoteLink {
+  listItemId: string | null;
+  itemTitle: string;
+  listId?: string;
+  listTitle?: string;
+  listColor?: string;
+  quote?: string;
+  itemRemoved?: boolean;
+}
+
+export interface NoteJumpRequest {
+  noteId: string;
+  nonce: number;
+}
+
+export interface ListItemJumpRequest {
+  listItemId: string;
+  nonce: number;
+}
+
 export interface Entry {
   id: string;
   type: EntryType;
@@ -101,6 +121,7 @@ export interface Entry {
   editorWidth?: NoteEditorWidth;
   editorFont?: NoteEditorFont;
   bookLink?: BookNoteLink | null;
+  listItemLinks?: ListItemNoteLink[];
   updatedAt?: string;
 }
 

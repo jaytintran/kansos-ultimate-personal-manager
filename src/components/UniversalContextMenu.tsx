@@ -18,6 +18,8 @@ import { useWorkspace } from '../context/WorkspaceContext';
 import { getNoteDescendantIds } from '../lib/noteGraphUtils';
 import { ContextMenuRecord, DetailSheetTarget } from '../types';
 import { addDaysToKey, getTodayKey } from '../utils/date';
+import { countLinkedNotesForListItems } from '../utils/listItemLinks';
+import { DeleteListItemsConfirmModal } from './lists/DeleteListItemsConfirmModal';
 import {
   NoteBranchActionPrompt,
   NoteDeleteBranchModal,
@@ -62,6 +64,12 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
   const [subPanel, setSubPanel] = useState<'none' | 'reschedule' | 'tags'>('none');
   const [tagDraft, setTagDraft] = useState('');
   const [branchPrompt, setBranchPrompt] = useState<NoteBranchActionPrompt | null>(null);
+  const [pendingListItemDelete, setPendingListItemDelete] = useState<{
+    id: string;
+    title: string;
+    exclusivelyLinkedNotesCount: number;
+    sharedNotesCount: number;
+  } | null>(null);
 
   useEffect(() => {
     setSubPanel('none');
@@ -81,20 +89,36 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [state, subPanel, onClose]);
 
-  const branchModal = (
-    <NoteDeleteBranchModal
-      prompt={branchPrompt}
-      onCancel={() => setBranchPrompt(null)}
-      onChoose={(mode) => {
-        if (branchPrompt) {
-          deleteNotePage(branchPrompt.noteId, mode);
-        }
-        setBranchPrompt(null);
-      }}
-    />
+  const modals = (
+    <>
+      <NoteDeleteBranchModal
+        prompt={branchPrompt}
+        onCancel={() => setBranchPrompt(null)}
+        onChoose={(mode) => {
+          if (branchPrompt) {
+            deleteNotePage(branchPrompt.noteId, mode);
+          }
+          setBranchPrompt(null);
+        }}
+      />
+      {pendingListItemDelete && (
+        <DeleteListItemsConfirmModal
+          open={Boolean(pendingListItemDelete)}
+          itemCount={1}
+          itemTitle={pendingListItemDelete.title}
+          exclusivelyLinkedNotesCount={pendingListItemDelete.exclusivelyLinkedNotesCount}
+          sharedNotesCount={pendingListItemDelete.sharedNotesCount}
+          onCancel={() => setPendingListItemDelete(null)}
+          onConfirm={(linkedNotesBehavior) => {
+            deleteListItem(pendingListItemDelete.id, linkedNotesBehavior);
+            setPendingListItemDelete(null);
+          }}
+        />
+      )}
+    </>
   );
 
-  if (!state) return branchModal;
+  if (!state) return modals;
 
   const { record } = state;
   // Pull fresh entity from workspace so inline tag edits stay live
@@ -190,7 +214,18 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
         deleteEntry(freshEntry.id);
       }
     } else if (freshListItem) {
-      deleteListItem(freshListItem.id);
+      const impact = countLinkedNotesForListItems(workspace.entries, [freshListItem.id]);
+      if (impact.totalAffectedNotes > 0) {
+        setPendingListItemDelete({
+          id: freshListItem.id,
+          title: freshListItem.title || 'Untitled Item',
+          exclusivelyLinkedNotesCount: impact.exclusivelyLinkedNotes,
+          sharedNotesCount: impact.sharedNotes,
+        });
+        onClose();
+        return;
+      }
+      deleteListItem(freshListItem.id, 'keep');
     }
     onClose();
   };
@@ -551,7 +586,7 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
         </div>
         {menuContent}
       </div>
-      {branchModal}
+      {modals}
     </div>
   );
 };

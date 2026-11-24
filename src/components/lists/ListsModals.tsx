@@ -23,14 +23,23 @@ export type ListsSortMode = "custom" | "newest" | "oldest" | "title";
 interface DeleteListConfirmModalProps {
   list: ListCollection | null;
   itemCount: number;
+  linkedNotesCount?: number;
+  exclusivelyLinkedNotesCount?: number;
+  sharedNotesCount?: number;
   otherLists: ListCollection[];
   onCancel: () => void;
-  onDelete: (moveItemsToListId?: string) => void;
+  onDelete: (
+    moveItemsToListId?: string,
+    linkedNotesBehavior?: "keep" | "delete",
+  ) => void;
 }
 
 export const DeleteListConfirmModal: React.FC<DeleteListConfirmModalProps> = ({
   list,
   itemCount,
+  linkedNotesCount = 0,
+  exclusivelyLinkedNotesCount = 0,
+  sharedNotesCount = 0,
   otherLists,
   onCancel,
   onDelete,
@@ -44,6 +53,8 @@ export const DeleteListConfirmModal: React.FC<DeleteListConfirmModalProps> = ({
   }, [list?.id, otherLists]);
 
   if (!list) return null;
+
+  const hasLinkedNotesToDecide = itemCount > 0 && linkedNotesCount > 0;
 
   return (
     <div
@@ -100,6 +111,34 @@ export const DeleteListConfirmModal: React.FC<DeleteListConfirmModalProps> = ({
           </button>
         </div>
 
+        {hasLinkedNotesToDecide && (
+          <div
+            className="rounded-xl border p-3 space-y-1"
+            style={{
+              backgroundColor: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
+            }}
+          >
+            <p
+              className="text-xs leading-relaxed"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {linkedNotesCount === 1
+                ? "1 note is linked to items in this list."
+                : `${linkedNotesCount} notes are linked to items in this list.`}{" "}
+              Move items to preserve them, or choose whether to keep or delete
+              linked notes if deleting everything.
+            </p>
+            {sharedNotesCount > 0 && exclusivelyLinkedNotesCount >= 0 && (
+              <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                {sharedNotesCount}{" "}
+                {sharedNotesCount === 1 ? "note is" : "notes are"} shared with
+                other items or books and will keep those other links.
+              </p>
+            )}
+          </div>
+        )}
+
         {itemCount > 0 && otherLists.length > 0 && (
           <div
             className="rounded-xl border p-3 space-y-2.5"
@@ -135,7 +174,7 @@ export const DeleteListConfirmModal: React.FC<DeleteListConfirmModalProps> = ({
               <button
                 type="button"
                 disabled={!targetListId}
-                onClick={() => onDelete(targetListId)}
+                onClick={() => onDelete(targetListId, "keep")}
                 className="h-8 px-3 rounded-lg text-xs font-semibold shrink-0 disabled:opacity-40 cursor-pointer"
                 style={{
                   backgroundColor: "var(--accent)",
@@ -148,7 +187,7 @@ export const DeleteListConfirmModal: React.FC<DeleteListConfirmModalProps> = ({
           </div>
         )}
 
-        <div className="flex items-center justify-end gap-2 pt-1">
+        <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
           <button
             type="button"
             onClick={onCancel}
@@ -161,21 +200,49 @@ export const DeleteListConfirmModal: React.FC<DeleteListConfirmModalProps> = ({
           >
             Cancel
           </button>
-          <button
-            type="button"
-            onClick={() => onDelete(undefined)}
-            className="h-8 px-3.5 rounded-lg text-xs font-semibold cursor-pointer"
-            style={{
-              backgroundColor: "var(--danger)",
-              color: "#ffffff",
-            }}
-          >
-            {itemCount > 0
-              ? `Delete List & ${itemCount} ${
-                  itemCount === 1 ? "Item" : "Items"
-                }`
-              : "Delete List"}
-          </button>
+          {hasLinkedNotesToDecide ? (
+            <>
+              <button
+                type="button"
+                onClick={() => onDelete(undefined, "keep")}
+                className="h-8 px-3 rounded-lg border text-xs font-semibold cursor-pointer"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-strong)",
+                  color: "var(--text-primary)",
+                }}
+              >
+                Keep Notes &amp; Delete List
+              </button>
+              <button
+                type="button"
+                onClick={() => onDelete(undefined, "delete")}
+                className="h-8 px-3.5 rounded-lg text-xs font-semibold cursor-pointer"
+                style={{
+                  backgroundColor: "var(--danger)",
+                  color: "#ffffff",
+                }}
+              >
+                Delete List &amp; Notes
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onDelete(undefined, "keep")}
+              className="h-8 px-3.5 rounded-lg text-xs font-semibold cursor-pointer"
+              style={{
+                backgroundColor: "var(--danger)",
+                color: "#ffffff",
+              }}
+            >
+              {itemCount > 0
+                ? `Delete List & ${itemCount} ${
+                    itemCount === 1 ? "Item" : "Items"
+                  }`
+                : "Delete List"}
+            </button>
+          )}
         </div>
       </div>
     </div>
