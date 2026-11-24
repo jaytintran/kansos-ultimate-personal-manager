@@ -10,6 +10,7 @@ import {
   GripVertical,
   LayoutGrid,
   Library,
+  Link2,
   ListChecks,
   List as ListIcon,
   MoreVertical,
@@ -1918,7 +1919,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
           {(() => {
             const renderGridCard = (
               note: Entry,
-              compactBookLocationOnly = false,
+              _compactBookLocationOnly = false,
               listGroupContext?: { itemId?: string; quote?: string },
             ) => {
               const words = countWordsFromHtml(note.content);
@@ -1937,6 +1938,29 @@ export const NotesView: React.FC<NotesViewProps> = ({
               const liveLinkedBook =
                 link?.bookId ? bookById.get(link.bookId) ?? null : null;
               const itemLinks = note.listItemLinks || [];
+              const totalLinksCount = (link ? 1 : 0) + itemLinks.length;
+              const linkSummaryTooltip =
+                totalLinksCount > 0
+                  ? [
+                      ...(link
+                        ? [
+                            liveLinkedBook
+                              ? `${liveLinkedBook.title} · ${link.locationLabel}`
+                              : `${link.bookTitle} · ${link.locationLabel}`,
+                          ]
+                        : []),
+                      ...itemLinks.map((itemLink) => {
+                        const liveItem = itemLink.listItemId
+                          ? listItemById.get(itemLink.listItemId) ?? null
+                          : null;
+                        return (
+                          liveItem?.title ||
+                          itemLink.itemTitle ||
+                          "Untitled Item"
+                        );
+                      }),
+                    ].join("\n")
+                  : undefined;
 
               return (
                 <article
@@ -2186,6 +2210,35 @@ export const NotesView: React.FC<NotesViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-0.5 shrink-0 -mr-1">
+                      {subCount > 0 && !note.archived && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSearch("");
+                            setSelectedTag("all");
+                            setDrilledParentId(note.id);
+                          }}
+                          className="h-6 px-1 inline-flex items-center gap-1 rounded-md text-[11px] font-mono tabular-nums transition-colors hover:bg-[var(--bg-surface-hover)] hover:text-[var(--accent)] cursor-pointer shrink-0"
+                          style={{ color: "var(--text-muted)" }}
+                          title={`${subCount} ${subCount === 1 ? "sub-page" : "sub-pages"} (click to open)`}
+                          aria-label={`Open ${subCount} ${subCount === 1 ? "sub-page" : "sub-pages"}`}
+                        >
+                          <span>{subCount}</span>
+                          <GitBranch className="w-3 h-3" />
+                        </button>
+                      )}
+                      {totalLinksCount > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1 px-1 text-[11px] font-mono tabular-nums shrink-0"
+                          style={{ color: "var(--text-muted)" }}
+                          title={linkSummaryTooltip}
+                          aria-label={`${totalLinksCount} ${totalLinksCount === 1 ? "link" : "links"}`}
+                        >
+                          <span>{totalLinksCount}</span>
+                          <Link2 className="w-3 h-3" />
+                        </span>
+                      )}
                       {note.archived ? (
                         <>
                           <button
@@ -2302,61 +2355,6 @@ export const NotesView: React.FC<NotesViewProps> = ({
                     </div>
 
                     <div className="space-y-1.5 min-w-0">
-                    {subCount > 0 && !note.archived && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSearch("");
-                          setSelectedTag("all");
-                          setDrilledParentId(note.id);
-                        }}
-                        className="inline-flex items-center gap-1.5 text-[11px] font-medium hover:underline cursor-pointer"
-                        style={{ color: "var(--accent)" }}
-                      >
-                        <GitBranch className="w-3 h-3 shrink-0" />
-                        <span className="font-mono tabular-nums">
-                          {subCount} {subCount === 1 ? "sub-page" : "sub-pages"}
-                        </span>
-                        <ChevronRight className="w-3 h-3 shrink-0" />
-                      </button>
-                    )}
-
-                    {link && (
-                      liveLinkedBook && onJumpToBookLocation ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onJumpToBookLocation(link);
-                          }}
-                          title={`Jump to ${liveLinkedBook.title} (${link.locationLabel})`}
-                          className="w-full inline-flex items-center justify-between gap-1.5 py-1 text-[11px] font-medium text-[var(--accent)] hover:underline text-left min-w-0 cursor-pointer"
-                        >
-                          <span className="inline-flex items-center gap-1.5 min-w-0">
-                            <BookOpen className="w-3 h-3 shrink-0" />
-                            <span className="truncate">
-                              {compactBookLocationOnly
-                                ? link.locationLabel
-                                : `${liveLinkedBook.title} · ${link.locationLabel}`}
-                            </span>
-                          </span>
-                          <ArrowUpRight className="w-3 h-3 shrink-0 opacity-85" />
-                        </button>
-                      ) : (
-                        <div
-                          className="inline-flex items-center gap-1.5 py-0.5 text-[11px] min-w-0 max-w-full truncate"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          <BookOpen className="w-3 h-3 shrink-0 opacity-75" />
-                          <span className="truncate">
-                            {compactBookLocationOnly
-                              ? `${link.locationLabel} · Removed from library`
-                              : `${link.bookTitle} · ${link.locationLabel} (Removed)`}
-                          </span>
-                        </div>
-                      )
-                    )}
 
                     {listGroupContext?.quote && (
                       <blockquote
@@ -2368,97 +2366,6 @@ export const NotesView: React.FC<NotesViewProps> = ({
                       >
                         “{listGroupContext.quote}”
                       </blockquote>
-                    )}
-
-                    {itemLinks.length > 0 && !listGroupContext && (
-                      itemLinks.length > 3 ? (
-                        <div
-                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium max-w-full"
-                          style={{
-                            backgroundColor: "var(--accent-soft)",
-                            color: "var(--accent)",
-                          }}
-                          title={itemLinks
-                            .map((l) => {
-                              const live = l.listItemId
-                                ? listItemById.get(l.listItemId)
-                                : undefined;
-                              return live?.title || l.itemTitle;
-                            })
-                            .join(", ")}
-                        >
-                          <ListChecks className="w-3 h-3 shrink-0" />
-                          <span className="font-mono tabular-nums">
-                            {itemLinks.length} linked list items
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap items-center gap-1">
-                          {itemLinks.map((itemLink, idx) => {
-                            const liveItem = itemLink.listItemId
-                              ? listItemById.get(itemLink.listItemId) ?? null
-                              : null;
-                            const liveList = liveItem
-                              ? listById.get(liveItem.listId) ?? null
-                              : itemLink.listId
-                                ? listById.get(itemLink.listId) ?? null
-                                : null;
-                            const isRemoved = !liveItem || Boolean(itemLink.itemRemoved);
-                            const title =
-                              liveItem?.title || itemLink.itemTitle || "Untitled Item";
-                            const listName = liveList?.title || itemLink.listTitle;
-                            const listColor = liveList?.color || itemLink.listColor;
-
-                            return !isRemoved && liveItem && onJumpToListItem ? (
-                              <button
-                                key={itemLink.listItemId || idx}
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onJumpToListItem(liveItem.id);
-                                }}
-                                title={`Open "${title}" in Lists`}
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[11px] font-medium max-w-full hover:border-[var(--accent)] transition-colors cursor-pointer"
-                                style={{
-                                  backgroundColor: "var(--bg-surface-subtle)",
-                                  borderColor: "var(--border-subtle)",
-                                  color: "var(--text-primary)",
-                                }}
-                              >
-                                {listColor && (
-                                  <span
-                                    className="w-1.5 h-1.5 rounded-full shrink-0"
-                                    style={{ backgroundColor: listColor }}
-                                  />
-                                )}
-                                <span className="truncate max-w-[170px]">
-                                  {listName ? `${listName} · ${title}` : title}
-                                </span>
-                                <ArrowUpRight
-                                  className="w-3 h-3 shrink-0"
-                                  style={{ color: "var(--accent)" }}
-                                />
-                              </button>
-                            ) : (
-                              <span
-                                key={itemLink.listItemId || `removed-${idx}`}
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[11px] max-w-full"
-                                style={{
-                                  backgroundColor: "var(--bg-surface-subtle)",
-                                  borderColor: "var(--border-subtle)",
-                                  color: "var(--text-muted)",
-                                }}
-                              >
-                                <ListChecks className="w-3 h-3 shrink-0 opacity-75" />
-                                <span className="truncate max-w-[170px]">
-                                  {title}
-                                  {isRemoved ? " (Removed)" : ""}
-                                </span>
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )
                     )}
 
                     {/* Unified Bottom Hairline Monospace Metadata Footer */}
