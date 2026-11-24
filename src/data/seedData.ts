@@ -161,6 +161,10 @@ export function createEmptyWorkspace(): KansoWorkspace {
         fontFamily: 'serif',
         lineHeight: 1.7,
       },
+      fontBody: 'dm-sans',
+      fontDisplay: 'plus-jakarta-sans',
+      fontNotes: 'match',
+      fontMono: 'jetbrains-mono',
     },
   };
 }
@@ -1373,6 +1377,10 @@ export function createSeedWorkspace(): KansoWorkspace {
         fontFamily: 'serif',
         lineHeight: 1.7,
       },
+      fontBody: 'dm-sans',
+      fontDisplay: 'plus-jakarta-sans',
+      fontNotes: 'match',
+      fontMono: 'jetbrains-mono',
     },
   };
 }

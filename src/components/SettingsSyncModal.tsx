@@ -68,6 +68,7 @@ import {
   validateWorkspacePayload,
 } from "../utils/gist";
 import { KansoLogo } from "./KansoLogo";
+import { TypographySettingsPanel } from "./settings/TypographySettingsPanel";
 import { ViewsSettingsPanel } from "./settings/ViewsSettingsPanel";
 import { resolveNavigationConfig } from "../lib/viewNavigation";
 
@@ -1202,6 +1203,11 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                   })}
                 </div>
               </div>
+
+              <TypographySettingsPanel
+                settings={workspace.settings}
+                onUpdateSettings={updateSettings}
+              />
 
               <div
                 className="flex items-center justify-between pt-4 border-t"

@@ -75,6 +75,7 @@ import { audioDb, contactPhotoDb, libraryDb } from "../lib/db";
 import { advanceSubscriptionDueDate } from "../lib/financeUtils";
 import { compressCoverDataUrl } from "../lib/formatters";
 import { applySm2Review, createInitialSrsState } from "../lib/languageUtils";
+import { applyWorkspaceFonts, normalizeFontSettings } from "../lib/fonts";
 import { normalizeLibraryWorkspaceData } from "../lib/migrateLibrary";
 import { sanitizeNavigationSettings } from "../lib/viewNavigation";
 import {
@@ -469,6 +470,7 @@ function normalizeParsedWorkspace(
     settings: {
       ...empty.settings,
       ...parsed.settings,
+      ...normalizeFontSettings(parsed.settings),
       timelineDisplayMode: parsed.settings.timelineDisplayMode || "default",
       epubPrefs: {
         ...empty.settings.epubPrefs!,
@@ -1088,6 +1090,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       workspace.settings.colorMode,
     );
   }, [workspace.settings.theme, workspace.settings.colorMode]);
+
+  // Apply typography CSS variables to <html>
+  useEffect(() => {
+    applyWorkspaceFonts(workspace.settings);
+  }, [
+    workspace.settings.fontBody,
+    workspace.settings.fontDisplay,
+    workspace.settings.fontNotes,
+    workspace.settings.fontMono,
+  ]);
 
   // Hydrate workspace from IndexedDB if newer/more complete, compact oversized legacy covers, and seed annotations
   useEffect(() => {
@@ -5458,6 +5470,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           settings: {
             ...empty.settings,
             ...(cleanNext.settings || {}),
+            ...normalizeFontSettings(cleanNext.settings),
             timelineDisplayMode:
               cleanNext.settings?.timelineDisplayMode || "default",
             epubPrefs: {

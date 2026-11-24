@@ -394,6 +394,51 @@ export interface WorkspaceNavigationSettings {
   mobileMore?: ViewId[];
 }
 
+export type AppFontId =
+  | "dm-sans"
+  | "plus-jakarta-sans"
+  | "inter"
+  | "manrope"
+  | "ibm-plex-sans"
+  | "public-sans"
+  | "nunito-sans"
+  | "source-serif-4"
+  | "system";
+
+export type DisplayFontId =
+  | "match"
+  | "plus-jakarta-sans"
+  | "bricolage-grotesque"
+  | "outfit"
+  | "manrope"
+  | "dm-sans"
+  | "inter"
+  | "newsreader"
+  | "source-serif-4"
+  | "literata"
+  | "system";
+
+export type NotesFontId =
+  | "match"
+  | "source-serif-4"
+  | "literata"
+  | "newsreader"
+  | "lora"
+  | "dm-sans"
+  | "inter"
+  | "manrope"
+  | "ibm-plex-sans"
+  | "jetbrains-mono"
+  | "system";
+
+export type MonoFontId =
+  | "jetbrains-mono"
+  | "ibm-plex-mono"
+  | "fira-code"
+  | "source-code-pro"
+  | "space-mono"
+  | "system-mono";
+
 export interface WorkspaceSettings {
   theme: ThemeId;
   colorMode: ColorMode;
@@ -406,6 +451,10 @@ export interface WorkspaceSettings {
   defaultNoteTimelineSync?: boolean;
   epubPrefs?: EpubReaderPrefs;
   navigation?: WorkspaceNavigationSettings;
+  fontBody?: AppFontId;
+  fontDisplay?: DisplayFontId;
+  fontNotes?: NotesFontId;
+  fontMono?: MonoFontId;
 }
 
 export interface GistSyncConfig {
