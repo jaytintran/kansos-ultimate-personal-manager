@@ -9,8 +9,8 @@ export type LibraryPointerDropTarget =
   | { kind: "sidebar-category"; id: string; label: string }
   | { kind: "sidebar-tag"; id: string; label: string }
   | { kind: "view-folder"; id: string; label: string }
-  | { kind: "dock-view-folder"; id: string; label: string }
-  | { kind: "dock-sidebar-folder"; id: string; label: string }
+  | { kind: "dock-view-folder"; id: string; label: string; isMember?: boolean }
+  | { kind: "dock-sidebar-folder"; id: string; label: string; isMember?: boolean }
   | { kind: "dock-more"; label: string }
   | { kind: "dock-remove"; label: string }
   | { kind: "book-reorder"; bookId: string; position: "before" | "after" };
@@ -214,10 +214,24 @@ export function useLibraryBookDrag({
               if (id) return { kind: "view-folder", id, label };
               break;
             case "dock-view-folder":
-              if (id) return { kind: "dock-view-folder", id, label };
+              if (id) {
+                return {
+                  kind: "dock-view-folder",
+                  id,
+                  label,
+                  isMember: dropEl.dataset.libraryDropMember === "true",
+                };
+              }
               break;
             case "dock-sidebar-folder":
-              if (id) return { kind: "dock-sidebar-folder", id, label };
+              if (id) {
+                return {
+                  kind: "dock-sidebar-folder",
+                  id,
+                  label,
+                  isMember: dropEl.dataset.libraryDropMember === "true",
+                };
+              }
               break;
             case "dock-more":
               return { kind: "dock-more", label: label || "Choose folders…" };
@@ -795,10 +809,13 @@ export function useLibraryBookDrag({
         case "sidebar-favorites":
           return "Add to Favorites";
         case "sidebar-folder":
-        case "dock-sidebar-folder":
         case "view-folder":
-        case "dock-view-folder":
           return `Move to "${activeDropTarget.label}"`;
+        case "dock-sidebar-folder":
+        case "dock-view-folder":
+          return activeDropTarget.isMember
+            ? `Remove from "${activeDropTarget.label}"`
+            : `Move to "${activeDropTarget.label}"`;
         case "sidebar-category":
           return `Set category "${activeDropTarget.label}"`;
         case "sidebar-tag":
@@ -823,6 +840,9 @@ export function useLibraryBookDrag({
           return Tag;
         case "dock-more":
           return FolderSearch;
+        case "dock-sidebar-folder":
+        case "dock-view-folder":
+          return activeDropTarget.isMember ? FolderMinus : Folder;
         case "dock-remove":
           return FolderMinus;
         case "book-reorder":

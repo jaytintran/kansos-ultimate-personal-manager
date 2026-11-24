@@ -12,6 +12,8 @@ interface FloatingFolderDropDockProps {
   visible: boolean;
   currentViewFolders: ViewFolderRecord[];
   sidebarFolders: FolderRecord[];
+  memberViewFolderIds?: Set<string>;
+  memberSidebarFolderIds?: Set<string>;
   dockScrollRef?: React.RefObject<HTMLDivElement | null>;
   activePointerDropTarget?: LibraryPointerDropTarget | null;
   onDropToViewFolder: (bookIds: string[], folderId: string) => void;
@@ -52,6 +54,8 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
   visible,
   currentViewFolders,
   sidebarFolders,
+  memberViewFolderIds,
+  memberSidebarFolderIds,
   dockScrollRef,
   activePointerDropTarget,
   onDropToViewFolder,
@@ -148,6 +152,7 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
             >
               {currentViewFolders.map((vf) => {
                 const key = `view:${vf.id}`;
+                const isMember = memberViewFolderIds?.has(vf.id) ?? false;
                 const isOver =
                   hoveredKey === key ||
                   (activePointerDropTarget?.kind === "dock-view-folder" &&
@@ -155,11 +160,12 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
                 return (
                   <div
                     key={key}
-                    title={vf.name}
+                    title={isMember ? `${vf.name} (already added)` : vf.name}
                     data-tray-folder-card="true"
                     data-library-drop-kind="dock-view-folder"
                     data-library-drop-id={vf.id}
                     data-library-drop-label={vf.name}
+                    data-library-drop-member={isMember ? "true" : "false"}
                     onDragOver={handleDragOver(key)}
                     onDragLeave={handleDragLeave(key)}
                     onDrop={(e) => {
@@ -170,10 +176,14 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
                       }
                       setHoveredKey(null);
                     }}
-                    className={`h-10 shrink-0 inline-flex items-center gap-2 px-3 rounded-lg border text-[13px] font-medium max-w-[168px] sm:max-w-[192px] transition-colors duration-150 select-none ${
+                    className={`h-10 shrink-0 inline-flex items-center gap-2 px-3 rounded-lg border text-[13px] font-medium max-w-[168px] sm:max-w-[192px] transition-[border-color,opacity] duration-150 select-none ${
                       isOver
-                        ? "border-[var(--accent)] bg-[var(--bg-surface)] text-[var(--text-primary)]"
-                        : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-strong)]"
+                        ? isMember
+                          ? "border-[var(--accent)] bg-[var(--bg-surface)] text-[var(--text-primary)] opacity-80"
+                          : "border-[var(--accent)] bg-[var(--bg-surface)] text-[var(--text-primary)]"
+                        : isMember
+                          ? "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] opacity-45"
+                          : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-strong)]"
                     }`}
                   >
                     <Folder className="w-4 h-4 text-[var(--accent)] shrink-0" />
@@ -184,6 +194,7 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
 
               {flatSidebarFolders.map(({ folder, pathLabel }) => {
                 const key = `sidebar:${folder.id}`;
+                const isMember = memberSidebarFolderIds?.has(folder.id) ?? false;
                 const isOver =
                   hoveredKey === key ||
                   (activePointerDropTarget?.kind === "dock-sidebar-folder" &&
@@ -192,11 +203,14 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
                 return (
                   <div
                     key={key}
-                    title={pathLabel}
+                    title={
+                      isMember ? `${pathLabel} (already added)` : pathLabel
+                    }
                     data-tray-folder-card="true"
                     data-library-drop-kind="dock-sidebar-folder"
                     data-library-drop-id={folder.id}
                     data-library-drop-label={folder.name}
+                    data-library-drop-member={isMember ? "true" : "false"}
                     onDragOver={handleDragOver(key)}
                     onDragLeave={handleDragLeave(key)}
                     onDrop={(e) => {
@@ -207,10 +221,14 @@ export const FloatingFolderDropDock: React.FC<FloatingFolderDropDockProps> = ({
                       }
                       setHoveredKey(null);
                     }}
-                    className={`h-10 shrink-0 inline-flex items-center gap-2 px-3 rounded-lg border text-[13px] font-medium max-w-[168px] sm:max-w-[192px] transition-colors duration-150 select-none ${
+                    className={`h-10 shrink-0 inline-flex items-center gap-2 px-3 rounded-lg border text-[13px] font-medium max-w-[168px] sm:max-w-[192px] transition-[border-color,opacity] duration-150 select-none ${
                       isOver
-                        ? "border-[var(--accent)] bg-[var(--bg-surface)] text-[var(--text-primary)]"
-                        : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-strong)]"
+                        ? isMember
+                          ? "border-[var(--accent)] bg-[var(--bg-surface)] text-[var(--text-primary)] opacity-80"
+                          : "border-[var(--accent)] bg-[var(--bg-surface)] text-[var(--text-primary)]"
+                        : isMember
+                          ? "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] opacity-45"
+                          : "border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-strong)]"
                     }`}
                   >
                     <DynamicIcon

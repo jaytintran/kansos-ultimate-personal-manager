@@ -1856,13 +1856,30 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     [updateLibraryState],
   );
 
-  // Drag-Drop Book to Sidebar Folder (asks Add vs Move if already in another folder)
+  // Drag-Drop Book to Sidebar Folder (prompts Remove if already inside, or Add vs Move if in another folder)
   const handleDropBooksToSidebarFolder = useCallback(
     (bookIds: string[], targetFolderId: string) => {
       const targetFolder = folders.find((f) => f.id === targetFolderId);
       if (!targetFolder || bookIds.length === 0) return;
 
       const droppedBooks = books.filter((b) => bookIds.includes(b.id));
+      const allAlreadyInTarget =
+        droppedBooks.length > 0 &&
+        droppedBooks.every((b) => getBookFolderIds(b).includes(targetFolderId));
+
+      if (allAlreadyInTarget) {
+        setPendingFolderDrop({
+          actionMode: "remove",
+          kind: "sidebar",
+          targetFolderId,
+          targetFolderName: targetFolder.name,
+          bookIds,
+          bookTitles: droppedBooks.map((b) => b.title),
+          existingFolderNames: [],
+        });
+        return;
+      }
+
       const existingFolderIds = new Set<string>();
       for (const b of droppedBooks) {
         for (const fid of getBookFolderIds(b)) {
@@ -1875,6 +1892,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           .map((fid) => folders.find((f) => f.id === fid)?.name)
           .filter((n): n is string => Boolean(n));
         setPendingFolderDrop({
+          actionMode: "add-or-move",
           kind: "sidebar",
           targetFolderId,
           targetFolderName: targetFolder.name,
@@ -1890,7 +1908,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     [folders, books, handleToggleSidebarFolderMembership, notify],
   );
 
-  // Drag-Drop Book to View Folder (asks Add vs Move if already in another view folder)
+  // Drag-Drop Book to View Folder (prompts Remove if already inside, or Add vs Move if in another view folder)
   const handleDropBooksToViewFolder = useCallback(
     (bookIds: string[], targetFolderId: string) => {
       const targetVf = currentViewFolders.find(
@@ -1899,6 +1917,23 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       if (!targetVf || bookIds.length === 0) return;
 
       const droppedBooks = books.filter((b) => bookIds.includes(b.id));
+      const allAlreadyInTarget =
+        droppedBooks.length > 0 &&
+        droppedBooks.every((b) => targetVf.bookIds.includes(b.id));
+
+      if (allAlreadyInTarget) {
+        setPendingFolderDrop({
+          actionMode: "remove",
+          kind: "view",
+          targetFolderId,
+          targetFolderName: targetVf.name,
+          bookIds,
+          bookTitles: droppedBooks.map((b) => b.title),
+          existingFolderNames: [],
+        });
+        return;
+      }
+
       const otherViewFolders = currentViewFolders.filter(
         (vf) =>
           vf.id !== targetFolderId &&
@@ -1907,6 +1942,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
       if (otherViewFolders.length > 0) {
         setPendingFolderDrop({
+          actionMode: "add-or-move",
           kind: "view",
           targetFolderId,
           targetFolderName: targetVf.name,
@@ -1923,11 +1959,22 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   );
 
   const handleConfirmFolderDrop = useCallback(
-    (mode: "add" | "move") => {
+    (mode: "add" | "move" | "remove") => {
       if (!pendingFolderDrop) return;
       const { kind, targetFolderId, targetFolderName, bookIds } =
         pendingFolderDrop;
       const idSet = new Set(bookIds);
+
+      if (mode === "remove") {
+        if (kind === "sidebar") {
+          handleToggleSidebarFolderMembership(bookIds, targetFolderId, false);
+        } else {
+          handleToggleViewFolderMembership(bookIds, targetFolderId, false);
+        }
+        notify(`Removed from "${targetFolderName}"`, "info");
+        setPendingFolderDrop(null);
+        return;
+      }
 
       if (kind === "sidebar") {
         updateLibraryState((prev) => ({
@@ -1967,7 +2014,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       );
       setPendingFolderDrop(null);
     },
-    [pendingFolderDrop, activeViewKey, updateLibraryState, notify],
+    [
+      pendingFolderDrop,
+      activeViewKey,
+      handleToggleSidebarFolderMembership,
+      handleToggleViewFolderMembership,
+      updateLibraryState,
+      notify,
+    ],
   );
 
   // Bulk Edit & Mobile Organize apply
@@ -2391,6 +2445,39 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   });
 
   isDraggingBooksRef.current = isDraggingBooks;
+
+  const { trayMemberViewFolderIds, trayMemberSidebarFolderIds } = useMemo(() => {
+    const viewSet = new Set<string>();
+    const sidebarSet = new Set<string>();
+    if (activeDragBookIds.size === 0) {
+      return {
+        trayMemberViewFolderIds: viewSet,
+        trayMemberSidebarFolderIds: sidebarSet,
+      };
+    }
+
+    const draggedIds = Array.from(activeDragBookIds);
+    for (const vf of currentViewFolders) {
+      if (draggedIds.every((id) => vf.bookIds.includes(id))) {
+        viewSet.add(vf.id);
+      }
+    }
+
+    const draggedBooks = books.filter((b) => activeDragBookIds.has(b.id));
+    if (draggedBooks.length > 0) {
+      const firstFolderIds = getBookFolderIds(draggedBooks[0]);
+      for (const fid of firstFolderIds) {
+        if (draggedBooks.every((b) => getBookFolderIds(b).includes(fid))) {
+          sidebarSet.add(fid);
+        }
+      }
+    }
+
+    return {
+      trayMemberViewFolderIds: viewSet,
+      trayMemberSidebarFolderIds: sidebarSet,
+    };
+  }, [activeDragBookIds, currentViewFolders, books]);
 
   const hasActiveFilters =
     formatFilter !== "all" ||
@@ -3443,6 +3530,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             visible={isDraggingBooks}
             currentViewFolders={currentViewFolders}
             sidebarFolders={folders}
+            memberViewFolderIds={trayMemberViewFolderIds}
+            memberSidebarFolderIds={trayMemberSidebarFolderIds}
             dockScrollRef={dockScrollRef}
             activePointerDropTarget={activeDropTarget}
             onDropToViewFolder={handleDropBooksToViewFolder}
@@ -3643,11 +3732,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         />
       )}
 
-      {/* Add vs Move Folder Drop Confirmation Modal */}
+      {/* Add vs Move / Remove Folder Drop Confirmation Modal */}
       <FolderDropActionModal
         pendingDrop={pendingFolderDrop}
         onAdd={() => handleConfirmFolderDrop("add")}
         onMove={() => handleConfirmFolderDrop("move")}
+        onRemove={() => handleConfirmFolderDrop("remove")}
         onCancel={() => setPendingFolderDrop(null)}
       />
 
