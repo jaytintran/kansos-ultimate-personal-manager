@@ -1,4 +1,5 @@
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -28,6 +29,8 @@ interface ViewFoldersSectionProps {
   viewLabel: string;
   viewFolders: ViewFolderRecord[];
   viewBooks: BookRecord[];
+  isExpanded: boolean;
+  onToggleExpanded: () => void;
   displayMode: ViewFolderDisplayMode;
   cardLayout: ViewFolderCardLayout;
   hideFiledBooks: boolean;
@@ -876,6 +879,8 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
   viewLabel,
   viewFolders,
   viewBooks,
+  isExpanded,
+  onToggleExpanded,
   displayMode,
   cardLayout,
   hideFiledBooks,
@@ -905,6 +910,15 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
   const [editingName, setEditingName] = useState("");
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!isExpanded) {
+      setCreating(false);
+      setNewName("");
+      setEditingFolderId(null);
+      setEditingName("");
+    }
+  }, [isExpanded]);
+
   const bookById = new Map(viewBooks.map((b) => [b.id, b]));
 
   const handleCreateSubmit = (e: React.FormEvent) => {
@@ -926,20 +940,49 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
     setEditingName("");
   };
 
+  if (!isExpanded) {
+    return (
+      <section aria-label={`Folders in ${viewLabel}`} className="mb-4">
+        <button
+          type="button"
+          onClick={onToggleExpanded}
+          aria-expanded={false}
+          className="min-h-[40px] inline-flex items-center gap-2 px-2.5 py-1.5 -ml-2.5 rounded-lg text-left hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer group max-w-full"
+        >
+          <ChevronRight className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors shrink-0" />
+          <h2 className="font-display text-sm font-semibold text-[var(--text-primary)] truncate">
+            Folders in {viewLabel}
+          </h2>
+          {viewFolders.length > 0 && (
+            <span className="font-mono-tabular text-[11px] text-[var(--text-muted)] shrink-0">
+              {viewFolders.length}
+            </span>
+          )}
+        </button>
+      </section>
+    );
+  }
+
   return (
     <section aria-label={`Folders in ${viewLabel}`} className="mb-8 space-y-4">
       {/* Section Header Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <h2 className="font-display text-sm font-semibold text-[var(--text-primary)]">
+        <button
+          type="button"
+          onClick={onToggleExpanded}
+          aria-expanded={true}
+          className="min-h-[40px] inline-flex items-center gap-2 px-2.5 py-1.5 -ml-2.5 rounded-lg text-left hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer group min-w-0 max-w-full"
+        >
+          <ChevronDown className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors shrink-0" />
+          <h2 className="font-display text-sm font-semibold text-[var(--text-primary)] truncate">
             Folders in {viewLabel}
           </h2>
           {viewFolders.length > 0 && (
-            <span className="font-mono-tabular text-[11px] text-[var(--text-muted)]">
+            <span className="font-mono-tabular text-[11px] text-[var(--text-muted)] shrink-0">
               {viewFolders.length}
             </span>
           )}
-        </div>
+        </button>
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Show / Hide Filed Books Toggle */}
@@ -1084,6 +1127,20 @@ export const ViewFoldersSection: React.FC<ViewFoldersSectionProps> = ({
             <X className="w-3.5 h-3.5" />
           </button>
         </form>
+      )}
+
+      {/* Empty State when manually expanded with zero folders */}
+      {viewFolders.length === 0 && !creating && (
+        <div className="rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3.5 flex items-center justify-between gap-3 text-xs text-[var(--text-muted)]">
+          <span>No folders in {viewLabel} yet.</span>
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="text-[var(--accent)] hover:underline font-medium cursor-pointer whitespace-nowrap shrink-0"
+          >
+            + Create Folder
+          </button>
+        </div>
       )}
 
       {/* Folder Cards Grid OR Full-Width Carousels */}

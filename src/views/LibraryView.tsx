@@ -166,6 +166,42 @@ function hashPaletteIndex(seed: string): number {
   return Math.abs(h) % 8;
 }
 
+const LIBRARY_VIEW_FOLDERS_EXPANDED_KEY =
+  "kanso_library_view_folders_expanded_v1";
+
+function loadLocalViewFoldersExpandedMap(): Record<string, boolean> {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(LIBRARY_VIEW_FOLDERS_EXPANDED_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const result: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === "boolean") {
+        result[k] = v;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalViewFoldersExpandedMap(map: Record<string, boolean>) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(
+      LIBRARY_VIEW_FOLDERS_EXPANDED_KEY,
+      JSON.stringify(map),
+    );
+  } catch {
+    // Ignore storage quota or private-mode errors
+  }
+}
+
 export const LibraryView: React.FC<LibraryViewProps> = ({
   zenMode = false,
   jumpRequest = null,
@@ -231,6 +267,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [drilledViewFolderId, setDrilledViewFolderId] = useState<string | null>(
     null,
   );
+  // Local-only (non-synced) per-view collapse state for "Folders in <View>"
+  const [viewFoldersExpandedByView, setViewFoldersExpandedByView] = useState<
+    Record<string, boolean>
+  >(() => loadLocalViewFoldersExpandedMap());
+  const [emptyViewFoldersExpandedKey, setEmptyViewFoldersExpandedKey] =
+    useState<string | null>(null);
 
   // Selection, Inspector, Popovers & Drawers
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -455,6 +497,51 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     () => viewFolders.filter((vf) => vf.viewKey === activeViewKey),
     [viewFolders, activeViewKey],
   );
+
+  // Reset temporary empty-open toggle when navigating across views
+  useEffect(() => {
+    setEmptyViewFoldersExpandedKey(null);
+  }, [activeViewKey]);
+
+  // Auto-collapse persisted state if a view has zero folders
+  useEffect(() => {
+    if (currentViewFolders.length > 0) {
+      if (emptyViewFoldersExpandedKey === activeViewKey) {
+        setEmptyViewFoldersExpandedKey(null);
+      }
+      return;
+    }
+    setViewFoldersExpandedByView((prev) => {
+      if (!prev[activeViewKey]) return prev;
+      const next = { ...prev };
+      delete next[activeViewKey];
+      saveLocalViewFoldersExpandedMap(next);
+      return next;
+    });
+  }, [activeViewKey, currentViewFolders.length, emptyViewFoldersExpandedKey]);
+
+  const isViewFoldersExpanded =
+    currentViewFolders.length === 0
+      ? emptyViewFoldersExpandedKey === activeViewKey
+      : Boolean(viewFoldersExpandedByView[activeViewKey]);
+
+  const handleToggleViewFoldersExpanded = useCallback(() => {
+    if (currentViewFolders.length === 0) {
+      setEmptyViewFoldersExpandedKey((curr) =>
+        curr === activeViewKey ? null : activeViewKey,
+      );
+      return;
+    }
+    setViewFoldersExpandedByView((prev) => {
+      const nextVal = !prev[activeViewKey];
+      const next = { ...prev, [activeViewKey]: nextVal };
+      if (!nextVal) {
+        delete next[activeViewKey];
+      }
+      saveLocalViewFoldersExpandedMap(next);
+      return next;
+    });
+  }, [activeViewKey, currentViewFolders.length]);
 
   const drilledViewFolder = useMemo(
     () =>
@@ -1782,6 +1869,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       updateLibraryState((prev) => ({
         libraryViewFolders: [...prev.libraryViewFolders, created],
       }));
+      setEmptyViewFoldersExpandedKey(null);
+      setViewFoldersExpandedByView((prev) => {
+        if (prev[activeViewKey]) return prev;
+        const next = { ...prev, [activeViewKey]: true };
+        saveLocalViewFoldersExpandedMap(next);
+        return next;
+      });
       return created;
     },
     [activeViewKey, updateLibraryState],
@@ -1800,14 +1894,27 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   const handleDeleteViewFolder = useCallback(
     (folderId: string) => {
+      const remainingInView = currentViewFolders.filter(
+        (vf) => vf.id !== folderId,
+      ).length;
       updateLibraryState((prev) => ({
         libraryViewFolders: prev.libraryViewFolders.filter(
           (vf) => vf.id !== folderId,
         ),
       }));
       if (drilledViewFolderId === folderId) setDrilledViewFolderId(null);
+      if (remainingInView === 0) {
+        setEmptyViewFoldersExpandedKey(null);
+        setViewFoldersExpandedByView((prev) => {
+          if (!prev[activeViewKey]) return prev;
+          const next = { ...prev };
+          delete next[activeViewKey];
+          saveLocalViewFoldersExpandedMap(next);
+          return next;
+        });
+      }
     },
-    [drilledViewFolderId, updateLibraryState],
+    [activeViewKey, currentViewFolders, drilledViewFolderId, updateLibraryState],
   );
 
   const handleSaveViewFolderBooks = useCallback(
@@ -3273,6 +3380,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     viewLabel={activeViewLabel}
                     viewFolders={currentViewFolders}
                     viewBooks={viewBooks}
+                    isExpanded={isViewFoldersExpanded}
+                    onToggleExpanded={handleToggleViewFoldersExpanded}
                     displayMode={prefs.viewFolderDisplayMode}
                     cardLayout={prefs.viewFolderCardLayout}
                     hideFiledBooks={prefs.hideFiledBooks}
