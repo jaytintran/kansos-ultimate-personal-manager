@@ -1240,7 +1240,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
         <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 lg:px-8 pt-5 pb-20 space-y-4">
           {/* Header */}
           <header
-            className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b mb-0"
+            className="flex flex-wrap items-center justify-between gap-3 pb-3 mb-0"
             style={{ borderColor: "var(--border-subtle)" }}
           >
             <div className="flex items-center gap-2 min-w-0">
