@@ -1,4 +1,4 @@
-import { ArrowLeft, BookOpen, Folder, FolderMinus, Layers, Star, Tag } from "lucide-react";
+import { ArrowLeft, BookOpen, Folder, FolderMinus, FolderSearch, Layers, Star, Tag } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { BookRecord } from "../types/library";
@@ -11,6 +11,7 @@ export type LibraryPointerDropTarget =
   | { kind: "view-folder"; id: string; label: string }
   | { kind: "dock-view-folder"; id: string; label: string }
   | { kind: "dock-sidebar-folder"; id: string; label: string }
+  | { kind: "dock-more"; label: string }
   | { kind: "dock-remove"; label: string }
   | { kind: "book-reorder"; bookId: string; position: "before" | "after" };
 
@@ -48,6 +49,7 @@ interface UseLibraryBookDragOptions {
   onDropToCategory: (bookIds: string[], categoryId: string) => void;
   onDropToTag: (bookIds: string[], tagName: string) => void;
   onDropToFavorites: (bookIds: string[]) => void;
+  onDropToMoreFolders: (bookIds: string[]) => void;
   onDropToRemoveFromCurrentFolder: (bookIds: string[]) => void;
   onReorderBooks: (
     bookIds: string[],
@@ -135,6 +137,7 @@ export function useLibraryBookDrag({
   onDropToCategory,
   onDropToTag,
   onDropToFavorites,
+  onDropToMoreFolders,
   onDropToRemoveFromCurrentFolder,
   onReorderBooks,
 }: UseLibraryBookDragOptions) {
@@ -164,6 +167,7 @@ export function useLibraryBookDrag({
     onDropToCategory,
     onDropToTag,
     onDropToFavorites,
+    onDropToMoreFolders,
     onDropToRemoveFromCurrentFolder,
     onReorderBooks,
   });
@@ -174,6 +178,7 @@ export function useLibraryBookDrag({
     onDropToCategory,
     onDropToTag,
     onDropToFavorites,
+    onDropToMoreFolders,
     onDropToRemoveFromCurrentFolder,
     onReorderBooks,
   };
@@ -189,7 +194,7 @@ export function useLibraryBookDrag({
       for (const el of elements) {
         if (!(el instanceof HTMLElement)) continue;
         const dropEl = el.closest<HTMLElement>("[data-library-drop-kind]");
-        if (dropEl) {
+        if (dropEl && dropEl.dataset.libraryDropDisabled !== "true") {
           const kind = dropEl.dataset.libraryDropKind;
           const id = dropEl.dataset.libraryDropId || "";
           const label = dropEl.dataset.libraryDropLabel || "";
@@ -214,6 +219,8 @@ export function useLibraryBookDrag({
             case "dock-sidebar-folder":
               if (id) return { kind: "dock-sidebar-folder", id, label };
               break;
+            case "dock-more":
+              return { kind: "dock-more", label: label || "Choose folders…" };
             case "dock-remove":
               return { kind: "dock-remove", label: label || "Remove from folder" };
           }
@@ -436,6 +443,9 @@ export function useLibraryBookDrag({
         case "dock-view-folder":
           cb.onDropToViewFolder(ids, resolved.id);
           break;
+        case "dock-more":
+          cb.onDropToMoreFolders(ids);
+          break;
         case "dock-remove":
           cb.onDropToRemoveFromCurrentFolder(ids);
           break;
@@ -649,26 +659,48 @@ export function useLibraryBookDrag({
             24,
           );
         } else {
-          // Main library grid: allow top/bottom hot-zones (skip top edge auto-scroll if hovering a dock folder target)
+          // Main library grid: allow top/bottom hot-zones while pausing edge scroll over the bottom tray
+          const dockEl = dockScrollRef.current;
+          const dockRect =
+            dockEl && dockEl.offsetParent !== null
+              ? dockEl.getBoundingClientRect()
+              : null;
+          const isInsideDock = Boolean(
+            dockRect &&
+              dockRect.height > 0 &&
+              isPointInsideRect(clientX, clientY, dockRect, 6, 4),
+          );
           const hoveredKind = activeDropRef.current?.kind;
           const isHoveringDock =
+            isInsideDock ||
+            hoveredKind === "dock-more" ||
             hoveredKind === "dock-remove" ||
             hoveredKind === "dock-view-folder" ||
             hoveredKind === "dock-sidebar-folder";
 
-          if (isPointInsideRect(clientX, clientY, scrollTarget.rect, 24, 56)) {
-            const rawVy = computeEdgeVelocity(
+          if (!isHoveringDock && isPointInsideRect(clientX, clientY, scrollTarget.rect, 24, 56)) {
+            const isAboveDockSpan = Boolean(
+              dockRect &&
+                dockRect.height > 0 &&
+                clientX >= dockRect.left - 8 &&
+                clientX <= dockRect.right + 8 &&
+                clientY < dockRect.top,
+            );
+            const effectiveEndEdge = isAboveDockSpan && dockRect
+              ? Math.min(scrollTarget.rect.bottom, dockRect.top)
+              : scrollTarget.rect.bottom;
+            const outsideEndAllowance = isAboveDockSpan ? 0 : 44;
+            const zonePx = isAboveDockSpan ? 68 : 84;
+
+            vy = computeEdgeVelocity(
               clientY,
               scrollTarget.rect.top,
-              scrollTarget.rect.bottom,
-              84,
-              760,
+              effectiveEndEdge,
+              zonePx,
+              720,
               52,
-              44,
+              outsideEndAllowance,
             );
-            if (!(rawVy < 0 && isHoveringDock)) {
-              vy = rawVy;
-            }
           }
         }
 
@@ -690,7 +722,7 @@ export function useLibraryBookDrag({
 
     rafId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(rafId);
-  }, [isDragging, getScrollTargetForPoint, shelfStripRef, updateDropTarget]);
+  }, [isDragging, dockScrollRef, getScrollTargetForPoint, shelfStripRef, updateDropTarget]);
 
   const handleBookPointerDown = useCallback(
     (bookId: string, e: React.PointerEvent) => {
@@ -771,6 +803,8 @@ export function useLibraryBookDrag({
           return `Set category "${activeDropTarget.label}"`;
         case "sidebar-tag":
           return `Add tag #${activeDropTarget.label}`;
+        case "dock-more":
+          return activeDropTarget.label || "Choose folders…";
         case "dock-remove":
           return activeDropTarget.label;
         case "book-reorder":
@@ -787,6 +821,8 @@ export function useLibraryBookDrag({
           return Star;
         case "sidebar-tag":
           return Tag;
+        case "dock-more":
+          return FolderSearch;
         case "dock-remove":
           return FolderMinus;
         case "book-reorder":

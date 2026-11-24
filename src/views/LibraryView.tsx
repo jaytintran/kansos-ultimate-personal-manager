@@ -2359,6 +2359,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     [updateLibraryState, notify],
   );
 
+  const handleDropBooksToMoreFolders = useCallback((bookIds: string[]) => {
+    if (bookIds.length === 0) return;
+    setOrganizeTargetIds(bookIds);
+  }, []);
+
   const {
     isDraggingBooks,
     activeDropTarget,
@@ -2380,6 +2385,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     onDropToCategory: handleDropBooksToCategory,
     onDropToTag: handleDropBooksToTag,
     onDropToFavorites: handleDropBooksToFavorites,
+    onDropToMoreFolders: handleDropBooksToMoreFolders,
     onDropToRemoveFromCurrentFolder: handleRemoveBooksFromCurrentFolder,
     onReorderBooks: handleReorderBooks,
   });
@@ -2592,7 +2598,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         />
 
         {/* Center Library Workspace */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden relative">
           {/* Bar 1: Compact Unified Header (52px) */}
           <header className="h-[52px] px-4 sm:px-6 border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)] flex items-center justify-between gap-2 sm:gap-3 shrink-0">
             {/* Left: Desktop Sidebar Reopen + Active View Title + Inline Count */}
@@ -3130,19 +3136,6 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             ref={mainScrollRef}
             className="flex-1 min-h-0 overflow-y-auto overscroll-none relative"
           >
-            {/* Floating Drag-to-Folder Dock (sticky inside main scroll viewport) */}
-            <FloatingFolderDropDock
-              visible={isDraggingBooks}
-              activeViewLabel={activeViewLabel}
-              currentViewFolders={currentViewFolders}
-              sidebarFolders={folders}
-              activeFolderRemovalTarget={activeFolderRemovalTarget}
-              dockScrollRef={dockScrollRef}
-              activePointerDropTarget={activeDropTarget}
-              onDropToViewFolder={handleDropBooksToViewFolder}
-              onDropToSidebarFolder={handleDropBooksToSidebarFolder}
-              onDropToRemoveFromCurrentFolder={handleRemoveBooksFromCurrentFolder}
-            />
             {activeFilter.kind === "smart" &&
             activeFilter.id === "highlights" ? (
               <HighlightsHubView
@@ -3167,7 +3160,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 isImporting={isImporting}
               />
             ) : (
-              <div className="p-4 sm:p-6 lg:p-7 pb-14 space-y-7 max-w-[1600px] mx-auto">
+              <div className="p-4 sm:p-6 lg:p-7 pb-24 space-y-7 max-w-[1600px] mx-auto">
                 {/* Continue Reading Editorial Shelf (All Books top-level) */}
                 {activeFilter.kind === "smart" &&
                   activeFilter.id === "all" &&
@@ -3444,6 +3437,18 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               </div>
             )}
           </div>
+
+          {/* Bottom Folder Drop Tray anchored cleanly above mobile navigation & unobstructed across the center workspace */}
+          <FloatingFolderDropDock
+            visible={isDraggingBooks}
+            currentViewFolders={currentViewFolders}
+            sidebarFolders={folders}
+            dockScrollRef={dockScrollRef}
+            activePointerDropTarget={activeDropTarget}
+            onDropToViewFolder={handleDropBooksToViewFolder}
+            onDropToSidebarFolder={handleDropBooksToSidebarFolder}
+            onDropToMoreFolders={handleDropBooksToMoreFolders}
+          />
         </div>
 
         {/* Split Book Inspector (Desktop xl+ docked, tablet drawer, mobile bottom sheet) */}
@@ -3554,9 +3559,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         }}
       />
 
-      {/* Bulk Action Bar */}
+      {/* Bulk Action Bar (yields temporarily during active drag so the bottom folder drop tray has clear space) */}
       <BulkActionBar
-        selectedCount={selectedIds.size}
+        selectedCount={isDraggingBooks ? 0 : selectedIds.size}
         totalVisibleCount={visibleBooks.length}
         onSelectAll={() =>
           setSelectedIds(new Set(visibleBooks.map((b) => b.id)))
