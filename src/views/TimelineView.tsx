@@ -59,6 +59,8 @@ type TimelineFilter =
   | "timeblock"
   | "habit";
 
+const TIMELINE_SUBVIEW_STORAGE_KEY = "kanso_timeline_subview_v1";
+
 const FILTER_CHIPS: { id: TimelineFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "task", label: "Task" },
@@ -133,7 +135,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   } = useWorkspace();
 
   const todayKey = getTodayKey();
-  const [subview, setSubview] = useState<"day" | "all-dates">("day");
+  const [subview, setSubview] = useState<"day" | "all-dates">(() => {
+    try {
+      const saved = localStorage.getItem(TIMELINE_SUBVIEW_STORAGE_KEY);
+      return saved === "all-dates" ? "all-dates" : "day";
+    } catch {
+      return "day";
+    }
+  });
   const [selectedDateKey, setSelectedDateKey] = useState<string>(todayKey);
   const [calendarPopoverOpen, setCalendarPopoverOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -146,6 +155,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const timeFormat = workspace.settings.timeFormat;
   const displayMode = workspace.settings.timelineDisplayMode || "default";
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TIMELINE_SUBVIEW_STORAGE_KEY, subview);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [subview]);
 
   // Keyboard shortcuts: Cmd/Ctrl+K or '/' focuses search, Escape clears, A/D steps days
   useEffect(() => {

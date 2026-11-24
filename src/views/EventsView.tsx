@@ -13,6 +13,7 @@ import {
   Trophy,
   X,
 } from "lucide-react";
+import { DynamicIcon } from "../components/IconLibrary";
 import { RichContent } from "../components/RichContent";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { ContextMenuRecord, DetailSheetTarget, Entry } from "../types";
@@ -753,13 +754,22 @@ export const EventsView: React.FC<EventsViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Unified 14px Sans Medium Title */}
-                  <h2
-                    className="text-sm font-medium leading-snug line-clamp-2"
-                    style={{ color: "var(--text-primary)" }}
-                  >
-                    {ev.title}
-                  </h2>
+                  {/* Unified 14px Sans Medium Title (+ Custom Icon when set) */}
+                  <div className="flex items-start gap-1.5 min-w-0">
+                    {ev.icon?.trim() && (
+                      <DynamicIcon
+                        name={ev.icon}
+                        className="w-4 h-4 shrink-0 mt-0.5"
+                        style={{ color: "var(--accent)" }}
+                      />
+                    )}
+                    <h2
+                      className="text-sm font-medium leading-snug line-clamp-2 min-w-0"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      {ev.title}
+                    </h2>
+                  </div>
 
                   {/* 2-Line Faded RichContent Preview */}
                   {ev.content && (
@@ -870,6 +880,14 @@ export const EventsView: React.FC<EventsViewProps> = ({
                       {p.monthShort} {p.dayNum}
                     </span>
                   </button>
+
+                  {ev.icon?.trim() && (
+                    <DynamicIcon
+                      name={ev.icon}
+                      className="w-3.5 h-3.5 shrink-0"
+                      style={{ color: "var(--accent)" }}
+                    />
+                  )}
 
                   {p.isAchievement && (
                     <Trophy

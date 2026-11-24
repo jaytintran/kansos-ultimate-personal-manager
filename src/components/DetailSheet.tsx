@@ -75,11 +75,12 @@ import {
   isHabitScheduledOnDay,
 } from "../utils/date";
 import {
+  DynamicIcon,
   EntryTypeIcon,
-  HABIT_ICON_KEYS,
   HabitIcon,
   ListIcon,
   NotePageIcon,
+  SHARED_ICON_CATALOG,
 } from "./IconLibrary";
 import { IconPickerPopover } from "./IconPicker";
 import { TimestampFieldFocus } from "./TimestampsModal";
@@ -331,6 +332,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
   const [habitIcon, setHabitIcon] = useState(
     () => initialHabitSrc?.icon ?? "Flame",
   );
+  const [habitIconPickerOpen, setHabitIconPickerOpen] = useState(false);
   const [habitFreq, setHabitFreq] = useState<HabitFrequencyType>(
     () => initialHabitSrc?.frequencyType ?? "daily",
   );
@@ -446,6 +448,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
       setHabitPurpose(nextPurpose);
       setHabitColor(nextColor);
       setHabitIcon(nextIcon);
+      setHabitIconPickerOpen(false);
       setHabitFreq(nextFreq);
       setHabitCustomDays(nextDays);
       setHabitWeeklyTarget(nextTarget);
@@ -535,7 +538,10 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         title:
           title.trim() ||
           (target.mode === "note" ? "Untitled Note" : "Untitled"),
-        icon: target.mode === "note" ? noteIcon || "" : undefined,
+        icon:
+          target.mode === "note" || target.mode === "event"
+            ? noteIcon || ""
+            : undefined,
         content: effectiveContent,
         tags,
         pinned,
@@ -1759,30 +1765,48 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
           <PropertyRow
             icon={<Sparkles className="w-3.5 h-3.5" />}
             label="Icon"
-            alignTop
           >
-            <div className="flex flex-wrap gap-1 -mx-1 px-1 py-0.5">
-              {HABIT_ICON_KEYS.map((key) => {
-                const active = habitIcon.toLowerCase() === key.toLowerCase();
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setHabitIcon(key)}
-                    className="h-7 w-7 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)]"
-                    style={{
-                      backgroundColor: active
-                        ? `${habitColor}22`
-                        : "transparent",
-                      color: active ? habitColor : "var(--text-muted)",
-                    }}
-                    aria-label={key}
-                    title={key}
-                  >
-                    <HabitIcon name={key} className="w-3.5 h-3.5" />
-                  </button>
-                );
-              })}
+            <div className="relative inline-block">
+              <button
+                type="button"
+                onClick={() => setHabitIconPickerOpen((prev) => !prev)}
+                aria-expanded={habitIconPickerOpen}
+                aria-label="Choose habit icon"
+                className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-2 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                style={{
+                  backgroundColor: `${habitColor}16`,
+                  borderColor: habitIconPickerOpen
+                    ? habitColor
+                    : "var(--border-subtle)",
+                  color: "var(--text-primary)",
+                }}
+              >
+                <span
+                  className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
+                  style={{
+                    backgroundColor: `${habitColor}24`,
+                    color: habitColor,
+                  }}
+                >
+                  <HabitIcon name={habitIcon} className="w-3.5 h-3.5" />
+                </span>
+                <span>
+                  {SHARED_ICON_CATALOG.find(
+                    (item) =>
+                      item.key.toLowerCase() === habitIcon.toLowerCase(),
+                  )?.label || habitIcon}
+                </span>
+              </button>
+
+              <IconPickerPopover
+                open={habitIconPickerOpen}
+                onClose={() => setHabitIconPickerOpen(false)}
+                value={habitIcon}
+                onChange={(nextIcon) => setHabitIcon(nextIcon)}
+                accentColor={habitColor}
+                title="Habit Icon"
+                align="left"
+              />
             </div>
           </PropertyRow>
         </div>
@@ -2177,11 +2201,15 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                 style={{ color: "var(--accent)" }}
               >
                 {isEntryMode ? (
-                  <EntryTypeIcon
-                    type={target.mode as Entry["type"]}
-                    completed={Boolean(liveEntry?.completed)}
-                    className="w-4 h-4"
-                  />
+                  target.mode === "event" && noteIcon ? (
+                    <DynamicIcon name={noteIcon} className="w-4 h-4" />
+                  ) : (
+                    <EntryTypeIcon
+                      type={target.mode as Entry["type"]}
+                      completed={Boolean(liveEntry?.completed)}
+                      className="w-4 h-4"
+                    />
+                  )
                 ) : target.mode === "habit" ? (
                   <HabitIcon
                     name={habitIcon}
@@ -2379,15 +2407,31 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                 </nav>
               )}
 
-              {/* Borderless Auto-Growing Display Title (+ Note Page Icon Picker) */}
-              {target.mode === "note" ? (
+              {/* Borderless Auto-Growing Display Title (+ Page / Event Icon Picker) */}
+              {target.mode === "note" || target.mode === "event" ? (
                 <div className="flex items-start gap-2.5 sm:gap-3">
                   <div className="relative shrink-0 pt-0.5 sm:pt-1">
                     <button
                       type="button"
                       onClick={() => setNoteIconPickerOpen((prev) => !prev)}
-                      title={noteIcon ? "Change page icon" : "Add page icon"}
-                      aria-label={noteIcon ? "Change page icon" : "Add page icon"}
+                      title={
+                        target.mode === "event"
+                          ? noteIcon
+                            ? "Change event icon"
+                            : "Add event icon"
+                          : noteIcon
+                            ? "Change page icon"
+                            : "Add page icon"
+                      }
+                      aria-label={
+                        target.mode === "event"
+                          ? noteIcon
+                            ? "Change event icon"
+                            : "Add event icon"
+                          : noteIcon
+                            ? "Change page icon"
+                            : "Add page icon"
+                      }
                       aria-expanded={noteIconPickerOpen}
                       className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
                       style={{
@@ -2400,7 +2444,15 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                         color: noteIcon ? "var(--accent)" : "var(--text-muted)",
                       }}
                     >
-                      <NotePageIcon icon={noteIcon} className="w-5 h-5" />
+                      {target.mode === "event" ? (
+                        noteIcon ? (
+                          <DynamicIcon name={noteIcon} className="w-5 h-5" />
+                        ) : (
+                          <Calendar className="w-5 h-5" />
+                        )
+                      ) : (
+                        <NotePageIcon icon={noteIcon} className="w-5 h-5" />
+                      )}
                     </button>
 
                     <IconPickerPopover
@@ -2411,7 +2463,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                       onClear={() => setNoteIcon("")}
                       allowClear
                       clearLabel="Default"
-                      title="Page Icon"
+                      title={target.mode === "event" ? "Event Icon" : "Page Icon"}
                       align="left"
                     />
                   </div>
@@ -2427,7 +2479,9 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                         if (editorInstance) editorInstance.commands.focus("start");
                       }
                     }}
-                    placeholder="Untitled Note"
+                    placeholder={
+                      target.mode === "note" ? "Untitled Note" : "Untitled"
+                    }
                     autoFocus={isCreateMode}
                     className="flex-1 min-w-0 bg-transparent font-display text-2xl sm:text-[1.75rem] font-bold tracking-tight leading-snug resize-none outline-none overflow-hidden placeholder:opacity-35"
                     style={{ color: "var(--text-primary)" }}
