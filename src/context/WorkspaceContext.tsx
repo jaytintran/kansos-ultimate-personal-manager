@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -489,6 +490,16 @@ function loadInitialWorkspaceState(): {
   return { workspace: createSeedWorkspace(), fromLocalStorage: false };
 }
 
+const OVERSIZED_DATA_IMAGE_URI_REGEX =
+  /(["'(])data:image\/[^"')\s]{32000,}(["')])/gi;
+
+function stripOversizedInlineNoteImages(content: string): string {
+  if (!content || content.length < 32_000 || !content.includes("data:image/")) {
+    return content;
+  }
+  return content.replace(OVERSIZED_DATA_IMAGE_URI_REGEX, "$1$2");
+}
+
 function persistWorkspaceToLocalStorage(
   ws: KansoWorkspace,
 ): "full" | "compact" | "failed" {
@@ -496,21 +507,39 @@ function persistWorkspaceToLocalStorage(
     localStorage.setItem(STORAGE_WORKSPACE_KEY, JSON.stringify(ws));
     return "full";
   } catch {
-    // Retry without inline book/audio cover data URLs so localStorage metadata cache fits within ~5 MB quota
+    // Stage-1 retry without inline book/audio cover data URLs so localStorage metadata cache fits within ~5 MB quota
+    const compactWs: KansoWorkspace = {
+      ...ws,
+      books: ws.books.map((b) =>
+        b.coverDataUrl ? { ...b, coverDataUrl: null } : b,
+      ),
+      audioTracks: (ws.audioTracks ?? []).map((t) =>
+        t.coverDataUrl ? { ...t, coverDataUrl: null } : t,
+      ),
+    };
     try {
-      const compactWs: KansoWorkspace = {
-        ...ws,
-        books: ws.books.map((b) =>
-          b.coverDataUrl ? { ...b, coverDataUrl: null } : b,
-        ),
-        audioTracks: (ws.audioTracks ?? []).map((t) =>
-          t.coverDataUrl ? { ...t, coverDataUrl: null } : t,
-        ),
-      };
       localStorage.setItem(STORAGE_WORKSPACE_KEY, JSON.stringify(compactWs));
       return "compact";
     } catch {
-      return "failed";
+      // Stage-2 silent fallback: strip oversized legacy inline data:image/* strings from note HTML in localStorage only (IndexedDB retains full payload)
+      try {
+        const ultraCompactWs: KansoWorkspace = {
+          ...compactWs,
+          entries: compactWs.entries.map((entry) => {
+            const stripped = stripOversizedInlineNoteImages(entry.content);
+            return stripped !== entry.content
+              ? { ...entry, content: stripped }
+              : entry;
+          }),
+        };
+        localStorage.setItem(
+          STORAGE_WORKSPACE_KEY,
+          JSON.stringify(ultraCompactWs),
+        );
+        return "compact";
+      } catch {
+        return "failed";
+      }
     }
   }
 }
@@ -527,12 +556,19 @@ function loadInitialGistConfig(): GistSyncConfig {
   return DEFAULT_GIST_CONFIG;
 }
 
+interface ToastContextValue {
+  toasts: ToastMessage[];
+  dismissToast: (id: string) => void;
+}
+
+interface GistSyncStatusContextValue {
+  gistSyncBusy: "push" | "pull" | null;
+}
+
 interface WorkspaceContextValue {
   workspace: KansoWorkspace;
   gistConfig: GistSyncConfig;
-  toasts: ToastMessage[];
   pushToast: (text: string, tone?: ToastMessage["tone"]) => void;
-  dismissToast: (id: string) => void;
 
   // Focus & Entry actions
   addFocusItem: (
@@ -851,7 +887,6 @@ interface WorkspaceContextValue {
   ) => number;
 
   // Settings, Sync & Reset
-  gistSyncBusy: "push" | "pull" | null;
   quickPushGist: () => Promise<boolean>;
   quickPullGist: () => Promise<boolean>;
   updateSettings: (patch: Partial<WorkspaceSettings>) => void;
@@ -870,6 +905,9 @@ interface WorkspaceContextValue {
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
+const ToastContext = createContext<ToastContextValue | null>(null);
+const GistSyncStatusContext =
+  createContext<GistSyncStatusContextValue | null>(null);
 
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -895,10 +933,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const latestWorkspaceRef = useRef<KansoWorkspace>(workspace);
   latestWorkspaceRef.current = workspace;
+  const latestGistConfigRef = useRef<GistSyncConfig>(gistConfig);
+  latestGistConfigRef.current = gistConfig;
+  const latestGistSyncBusyRef = useRef<"push" | "pull" | null>(gistSyncBusy);
+  latestGistSyncBusyRef.current = gistSyncBusy;
   const hasUserMutatedRef = useRef(false);
   const skipInitialPersistRef = useRef(true);
   const quotaToastShownRef = useRef(false);
   const idbWriteQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  const persistTimerRef = useRef<number | null>(null);
 
   const pushToast = useCallback(
     (text: string, tone: ToastMessage["tone"] = "neutral") => {
@@ -930,36 +973,66 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     return task;
   }, []);
 
-  // Persist workspace durably to both localStorage (with cover-stripped fallback) and IndexedDB
+  // Debounce durable persistence (350ms) to both localStorage (with compact fallbacks) and IndexedDB
   useEffect(() => {
     if (skipInitialPersistRef.current) {
       skipInitialPersistRef.current = false;
       return;
     }
-    const lsResult = persistWorkspaceToLocalStorage(workspace);
-    void enqueueIdbWorkspaceSave(workspace).then((idbOk) => {
-      if (lsResult === "failed" && !idbOk && !quotaToastShownRef.current) {
-        quotaToastShownRef.current = true;
-        pushToast(
-          "Browser storage is full — free up space in Settings → Storage.",
-          "error",
-        );
+    if (persistTimerRef.current !== null) {
+      window.clearTimeout(persistTimerRef.current);
+    }
+    persistTimerRef.current = window.setTimeout(() => {
+      persistTimerRef.current = null;
+      const snapshot = latestWorkspaceRef.current;
+      const lsResult = persistWorkspaceToLocalStorage(snapshot);
+      void enqueueIdbWorkspaceSave(snapshot).then((idbOk) => {
+        if (lsResult === "failed" && !idbOk && !quotaToastShownRef.current) {
+          quotaToastShownRef.current = true;
+          pushToast(
+            "Browser storage is full — free up space in Settings → Storage.",
+            "error",
+          );
+        }
+      });
+    }, 350);
+    return () => {
+      if (persistTimerRef.current !== null) {
+        window.clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = null;
       }
-    });
+    };
   }, [workspace, enqueueIdbWorkspaceSave, pushToast]);
 
-  // Flush workspace synchronously to localStorage if the tab is closed or refreshed
+  // Flush workspace immediately if the tab is hidden, closed, or refreshed
   useEffect(() => {
-    const flushNow = () => {
-      persistWorkspaceToLocalStorage(latestWorkspaceRef.current);
+    const flushNow = (alsoIdb: boolean) => {
+      if (persistTimerRef.current !== null) {
+        window.clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = null;
+      }
+      const snapshot = latestWorkspaceRef.current;
+      persistWorkspaceToLocalStorage(snapshot);
+      if (alsoIdb) {
+        void enqueueIdbWorkspaceSave(snapshot);
+      }
     };
-    window.addEventListener("pagehide", flushNow);
-    window.addEventListener("beforeunload", flushNow);
+    const handlePageHide = () => flushNow(false);
+    const handleBeforeUnload = () => flushNow(false);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushNow(true);
+      }
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      window.removeEventListener("pagehide", flushNow);
-      window.removeEventListener("beforeunload", flushNow);
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [enqueueIdbWorkspaceSave]);
 
   // Persist gist config locally
   useEffect(() => {
@@ -1012,12 +1085,22 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
                   (hb) => hb.id === b.id && Boolean(hb.coverDataUrl),
                 ),
             );
+            const lsEntryMap = new Map(lsWs.entries.map((e) => [e.id, e]));
+            const lsMissingInlineImages = hydrated.entries.some((he) => {
+              if (!he.content || !he.content.includes("data:image/")) {
+                return false;
+              }
+              const lsEntry = lsEntryMap.get(he.id);
+              return !lsEntry || he.content.length > lsEntry.content.length + 1024;
+            });
 
             const shouldPreferIdb =
               !initialLoadRef.current?.fromLocalStorage ||
               idbTime > lsTime ||
               (idbTime === lsTime &&
-                (lsMissingCovers || hydrated.books.length > lsWs.books.length));
+                (lsMissingCovers ||
+                  lsMissingInlineImages ||
+                  hydrated.books.length > lsWs.books.length));
 
             if (shouldPreferIdb) {
               effectiveWorkspace = hydrated;
@@ -1115,21 +1198,22 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       const trimmed = rawText.trim();
       if (!trimmed) return false;
 
+      const currentWs = latestWorkspaceRef.current;
       const todayKey = getTodayKey();
       const parsed = parseNlpInput(
         trimmed,
         todayKey,
-        workspace.settings.timeFormat,
+        currentWs.settings.timeFormat,
       );
       const nowIso = new Date().toISOString();
 
       if (bucket === "x-active") {
-        const activeCount = workspace.entries.filter(
+        const activeCount = currentWs.entries.filter(
           (e) =>
             (e.source === "focus-active" || e.focusBucket === "x-active") &&
             !e.completed,
         ).length;
-        if (activeCount >= workspace.settings.xActiveLimit) {
+        if (activeCount >= currentWs.settings.xActiveLimit) {
           return false;
         }
       }
@@ -1231,18 +1315,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         entries: [logEntry, ...prev.entries],
       }));
       pushToast(
-        `Logged at ${formatTime(finishedTime, workspace.settings.timeFormat)}`,
+        `Logged at ${formatTime(finishedTime, currentWs.settings.timeFormat)}`,
         "success",
       );
       return true;
     },
-    [
-      workspace.entries,
-      workspace.settings.timeFormat,
-      workspace.settings.xActiveLimit,
-      mutateWorkspace,
-      pushToast,
-    ],
+    [mutateWorkspace, pushToast],
   );
 
   const clearFocusDayFromView = useCallback(
@@ -1285,7 +1363,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       const parsed = parseNlpInput(
         trimmed,
         activeDateKey,
-        workspace.settings.timeFormat,
+        latestWorkspaceRef.current.settings.timeFormat,
       );
       const effectiveType: EntryType = parsed.detectedType || type;
       const now = new Date();
@@ -1342,7 +1420,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
       return newEntry;
     },
-    [workspace.settings.timeFormat, mutateWorkspace],
+    [mutateWorkspace],
   );
 
   const createEntry = useCallback(
@@ -1397,7 +1475,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       const parsed = parseNlpInput(
         trimmed,
         getTodayKey(),
-        workspace.settings.timeFormat,
+        latestWorkspaceRef.current.settings.timeFormat,
       );
       const finishedIso = parsed.scheduledAt || nowIso;
       const entry: Entry = {
@@ -1427,7 +1505,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       pushToast("Achievement recorded", "success");
       return entry;
     },
-    [workspace.settings.timeFormat, mutateWorkspace, pushToast],
+    [mutateWorkspace, pushToast],
   );
 
   const updateEntry = useCallback(
@@ -1451,7 +1529,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const toggleEntryCompleted = useCallback(
     (id: string) => {
-      const target = workspace.entries.find((e) => e.id === id);
+      const currentWs = latestWorkspaceRef.current;
+      const target = currentWs.entries.find((e) => e.id === id);
       if (!target) return;
 
       const nextCompleted = !target.completed;
@@ -1462,14 +1541,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         !nextCompleted &&
         (target.source === "focus-active" || target.focusBucket === "x-active")
       ) {
-        const activeCount = workspace.entries.filter(
+        const activeCount = currentWs.entries.filter(
           (e) =>
             (e.source === "focus-active" || e.focusBucket === "x-active") &&
             !e.completed,
         ).length;
-        if (activeCount >= workspace.settings.xActiveLimit) {
+        if (activeCount >= currentWs.settings.xActiveLimit) {
           pushToast(
-            `Cannot reopen: X-Active already has ${workspace.settings.xActiveLimit} active tasks.`,
+            `Cannot reopen: X-Active already has ${currentWs.settings.xActiveLimit} active tasks.`,
             "error",
           );
           return;
@@ -1499,23 +1578,17 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           target.source === "focus-active")
       ) {
         pushToast(
-          `Completed at ${formatTime(nowIso, workspace.settings.timeFormat)}`,
+          `Completed at ${formatTime(nowIso, currentWs.settings.timeFormat)}`,
           "success",
         );
       }
     },
-    [
-      workspace.entries,
-      workspace.settings.timeFormat,
-      workspace.settings.xActiveLimit,
-      mutateWorkspace,
-      pushToast,
-    ],
+    [mutateWorkspace, pushToast],
   );
 
   const toggleEntryAchievement = useCallback(
     (id: string) => {
-      const target = workspace.entries.find((e) => e.id === id);
+      const target = latestWorkspaceRef.current.entries.find((e) => e.id === id);
       if (!target) return;
       const eligible =
         target.type === "log" ||
@@ -1535,12 +1608,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         "success",
       );
     },
-    [workspace.entries, updateEntry, pushToast],
+    [updateEntry, pushToast],
   );
 
   const setEventAttendance = useCallback(
     (id: string, attendance: EventAttendance) => {
-      const target = workspace.entries.find((e) => e.id === id);
+      const target = latestWorkspaceRef.current.entries.find((e) => e.id === id);
       if (!target) return;
       const nowIso = new Date().toISOString();
       // Universal: anchor on scheduled/created time, mark completed false
@@ -1559,12 +1632,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           attendance === "attended" ? target.completedAt || nowIso : null,
       });
     },
-    [workspace.entries, updateEntry],
+    [updateEntry],
   );
 
   const cycleEventAttendance = useCallback(
     (id: string) => {
-      const target = workspace.entries.find((e) => e.id === id);
+      const target = latestWorkspaceRef.current.entries.find((e) => e.id === id);
       if (!target) return;
       // Cycle: null → attended → missed → universal → null
       const next: EventAttendance =
@@ -1577,7 +1650,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
               : null;
       setEventAttendance(id, next);
     },
-    [workspace.entries, setEventAttendance],
+    [setEventAttendance],
   );
 
   const deleteEntry = useCallback(
@@ -1657,7 +1730,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const duplicateEntry = useCallback(
     (id: string): Entry | null => {
-      const original = workspace.entries.find((e) => e.id === id);
+      const original = latestWorkspaceRef.current.entries.find((e) => e.id === id);
       if (!original) return null;
       const nowIso = new Date().toISOString();
       const copy: Entry = {
@@ -1678,12 +1751,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       pushToast("Entry duplicated");
       return copy;
     },
-    [workspace.entries, mutateWorkspace, pushToast],
+    [mutateWorkspace, pushToast],
   );
 
   const moveEntryToDate = useCallback(
     (id: string, dateKey: string) => {
-      const target = workspace.entries.find((e) => e.id === id);
+      const target = latestWorkspaceRef.current.entries.find((e) => e.id === id);
       if (!target) return;
 
       const shiftIsoToDay = (iso: string | null): string | null => {
@@ -1721,7 +1794,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       updateEntry(id, patch);
       pushToast(`Moved to ${toLocalDateKey(dateKey)}`);
     },
-    [workspace.entries, updateEntry, pushToast],
+    [updateEntry, pushToast],
   );
 
   // Scratchpad actions
@@ -1770,7 +1843,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const sendScratchpadToTimeline = useCallback(
     (id: string): Entry | null => {
-      const card = (workspace.scratchpads ?? []).find((c) => c.id === id);
+      const card = (latestWorkspaceRef.current.scratchpads ?? []).find(
+        (c) => c.id === id,
+      );
       if (!card) return null;
       const lines = card.content
         .split("\n")
@@ -1810,7 +1885,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       pushToast("Sent sticky note to Timeline", "success");
       return noteEntry;
     },
-    [workspace.scratchpads, mutateWorkspace, pushToast],
+    [mutateWorkspace, pushToast],
   );
 
   // Custom Focus Tabs actions
@@ -1914,7 +1989,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const duplicateNotePage = useCallback(
     (id: string): Entry | null => {
-      const orig = workspace.entries.find(
+      const orig = latestWorkspaceRef.current.entries.find(
         (e) => e.id === id && e.type === "note",
       );
       if (!orig) return null;
@@ -1933,7 +2008,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       pushToast("Note duplicated", "success");
       return copy;
     },
-    [workspace.entries, mutateWorkspace, pushToast],
+    [mutateWorkspace, pushToast],
   );
 
   const deleteNotePage = useCallback(
@@ -2276,17 +2351,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const toggleHabitCompletion = useCallback(
     (habitId: string, dateKey: string) => {
-      const targetHabit = workspace.habits.find((h) => h.id === habitId);
+      const targetHabit = latestWorkspaceRef.current.habits.find(
+        (h) => h.id === habitId,
+      );
       if (!targetHabit) return;
       const wasDone = Boolean(targetHabit.completions[dateKey]);
       setHabitDayStatus(habitId, dateKey, wasDone ? "empty" : "done");
     },
-    [workspace.habits, setHabitDayStatus],
+    [setHabitDayStatus],
   );
 
   const cycleHabitDayStatus = useCallback(
     (habitId: string, dateKey: string) => {
-      const targetHabit = workspace.habits.find((h) => h.id === habitId);
+      const targetHabit = latestWorkspaceRef.current.habits.find(
+        (h) => h.id === habitId,
+      );
       if (!targetHabit) return;
       const isDone = Boolean(targetHabit.completions[dateKey]);
       const isMissed = Boolean(targetHabit.missedDates?.[dateKey]);
@@ -2297,7 +2376,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           : "done";
       setHabitDayStatus(habitId, dateKey, nextStatus);
     },
-    [workspace.habits, setHabitDayStatus],
+    [setHabitDayStatus],
   );
 
   const reorderHabits = useCallback(
@@ -2432,7 +2511,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       const parsed = parseNlpInput(
         url ? strippedText : trimmed,
         getTodayKey(),
-        workspace.settings.timeFormat,
+        latestWorkspaceRef.current.settings.timeFormat,
       );
       const finalTitle =
         (parsed.cleanTitle || "").trim() || fallbackTitle || trimmed;
@@ -2457,7 +2536,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       }));
       return item;
     },
-    [workspace.settings.timeFormat, mutateWorkspace],
+    [mutateWorkspace],
   );
 
   const updateListItem = useCallback(
@@ -2941,11 +3020,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       mode: "replace" | "append" = "replace",
       label?: string,
     ) => {
+      const currentStreams = latestWorkspaceRef.current.streams;
       const validUniqueIds = Array.from(
         new Set(
-          streamIds.filter((sid) =>
-            workspace.streams.some((s) => s.id === sid),
-          ),
+          streamIds.filter((sid) => currentStreams.some((s) => s.id === sid)),
         ),
       );
       if (validUniqueIds.length === 0) {
@@ -3005,7 +3083,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         "success",
       );
     },
-    [workspace.streams, mutateWorkspace, pushToast],
+    [mutateWorkspace, pushToast],
   );
 
   const addStreamSlot = useCallback(
@@ -3013,7 +3091,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       streamId: string,
       overrides?: Partial<Omit<StackSlot, "slotId" | "streamId">>,
     ): StackSlot | null => {
-      const target = workspace.streams.find((s) => s.id === streamId);
+      const target = latestWorkspaceRef.current.streams.find(
+        (s) => s.id === streamId,
+      );
       if (!target) return null;
       const newSlot = createDefaultSlot(streamId, overrides);
       const nowIso = new Date().toISOString();
@@ -3042,7 +3122,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       });
       return newSlot;
     },
-    [workspace.streams, mutateWorkspace],
+    [mutateWorkspace],
   );
 
   const updateStreamSlot = useCallback(
@@ -3279,22 +3359,23 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const saveStreamPreset = useCallback(
     (name: string, category = "General"): StreamPreset => {
+      const currentStreamer = latestWorkspaceRef.current.streamerState;
       const trimmed = name.trim() || "Untitled Stack";
       const trimmedCategory = category.trim() || "General";
-      const currentSlots = workspace.streamerState.activeSlots ?? [];
+      const currentSlots = currentStreamer.activeSlots ?? [];
       const created: StreamPreset = {
         id: uid("preset"),
         name: trimmed,
         category: trimmedCategory,
-        layoutMode: workspace.streamerState.layoutMode,
-        customRows: workspace.streamerState.customRows,
-        customCols: workspace.streamerState.customCols,
-        viewMode: workspace.streamerState.viewMode || "grid",
-        sizingMode: workspace.streamerState.sizingMode || "fit",
-        masterVolume: workspace.streamerState.masterVolume ?? 100,
+        layoutMode: currentStreamer.layoutMode,
+        customRows: currentStreamer.customRows,
+        customCols: currentStreamer.customCols,
+        viewMode: currentStreamer.viewMode || "grid",
+        sizingMode: currentStreamer.sizingMode || "fit",
+        masterVolume: currentStreamer.masterVolume ?? 100,
         streamIds: currentSlots.map((sl) => sl.streamId),
         slots: currentSlots.map((sl) => ({ ...sl })),
-        spotlightStreamId: workspace.streamerState.spotlightStreamId,
+        spotlightStreamId: currentStreamer.spotlightStreamId,
         createdAt: new Date().toISOString(),
       };
       mutateWorkspace((prev) => ({
@@ -3305,14 +3386,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       pushToast(`Saved stack "${trimmed}"`, "success");
       return created;
     },
-    [workspace.streamerState, mutateWorkspace, pushToast],
+    [mutateWorkspace, pushToast],
   );
 
   const loadStreamPreset = useCallback(
     (presetId: string) => {
-      const preset = workspace.streamPresets.find((p) => p.id === presetId);
+      const currentWs = latestWorkspaceRef.current;
+      const preset = currentWs.streamPresets.find((p) => p.id === presetId);
       if (!preset) return;
-      const validIdsSet = new Set(workspace.streams.map((s) => s.id));
+      const validIdsSet = new Set(currentWs.streams.map((s) => s.id));
       const restoredSlots: StackSlot[] =
         Array.isArray(preset.slots) && preset.slots.length > 0
           ? preset.slots
@@ -3349,7 +3431,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       }));
       pushToast(`Loaded stack "${preset.name}"`, "success");
     },
-    [workspace.streamPresets, workspace.streams, mutateWorkspace, pushToast],
+    [mutateWorkspace, pushToast],
   );
 
   const deleteStreamPreset = useCallback(
@@ -3742,7 +3824,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       trackId: string,
       overrides?: Partial<Omit<AudioMixSlot, "slotId" | "trackId">>,
     ): AudioMixSlot | null => {
-      const tracks = workspace.audioTracks ?? [];
+      const tracks = latestWorkspaceRef.current.audioTracks ?? [];
       if (!tracks.some((t) => t.id === trackId)) return null;
       const newSlot = createDefaultAudioSlot(trackId, overrides);
       const now = Date.now();
@@ -3766,7 +3848,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       });
       return newSlot;
     },
-    [workspace.audioTracks, mutateWorkspace],
+    [mutateWorkspace],
   );
 
   const updateAudioMixSlot = useCallback(
@@ -3876,7 +3958,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const saveAudioMixPreset = useCallback(
     (name: string, category = "General"): AudioMixPreset => {
-      const current = workspace.audioState ?? DEFAULT_AUDIO_STATE;
+      const current = latestWorkspaceRef.current.audioState ?? DEFAULT_AUDIO_STATE;
       const trimmed = name.trim() || "Untitled Mix";
       const created: AudioMixPreset = {
         id: uid("amix"),
@@ -3898,16 +3980,17 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       pushToast(`Saved mix preset "${trimmed}"`, "success");
       return created;
     },
-    [workspace.audioState, mutateWorkspace, pushToast],
+    [mutateWorkspace, pushToast],
   );
 
   const loadAudioMixPreset = useCallback(
     (presetId: string) => {
-      const preset = (workspace.audioMixPresets ?? []).find(
+      const currentWs = latestWorkspaceRef.current;
+      const preset = (currentWs.audioMixPresets ?? []).find(
         (p) => p.id === presetId,
       );
       if (!preset) return;
-      const validIds = new Set((workspace.audioTracks ?? []).map((t) => t.id));
+      const validIds = new Set((currentWs.audioTracks ?? []).map((t) => t.id));
       const restoredSlots = preset.slots
         .filter((sl) => validIds.has(sl.trackId))
         .map((sl) => ({ ...sl, slotId: uid("aslot") }));
@@ -3925,7 +4008,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       }));
       pushToast(`Loaded mix "${preset.name}"`, "success");
     },
-    [workspace.audioMixPresets, workspace.audioTracks, mutateWorkspace, pushToast],
+    [mutateWorkspace, pushToast],
   );
 
   const deleteAudioMixPreset = useCallback(
@@ -5183,10 +5266,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const quickPushGist = useCallback(async (): Promise<boolean> => {
-    if (gistSyncBusy !== null) return false;
+    if (latestGistSyncBusyRef.current !== null) return false;
+    latestGistSyncBusyRef.current = "push";
     setGistSyncBusy("push");
     try {
-      const result = await pushWorkspaceToGist(workspace, gistConfig);
+      const result = await pushWorkspaceToGist(
+        latestWorkspaceRef.current,
+        latestGistConfigRef.current,
+      );
       updateGistConfig({
         gistId: result.gistId,
         lastSyncedAt: result.updatedAt,
@@ -5206,15 +5293,17 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       );
       return false;
     } finally {
+      latestGistSyncBusyRef.current = null;
       setGistSyncBusy(null);
     }
-  }, [gistSyncBusy, workspace, gistConfig, updateGistConfig, pushToast]);
+  }, [updateGistConfig, pushToast]);
 
   const quickPullGist = useCallback(async (): Promise<boolean> => {
-    if (gistSyncBusy !== null) return false;
+    if (latestGistSyncBusyRef.current !== null) return false;
+    latestGistSyncBusyRef.current = "pull";
     setGistSyncBusy("pull");
     try {
-      const preview = await pullWorkspaceFromGist(gistConfig);
+      const preview = await pullWorkspaceFromGist(latestGistConfigRef.current);
       replaceWorkspace(
         preview.workspace,
         "Pulled workspace from GitHub Gist",
@@ -5232,9 +5321,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       );
       return false;
     } finally {
+      latestGistSyncBusyRef.current = null;
       setGistSyncBusy(null);
     }
-  }, [gistSyncBusy, gistConfig, replaceWorkspace, updateGistConfig, pushToast]);
+  }, [replaceWorkspace, updateGistConfig, pushToast]);
 
   const clearWorkspaceData = useCallback(() => {
     hasUserMutatedRef.current = true;
@@ -5276,162 +5366,324 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     pushToast("Sample workspace data restored", "success");
   }, [pushToast]);
 
+  const toastContextValue = useMemo<ToastContextValue>(
+    () => ({ toasts, dismissToast }),
+    [toasts, dismissToast],
+  );
+
+  const gistSyncStatusValue = useMemo<GistSyncStatusContextValue>(
+    () => ({ gistSyncBusy }),
+    [gistSyncBusy],
+  );
+
+  const workspaceContextValue = useMemo<WorkspaceContextValue>(
+    () => ({
+      workspace,
+      gistConfig,
+      pushToast,
+      addFocusItem,
+      clearFocusDayFromView,
+      addTimelineEntry,
+      createEntry,
+      addAchievementEntry,
+      updateEntry,
+      toggleEntryCompleted,
+      toggleEntryAchievement,
+      cycleEventAttendance,
+      setEventAttendance,
+      deleteEntry,
+      duplicateEntry,
+      moveEntryToDate,
+      addScratchpad,
+      updateScratchpad,
+      deleteScratchpad,
+      sendScratchpadToTimeline,
+      addCustomTab,
+      updateCustomTab,
+      deleteCustomTab,
+      addNotePage,
+      duplicateNotePage,
+      deleteNotePage,
+      archiveNotePage,
+      addNoteNotebook,
+      updateNoteNotebook,
+      deleteNoteNotebook,
+      reorderNoteNotebooks,
+      reorderNoteEntries,
+      addHabit,
+      updateHabit,
+      deleteHabit,
+      toggleHabitCompletion,
+      setHabitDayStatus,
+      cycleHabitDayStatus,
+      reorderHabits,
+      addList,
+      updateList,
+      renameList,
+      deleteList,
+      reorderLists,
+      addListItem,
+      updateListItem,
+      reorderListItems,
+      deleteListItem,
+      addBook,
+      updateBook,
+      deleteBook,
+      deleteBooks,
+      updateLibraryState,
+      syncLibraryAnnotationsFromDb,
+      sendBookExcerptToNotes,
+      addStream,
+      updateStream,
+      deleteStream,
+      toggleStreamInGrid,
+      loadStreamsToGrid,
+      addStreamSlot,
+      updateStreamSlot,
+      updateAllStreamSlots,
+      removeStreamSlot,
+      clearStreamSlots,
+      reorderActiveSlots,
+      incrementStreamListen,
+      addStreamFolder,
+      updateStreamFolder,
+      deleteStreamFolder,
+      setStreamTopicIcon,
+      reorderActiveStreams,
+      reorderVaultStreams,
+      updateStreamerState,
+      saveStreamPreset,
+      loadStreamPreset,
+      deleteStreamPreset,
+      addAudioTrack,
+      updateAudioTrack,
+      deleteAudioTracks,
+      addAudioFolder,
+      updateAudioFolder,
+      deleteAudioFolder,
+      addAudioPlaylist,
+      updateAudioPlaylist,
+      deleteAudioPlaylist,
+      addTracksToPlaylist,
+      removeTrackFromPlaylist,
+      reorderPlaylistTracks,
+      reorderAudioTracks,
+      updateAudioState,
+      playAudioTrack,
+      addAudioMixSlot,
+      updateAudioMixSlot,
+      updateAllAudioMixSlots,
+      removeAudioMixSlot,
+      clearAudioMixSlots,
+      reorderAudioMixSlots,
+      saveAudioMixPreset,
+      loadAudioMixPreset,
+      deleteAudioMixPreset,
+      recordAudioPlay,
+      setAudioEqPreset,
+      addContact,
+      updateContact,
+      deleteContact,
+      importContacts,
+      addContactCircle,
+      updateContactCircle,
+      deleteContactCircle,
+      addFinanceAccount,
+      updateFinanceAccount,
+      deleteFinanceAccount,
+      addFinanceCategory,
+      updateFinanceCategory,
+      deleteFinanceCategory,
+      addFinanceTransaction,
+      updateFinanceTransaction,
+      deleteFinanceTransaction,
+      importFinanceTransactions,
+      addFinanceSubscription,
+      updateFinanceSubscription,
+      deleteFinanceSubscription,
+      logFinanceSubscriptionNow,
+      skipFinanceSubscriptionCycle,
+      runDueFinanceSubscriptions,
+      updateFinanceSettings,
+      setActiveLanguageId,
+      addLanguageProfile,
+      updateLanguageProfile,
+      deleteLanguageProfile,
+      addLanguageDeck,
+      updateLanguageDeck,
+      deleteLanguageDeck,
+      addLanguageItem,
+      updateLanguageItem,
+      deleteLanguageItem,
+      reviewLanguageItem,
+      importLanguageItems,
+      quickPushGist,
+      quickPullGist,
+      updateSettings,
+      updateGistConfig,
+      replaceWorkspace,
+      purgeWorkspaceSection,
+      clearWorkspaceData,
+      restoreSampleData,
+    }),
+    [
+      workspace,
+      gistConfig,
+      pushToast,
+      addFocusItem,
+      clearFocusDayFromView,
+      addTimelineEntry,
+      createEntry,
+      addAchievementEntry,
+      updateEntry,
+      toggleEntryCompleted,
+      toggleEntryAchievement,
+      cycleEventAttendance,
+      setEventAttendance,
+      deleteEntry,
+      duplicateEntry,
+      moveEntryToDate,
+      addScratchpad,
+      updateScratchpad,
+      deleteScratchpad,
+      sendScratchpadToTimeline,
+      addCustomTab,
+      updateCustomTab,
+      deleteCustomTab,
+      addNotePage,
+      duplicateNotePage,
+      deleteNotePage,
+      archiveNotePage,
+      addNoteNotebook,
+      updateNoteNotebook,
+      deleteNoteNotebook,
+      reorderNoteNotebooks,
+      reorderNoteEntries,
+      addHabit,
+      updateHabit,
+      deleteHabit,
+      toggleHabitCompletion,
+      setHabitDayStatus,
+      cycleHabitDayStatus,
+      reorderHabits,
+      addList,
+      updateList,
+      renameList,
+      deleteList,
+      reorderLists,
+      addListItem,
+      updateListItem,
+      reorderListItems,
+      deleteListItem,
+      addBook,
+      updateBook,
+      deleteBook,
+      deleteBooks,
+      updateLibraryState,
+      syncLibraryAnnotationsFromDb,
+      sendBookExcerptToNotes,
+      addStream,
+      updateStream,
+      deleteStream,
+      toggleStreamInGrid,
+      loadStreamsToGrid,
+      addStreamSlot,
+      updateStreamSlot,
+      updateAllStreamSlots,
+      removeStreamSlot,
+      clearStreamSlots,
+      reorderActiveSlots,
+      incrementStreamListen,
+      addStreamFolder,
+      updateStreamFolder,
+      deleteStreamFolder,
+      setStreamTopicIcon,
+      reorderActiveStreams,
+      reorderVaultStreams,
+      updateStreamerState,
+      saveStreamPreset,
+      loadStreamPreset,
+      deleteStreamPreset,
+      addAudioTrack,
+      updateAudioTrack,
+      deleteAudioTracks,
+      addAudioFolder,
+      updateAudioFolder,
+      deleteAudioFolder,
+      addAudioPlaylist,
+      updateAudioPlaylist,
+      deleteAudioPlaylist,
+      addTracksToPlaylist,
+      removeTrackFromPlaylist,
+      reorderPlaylistTracks,
+      reorderAudioTracks,
+      updateAudioState,
+      playAudioTrack,
+      addAudioMixSlot,
+      updateAudioMixSlot,
+      updateAllAudioMixSlots,
+      removeAudioMixSlot,
+      clearAudioMixSlots,
+      reorderAudioMixSlots,
+      saveAudioMixPreset,
+      loadAudioMixPreset,
+      deleteAudioMixPreset,
+      recordAudioPlay,
+      setAudioEqPreset,
+      addContact,
+      updateContact,
+      deleteContact,
+      importContacts,
+      addContactCircle,
+      updateContactCircle,
+      deleteContactCircle,
+      addFinanceAccount,
+      updateFinanceAccount,
+      deleteFinanceAccount,
+      addFinanceCategory,
+      updateFinanceCategory,
+      deleteFinanceCategory,
+      addFinanceTransaction,
+      updateFinanceTransaction,
+      deleteFinanceTransaction,
+      importFinanceTransactions,
+      addFinanceSubscription,
+      updateFinanceSubscription,
+      deleteFinanceSubscription,
+      logFinanceSubscriptionNow,
+      skipFinanceSubscriptionCycle,
+      runDueFinanceSubscriptions,
+      updateFinanceSettings,
+      setActiveLanguageId,
+      addLanguageProfile,
+      updateLanguageProfile,
+      deleteLanguageProfile,
+      addLanguageDeck,
+      updateLanguageDeck,
+      deleteLanguageDeck,
+      addLanguageItem,
+      updateLanguageItem,
+      deleteLanguageItem,
+      reviewLanguageItem,
+      importLanguageItems,
+      quickPushGist,
+      quickPullGist,
+      updateSettings,
+      updateGistConfig,
+      replaceWorkspace,
+      purgeWorkspaceSection,
+      clearWorkspaceData,
+      restoreSampleData,
+    ],
+  );
+
   return (
-    <WorkspaceContext.Provider
-      value={{
-        workspace,
-        gistConfig,
-        toasts,
-        pushToast,
-        dismissToast,
-        addFocusItem,
-        clearFocusDayFromView,
-        addTimelineEntry,
-        createEntry,
-        addAchievementEntry,
-        updateEntry,
-        toggleEntryCompleted,
-        toggleEntryAchievement,
-        cycleEventAttendance,
-        setEventAttendance,
-        deleteEntry,
-        duplicateEntry,
-        moveEntryToDate,
-        addScratchpad,
-        updateScratchpad,
-        deleteScratchpad,
-        sendScratchpadToTimeline,
-        addCustomTab,
-        updateCustomTab,
-        deleteCustomTab,
-        addNotePage,
-        duplicateNotePage,
-        deleteNotePage,
-        archiveNotePage,
-        addNoteNotebook,
-        updateNoteNotebook,
-        deleteNoteNotebook,
-        reorderNoteNotebooks,
-        reorderNoteEntries,
-        addHabit,
-        updateHabit,
-        deleteHabit,
-        toggleHabitCompletion,
-        setHabitDayStatus,
-        cycleHabitDayStatus,
-        reorderHabits,
-        addList,
-        updateList,
-        renameList,
-        deleteList,
-        reorderLists,
-        addListItem,
-        updateListItem,
-        reorderListItems,
-        deleteListItem,
-        addBook,
-        updateBook,
-        deleteBook,
-        deleteBooks,
-        updateLibraryState,
-        syncLibraryAnnotationsFromDb,
-        sendBookExcerptToNotes,
-        addStream,
-        updateStream,
-        deleteStream,
-        toggleStreamInGrid,
-        loadStreamsToGrid,
-        addStreamSlot,
-        updateStreamSlot,
-        updateAllStreamSlots,
-        removeStreamSlot,
-        clearStreamSlots,
-        reorderActiveSlots,
-        incrementStreamListen,
-        addStreamFolder,
-        updateStreamFolder,
-        deleteStreamFolder,
-        setStreamTopicIcon,
-        reorderActiveStreams,
-        reorderVaultStreams,
-        updateStreamerState,
-        saveStreamPreset,
-        loadStreamPreset,
-        deleteStreamPreset,
-        addAudioTrack,
-        updateAudioTrack,
-        deleteAudioTracks,
-        addAudioFolder,
-        updateAudioFolder,
-        deleteAudioFolder,
-        addAudioPlaylist,
-        updateAudioPlaylist,
-        deleteAudioPlaylist,
-        addTracksToPlaylist,
-        removeTrackFromPlaylist,
-        reorderPlaylistTracks,
-        reorderAudioTracks,
-        updateAudioState,
-        playAudioTrack,
-        addAudioMixSlot,
-        updateAudioMixSlot,
-        updateAllAudioMixSlots,
-        removeAudioMixSlot,
-        clearAudioMixSlots,
-        reorderAudioMixSlots,
-        saveAudioMixPreset,
-        loadAudioMixPreset,
-        deleteAudioMixPreset,
-        recordAudioPlay,
-        setAudioEqPreset,
-        addContact,
-        updateContact,
-        deleteContact,
-        importContacts,
-        addContactCircle,
-        updateContactCircle,
-        deleteContactCircle,
-        addFinanceAccount,
-        updateFinanceAccount,
-        deleteFinanceAccount,
-        addFinanceCategory,
-        updateFinanceCategory,
-        deleteFinanceCategory,
-        addFinanceTransaction,
-        updateFinanceTransaction,
-        deleteFinanceTransaction,
-        importFinanceTransactions,
-        addFinanceSubscription,
-        updateFinanceSubscription,
-        deleteFinanceSubscription,
-        logFinanceSubscriptionNow,
-        skipFinanceSubscriptionCycle,
-        runDueFinanceSubscriptions,
-        updateFinanceSettings,
-        setActiveLanguageId,
-        addLanguageProfile,
-        updateLanguageProfile,
-        deleteLanguageProfile,
-        addLanguageDeck,
-        updateLanguageDeck,
-        deleteLanguageDeck,
-        addLanguageItem,
-        updateLanguageItem,
-        deleteLanguageItem,
-        reviewLanguageItem,
-        importLanguageItems,
-        gistSyncBusy,
-        quickPushGist,
-        quickPullGist,
-        updateSettings,
-        updateGistConfig,
-        replaceWorkspace,
-        purgeWorkspaceSection,
-        clearWorkspaceData,
-        restoreSampleData,
-      }}
-    >
-      {children}
+    <WorkspaceContext.Provider value={workspaceContextValue}>
+      <GistSyncStatusContext.Provider value={gistSyncStatusValue}>
+        <ToastContext.Provider value={toastContextValue}>
+          {children}
+        </ToastContext.Provider>
+      </GistSyncStatusContext.Provider>
     </WorkspaceContext.Provider>
   );
 };
@@ -5440,6 +5692,24 @@ export function useWorkspace(): WorkspaceContextValue {
   const ctx = useContext(WorkspaceContext);
   if (!ctx) {
     throw new Error("useWorkspace must be used within a WorkspaceProvider");
+  }
+  return ctx;
+}
+
+export function useWorkspaceToasts(): ToastContextValue {
+  const ctx = useContext(ToastContext);
+  if (!ctx) {
+    throw new Error(
+      "useWorkspaceToasts must be used within a WorkspaceProvider",
+    );
+  }
+  return ctx;
+}
+
+export function useGistSyncStatus(): GistSyncStatusContextValue {
+  const ctx = useContext(GistSyncStatusContext);
+  if (!ctx) {
+    throw new Error("useGistSyncStatus must be used within a WorkspaceProvider");
   }
   return ctx;
 }

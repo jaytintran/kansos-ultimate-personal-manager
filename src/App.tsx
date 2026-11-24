@@ -35,7 +35,12 @@ import {
   ContextMenuState,
   UniversalContextMenu,
 } from "./components/UniversalContextMenu";
-import { WorkspaceProvider, useWorkspace } from "./context/WorkspaceContext";
+import {
+  useGistSyncStatus,
+  useWorkspace,
+  useWorkspaceToasts,
+  WorkspaceProvider,
+} from "./context/WorkspaceContext";
 import {
   BookJumpRequest,
   BookNoteLink,
@@ -113,14 +118,12 @@ const KansoShell: React.FC = () => {
   const {
     workspace,
     gistConfig,
-    gistSyncBusy,
     quickPushGist,
     quickPullGist,
-    toasts,
-    dismissToast,
     pushToast,
     updateSettings,
   } = useWorkspace();
+  const { gistSyncBusy } = useGistSyncStatus();
   const navConfig = useMemo(
     () => resolveNavigationConfig(workspace.settings.navigation),
     [workspace.settings.navigation],
@@ -2100,43 +2103,49 @@ const KansoShell: React.FC = () => {
       />
 
       {/* Non-intrusive Toast Feedback */}
-      {toasts.length > 0 && (
+      <ToastViewport />
+    </div>
+  );
+};
+
+const ToastViewport: React.FC = () => {
+  const { toasts, dismissToast } = useWorkspaceToasts();
+  if (toasts.length === 0) return null;
+  return (
+    <div
+      className="fixed bottom-36 lg:bottom-24 right-4 sm:right-6 z-[80] flex flex-col gap-2 max-w-sm"
+      aria-live="polite"
+    >
+      {toasts.map((toast) => (
         <div
-          className="fixed bottom-36 lg:bottom-24 right-4 sm:right-6 z-[80] flex flex-col gap-2 max-w-sm"
-          aria-live="polite"
+          key={toast.id}
+          className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border text-xs font-medium"
+          style={{
+            backgroundColor: "var(--bg-elevated)",
+            borderColor:
+              toast.tone === "error"
+                ? "var(--danger)"
+                : toast.tone === "success"
+                  ? "var(--accent)"
+                  : "var(--border-strong)",
+            color:
+              toast.tone === "error"
+                ? "var(--danger)"
+                : "var(--text-primary)",
+            boxShadow: "var(--shadow-popover)",
+          }}
         >
-          {toasts.map((toast) => (
-            <div
-              key={toast.id}
-              className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border text-xs font-medium"
-              style={{
-                backgroundColor: "var(--bg-elevated)",
-                borderColor:
-                  toast.tone === "error"
-                    ? "var(--danger)"
-                    : toast.tone === "success"
-                      ? "var(--accent)"
-                      : "var(--border-strong)",
-                color:
-                  toast.tone === "error"
-                    ? "var(--danger)"
-                    : "var(--text-primary)",
-                boxShadow: "var(--shadow-popover)",
-              }}
-            >
-              <span>{toast.text}</span>
-              <button
-                type="button"
-                onClick={() => dismissToast(toast.id)}
-                className="opacity-70 hover:opacity-100 shrink-0"
-                aria-label="Dismiss notification"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
+          <span>{toast.text}</span>
+          <button
+            type="button"
+            onClick={() => dismissToast(toast.id)}
+            className="opacity-70 hover:opacity-100 shrink-0"
+            aria-label="Dismiss notification"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
-      )}
+      ))}
     </div>
   );
 };

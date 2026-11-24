@@ -91,7 +91,7 @@ export async function pushWorkspaceToGist(
     public: false,
     files: {
       [filename]: {
-        content: JSON.stringify(payload, null, 2),
+        content: JSON.stringify(payload),
       },
     },
   };

@@ -172,8 +172,9 @@ export async function findMissingAudioIds(
   );
   if (androidTracks.length === 0) return missing;
 
-  const auditEntries = await audioDb.auditAudioFiles().catch(() => []);
-  const idbIds = new Set(auditEntries.map((e) => e.trackId));
+  const idbIds = await audioDb
+    .getAudioFileIds()
+    .catch(() => new Set<string>());
 
   const urisToCheck = androidTracks
     .map((t) => t.externalUri)
@@ -201,8 +202,9 @@ export async function findOrphanedMissingAudioIds(
   const missing = new Set<string>();
   if (tracks.length === 0) return missing;
 
-  const auditEntries = await audioDb.auditAudioFiles().catch(() => []);
-  const idbIds = new Set(auditEntries.map((e) => e.trackId));
+  const idbIds = await audioDb
+    .getAudioFileIds()
+    .catch(() => new Set<string>());
 
   const urisToCheck: string[] = [];
   if (isAndroidCapacitor()) {

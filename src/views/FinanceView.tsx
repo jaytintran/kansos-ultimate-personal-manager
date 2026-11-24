@@ -900,7 +900,7 @@ export const FinanceView: React.FC = () => {
                 {dailyGroups.map((group) => (
                   <section
                     key={group.dateKey}
-                    className="rounded-2xl border overflow-hidden"
+                    className="rounded-2xl border overflow-hidden [content-visibility:auto] [contain-intrinsic-size:auto_180px]"
                     style={{
                       backgroundColor: "var(--bg-surface)",
                       borderColor: "var(--border-subtle)",

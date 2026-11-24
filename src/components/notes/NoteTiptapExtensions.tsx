@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Node,
   NodeViewContent,
@@ -20,6 +20,11 @@ import {
   Minimize2,
   Trash2,
 } from 'lucide-react';
+import {
+  extractNoteImageId,
+  isLocalNoteImageUri,
+  noteImageDb,
+} from '../../lib/db';
 
 // ============================================================================
 // 1. Callout Block (Tone + Icon Selector, Hairline Kanso Styling)
@@ -328,6 +333,33 @@ const ImageEmbedNodeView: React.FC<NodeViewProps> = ({ node, updateAttributes, d
   const caption = (node.attrs.caption as string) || '';
   const widthMode = (node.attrs.width as 'default' | 'wide') || 'default';
 
+  const isLocalIdb = isLocalNoteImageUri(src);
+  const [resolvedLocalSrc, setResolvedLocalSrc] = useState<string | null>(null);
+  const [localLoading, setLocalLoading] = useState<boolean>(isLocalIdb);
+
+  useEffect(() => {
+    setImgError(false);
+    if (!isLocalIdb) {
+      setResolvedLocalSrc(null);
+      setLocalLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLocalLoading(true);
+    const id = extractNoteImageId(src);
+    void noteImageDb.getImage(id).then((dataUrl) => {
+      if (cancelled) return;
+      setResolvedLocalSrc(dataUrl);
+      setLocalLoading(false);
+      if (!dataUrl) setImgError(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLocalIdb, src]);
+
+  const effectiveSrc = isLocalIdb ? (resolvedLocalSrc ?? '') : src;
+
   return (
     <NodeViewWrapper
       data-type="image-embed"
@@ -348,17 +380,28 @@ const ImageEmbedNodeView: React.FC<NodeViewProps> = ({ node, updateAttributes, d
         }}
       >
         <div className="relative flex items-center justify-center min-h-[120px]">
-          {!src || imgError ? (
+          {localLoading ? (
+            <div
+              className="py-10 px-4 flex flex-col items-center gap-2 text-xs text-center"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <span>Loading local image...</span>
+            </div>
+          ) : !effectiveSrc || imgError ? (
             <div
               className="py-10 px-4 flex flex-col items-center gap-2 text-xs text-center"
               style={{ color: 'var(--text-muted)' }}
             >
               <ImageOff className="w-6 h-6 opacity-70" />
-              <span>Image could not be loaded. Check the URL or replace with an upload.</span>
+              <span>
+                {isLocalIdb
+                  ? 'Local image is stored on another device only (not synced via Gist).'
+                  : 'Image could not be loaded. Check the URL or replace with an upload.'}
+              </span>
             </div>
           ) : (
             <img
-              src={src}
+              src={effectiveSrc}
               alt={alt || caption || 'Embedded note visual'}
               onError={() => setImgError(true)}
               className="w-full max-h-[460px] object-contain block"

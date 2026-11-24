@@ -1403,10 +1403,14 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     },
     onSelectionUpdate: ({ editor: ed }) => {
       updateSelectionToolbar(ed);
-      forceRerender((n) => (n + 1) % 10000);
+      if (variant !== 'borderless') {
+        forceRerender((n) => (n + 1) % 10000);
+      }
     },
     onTransaction: () => {
-      forceRerender((n) => (n + 1) % 10000);
+      if (variant !== 'borderless') {
+        forceRerender((n) => (n + 1) % 10000);
+      }
     },
     onBlur: () => {
       window.setTimeout(() => {

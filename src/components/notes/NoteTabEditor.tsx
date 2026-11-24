@@ -344,7 +344,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
     if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = window.setTimeout(() => {
       if (!isComposingRef.current) flushSave();
-    }, 380);
+    }, 350);
 
     return () => {
       if (debounceTimerRef.current) {
@@ -365,9 +365,18 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
     flushSave,
   ]);
 
-  // Flush unsaved edits cleanly on unmount / tab switch
+  // Flush unsaved edits cleanly on unmount, tab switch, or page hide/unload
   useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") flushSave();
+    };
+    window.addEventListener("pagehide", flushSave);
+    window.addEventListener("beforeunload", flushSave);
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
+      window.removeEventListener("pagehide", flushSave);
+      window.removeEventListener("beforeunload", flushSave);
+      document.removeEventListener("visibilitychange", handleVisibility);
       if (debounceTimerRef.current) {
         window.clearTimeout(debounceTimerRef.current);
       }

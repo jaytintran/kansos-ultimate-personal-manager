@@ -42,6 +42,7 @@ import {
   X,
 } from "lucide-react";
 import { Entry, NoteEditorFont } from "../../types";
+import { noteImageDb } from "../../lib/db";
 import {
   BookmarkNode,
   CalloutNode,
@@ -50,6 +51,64 @@ import {
   ToggleNode,
   WikiLinkNode,
 } from "./NoteTiptapExtensions";
+
+async function compressUploadedNoteImage(
+  file: File,
+): Promise<{ dataUrl: string; mimeType: string }> {
+  const readAsDataUrl = (f: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") resolve(reader.result);
+        else reject(new Error("Invalid image data"));
+      };
+      reader.onerror = () => reject(reader.error || new Error("Read failed"));
+      reader.readAsDataURL(f);
+    });
+
+  const rawDataUrl = await readAsDataUrl(file);
+  if (typeof document === "undefined" || file.type === "image/gif" || file.type === "image/svg+xml") {
+    return { dataUrl: rawDataUrl, mimeType: file.type || "image/png" };
+  }
+
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("Image decode failed"));
+      el.src = rawDataUrl;
+    });
+    const maxDim = 1600;
+    const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
+    const targetW = Math.max(1, Math.round(img.width * scale));
+    const targetH = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return { dataUrl: rawDataUrl, mimeType: file.type || "image/png" };
+    ctx.drawImage(img, 0, 0, targetW, targetH);
+
+    const webp = canvas.toDataURL("image/webp", 0.84);
+    if (webp.startsWith("data:image/webp") && webp.length < rawDataUrl.length) {
+      return { dataUrl: webp, mimeType: "image/webp" };
+    }
+    const jpeg = canvas.toDataURL("image/jpeg", 0.84);
+    if (jpeg.length < rawDataUrl.length) {
+      return { dataUrl: jpeg, mimeType: "image/jpeg" };
+    }
+  } catch {
+    // Fallback to raw data URL if canvas compression fails
+  }
+  return { dataUrl: rawDataUrl, mimeType: file.type || "image/png" };
+}
+
+function makeNoteImageId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `nimg_${crypto.randomUUID()}`;
+  }
+  return `nimg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+}
 
 interface NotionBlockEditorProps {
   docId: string;
@@ -269,15 +328,33 @@ export const NotionBlockEditor: React.FC<NotionBlockEditorProps> = ({
     insertPos?: number;
   }>({ open: false, url: "", title: "", description: "" });
 
-  // Refs for fresh closures inside ProseMirror handleKeyDown
+  // Refs for fresh closures inside ProseMirror handleKeyDown & debounced flush
   const onOpenNoteRef = useRef(onOpenNote);
   onOpenNoteRef.current = onOpenNote;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const docIdRef = useRef(docId);
+  docIdRef.current = docId;
+  const pendingHtmlRef = useRef<string | null>(null);
+  const debounceTimerRef = useRef<number | null>(null);
   const slashRef = useRef(slashState);
   slashRef.current = slashState;
   const wikiRef = useRef(wikiState);
   wikiRef.current = wikiState;
   const allNotesRef = useRef(allNotes);
   allNotesRef.current = allNotes;
+
+  const flushPendingChange = useCallback(() => {
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    if (pendingHtmlRef.current !== null) {
+      const next = pendingHtmlRef.current;
+      pendingHtmlRef.current = null;
+      onChangeRef.current(next);
+    }
+  }, []);
 
   const filteredSlashCommands = useMemo(() => {
     const q = slashState.query.trim().toLowerCase();
@@ -354,9 +431,61 @@ export const NotionBlockEditor: React.FC<NotionBlockEditorProps> = ({
     },
     onUpdate: ({ editor: ed }) => {
       const html = ed.getHTML();
-      onChange(html === "<p></p>" ? "" : html);
+      const normalized = html === "<p></p>" ? "" : html;
+      pendingHtmlRef.current = normalized;
+      if (debounceTimerRef.current !== null) {
+        window.clearTimeout(debounceTimerRef.current);
+      }
+      debounceTimerRef.current = window.setTimeout(() => {
+        debounceTimerRef.current = null;
+        if (pendingHtmlRef.current !== null) {
+          const toCommit = pendingHtmlRef.current;
+          pendingHtmlRef.current = null;
+          onChangeRef.current(toCommit);
+        }
+      }, 350);
+    },
+    onBlur: () => {
+      flushPendingChange();
     },
     editorProps: {
+      handlePaste: (view, event) => {
+        const files = event.clipboardData?.files;
+        if (!files || files.length === 0) return false;
+        const imageFile = Array.from(files).find((f) =>
+          f.type.startsWith("image/"),
+        );
+        if (!imageFile) return false;
+        event.preventDefault();
+        const insertPos = view.state.selection.from;
+        void (async () => {
+          try {
+            const { dataUrl, mimeType } =
+              await compressUploadedNoteImage(imageFile);
+            const id = makeNoteImageId();
+            const uri = await noteImageDb.saveImage(id, dataUrl, mimeType);
+            editorRef.current
+              ?.chain()
+              .focus()
+              .insertContentAt(insertPos, [
+                {
+                  type: "imageEmbed",
+                  attrs: {
+                    src: uri,
+                    alt: imageFile.name.replace(/\.[^.]+$/, "") || "Embedded image",
+                    caption: "",
+                    width: "default",
+                  },
+                },
+                { type: "paragraph" },
+              ])
+              .run();
+          } catch {
+            // Ignore clipboard image failure
+          }
+        })();
+        return true;
+      },
       handleKeyDown: (_view, event) => {
         // Intercept navigation when Slash Menu is open
         if (slashRef.current.open) {
@@ -457,15 +586,37 @@ export const NotionBlockEditor: React.FC<NotionBlockEditorProps> = ({
     }
   }, [editor]);
 
-  // Sync document content only when switching docId
+  // Keep editorRef updated & flush on tab hide/unload/unmount
+  const editorRef = useRef(editor);
+  editorRef.current = editor;
+
+  useEffect(() => {
+    const handleFlush = () => flushPendingChange();
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") flushPendingChange();
+    };
+    window.addEventListener("pagehide", handleFlush);
+    window.addEventListener("beforeunload", handleFlush);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("pagehide", handleFlush);
+      window.removeEventListener("beforeunload", handleFlush);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      flushPendingChange();
+    };
+  }, [flushPendingChange]);
+
+  // Sync document content only when switching docId (flush prior docId draft first)
   useEffect(() => {
     if (!editor) return;
+    flushPendingChange();
     const currentHtml = editor.getHTML();
     const normalizedCurrent = currentHtml === "<p></p>" ? "" : currentHtml;
     const normalizedNext = content || "";
     if (normalizedCurrent !== normalizedNext) {
       editor.commands.setContent(normalizedNext, { emitUpdate: false });
     }
+    pendingHtmlRef.current = null;
     setSlashState((prev) => ({ ...prev, open: false }));
     setWikiState((prev) => ({ ...prev, open: false }));
     setBubbleState((prev) => ({ ...prev, open: false, linkInputOpen: false }));
@@ -966,20 +1117,23 @@ export const NotionBlockEditor: React.FC<NotionBlockEditorProps> = ({
     setBlockMenuBlock(null);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setImageModal((prev) => ({
-          ...prev,
-          url: reader.result as string,
-          caption: prev.caption || file.name.replace(/\.[^.]+$/, ""),
-        }));
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const { dataUrl, mimeType } = await compressUploadedNoteImage(file);
+      const id = makeNoteImageId();
+      const uri = await noteImageDb.saveImage(id, dataUrl, mimeType);
+      setImageModal((prev) => ({
+        ...prev,
+        url: uri,
+        caption: prev.caption || file.name.replace(/\.[^.]+$/, ""),
+      }));
+    } catch {
+      // Fallback: ignore failed file read
+    } finally {
+      e.target.value = "";
+    }
   };
 
   const submitImageModal = (e: React.FormEvent) => {

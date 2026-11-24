@@ -1275,7 +1275,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 const isToday = dayKey === todayKey;
                 const isFuture = dayKey > todayKey;
                 return (
-                  <div key={dayKey} className="space-y-1.5">
+                  <div
+                    key={dayKey}
+                    className="space-y-1.5 [content-visibility:auto] [contain-intrinsic-size:auto_220px]"
+                  >
                     <div className="flex items-center justify-between gap-2 px-1">
                       <button
                         type="button"
@@ -1369,7 +1372,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           </div>
 
           {searchGroups.days.map(({ dayKey, items }) => (
-            <div key={dayKey} className="space-y-1.5">
+            <div
+              key={dayKey}
+              className="space-y-1.5 [content-visibility:auto] [contain-intrinsic-size:auto_220px]"
+            >
               <button
                 type="button"
                 onClick={() => {

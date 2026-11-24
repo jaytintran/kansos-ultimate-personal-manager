@@ -29,7 +29,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { useWorkspace } from "../context/WorkspaceContext";
+import { useGistSyncStatus, useWorkspace } from "../context/WorkspaceContext";
 import { DEFAULT_AUDIO_STATE } from "../data/seedData";
 import { pruneMissingBookVoicePreferences } from "../hooks/useVoicePreferences";
 import { exportAudioBackupZip } from "../lib/audioBackup";
@@ -201,7 +201,6 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
   const {
     workspace,
     gistConfig,
-    gistSyncBusy,
     quickPushGist,
     quickPullGist,
     updateSettings,
@@ -215,6 +214,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     restoreSampleData,
     pushToast,
   } = useWorkspace();
+  const { gistSyncBusy } = useGistSyncStatus();
 
   const [tab, setTab] = useState<SettingsModalTab>(initialTab);
   const [showToken, setShowToken] = useState(false);
@@ -335,7 +335,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
   }, [open, tab, refreshStorageAudit]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || tab !== "storage") return;
     let cancelled = false;
     void findOrphanedMissingBookIds(workspace.books)
       .then((ids) => {
@@ -354,7 +354,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [open, workspace.books, workspace.audioTracks]);
+  }, [open, tab, workspace.books, workspace.audioTracks]);
 
   useEffect(() => {
     if (!open) return;
@@ -412,14 +412,44 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     [localKeys],
   );
 
-  const workspaceJsonBytes = useMemo(
-    () =>
+  const isStorageTabActive = open && tab === "storage";
+
+  const workspaceJsonBytes = useMemo(() => {
+    if (!isStorageTabActive) return 0;
+    return (
       localKeys.find((k) => k.key === "kanso_workspace_v1")?.bytes ??
-      measureJsonBytes(workspace),
-    [localKeys, workspace],
-  );
+      measureJsonBytes(workspace)
+    );
+  }, [isStorageTabActive, localKeys, workspace]);
 
   const domainMetrics = useMemo(() => {
+    if (!isStorageTabActive) {
+      return {
+        entriesCount: 0,
+        completedTasks: 0,
+        archivedNotes: 0,
+        entriesBytes: 0,
+        focusCount: 0,
+        focusBytes: 0,
+        habitsCount: 0,
+        habitsBytes: 0,
+        listsCount: 0,
+        listsBytes: 0,
+        streamerCount: 0,
+        streamerBytes: 0,
+        libraryMetaCount: 0,
+        libraryMetaBytes: 0,
+        audioMetaCount: 0,
+        audioMetaBytes: 0,
+        contactsCount: 0,
+        contactsBytes: 0,
+        financeCount: 0,
+        financeBytes: 0,
+        languagesCount: 0,
+        languagesBytes: 0,
+      };
+    }
+
     const entries = workspace.entries;
     const completedTasks = entries.filter(
       (e) => e.type === "task" && e.completed,
@@ -504,7 +534,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
         measureJsonBytes(workspace.languageItems) +
         measureJsonBytes(workspace.languageDailyStats),
     };
-  }, [workspace]);
+  }, [isStorageTabActive, workspace]);
 
   const resolvedNav = useMemo(
     () => resolveNavigationConfig(workspace.settings.navigation),

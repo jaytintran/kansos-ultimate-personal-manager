@@ -81,8 +81,9 @@ export async function findMissingBookIds(
   );
   if (androidBooks.length === 0) return missing;
 
-  const auditEntries = await libraryDb.auditStorageFiles().catch(() => []);
-  const idbIds = new Set(auditEntries.map((e) => e.bookId));
+  const idbIds = await libraryDb
+    .getBookFileIds()
+    .catch(() => new Set<string>());
 
   const androidUrisToCheck = androidBooks
     .map((b) => b.externalUri)
@@ -113,8 +114,9 @@ export async function findOrphanedMissingBookIds(
   const missing = new Set<string>();
   if (books.length === 0) return missing;
 
-  const auditEntries = await libraryDb.auditStorageFiles().catch(() => []);
-  const idbIds = new Set(auditEntries.map((e) => e.bookId));
+  const idbIds = await libraryDb
+    .getBookFileIds()
+    .catch(() => new Set<string>());
 
   const androidUrisToCheck: string[] = [];
   if (isAndroidCapacitor()) {
