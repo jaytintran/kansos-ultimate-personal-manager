@@ -24,7 +24,8 @@ import {
   X,
 } from "lucide-react";
 import { DynamicIcon, NotePageIcon } from "../components/IconLibrary";
-import { IconPicker } from "../components/IconPicker";
+import { IconPicker, IconPickerPopover } from "../components/IconPicker";
+import { TruncatedNoteTitle } from "../components/notes/TruncatedNoteTitle";
 import { BookCover } from "../components/library/BookCover";
 import {
   NoteBranchActionPrompt,
@@ -283,6 +284,11 @@ export const NotesView: React.FC<NotesViewProps> = ({
     notebook?: NoteNotebook;
     name: string;
     icon: string;
+  } | null>(null);
+
+  const [iconPickerTarget, setIconPickerTarget] = useState<{
+    noteId: string;
+    mode: "grid" | "list";
   } | null>(null);
 
   // Drag & drop state (Note reordering, Note -> Notebook filing on mobile tab strip)
@@ -2011,7 +2017,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
                     setFocusedNoteId(note.id);
                     onOpenContextMenu({ kind: "entry", entry: note }, e);
                   }}
-                  className={`relative rounded-xl border p-3 flex flex-col justify-between gap-2.5 cursor-pointer transition-all duration-150 hover:border-[var(--border-strong)] min-h-[156px] ${
+                  className={`relative rounded-xl border flex flex-col cursor-pointer transition-all duration-150 hover:border-[var(--border-strong)] min-h-[164px] ${
                     isCustomSort && !note.archived ? "cursor-grab active:cursor-grabbing" : ""
                   } ${isBeingDragged ? "opacity-45 scale-[0.98]" : ""} ${
                     isDropTarget
@@ -2044,192 +2050,258 @@ export const NotesView: React.FC<NotesViewProps> = ({
                     />
                   )}
 
-                  <div className="space-y-1.5 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-start gap-1.5 min-w-0 flex-1">
-                        {isCustomSort && !note.archived && (
-                          <div
-                            role="button"
-                            tabIndex={0}
-                            aria-label={`Reorder ${note.title || "Untitled Note"}`}
-                            onClick={(e) => e.stopPropagation()}
-                            onPointerDown={(e) => {
-                              if (e.pointerType === "mouse") return;
-                              e.stopPropagation();
-                              e.currentTarget.setPointerCapture(e.pointerId);
-                              activeDragNoteIdRef.current = note.id;
-                              setDraggingNoteId(note.id);
-                              setNoteDropTarget(null);
-                              setNoteFileDropTargetId(null);
-                            }}
-                            onPointerMove={(e) => {
-                              if (
-                                e.pointerType === "mouse" ||
-                                draggingNoteId !== note.id
-                              ) {
-                                return;
-                              }
+                  {/* Top Card Header Bar: Page Icon + Pin + Actions */}
+                  <div
+                    className="rounded-t-[11px] px-3 py-1.5 border-b flex items-center justify-between gap-2 shrink-0"
+                    style={{
+                      backgroundColor: "var(--bg-surface-subtle)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    <div className="flex items-center gap-1 min-w-0">
+                      {isCustomSort && !note.archived && (
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Reorder ${note.title || "Untitled Note"}`}
+                          onClick={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => {
+                            if (e.pointerType === "mouse") return;
+                            e.stopPropagation();
+                            e.currentTarget.setPointerCapture(e.pointerId);
+                            activeDragNoteIdRef.current = note.id;
+                            setDraggingNoteId(note.id);
+                            setNoteDropTarget(null);
+                            setNoteFileDropTargetId(null);
+                          }}
+                          onPointerMove={(e) => {
+                            if (
+                              e.pointerType === "mouse" ||
+                              draggingNoteId !== note.id
+                            ) {
+                              return;
+                            }
+                            const resolved = resolveTouchDrop(
+                              e.clientX,
+                              e.clientY,
+                              note.id,
+                            );
+                            setNoteDropTarget(resolved.noteTarget);
+                            setNoteFileDropTargetId(resolved.notebookTargetId);
+                          }}
+                          onPointerUp={(e) => {
+                            if (e.pointerType === "mouse") return;
+                            e.stopPropagation();
+                            if (draggingNoteId === note.id) {
                               const resolved = resolveTouchDrop(
                                 e.clientX,
                                 e.clientY,
                                 note.id,
                               );
-                              setNoteDropTarget(resolved.noteTarget);
-                              setNoteFileDropTargetId(resolved.notebookTargetId);
-                            }}
-                            onPointerUp={(e) => {
-                              if (e.pointerType === "mouse") return;
-                              e.stopPropagation();
-                              if (draggingNoteId === note.id) {
-                                const resolved = resolveTouchDrop(
-                                  e.clientX,
-                                  e.clientY,
+                              const nbTarget =
+                                resolved.notebookTargetId ?? noteFileDropTargetId;
+                              const cardTarget =
+                                resolved.noteTarget ?? noteDropTarget;
+                              clearAllDragStates();
+                              if (nbTarget) {
+                                handleMoveNoteToNotebook(
                                   note.id,
+                                  nbTarget === "__unfiled__" ? null : nbTarget,
                                 );
-                                const nbTarget =
-                                  resolved.notebookTargetId ?? noteFileDropTargetId;
-                                const cardTarget =
-                                  resolved.noteTarget ?? noteDropTarget;
-                                clearAllDragStates();
-                                if (nbTarget) {
-                                  handleMoveNoteToNotebook(
-                                    note.id,
-                                    nbTarget === "__unfiled__" ? null : nbTarget,
-                                  );
-                                } else if (
-                                  cardTarget &&
-                                  cardTarget.noteId !== note.id
-                                ) {
-                                  handleReorderNotes(
-                                    note.id,
-                                    cardTarget.noteId,
-                                    cardTarget.position,
-                                  );
-                                }
-                              } else {
-                                clearAllDragStates();
+                              } else if (
+                                cardTarget &&
+                                cardTarget.noteId !== note.id
+                              ) {
+                                handleReorderNotes(
+                                  note.id,
+                                  cardTarget.noteId,
+                                  cardTarget.position,
+                                );
                               }
-                            }}
-                            onPointerCancel={clearAllDragStates}
-                            className="touch-none select-none w-6 h-6 -ml-1 -mt-0.5 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-grab active:cursor-grabbing shrink-0"
-                          >
-                            <GripVertical className="w-3.5 h-3.5" />
-                          </div>
-                        )}
+                            } else {
+                              clearAllDragStates();
+                            }
+                          }}
+                          onPointerCancel={clearAllDragStates}
+                          className="touch-none select-none w-6 h-6 -ml-1 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-grab active:cursor-grabbing shrink-0"
+                        >
+                          <GripVertical className="w-3.5 h-3.5" />
+                        </div>
+                      )}
 
-                        <NotePageIcon
-                          icon={note.icon}
-                          className="w-3.5 h-3.5 shrink-0 mt-0.5"
+                      <div
+                        className="relative shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIconPickerTarget((prev) =>
+                              prev?.noteId === note.id && prev.mode === "grid"
+                                ? null
+                                : { noteId: note.id, mode: "grid" },
+                            );
+                          }}
+                          title={note.icon ? "Change page icon" : "Add page icon"}
+                          aria-label={
+                            note.icon ? "Change page icon" : "Add page icon"
+                          }
+                          aria-expanded={
+                            iconPickerTarget?.noteId === note.id &&
+                            iconPickerTarget.mode === "grid"
+                          }
+                          className={`w-6 h-6 -ml-1 rounded-md flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer ${
+                            iconPickerTarget?.noteId === note.id &&
+                            iconPickerTarget.mode === "grid"
+                              ? "bg-[var(--bg-surface-hover)]"
+                              : ""
+                          }`}
                           style={{
                             color: note.icon
                               ? "var(--accent)"
                               : "var(--text-muted)",
                           }}
+                        >
+                          <NotePageIcon icon={note.icon} className="w-3.5 h-3.5" />
+                        </button>
+
+                        <IconPickerPopover
+                          open={
+                            iconPickerTarget?.noteId === note.id &&
+                            iconPickerTarget.mode === "grid"
+                          }
+                          onClose={() => setIconPickerTarget(null)}
+                          value={note.icon}
+                          onChange={(nextIcon) =>
+                            updateEntry(note.id, { icon: nextIcon })
+                          }
+                          onClear={() => updateEntry(note.id, { icon: "" })}
+                          allowClear
+                          clearLabel="Default"
+                          title="Page Icon"
+                          align="left"
                         />
-
-                        <div className="min-w-0 flex-1">
-                          <h2
-                            className="text-sm font-medium leading-snug line-clamp-2 min-w-0"
-                            style={{ color: "var(--text-primary)" }}
-                          >
-                            {note.title || "Untitled Note"}
-                          </h2>
-                          {hasActiveSearchOrTag && parentNote && (
-                            <div
-                              className="text-[11px] truncate mt-0.5"
-                              style={{ color: "var(--text-muted)" }}
-                            >
-                              in {parentNote.title || "Untitled Note"}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-0.5 shrink-0 -mr-1 -mt-0.5">
-                        {note.archived ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                archiveNotePage(note.id, false, "promote");
-                                pushToast("Note restored", "success");
-                              }}
-                              title="Restore note"
-                              aria-label="Restore note"
-                              className="h-6 px-1.5 flex items-center gap-1 rounded-md text-[11px] font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                              style={{ color: "var(--accent)" }}
-                            >
-                              <RotateCcw className="w-3 h-3" />
-                              <span>Restore</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteNotePage(note.id, "promote");
-                                pushToast("Note permanently deleted");
-                              }}
-                              title="Delete permanently"
-                              aria-label="Delete permanently"
-                              className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                              style={{ color: "var(--danger)" }}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            {note.pinned && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  updateEntry(note.id, { pinned: false });
-                                }}
-                                className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)]"
-                                style={{ color: "var(--accent)" }}
-                                title="Pinned note (click to unpin)"
-                                aria-label="Unpin note"
-                              >
-                                <Pin className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setFocusedNoteId(note.id);
-                                onOpenContextMenu({ kind: "entry", entry: note }, e);
-                              }}
-                              className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)]"
-                              style={{ color: "var(--text-muted)" }}
-                              aria-label="Note actions"
-                            >
-                              <MoreVertical className="w-3.5 h-3.5" />
-                            </button>
-                          </>
-                        )}
                       </div>
                     </div>
 
-                    {note.content ? (
-                      <RichContent
-                        html={note.content}
-                        className="line-clamp-5 text-xs"
-                        fade
-                      />
-                    ) : (
-                      <p
-                        className="text-xs italic"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        Empty note...
-                      </p>
-                    )}
+                    <div className="flex items-center gap-0.5 shrink-0 -mr-1">
+                      {note.archived ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              archiveNotePage(note.id, false, "promote");
+                              pushToast("Note restored", "success");
+                            }}
+                            title="Restore note"
+                            aria-label="Restore note"
+                            className="h-6 px-1.5 flex items-center gap-1 rounded-md text-[11px] font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                            style={{ color: "var(--accent)" }}
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            <span>Restore</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteNotePage(note.id, "promote");
+                              pushToast("Note permanently deleted");
+                            }}
+                            title="Delete permanently"
+                            aria-label="Delete permanently"
+                            className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                            style={{ color: "var(--danger)" }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateEntry(note.id, { pinned: !note.pinned });
+                            }}
+                            className={`h-6 w-6 flex items-center justify-center rounded-md transition-all hover:bg-[var(--bg-surface-hover)] cursor-pointer ${
+                              note.pinned
+                                ? "opacity-100"
+                                : "opacity-60 hover:opacity-100"
+                            }`}
+                            style={{
+                              color: note.pinned
+                                ? "var(--accent)"
+                                : "var(--text-muted)",
+                            }}
+                            title={
+                              note.pinned
+                                ? "Pinned note (click to unpin)"
+                                : "Pin note"
+                            }
+                            aria-label={
+                              note.pinned ? "Unpin note" : "Pin note"
+                            }
+                            aria-pressed={Boolean(note.pinned)}
+                          >
+                            <Pin className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFocusedNoteId(note.id);
+                              onOpenContextMenu({ kind: "entry", entry: note }, e);
+                            }}
+                            className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                            style={{ color: "var(--text-muted)" }}
+                            aria-label="Note actions"
+                          >
+                            <MoreVertical className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="space-y-1.5 min-w-0">
+                  <div className="p-3 pt-2.5 flex-1 flex flex-col justify-between gap-2.5 min-w-0">
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="min-w-0">
+                        <TruncatedNoteTitle
+                          as="h2"
+                          title={note.title || "Untitled Note"}
+                          className="text-sm font-medium leading-snug min-w-0"
+                          style={{ color: "var(--text-primary)" }}
+                        />
+                        {hasActiveSearchOrTag && parentNote && (
+                          <div
+                            className="text-[11px] truncate mt-0.5"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            in {parentNote.title || "Untitled Note"}
+                          </div>
+                        )}
+                      </div>
+
+                      {note.content ? (
+                        <RichContent
+                          html={note.content}
+                          className="line-clamp-5 text-xs"
+                          fade
+                        />
+                      ) : (
+                        <p
+                          className="text-xs italic"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          Empty note...
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5 min-w-0">
                     {subCount > 0 && !note.archived && (
                       <button
                         type="button"
@@ -2405,6 +2477,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
                       {note.tags.length > 0 && (
                         <span> · {note.tags.map((t) => `#${t}`).join(" ")}</span>
                       )}
+                    </div>
                     </div>
                   </div>
                 </article>
@@ -2599,21 +2672,65 @@ export const NotesView: React.FC<NotesViewProps> = ({
                         <Pin className="w-3.5 h-3.5" />
                       </button>
                     )}
-                    <NotePageIcon
-                      icon={note.icon}
-                      className="w-3.5 h-3.5 shrink-0"
-                      style={{
-                        color: note.icon
-                          ? "var(--accent)"
-                          : "var(--text-muted)",
-                      }}
-                    />
-                    <span
-                      className="text-sm font-medium leading-snug truncate"
-                      style={{ color: "var(--text-primary)" }}
+                    <div
+                      className="relative shrink-0"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      {note.title || "Untitled Note"}
-                    </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIconPickerTarget((prev) =>
+                            prev?.noteId === note.id && prev.mode === "list"
+                              ? null
+                              : { noteId: note.id, mode: "list" },
+                          );
+                        }}
+                        title={note.icon ? "Change page icon" : "Add page icon"}
+                        aria-label={
+                          note.icon ? "Change page icon" : "Add page icon"
+                        }
+                        aria-expanded={
+                          iconPickerTarget?.noteId === note.id &&
+                          iconPickerTarget.mode === "list"
+                        }
+                        className={`w-6 h-6 -ml-0.5 rounded-md flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer ${
+                          iconPickerTarget?.noteId === note.id &&
+                          iconPickerTarget.mode === "list"
+                            ? "bg-[var(--bg-surface-hover)]"
+                            : ""
+                        }`}
+                        style={{
+                          color: note.icon
+                            ? "var(--accent)"
+                            : "var(--text-muted)",
+                        }}
+                      >
+                        <NotePageIcon icon={note.icon} className="w-3.5 h-3.5" />
+                      </button>
+                      <IconPickerPopover
+                        open={
+                          iconPickerTarget?.noteId === note.id &&
+                          iconPickerTarget.mode === "list"
+                        }
+                        onClose={() => setIconPickerTarget(null)}
+                        value={note.icon}
+                        onChange={(nextIcon) =>
+                          updateEntry(note.id, { icon: nextIcon })
+                        }
+                        onClear={() => updateEntry(note.id, { icon: "" })}
+                        allowClear
+                        clearLabel="Default"
+                        title="Page Icon"
+                        align="left"
+                      />
+                    </div>
+                    <TruncatedNoteTitle
+                      as="span"
+                      title={note.title || "Untitled Note"}
+                      className="text-sm font-medium leading-snug"
+                      style={{ color: "var(--text-primary)" }}
+                    />
                     {subCount > 0 && !note.archived && (
                       <button
                         type="button"

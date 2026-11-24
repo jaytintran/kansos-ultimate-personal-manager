@@ -10,7 +10,6 @@ import {
   ChevronRight,
   Clock,
   Eye,
-  FileText,
   GitBranch,
   Hash,
   Link2,
@@ -43,6 +42,7 @@ import type { TimestampFieldFocus } from "../TimestampsModal";
 import { TiptapEditor, TiptapThumbToolbar } from "../TiptapEditor";
 import { NotePageIcon } from "../IconLibrary";
 import { IconPickerPopover } from "../IconPicker";
+import { TruncatedNoteTitle } from "./TruncatedNoteTitle";
 
 const PROPS_OPEN_STORAGE_KEY = "kanso_note_tab_props_open_v1";
 const PROPS_TOC_OPEN_STORAGE_KEY = "kanso_note_tab_toc_open_v1";
@@ -160,6 +160,9 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   const [title, setTitle] = useState(() => note.title ?? "");
   const [icon, setIcon] = useState<string>(() => note.icon ?? "");
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [subPageIconPickerId, setSubPageIconPickerId] = useState<string | null>(
+    null,
+  );
   const [content, setContent] = useState(() => note.content ?? "");
   const [tags, setTags] = useState<string[]>(() => note.tags ?? []);
   const [tagInput, setTagInput] = useState("");
@@ -877,27 +880,23 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
         className="flex-1 min-h-0 overflow-y-auto overscroll-none px-5 sm:px-8 lg:px-10 py-6 lg:py-8 pb-24 lg:pb-12"
       >
         <div className="max-w-3xl mx-auto space-y-5">
-          {/* Page Icon + Clean Auto-Growing Display Title */}
-          <div className="flex items-start gap-2.5 sm:gap-3">
-            <div className="relative shrink-0 pt-0.5 sm:pt-1">
+          {/* Stacked Editorial Page Icon + Full-Width Auto-Growing Display Title */}
+          <div className="space-y-1.5">
+            <div className="relative inline-block">
               <button
                 type="button"
                 onClick={() => setIconPickerOpen((prev) => !prev)}
                 title={icon ? "Change page icon" : "Add page icon"}
                 aria-label={icon ? "Change page icon" : "Add page icon"}
                 aria-expanded={iconPickerOpen}
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                className={`-ml-1.5 w-10 h-10 rounded-lg flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer ${
+                  iconPickerOpen ? "bg-[var(--bg-surface-hover)]" : ""
+                }`}
                 style={{
-                  backgroundColor: icon
-                    ? "var(--accent-soft)"
-                    : "var(--bg-surface)",
-                  borderColor: iconPickerOpen
-                    ? "var(--accent)"
-                    : "var(--border-subtle)",
                   color: icon ? "var(--accent)" : "var(--text-muted)",
                 }}
               >
-                <NotePageIcon icon={icon} className="w-5 h-5" />
+                <NotePageIcon icon={icon} className="w-7 h-7" />
               </button>
 
               <IconPickerPopover
@@ -925,7 +924,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
                 }
               }}
               placeholder="Untitled Note"
-              className="flex-1 min-w-0 bg-transparent font-display text-2xl sm:text-[1.85rem] font-bold tracking-tight leading-snug resize-none outline-none overflow-hidden placeholder:opacity-35"
+              className="w-full bg-transparent font-display text-2xl sm:text-[1.85rem] font-bold tracking-tight leading-snug resize-none outline-none overflow-hidden placeholder:opacity-35"
               style={{ color: "var(--text-primary)" }}
             />
           </div>
@@ -1695,29 +1694,89 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
                       const grandChildrenCount = allActiveNotes.filter(
                         (n) => n.parentId === child.id,
                       ).length;
+                      const isSubIconOpen = subPageIconPickerId === child.id;
                       return (
-                        <button
+                        <div
                           key={child.id}
-                          type="button"
+                          role="button"
+                          tabIndex={0}
                           onClick={() => handleNavigateToNote(child.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleNavigateToNote(child.id);
+                            }
+                          }}
                           className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg border text-left transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
                           style={{
                             backgroundColor: "var(--bg-surface)",
                             borderColor: "var(--border-subtle)",
                           }}
                         >
-                          <span className="flex items-center gap-2 min-w-0">
-                            <FileText
-                              className="w-3.5 h-3.5 shrink-0"
-                              style={{ color: "var(--accent)" }}
-                            />
-                            <span
-                              className="text-xs font-medium truncate"
-                              style={{ color: "var(--text-primary)" }}
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <div
+                              className="relative shrink-0"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
                             >
-                              {child.title || "Untitled Note"}
-                            </span>
-                          </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSubPageIconPickerId((prev) =>
+                                    prev === child.id ? null : child.id,
+                                  );
+                                }}
+                                title={
+                                  child.icon
+                                    ? "Change page icon"
+                                    : "Add page icon"
+                                }
+                                aria-label={
+                                  child.icon
+                                    ? "Change page icon"
+                                    : "Add page icon"
+                                }
+                                aria-expanded={isSubIconOpen}
+                                className={`w-6 h-6 -ml-1 rounded-md flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer ${
+                                  isSubIconOpen
+                                    ? "bg-[var(--bg-surface-subtle)]"
+                                    : ""
+                                }`}
+                                style={{
+                                  color: child.icon
+                                    ? "var(--accent)"
+                                    : "var(--text-muted)",
+                                }}
+                              >
+                                <NotePageIcon
+                                  icon={child.icon}
+                                  className="w-3.5 h-3.5"
+                                />
+                              </button>
+                              <IconPickerPopover
+                                open={isSubIconOpen}
+                                onClose={() => setSubPageIconPickerId(null)}
+                                value={child.icon}
+                                onChange={(nextIcon) =>
+                                  updateEntry(child.id, { icon: nextIcon })
+                                }
+                                onClear={() =>
+                                  updateEntry(child.id, { icon: "" })
+                                }
+                                allowClear
+                                clearLabel="Default"
+                                title="Page Icon"
+                                align="left"
+                              />
+                            </div>
+                            <TruncatedNoteTitle
+                              as="span"
+                              title={child.title || "Untitled Note"}
+                              className="text-xs font-medium min-w-0"
+                              style={{ color: "var(--text-primary)" }}
+                            />
+                          </div>
                           <span className="flex items-center gap-2 shrink-0">
                             {grandChildrenCount > 0 && (
                               <span
@@ -1732,7 +1791,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
                               style={{ color: "var(--text-muted)" }}
                             />
                           </span>
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
