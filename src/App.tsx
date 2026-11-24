@@ -594,6 +594,7 @@ const KansoShell: React.FC = () => {
     activeView === "library" ||
     activeView === "notes" ||
     activeView === "lists" ||
+    activeView === "events" ||
     activeView === "timeline" ||
     activeView === "achievements" ||
     activeView === "contacts";

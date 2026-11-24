@@ -546,7 +546,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
     allNotes.forEach((n) => {
       if (n.notebookId && notebookMap.has(n.notebookId)) {
         counts.set(n.notebookId, (counts.get(n.notebookId) || 0) + 1);
-      } else {
+      } else if (!n.bookLink) {
         unfiled += 1;
       }
     });
@@ -560,7 +560,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
     if (scope.kind === "list_notes") return listNotes;
     if (scope.kind === "unfiled") {
       return allNotes.filter(
-        (n) => !n.notebookId || !notebookMap.has(n.notebookId),
+        (n) => (!n.notebookId || !notebookMap.has(n.notebookId)) && !n.bookLink,
       );
     }
     return allNotes.filter((n) => n.notebookId === scope.notebookId);
@@ -2854,7 +2854,10 @@ export const NotesView: React.FC<NotesViewProps> = ({
                               ? listNotes.length === 0
                                 ? "No list-linked notes yet"
                                 : "No matching list notes"
-                              : "No matching notes"}
+                              : scope.kind === "unfiled" &&
+                                  notebookCounts.unfiled === 0
+                                ? "No unfiled notes"
+                                : "No matching notes"}
                   </p>
                   <p className="text-xs max-w-md mx-auto">
                     {scope.kind === "book_notes" && bookNotes.length === 0

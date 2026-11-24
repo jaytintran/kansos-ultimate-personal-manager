@@ -144,7 +144,10 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
   const childrenMap = useMemo(() => buildNoteChildrenMap(allNotes), [allNotes]);
 
   const unfiledNotes = useMemo(
-    () => allNotes.filter((n) => !n.notebookId || !notebookMap.has(n.notebookId)),
+    () =>
+      allNotes.filter(
+        (n) => (!n.notebookId || !notebookMap.has(n.notebookId)) && !n.bookLink,
+      ),
     [allNotes, notebookMap],
   );
 
