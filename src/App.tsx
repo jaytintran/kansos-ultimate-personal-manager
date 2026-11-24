@@ -212,6 +212,9 @@ const KansoShell: React.FC = () => {
     null,
   );
   const listsIsSelectedRef = useRef<((itemId: string) => boolean) | null>(null);
+  const listsOpenTabHandlerRef = useRef<((itemId: string) => void) | null>(
+    null,
+  );
 
   useEffect(() => {
     if (mainRef.current) {
@@ -1424,6 +1427,7 @@ const KansoShell: React.FC = () => {
             listItemJumpRequest={listItemJumpRequest}
             selectItemHandlerRef={listsSelectItemHandlerRef}
             isSelectedItemRef={listsIsSelectedRef}
+            openTabHandlerRef={listsOpenTabHandlerRef}
           />
         )}
         {activeView === "contacts" && <ContactsView />}
@@ -1984,6 +1988,13 @@ const KansoShell: React.FC = () => {
             ? (itemId) => Boolean(listsIsSelectedRef.current?.(itemId))
             : undefined
         }
+        onOpenListItemAsTab={(itemId) => {
+          if (activeView === "lists" && listsOpenTabHandlerRef.current) {
+            listsOpenTabHandlerRef.current(itemId);
+          } else {
+            handleJumpToListItem(itemId);
+          }
+        }}
       />
 
       {/* Timestamps Modal */}

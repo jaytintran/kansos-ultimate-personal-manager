@@ -40,6 +40,9 @@ import { IconPicker } from "../components/IconPicker";
 import { NlpInputBar } from "../components/NlpInputBar";
 import { RichContent } from "../components/RichContent";
 import { ListItemInspector } from "../components/lists/ListItemInspector";
+import { ListItemTabEditor } from "../components/lists/ListItemTabEditor";
+import { ListsTabStrip } from "../components/lists/ListsTabStrip";
+import { TargetListPickerModal } from "../components/lists/TargetListPickerModal";
 import { DeleteListItemsConfirmModal } from "../components/lists/DeleteListItemsConfirmModal";
 import {
   buildKanbanColumnsForList,
@@ -113,6 +116,8 @@ interface ListsWorkspaceState {
   contextTab: ContextPaneTab;
   rightPaneMode: RightPaneMode;
   selectedItemId: string | null;
+  openTabIds: string[];
+  activeTabId: string | null;
   collapsedGroups: Record<string, boolean>;
   droppedCollapsed: boolean;
   perListLayout: Record<string, LayoutConfig>;
@@ -238,6 +243,8 @@ function loadLocalWorkspaceState(
     contextTab: "notes",
     rightPaneMode: "inspector",
     selectedItemId: null,
+    openTabIds: [],
+    activeTabId: null,
     collapsedGroups: {},
     droppedCollapsed: true,
     perListLayout: {},
@@ -268,10 +275,27 @@ function loadLocalWorkspaceState(
           )
         : DEFAULT_LISTS_SIDEBAR_WIDTH;
 
+    const openTabIds = Array.isArray(parsed.openTabIds)
+      ? Array.from(
+          new Set(
+            parsed.openTabIds.filter(
+              (id): id is string => typeof id === "string" && id.length > 0,
+            ),
+          ),
+        )
+      : [];
+    const activeTabId =
+      typeof parsed.activeTabId === "string" &&
+      openTabIds.includes(parsed.activeTabId)
+        ? parsed.activeTabId
+        : null;
+
     return {
       ...defaults,
       ...parsed,
       scope: validScope,
+      openTabIds,
+      activeTabId,
       sidebarWidth: rawWidth,
       sidebarCollapsedDesktop: Boolean(parsed.sidebarCollapsedDesktop),
       sidebarSectionsCollapsed:
@@ -304,6 +328,7 @@ interface ListsViewProps {
   listItemJumpRequest?: ListItemJumpRequest | null;
   selectItemHandlerRef?: React.MutableRefObject<((itemId: string) => void) | null>;
   isSelectedItemRef?: React.MutableRefObject<((itemId: string) => boolean) | null>;
+  openTabHandlerRef?: React.MutableRefObject<((itemId: string) => void) | null>;
 }
 
 export const ListsView: React.FC<ListsViewProps> = ({
@@ -314,6 +339,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
   listItemJumpRequest,
   selectItemHandlerRef,
   isSelectedItemRef,
+  openTabHandlerRef,
 }) => {
   const {
     workspace,
@@ -362,6 +388,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const [quickJumpQuery, setQuickJumpQuery] = useState("");
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [targetListPickerOpen, setTargetListPickerOpen] = useState(false);
 
   const [smartAddTargetListId, setSmartAddTargetListId] = useState<string>(
     () => activeLists[0]?.id || "",
@@ -421,29 +448,14 @@ export const ListsView: React.FC<ListsViewProps> = ({
       return;
     }
 
-    setSearch("");
     setLocalState((prev) => ({
       ...prev,
-      scope: { kind: "list", listId: targetItem.listId },
-      statusFilter: "all",
-      tagFilter: "all",
-      subTab: "items",
-      rightPaneMode: "inspector",
-      selectedItemId: targetItem.id,
-      droppedCollapsed:
-        targetItem.status === "dropped" ? false : prev.droppedCollapsed,
-      collapsedGroups: {
-        ...prev.collapsedGroups,
-        [`status:${targetItem.status}`]: false,
-      },
+      openTabIds: prev.openTabIds.includes(targetItem.id)
+        ? prev.openTabIds
+        : [...prev.openTabIds, targetItem.id],
+      activeTabId: targetItem.id,
     }));
-
-    if (isDesktop) {
-      setPrefs((prev) => ({ ...prev, splitOpen: true }));
-    } else {
-      onOpenDetail({ mode: "list_item", id: targetItem.id });
-    }
-  }, [listItemJumpRequest, workspace.listItems, isDesktop, onOpenDetail, pushToast]);
+  }, [listItemJumpRequest, workspace.listItems, pushToast]);
 
   // Persist prefs (global fallback + splitOpen)
   useEffect(() => {
@@ -490,15 +502,37 @@ export const ListsView: React.FC<ListsViewProps> = ({
     }
   }, [activeLists, localState.scope, smartAddTargetListId]);
 
-  // Reconcile selectedItemId if item deleted
+  // Reconcile selectedItemId and open tabs if items are deleted
   useEffect(() => {
-    if (
-      localState.selectedItemId &&
-      !workspace.listItems.some((i) => i.id === localState.selectedItemId)
-    ) {
-      setLocalState((prev) => ({ ...prev, selectedItemId: null }));
-    }
-  }, [localState.selectedItemId, workspace.listItems]);
+    const existing = new Set(workspace.listItems.map((i) => i.id));
+    setLocalState((prev) => {
+      const nextSelected =
+        prev.selectedItemId && !existing.has(prev.selectedItemId)
+          ? null
+          : prev.selectedItemId;
+      const filteredTabs = prev.openTabIds.filter((id) => existing.has(id));
+      let nextActive = prev.activeTabId;
+      if (prev.activeTabId && !existing.has(prev.activeTabId)) {
+        const prevIdx = prev.openTabIds.indexOf(prev.activeTabId);
+        nextActive = filteredTabs[prevIdx] ?? filteredTabs[prevIdx - 1] ?? null;
+      } else if (nextActive && !filteredTabs.includes(nextActive)) {
+        nextActive = null;
+      }
+      if (
+        nextSelected === prev.selectedItemId &&
+        filteredTabs.length === prev.openTabIds.length &&
+        nextActive === prev.activeTabId
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        selectedItemId: nextSelected,
+        openTabIds: filteredTabs,
+        activeTabId: nextActive,
+      };
+    });
+  }, [workspace.listItems]);
 
   // Prune stale selectedIds when items disappear
   useEffect(() => {
@@ -513,12 +547,40 @@ export const ListsView: React.FC<ListsViewProps> = ({
     if (changed) setSelectedIds(next);
   }, [workspace.listItems, selectedIds]);
 
+  const listItemById = useMemo(
+    () => new Map(workspace.listItems.map((i) => [i.id, i])),
+    [workspace.listItems],
+  );
+
+  const openTabItems = useMemo(
+    () =>
+      localState.openTabIds
+        .map((id) => listItemById.get(id))
+        .filter((it): it is ListItem => Boolean(it)),
+    [localState.openTabIds, listItemById],
+  );
+
+  const activeTabItem = useMemo(
+    () =>
+      localState.activeTabId
+        ? listItemById.get(localState.activeTabId) ?? null
+        : null,
+    [localState.activeTabId, listItemById],
+  );
+
+  const activeTabItemList = useMemo(
+    () =>
+      activeTabItem ? listById.get(activeTabItem.listId) ?? null : null,
+    [activeTabItem, listById],
+  );
+
   const scope = localState.scope;
   const isSmartScope = scope.kind === "smart";
   const currentList =
     scope.kind === "list"
       ? activeLists.find((l) => l.id === scope.listId) || null
       : null;
+  const linkedContextList = activeTabItem ? activeTabItemList : currentList;
   const scopeKey = getScopeStorageKey(scope);
 
   const activeLayout: LayoutConfig = useMemo(() => {
@@ -608,10 +670,13 @@ export const ListsView: React.FC<ListsViewProps> = ({
     }
   }, [splitVisible, localState.subTab]);
 
-  // If on a Smart Tab and desktop right pane was set to "linked", auto switch to "inspector"
-  const effectiveRightPaneMode: RightPaneMode = isSmartScope
-    ? "inspector"
-    : localState.rightPaneMode;
+  // When an item tab is active, hide the Item Inspector and keep Linked Notes & Events toggleable.
+  // On a Smart Tab Home view, auto-switch right pane to "inspector".
+  const effectiveRightPaneMode: RightPaneMode = activeTabItem
+    ? "linked"
+    : isSmartScope
+      ? "inspector"
+      : localState.rightPaneMode;
 
   const listItemCountsByCollection = useMemo(() => {
     const map = new Map<string, number>();
@@ -740,24 +805,25 @@ export const ListsView: React.FC<ListsViewProps> = ({
     customListItemCompare,
   ]);
 
-  // Linked Notes & Events for current list (archived notes excluded!)
+  // Linked Notes & Events for current/active list (archived notes excluded!)
   const linkedNotes = useMemo(() => {
-    if (!currentList) return [];
+    if (!linkedContextList) return [];
     return workspace.entries.filter(
       (e) =>
         e.type === "note" &&
         !e.archived &&
-        (e.listIds || []).includes(currentList.id),
+        (e.listIds || []).includes(linkedContextList.id),
     );
-  }, [workspace.entries, currentList]);
+  }, [workspace.entries, linkedContextList]);
 
   const linkedEvents = useMemo(() => {
-    if (!currentList) return [];
+    if (!linkedContextList) return [];
     return workspace.entries.filter(
       (e) =>
-        e.type === "event" && (e.listIds || []).includes(currentList.id),
+        e.type === "event" &&
+        (e.listIds || []).includes(linkedContextList.id),
     );
-  }, [workspace.entries, currentList]);
+  }, [workspace.entries, linkedContextList]);
 
   const attachModalCandidates = useMemo(() => {
     if (!attachModalKind) return [];
@@ -769,15 +835,15 @@ export const ListsView: React.FC<ListsViewProps> = ({
 
   const handleToggleLinkedEntry = useCallback(
     (entry: Entry) => {
-      if (!currentList) return;
+      if (!linkedContextList) return;
       const existing = entry.listIds || [];
-      const isLinked = existing.includes(currentList.id);
+      const isLinked = existing.includes(linkedContextList.id);
       const next = isLinked
-        ? existing.filter((id) => id !== currentList.id)
-        : [...existing, currentList.id];
+        ? existing.filter((id) => id !== linkedContextList.id)
+        : [...existing, linkedContextList.id];
       updateEntry(entry.id, { listIds: next });
     },
-    [currentList, updateEntry],
+    [linkedContextList, updateEntry],
   );
 
   // Two-level grouping helper
@@ -1058,7 +1124,112 @@ export const ListsView: React.FC<ListsViewProps> = ({
     [renderedItemOrder, isSingleColumnForElement, isSmartScope, activeLayout.groupBy],
   );
 
-  // Item click handler (Desktop: Inspector in right split pane; Mobile: existing DetailSheet modal)
+  // Tab management handlers
+  const handleOpenItemTab = useCallback(
+    (itemId: string) => {
+      if (!listItemById.has(itemId)) return;
+      setLocalState((prev) => ({
+        ...prev,
+        openTabIds: prev.openTabIds.includes(itemId)
+          ? prev.openTabIds
+          : [...prev.openTabIds, itemId],
+        activeTabId: itemId,
+      }));
+    },
+    [listItemById],
+  );
+
+  const handleCloseItemTab = useCallback((itemId: string) => {
+    setLocalState((prev) => {
+      const idx = prev.openTabIds.indexOf(itemId);
+      if (idx === -1) return prev;
+      const nextTabs = prev.openTabIds.filter((id) => id !== itemId);
+      let nextActive = prev.activeTabId;
+      if (prev.activeTabId === itemId) {
+        nextActive = nextTabs[idx] ?? nextTabs[idx - 1] ?? null;
+      }
+      return {
+        ...prev,
+        openTabIds: nextTabs,
+        activeTabId: nextActive,
+      };
+    });
+  }, []);
+
+  const handleCloseOtherItemTabs = useCallback((keepItemId: string) => {
+    setLocalState((prev) => ({
+      ...prev,
+      openTabIds: prev.openTabIds.includes(keepItemId) ? [keepItemId] : [],
+      activeTabId: prev.openTabIds.includes(keepItemId) ? keepItemId : null,
+    }));
+  }, []);
+
+  const handleCloseAllItemTabs = useCallback(() => {
+    setLocalState((prev) => ({
+      ...prev,
+      openTabIds: [],
+      activeTabId: null,
+    }));
+  }, []);
+
+  const handleReorderItemTabs = useCallback(
+    (draggedId: string, targetId: string, position: "before" | "after") => {
+      if (!draggedId || !targetId || draggedId === targetId) return;
+      setLocalState((prev) => {
+        if (
+          !prev.openTabIds.includes(draggedId) ||
+          !prev.openTabIds.includes(targetId)
+        ) {
+          return prev;
+        }
+        const remaining = prev.openTabIds.filter((id) => id !== draggedId);
+        const targetIndex = remaining.indexOf(targetId);
+        if (targetIndex === -1) return prev;
+        const insertIndex =
+          position === "before" ? targetIndex : targetIndex + 1;
+        return {
+          ...prev,
+          openTabIds: [
+            ...remaining.slice(0, insertIndex),
+            draggedId,
+            ...remaining.slice(insertIndex),
+          ],
+        };
+      });
+    },
+    [],
+  );
+
+  const handleCreateItemTabInList = useCallback(
+    (targetListId: string, rawTitle?: string) => {
+      const defaultStatus: ListItemStatus =
+        scope.kind === "smart" ? scope.status : "inbox";
+      const created = addListItem(
+        targetListId,
+        rawTitle?.trim() || "Untitled Item",
+        defaultStatus,
+      );
+      if (!created) return;
+      setTargetListPickerOpen(false);
+      setLocalState((prev) => ({
+        ...prev,
+        openTabIds: [...prev.openTabIds, created.id],
+        activeTabId: created.id,
+      }));
+    },
+    [addListItem, scope],
+  );
+
+  useEffect(() => {
+    if (openTabHandlerRef) {
+      openTabHandlerRef.current = handleOpenItemTab;
+    }
+    return () => {
+      if (openTabHandlerRef) openTabHandlerRef.current = null;
+    };
+  }, [openTabHandlerRef, handleOpenItemTab]);
+
+  // Item click handler (Desktop: Inspector in right split pane; Mobile: open as tab)
   const handleOpenItem = useCallback(
     (item: ListItem) => {
       if (draggingItemId) return;
@@ -1080,10 +1251,10 @@ export const ListsView: React.FC<ListsViewProps> = ({
         }));
         setPrefs((p) => (p.splitOpen ? p : { ...p, splitOpen: true }));
       } else {
-        onOpenDetail({ mode: "list_item", id: item.id });
+        handleOpenItemTab(item.id);
       }
     },
-    [draggingItemId, selectionMode, selectedIds.size, isDesktop, onOpenDetail],
+    [draggingItemId, selectionMode, selectedIds.size, isDesktop, handleOpenItemTab],
   );
 
   const toggleItemSelection = useCallback((itemId: string) => {
@@ -1212,6 +1383,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
         scope: { kind: "list", listId: created.id },
         statusFilter: "all",
         tagFilter: "all",
+        activeTabId: null,
       }));
     } else if (listModal.list) {
       updateList(listModal.list.id, {
@@ -1689,6 +1861,11 @@ export const ListsView: React.FC<ListsViewProps> = ({
         key={item.id}
         {...makeCommonDragHandlers(item, isInlineEditing)}
         onClick={() => handleOpenItem(item)}
+        onDoubleClick={(e) => {
+          if (isInlineEditing || selectionMode || selectedIds.size > 0) return;
+          e.stopPropagation();
+          handleOpenItemTab(item.id);
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           onOpenContextMenu({ kind: "list_item", item }, e);
@@ -1839,17 +2016,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
                   </div>
                 </div>
               ) : (
-                <div
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    setEditingItem({
-                      id: item.id,
-                      title: item.title,
-                      subtitle: item.subtitle || "",
-                    });
-                  }}
-                  className="space-y-0.5"
-                >
+                <div className="space-y-0.5">
                   <div
                     className={`text-sm font-semibold leading-snug line-clamp-2 ${
                       item.status === "done" ? "line-through opacity-60" : ""
@@ -2077,6 +2244,11 @@ export const ListsView: React.FC<ListsViewProps> = ({
         key={item.id}
         {...makeCommonDragHandlers(item, isInlineEditing)}
         onClick={() => handleOpenItem(item)}
+        onDoubleClick={(e) => {
+          if (isInlineEditing || selectionMode || selectedIds.size > 0) return;
+          e.stopPropagation();
+          handleOpenItemTab(item.id);
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           onOpenContextMenu({ kind: "list_item", item }, e);
@@ -2208,17 +2380,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
               </button>
             </div>
           ) : (
-            <div
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                setEditingItem({
-                  id: item.id,
-                  title: item.title,
-                  subtitle: item.subtitle || "",
-                });
-              }}
-              className="flex flex-col sm:flex-row sm:items-baseline sm:gap-2 min-w-0"
-            >
+            <div className="flex flex-col sm:flex-row sm:items-baseline sm:gap-2 min-w-0">
               <span
                 className={`text-sm font-medium leading-snug truncate ${
                   item.status === "done" ? "line-through opacity-60" : ""
@@ -2341,7 +2503,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
   };
 
   const renderLinkedNotesContent = (compactPane: boolean) => {
-    if (!currentList) return null;
+    if (!linkedContextList) return null;
     if (linkedNotes.length === 0) {
       return (
         <div
@@ -2352,7 +2514,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
           }}
         >
           <FileText className="w-5 h-5 mx-auto opacity-50" />
-          <p>No notes linked to {currentList.title} yet.</p>
+          <p>No notes linked to {linkedContextList.title} yet.</p>
           <button
             type="button"
             onClick={() => setAttachModalKind("notes")}
@@ -2437,7 +2599,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
   };
 
   const renderLinkedEventsContent = () => {
-    if (!currentList) return null;
+    if (!linkedContextList) return null;
     if (linkedEvents.length === 0) {
       return (
         <div
@@ -2448,7 +2610,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
           }}
         >
           <Calendar className="w-5 h-5 mx-auto opacity-50" />
-          <p>No events linked to {currentList.title} yet.</p>
+          <p>No events linked to {linkedContextList.title} yet.</p>
           <button
             type="button"
             onClick={() => setAttachModalKind("events")}
@@ -2536,6 +2698,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
     setLocalState((prev) => ({
       ...prev,
       scope: nextScope,
+      activeTabId: null,
       statusFilter: nextScope.kind === "list" ? "all" : prev.statusFilter,
       tagFilter: "all",
       subTab: nextScope.kind === "smart" ? "items" : prev.subTab,
@@ -2765,7 +2928,41 @@ export const ListsView: React.FC<ListsViewProps> = ({
 
       {/* Main Lists Workspace Column */}
       <div className="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
-      {/* ================= PINNED TOP CHROME ================= */}
+      <ListsTabStrip
+        openItems={openTabItems}
+        listsById={listById}
+        statusMeta={STATUS_META}
+        activeTabId={activeTabItem ? activeTabItem.id : null}
+        homeTabLabel={
+          currentList
+            ? currentList.title
+            : activeSmartMeta
+              ? activeSmartMeta.label
+              : "Lists"
+        }
+        homeTabIcon={currentList ? currentList.icon : "ListChecks"}
+        homeTabColor={
+          currentList
+            ? currentList.color || "#4f46e5"
+            : activeSmartMeta?.color
+        }
+        homeSmartIcon={SmartHeaderIcon}
+        onSelectHome={() =>
+          setLocalState((prev) => ({ ...prev, activeTabId: null }))
+        }
+        onSelectTab={handleOpenItemTab}
+        onCloseTab={handleCloseItemTab}
+        onCloseOtherTabs={handleCloseOtherItemTabs}
+        onCloseAllTabs={handleCloseAllItemTabs}
+        onReorderTabs={handleReorderItemTabs}
+        onOpenTargetListPicker={() => setTargetListPickerOpen(true)}
+        onOpenInModal={(itemId) =>
+          onOpenDetail({ mode: "list_item", id: itemId })
+        }
+      />
+
+      {/* ================= PINNED TOP CHROME (Home View Only) ================= */}
+      {!activeTabItem && (
       <div className="shrink-0">
         {/* Row 1: Unified Compact View Header */}
         <header
@@ -3206,9 +3403,176 @@ export const ListsView: React.FC<ListsViewProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* ================= FULL-HEIGHT SPLIT BODY ================= */}
-      {!currentList && !isSmartScope ? (
+      {activeTabItem ? (
+        <div className="flex-1 min-h-0 flex overflow-hidden">
+          <ListItemTabEditor
+            key={activeTabItem.id}
+            item={activeTabItem}
+            lists={activeLists}
+            sidebarCollapsedDesktop={localState.sidebarCollapsedDesktop}
+            linkedPaneOpenDesktop={prefs.splitOpen}
+            onExpandDesktopSidebar={() =>
+              setLocalState((prev) => ({
+                ...prev,
+                sidebarCollapsedDesktop: false,
+              }))
+            }
+            onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
+            onToggleDesktopLinkedPane={() =>
+              setPrefs((p) => ({ ...p, splitOpen: !p.splitOpen }))
+            }
+            onSelectParentListHome={(targetListId) =>
+              handleSelectScope({ kind: "list", listId: targetListId })
+            }
+            onOpenInModal={(itemId) =>
+              onOpenDetail({ mode: "list_item", id: itemId })
+            }
+            onJumpToBookLocation={onJumpToBookLocation}
+            onJumpToNote={onJumpToNote}
+            onItemDeleted={handleCloseItemTab}
+          />
+
+          {/* DESKTOP RIGHT SPLIT PANE (Item Tab Active: Inspector hidden, Linked Notes & Events toggleable) */}
+          {splitVisible && linkedContextList && (
+            <aside
+              aria-label="Linked notes and events"
+              className="hidden lg:flex lg:flex-col w-80 xl:w-[400px] shrink-0 border-l overflow-hidden"
+              style={{
+                borderColor: "var(--border-subtle)",
+                backgroundColor: "var(--bg-canvas)",
+              }}
+            >
+              <div
+                className="shrink-0 flex items-center justify-between gap-2 px-4 py-2 border-b"
+                style={{ borderColor: "var(--border-subtle)" }}
+              >
+                <span
+                  className="text-xs font-semibold truncate"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  Linked · {linkedContextList.title}
+                </span>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setAttachModalKind(localState.contextTab)}
+                    title="Attach existing note or event"
+                    className="h-7 px-2 rounded-lg border text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <Link2 className="w-3 h-3" />
+                    <span>Attach</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      localState.contextTab === "notes"
+                        ? onOpenDetail({
+                            mode: "note",
+                            draft: {
+                              type: "note",
+                              title: "",
+                              listIds: [linkedContextList.id],
+                            },
+                          })
+                        : onOpenDetail({
+                            mode: "event",
+                            draft: {
+                              type: "event",
+                              title: "",
+                              listIds: [linkedContextList.id],
+                            },
+                          })
+                    }
+                    className="h-7 px-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shrink-0 cursor-pointer"
+                    style={{
+                      backgroundColor: "var(--accent)",
+                      color: "var(--accent-fg)",
+                    }}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>
+                      {localState.contextTab === "notes" ? "Note" : "Event"}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <div
+                  className="px-4 py-2 border-b flex items-center gap-1.5 shrink-0"
+                  style={{ borderColor: "var(--border-subtle)" }}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLocalState((prev) => ({
+                        ...prev,
+                        contextTab: "notes",
+                      }))
+                    }
+                    className="h-7 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer"
+                    style={{
+                      backgroundColor:
+                        localState.contextTab === "notes"
+                          ? "var(--accent-soft)"
+                          : "transparent",
+                      color:
+                        localState.contextTab === "notes"
+                          ? "var(--accent)"
+                          : "var(--text-secondary)",
+                    }}
+                  >
+                    <span>Notes</span>
+                    <span className="font-mono text-[11px] opacity-75">
+                      {linkedNotes.length}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLocalState((prev) => ({
+                        ...prev,
+                        contextTab: "events",
+                      }))
+                    }
+                    className="h-7 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer"
+                    style={{
+                      backgroundColor:
+                        localState.contextTab === "events"
+                          ? "var(--accent-soft)"
+                          : "transparent",
+                      color:
+                        localState.contextTab === "events"
+                          ? "var(--accent)"
+                          : "var(--text-secondary)",
+                    }}
+                  >
+                    <span>Events</span>
+                    <span className="font-mono text-[11px] opacity-75">
+                      {linkedEvents.length}
+                    </span>
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-4 py-3.5">
+                  {localState.contextTab === "notes"
+                    ? renderLinkedNotesContent(true)
+                    : renderLinkedEventsContent()}
+                </div>
+              </div>
+            </aside>
+          )}
+        </div>
+      ) : !currentList && !isSmartScope ? (
         <div className="flex-1 flex items-center justify-center p-6">
           <div
             className="max-w-sm w-full rounded-2xl border border-dashed py-14 px-6 text-center space-y-3"
@@ -4487,12 +4851,24 @@ export const ListsView: React.FC<ListsViewProps> = ({
 
       {/* Attach Existing Notes / Events Modal */}
       <AttachLinkedEntriesModal
-        open={Boolean(attachModalKind && currentList)}
+        open={Boolean(attachModalKind && linkedContextList)}
         kind={attachModalKind || "notes"}
-        list={currentList}
+        list={linkedContextList}
         entries={attachModalCandidates}
         onToggleEntry={handleToggleLinkedEntry}
         onClose={() => setAttachModalKind(null)}
+      />
+
+      {/* Target List Picker Modal / BottomSheet for Tab Strip "+" */}
+      <TargetListPickerModal
+        open={targetListPickerOpen}
+        isDesktop={isDesktop}
+        lists={activeLists}
+        listItemCounts={listItemCountsByCollection}
+        defaultListId={currentList?.id ?? activeTabItem?.listId ?? null}
+        onClose={() => setTargetListPickerOpen(false)}
+        onSelectList={handleCreateItemTabInList}
+        onCreateList={openCreateListModal}
       />
 
       {/* Mobile Slide-Up Filter & Layout Sheet */}

@@ -1,0 +1,960 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Editor } from "@tiptap/react";
+import {
+  ArrowUpRight,
+  BookOpen,
+  Calendar,
+  ChevronRight,
+  ExternalLink,
+  FolderKanban,
+  Hash,
+  Link2,
+  ListChecks,
+  Maximize2,
+  PanelLeftOpen,
+  PanelRight,
+  Trash2,
+  Type,
+  X,
+} from "lucide-react";
+import { useWorkspace } from "../../context/WorkspaceContext";
+import type {
+  BookNoteLink,
+  ListCollection,
+  ListCollectionType,
+  ListItem,
+  ListItemStatus,
+} from "../../types";
+import {
+  addDaysToKey,
+  countWordsFromHtml,
+  getTodayKey,
+} from "../../utils/date";
+import {
+  getListItemBookLink,
+  normalizeExternalUrl,
+  openExternalUrlSafely,
+  setListItemBookLink,
+} from "../../utils/listBookLinks";
+import { countLinkedNotesForListItems } from "../../utils/listItemLinks";
+import { ListIcon as CollectionIcon } from "../IconLibrary";
+import { TiptapEditor, TiptapThumbToolbar } from "../TiptapEditor";
+import { DeleteListItemsConfirmModal } from "./DeleteListItemsConfirmModal";
+import { ListItemLinkedNotesSection } from "./ListItemLinkedNotesSection";
+
+const STATUS_OPTIONS: { id: ListItemStatus; label: string }[] = [
+  { id: "inbox", label: "Inbox" },
+  { id: "processing", label: "In Progress" },
+  { id: "done", label: "Completed" },
+  { id: "maybe-later", label: "Maybe Later" },
+  { id: "dropped", label: "Dropped" },
+];
+
+const ITEM_META: Record<
+  ListCollectionType,
+  { subtitleLabel: string; subtitlePlaceholder: string; dueLabel: string }
+> = {
+  books: {
+    subtitleLabel: "Author",
+    subtitlePlaceholder: "e.g. Martin Kleppmann",
+    dueLabel: "Finish by",
+  },
+  projects: {
+    subtitleLabel: "Scope",
+    subtitlePlaceholder: "e.g. Mobile + Desktop rollout",
+    dueLabel: "Deadline",
+  },
+  courses: {
+    subtitleLabel: "Provider",
+    subtitlePlaceholder: "e.g. MIT OCW / Frontend Masters",
+    dueLabel: "Complete by",
+  },
+  custom: {
+    subtitleLabel: "Subtitle",
+    subtitlePlaceholder: "Short context or subtitle...",
+    dueLabel: "Due date",
+  },
+};
+
+const PropertyRow: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+  alignTop?: boolean;
+}> = ({ icon, label, children, alignTop = false }) => (
+  <div
+    className={`flex ${
+      alignTop ? "items-start" : "items-center"
+    } gap-2.5 py-1 min-h-[32px] text-xs`}
+  >
+    <div
+      className={`w-[104px] sm:w-[112px] shrink-0 flex items-center gap-2 select-none ${
+        alignTop ? "pt-1" : ""
+      }`}
+      style={{ color: "var(--text-muted)" }}
+    >
+      <span className="shrink-0 opacity-80">{icon}</span>
+      <span className="truncate font-medium">{label}</span>
+    </div>
+    <div className="flex-1 min-w-0">{children}</div>
+  </div>
+);
+
+function buildSnapshot(src: {
+  title: string;
+  subtitle: string;
+  status: ListItemStatus;
+  listId: string;
+  tags: string[];
+  content: string;
+  url: string;
+  dueDate: string;
+}): string {
+  return JSON.stringify(src);
+}
+
+interface ListItemTabEditorProps {
+  item: ListItem;
+  lists: ListCollection[];
+  sidebarCollapsedDesktop: boolean;
+  linkedPaneOpenDesktop: boolean;
+  onExpandDesktopSidebar: () => void;
+  onOpenMobileSidebar: () => void;
+  onToggleDesktopLinkedPane: () => void;
+  onSelectParentListHome: (listId: string) => void;
+  onOpenInModal: (itemId: string) => void;
+  onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
+  onJumpToNote?: (noteId: string) => void;
+  onItemDeleted: (itemId: string) => void;
+}
+
+export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
+  item,
+  lists,
+  sidebarCollapsedDesktop,
+  linkedPaneOpenDesktop,
+  onExpandDesktopSidebar,
+  onOpenMobileSidebar,
+  onToggleDesktopLinkedPane,
+  onSelectParentListHome,
+  onOpenInModal,
+  onJumpToBookLocation,
+  onJumpToNote,
+  onItemDeleted,
+}) => {
+  const { workspace, updateListItem, deleteListItem, pushToast } =
+    useWorkspace();
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  const [title, setTitle] = useState(() => item.title ?? "");
+  const [subtitle, setSubtitle] = useState(() => item.subtitle ?? "");
+  const [status, setStatus] = useState<ListItemStatus>(
+    () => item.status ?? "inbox",
+  );
+  const [listId, setListId] = useState(() => item.listId);
+  const [tags, setTags] = useState<string[]>(() => item.tags ?? []);
+  const [tagInput, setTagInput] = useState("");
+  const [content, setContent] = useState(() => item.content ?? "");
+  const [url, setUrl] = useState(() => item.url ?? "");
+  const [dueDate, setDueDate] = useState(() =>
+    item.scheduledAt ? item.scheduledAt.slice(0, 10) : "",
+  );
+  const [bookLink, setBookLink] = useState<BookNoteLink | null>(() =>
+    getListItemBookLink(item.id),
+  );
+  const [saveState, setSaveState] = useState<"saved" | "saving">("saved");
+  const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
+
+  const titleRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorRef = useRef<Editor | null>(null);
+  const debounceTimerRef = useRef<number | null>(null);
+  const isComposingRef = useRef(false);
+
+  const lastSavedSnapRef = useRef<string>(
+    buildSnapshot({
+      title: item.title ?? "",
+      subtitle: item.subtitle ?? "",
+      status: item.status ?? "inbox",
+      listId: item.listId,
+      tags: item.tags ?? [],
+      content: item.content ?? "",
+      url: item.url ?? "",
+      dueDate: item.scheduledAt ? item.scheduledAt.slice(0, 10) : "",
+    }),
+  );
+
+  const latestDraftRef = useRef({
+    itemId: item.id,
+    title,
+    subtitle,
+    status,
+    listId,
+    tags,
+    content,
+    url,
+    dueDate,
+  });
+
+  latestDraftRef.current = {
+    itemId: item.id,
+    title,
+    subtitle,
+    status,
+    listId,
+    tags,
+    content,
+    url,
+    dueDate,
+  };
+
+  useEffect(() => {
+    editorRef.current = editorInstance;
+  }, [editorInstance]);
+
+  // Auto-resize title textarea
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [title, item.id]);
+
+  // Focus title automatically when opening a newly created untitled item
+  useEffect(() => {
+    if (item.title === "Untitled Item" && !item.content) {
+      const timer = window.setTimeout(() => {
+        if (titleRef.current) {
+          titleRef.current.focus();
+          titleRef.current.select();
+        }
+      }, 30);
+      return () => window.clearTimeout(timer);
+    }
+  }, [item.id, item.title, item.content]);
+
+  // Sync external mutations (card quick edits, status changes, modal edits, bulk actions)
+  useEffect(() => {
+    const incomingSnap = buildSnapshot({
+      title: item.title ?? "",
+      subtitle: item.subtitle ?? "",
+      status: item.status ?? "inbox",
+      listId: item.listId,
+      tags: item.tags ?? [],
+      content: item.content ?? "",
+      url: item.url ?? "",
+      dueDate: item.scheduledAt ? item.scheduledAt.slice(0, 10) : "",
+    });
+    if (incomingSnap === lastSavedSnapRef.current) return;
+
+    const currentLocalSnap = buildSnapshot({
+      title: latestDraftRef.current.title,
+      subtitle: latestDraftRef.current.subtitle,
+      status: latestDraftRef.current.status,
+      listId: latestDraftRef.current.listId,
+      tags: latestDraftRef.current.tags,
+      content: latestDraftRef.current.content,
+      url: latestDraftRef.current.url,
+      dueDate: latestDraftRef.current.dueDate,
+    });
+
+    if (currentLocalSnap === lastSavedSnapRef.current) {
+      setTitle(item.title ?? "");
+      setSubtitle(item.subtitle ?? "");
+      setStatus(item.status ?? "inbox");
+      setListId(item.listId);
+      setTags(item.tags ?? []);
+      setContent(item.content ?? "");
+      setUrl(item.url ?? "");
+      setDueDate(item.scheduledAt ? item.scheduledAt.slice(0, 10) : "");
+      lastSavedSnapRef.current = incomingSnap;
+    }
+  }, [
+    item.id,
+    item.title,
+    item.subtitle,
+    item.status,
+    item.listId,
+    item.tags,
+    item.content,
+    item.url,
+    item.scheduledAt,
+  ]);
+
+  const flushSave = useCallback(() => {
+    const draft = latestDraftRef.current;
+    const ed = editorRef.current;
+    const liveHtml = ed && !ed.isDestroyed ? ed.getHTML() : null;
+    const effectiveContent =
+      liveHtml !== null
+        ? liveHtml === "<p></p>"
+          ? ""
+          : liveHtml
+        : draft.content;
+
+    const snap = buildSnapshot({
+      title: draft.title,
+      subtitle: draft.subtitle,
+      status: draft.status,
+      listId: draft.listId,
+      tags: draft.tags,
+      content: effectiveContent,
+      url: draft.url,
+      dueDate: draft.dueDate,
+    });
+    if (snap === lastSavedSnapRef.current) {
+      setSaveState("saved");
+      return;
+    }
+
+    const trimmedUrl = draft.url.trim();
+    const normalizedUrl = trimmedUrl
+      ? normalizeExternalUrl(trimmedUrl) || trimmedUrl
+      : undefined;
+    const scheduledAt = draft.dueDate
+      ? new Date(`${draft.dueDate}T12:00:00`).toISOString()
+      : null;
+
+    updateListItem(draft.itemId, {
+      title: draft.title.trim() || "Untitled Item",
+      subtitle: draft.subtitle.trim(),
+      status: draft.status,
+      listId: draft.listId,
+      tags: draft.tags,
+      content: effectiveContent,
+      url: normalizedUrl,
+      scheduledAt,
+    });
+    lastSavedSnapRef.current = snap;
+    setSaveState("saved");
+  }, [updateListItem]);
+
+  // Live 380ms autosave
+  useEffect(() => {
+    const currentSnap = buildSnapshot({
+      title,
+      subtitle,
+      status,
+      listId,
+      tags,
+      content,
+      url,
+      dueDate,
+    });
+    if (currentSnap === lastSavedSnapRef.current) return;
+
+    setSaveState("saving");
+    if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = window.setTimeout(() => {
+      if (!isComposingRef.current) flushSave();
+    }, 380);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        window.clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [title, subtitle, status, listId, tags, content, url, dueDate, flushSave]);
+
+  // Flush unsaved edits cleanly on item switch / unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        window.clearTimeout(debounceTimerRef.current);
+      }
+      flushSave();
+    };
+  }, [flushSave]);
+
+  const currentListCollection = useMemo(
+    () => lists.find((l) => l.id === listId) || null,
+    [lists, listId],
+  );
+  const itemMeta = ITEM_META[currentListCollection?.listType || "custom"];
+  const todayKey = getTodayKey();
+  const linkedBook = useMemo(
+    () =>
+      bookLink?.bookId
+        ? workspace.books.find((b) => b.id === bookLink.bookId) || null
+        : null,
+    [bookLink?.bookId, workspace.books],
+  );
+
+  const sameListTags = useMemo(() => {
+    const set = new Set<string>();
+    workspace.listItems.forEach((it) => {
+      if (it.listId === listId) {
+        (it.tags || []).forEach((t) => set.add(t));
+      }
+    });
+    return Array.from(set).sort();
+  }, [workspace.listItems, listId]);
+
+  const handleAddTag = (raw: string) => {
+    const clean = raw.trim().replace(/^#/, "").toLowerCase();
+    if (!clean || tags.includes(clean)) {
+      setTagInput("");
+      return;
+    }
+    setTags((prev) => [...prev, clean]);
+    setTagInput("");
+  };
+
+  const validOpenUrl = normalizeExternalUrl(url);
+  const wordCount = useMemo(() => countWordsFromHtml(content), [content]);
+  const linkedNotesCounts = useMemo(
+    () => countLinkedNotesForListItems(workspace.entries, [item.id]),
+    [workspace.entries, item.id],
+  );
+
+  return (
+    <div
+      className="flex-1 min-h-0 flex flex-col overflow-hidden"
+      style={{ backgroundColor: "var(--bg-canvas)" }}
+      onCompositionStart={() => {
+        isComposingRef.current = true;
+      }}
+      onCompositionEnd={() => {
+        isComposingRef.current = false;
+      }}
+    >
+      {/* Clean Action & Breadcrumb Header */}
+      <header
+        className="h-11 px-4 sm:px-6 border-b flex items-center justify-between gap-3 shrink-0"
+        style={{
+          backgroundColor: "var(--bg-canvas)",
+          borderColor: "var(--border-subtle)",
+        }}
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {sidebarCollapsedDesktop && (
+            <button
+              type="button"
+              onClick={onExpandDesktopSidebar}
+              title="Show lists sidebar"
+              aria-label="Show lists sidebar"
+              className="hidden lg:flex h-7 w-7 items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+              style={{
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <PanelLeftOpen className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onOpenMobileSidebar}
+            title="Lists & smart views"
+            aria-label="Open lists sidebar"
+            className="lg:hidden h-7 w-7 flex items-center justify-center rounded-lg border shrink-0 cursor-pointer"
+            style={{
+              backgroundColor: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <PanelLeftOpen className="w-3.5 h-3.5" />
+          </button>
+
+          <nav
+            aria-label="List item breadcrumb"
+            className="flex items-center gap-1.5 text-xs min-w-0 overflow-hidden"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {currentListCollection && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    flushSave();
+                    onSelectParentListHome(currentListCollection.id);
+                  }}
+                  className="inline-flex items-center gap-1.5 max-w-[150px] hover:underline cursor-pointer shrink-0"
+                  style={{ color: "var(--text-secondary)" }}
+                  title={`Go to ${currentListCollection.title}`}
+                >
+                  <CollectionIcon
+                    name={currentListCollection.icon}
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: currentListCollection.color || "#4f46e5" }}
+                  />
+                  <span className="truncate">{currentListCollection.title}</span>
+                </button>
+                <ChevronRight className="w-3 h-3 shrink-0 opacity-60" />
+              </>
+            )}
+            <span
+              className="truncate font-medium"
+              style={{ color: "var(--text-primary)" }}
+            >
+              {title.trim() || "Untitled Item"}
+            </span>
+          </nav>
+        </div>
+
+        {/* Right Controls */}
+        <div className="flex items-center gap-1 shrink-0">
+          <span
+            className="hidden md:inline text-[11px] font-mono tabular-nums mr-1.5"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {wordCount}w · {saveState === "saving" ? "Saving..." : "Autosaved"}
+          </span>
+
+          {currentListCollection && (
+            <button
+              type="button"
+              onClick={onToggleDesktopLinkedPane}
+              className="hidden lg:inline-flex h-7 px-2.5 rounded-lg border text-xs font-medium items-center gap-1.5 transition-colors cursor-pointer mr-0.5"
+              style={{
+                backgroundColor: linkedPaneOpenDesktop
+                  ? "var(--accent-soft)"
+                  : "var(--bg-surface)",
+                borderColor: linkedPaneOpenDesktop
+                  ? "var(--accent)"
+                  : "var(--border-subtle)",
+                color: linkedPaneOpenDesktop
+                  ? "var(--accent)"
+                  : "var(--text-secondary)",
+              }}
+              title={
+                linkedPaneOpenDesktop
+                  ? "Hide linked notes & events"
+                  : "Show linked notes & events"
+              }
+              aria-pressed={linkedPaneOpenDesktop}
+            >
+              <PanelRight className="w-3.5 h-3.5" />
+              <span>Linked</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              flushSave();
+              onOpenInModal(item.id);
+            }}
+            title="Open in Details Modal"
+            aria-label="Open in Details Modal"
+            className="h-7 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (linkedNotesCounts.totalAffectedNotes > 0) {
+                setDeleteConfirmOpen(true);
+                return;
+              }
+              deleteListItem(item.id);
+              pushToast("List item deleted");
+              onItemDeleted(item.id);
+            }}
+            title="Delete item"
+            aria-label="Delete item"
+            className="h-7 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)] hover:text-[var(--danger)] cursor-pointer"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </header>
+
+      {/* Full-Width Scrollable Properties Header + Rich Editor Canvas */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-none px-4 sm:px-6 lg:px-8 py-5 sm:py-6 pb-24 lg:pb-12">
+        <div className="w-full space-y-5">
+          {/* Full-Width Title & Subtitle */}
+          <div className="space-y-1.5">
+            <textarea
+              ref={titleRef}
+              rows={1}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  editorInstance?.commands.focus("start");
+                }
+              }}
+              placeholder="Untitled Item"
+              className="w-full bg-transparent font-display text-2xl sm:text-[26px] font-bold tracking-tight leading-snug resize-none outline-none overflow-hidden placeholder:opacity-40"
+              style={{ color: "var(--text-primary)" }}
+            />
+
+            <div className="flex items-center gap-2">
+              <Type
+                className="w-3.5 h-3.5 shrink-0 opacity-60"
+                style={{ color: "var(--text-muted)" }}
+              />
+              <input
+                type="text"
+                value={subtitle}
+                onChange={(e) => setSubtitle(e.target.value)}
+                placeholder={`${itemMeta.subtitleLabel}: ${itemMeta.subtitlePlaceholder}`}
+                className="w-full bg-transparent text-sm outline-none placeholder:opacity-45"
+                style={{ color: "var(--text-secondary)" }}
+              />
+            </div>
+          </div>
+
+          {/* Full-Width Properties Header Grid */}
+          <div
+            className="border-y py-3 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1"
+            style={{ borderColor: "var(--border-subtle)" }}
+          >
+            <PropertyRow
+              icon={<ListChecks className="w-3.5 h-3.5" />}
+              label="Status"
+            >
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as ListItemStatus)}
+                className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {STATUS_OPTIONS.map((opt) => (
+                  <option
+                    key={opt.id}
+                    value={opt.id}
+                    style={{
+                      backgroundColor: "var(--bg-elevated)",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </PropertyRow>
+
+            <PropertyRow
+              icon={<FolderKanban className="w-3.5 h-3.5" />}
+              label="List"
+            >
+              <select
+                value={listId}
+                onChange={(e) => setListId(e.target.value)}
+                className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {lists.map((l) => (
+                  <option
+                    key={l.id}
+                    value={l.id}
+                    style={{
+                      backgroundColor: "var(--bg-elevated)",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    {l.title}
+                  </option>
+                ))}
+              </select>
+            </PropertyRow>
+
+            <PropertyRow
+              icon={<Calendar className="w-3.5 h-3.5" />}
+              label={itemMeta.dueLabel}
+            >
+              <div className="flex flex-wrap items-center gap-1.5 -mx-1 px-1">
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className="bg-transparent rounded-md px-1.5 py-1 text-xs font-mono tabular-nums outline-none transition-colors hover:bg-[var(--bg-surface-hover)]"
+                  style={{
+                    color: dueDate ? "var(--text-primary)" : "var(--text-muted)",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setDueDate(addDaysToKey(todayKey, 1))}
+                  className="px-1.5 py-0.5 rounded text-[11px] transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  Tomorrow
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDueDate(addDaysToKey(todayKey, 7))}
+                  className="px-1.5 py-0.5 rounded text-[11px] transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  Next wk
+                </button>
+                {dueDate && (
+                  <button
+                    type="button"
+                    onClick={() => setDueDate("")}
+                    className="px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
+                    style={{ color: "var(--danger)" }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </PropertyRow>
+
+            <PropertyRow icon={<Link2 className="w-3.5 h-3.5" />} label="URL">
+              <div className="flex items-center gap-1 -mx-1">
+                <input
+                  type="url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="flex-1 min-w-0 bg-transparent rounded-md px-2 py-1 text-xs outline-none transition-colors hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] placeholder:opacity-50"
+                  style={{ color: "var(--text-primary)" }}
+                />
+                {validOpenUrl && (
+                  <button
+                    type="button"
+                    onClick={() => openExternalUrlSafely(url)}
+                    title="Open URL in new tab"
+                    aria-label="Open URL in new tab"
+                    className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] shrink-0 cursor-pointer"
+                    style={{ color: "var(--accent)" }}
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </PropertyRow>
+
+            {currentListCollection?.listType === "books" && (
+              <PropertyRow
+                icon={<BookOpen className="w-3.5 h-3.5" />}
+                label="Library"
+                alignTop
+              >
+                <div className="space-y-1.5 -mx-1 px-1">
+                  <select
+                    value={linkedBook ? linkedBook.id : ""}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      if (!nextId) {
+                        setBookLink(null);
+                        setListItemBookLink(item.id, null);
+                        return;
+                      }
+                      const chosen = workspace.books.find(
+                        (b) => b.id === nextId,
+                      );
+                      if (!chosen) return;
+                      const unitIndex =
+                        chosen.currentLocation?.unitIndex ??
+                        (chosen.format === "pdf" ? 1 : 0);
+                      const scrollRatio =
+                        chosen.currentLocation?.scrollRatio ?? 0;
+                      const locationLabel =
+                        chosen.currentLocation?.label ||
+                        (chosen.format === "pdf"
+                          ? `Page ${unitIndex}`
+                          : `Section ${unitIndex + 1}`);
+                      const nextLink: BookNoteLink = {
+                        bookId: chosen.id,
+                        bookTitle: chosen.title,
+                        bookAuthor: chosen.author,
+                        bookFormat: chosen.format,
+                        unitIndex,
+                        scrollRatio,
+                        locationLabel,
+                        bookRemoved: false,
+                      };
+                      setBookLink(nextLink);
+                      setListItemBookLink(item.id, nextLink);
+                    }}
+                    className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
+                    style={{
+                      color: linkedBook
+                        ? "var(--text-primary)"
+                        : "var(--text-muted)",
+                    }}
+                  >
+                    <option
+                      value=""
+                      style={{
+                        backgroundColor: "var(--bg-elevated)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      None (this device only)
+                    </option>
+                    {workspace.books.map((b) => (
+                      <option
+                        key={b.id}
+                        value={b.id}
+                        style={{
+                          backgroundColor: "var(--bg-elevated)",
+                          color: "var(--text-primary)",
+                        }}
+                      >
+                        {b.title}
+                      </option>
+                    ))}
+                  </select>
+
+                  {bookLink && linkedBook && (
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                      {onJumpToBookLocation && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            flushSave();
+                            onJumpToBookLocation(bookLink);
+                          }}
+                          className="inline-flex items-center gap-1 font-medium hover:underline cursor-pointer"
+                          style={{ color: "var(--accent)" }}
+                        >
+                          <span>Open in Library</span>
+                          <ArrowUpRight className="w-3 h-3" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBookLink(null);
+                          setListItemBookLink(item.id, null);
+                        }}
+                        className="hover:underline cursor-pointer"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Unlink
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </PropertyRow>
+            )}
+
+            <div className="md:col-span-2">
+              <PropertyRow
+                icon={<Hash className="w-3.5 h-3.5" />}
+                label="Tags"
+                alignTop
+              >
+                <div className="space-y-1 -mx-1 px-1 py-0.5">
+                  <div className="flex flex-wrap items-center gap-1">
+                    {tags.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() =>
+                          setTags((prev) => prev.filter((t) => t !== tag))
+                        }
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-mono cursor-pointer"
+                        style={{
+                          backgroundColor: "var(--accent-soft)",
+                          color: "var(--accent)",
+                        }}
+                      >
+                        <span>#{tag}</span>
+                        <X className="w-2.5 h-2.5 opacity-65" />
+                      </button>
+                    ))}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleAddTag(tagInput);
+                      }}
+                      className="inline-flex items-center"
+                    >
+                      <input
+                        type="text"
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        onBlur={() => {
+                          if (tagInput.trim()) handleAddTag(tagInput);
+                        }}
+                        placeholder="+ Add tag"
+                        className="w-24 bg-transparent rounded-md px-1.5 py-0.5 text-[11px] font-mono outline-none transition-colors hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] placeholder:opacity-55"
+                        style={{ color: "var(--text-primary)" }}
+                      />
+                    </form>
+                  </div>
+                  {sameListTags.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      {sameListTags
+                        .filter((t) => !tags.includes(t))
+                        .slice(0, 6)
+                        .map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => handleAddTag(t)}
+                            className="text-[11px] font-mono hover:underline cursor-pointer"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            +#{t}
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </PropertyRow>
+            </div>
+          </div>
+
+          {/* Full-Width Borderless Tiptap Rich Notes Editor */}
+          <div className="pt-1">
+            <TiptapEditor
+              docId={item.id}
+              content={content}
+              onChange={setContent}
+              variant="borderless"
+              placeholder="Write notes, links, or type / for blocks..."
+              minHeight={320}
+              onEditorReady={setEditorInstance}
+            />
+          </div>
+
+          {/* Linked Notes Section */}
+          <div
+            className="pt-4 border-t"
+            style={{ borderColor: "var(--border-subtle)" }}
+          >
+            <ListItemLinkedNotesSection
+              item={item}
+              list={currentListCollection}
+              onBeforeJump={flushSave}
+              onJumpToNote={onJumpToNote}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Thumb-Zone Bottom Formatting Toolbar */}
+      <TiptapThumbToolbar
+        editor={editorInstance}
+        onDone={() => {
+          editorInstance?.commands.blur();
+          flushSave();
+        }}
+      />
+
+      <DeleteListItemsConfirmModal
+        open={deleteConfirmOpen}
+        itemCount={1}
+        itemTitle={title.trim() || item.title}
+        exclusivelyLinkedNotesCount={linkedNotesCounts.exclusivelyLinkedNotes}
+        sharedNotesCount={linkedNotesCounts.sharedNotes}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onConfirm={(behavior) => {
+          setDeleteConfirmOpen(false);
+          deleteListItem(item.id, behavior);
+          pushToast(
+            behavior === "delete"
+              ? "List item & linked notes deleted"
+              : "List item deleted (notes kept)",
+          );
+          onItemDeleted(item.id);
+        }}
+      />
+    </div>
+  );
+};

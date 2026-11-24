@@ -7,6 +7,7 @@ import {
   Copy,
   Edit3,
   Globe,
+  PanelTop,
   Plus,
   Tag,
   Trash2,
@@ -38,6 +39,7 @@ interface UniversalContextMenuProps {
   onOpenTimestamps: (entryId: string) => void;
   onSelectListItem?: (itemId: string) => void;
   isListItemSelected?: (itemId: string) => boolean;
+  onOpenListItemAsTab?: (itemId: string) => void;
 }
 
 export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
@@ -47,6 +49,7 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
   onOpenTimestamps,
   onSelectListItem,
   isListItemSelected,
+  onOpenListItemAsTab,
 }) => {
   const {
     workspace,
@@ -258,6 +261,21 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
 
       {subPanel === 'none' && (
         <>
+          {freshListItem && onOpenListItemAsTab && (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenListItemAsTab(freshListItem.id);
+                onClose();
+              }}
+              className={btnCls}
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <PanelTop className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
+              <span>Open as Tab</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleOpenDetails}
