@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, ExternalLink, FileText, Pin, Plus, X } from "lucide-react";
+import { ExternalLink, Pin, Plus, X } from "lucide-react";
 import type { Entry } from "../../types";
+import { NotePageIcon } from "../IconLibrary";
 
 interface NotesTabStripProps {
   openNotes: Entry[];
   activeTabId: string | null; // null means Notes Home view is active
+  homeTabLabel?: string;
+  homeTabIcon?: string;
   onSelectHome: () => void;
   onSelectTab: (noteId: string) => void;
   onCloseTab: (noteId: string) => void;
@@ -24,6 +27,8 @@ const TAB_DRAG_MIME = "application/x-kanso-note-tab-id";
 export const NotesTabStrip: React.FC<NotesTabStripProps> = ({
   openNotes,
   activeTabId,
+  homeTabLabel = "Notes",
+  homeTabIcon = "BookOpen",
   onSelectHome,
   onSelectTab,
   onCloseTab,
@@ -135,15 +140,20 @@ export const NotesTabStrip: React.FC<NotesTabStripProps> = ({
             type="button"
             role="tab"
             aria-selected={isHomeActive}
+            title={homeTabLabel}
             onClick={onSelectHome}
-            className={`h-9 lg:h-8 px-3 rounded-t-md inline-flex items-center gap-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer border-t border-x ${
+            className={`h-9 lg:h-8 px-3 max-w-[190px] rounded-t-md inline-flex items-center gap-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer border-t border-x ${
               isHomeActive
                 ? "bg-[var(--bg-canvas)] text-[var(--text-primary)] border-[var(--border-subtle)] -mb-px"
                 : "bg-transparent text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]/70"
             }`}
           >
-            <BookOpen className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
-            <span>Notes</span>
+            <NotePageIcon
+              icon={homeTabIcon}
+              fallback="BookOpen"
+              className="w-3.5 h-3.5 text-[var(--accent)] shrink-0"
+            />
+            <span className="truncate">{homeTabLabel}</span>
           </button>
 
           {openNotes.length > 0 && (
@@ -238,10 +248,20 @@ export const NotesTabStrip: React.FC<NotesTabStripProps> = ({
                   title={label}
                   className="flex-1 min-w-0 h-full flex items-center gap-1.5 text-left cursor-pointer"
                 >
-                  {note.pinned ? (
+                  {note.icon ? (
+                    <NotePageIcon
+                      icon={note.icon}
+                      className={`w-3 h-3 shrink-0 ${
+                        isActive
+                          ? "text-[var(--accent)]"
+                          : "text-[var(--text-muted)]"
+                      }`}
+                    />
+                  ) : note.pinned ? (
                     <Pin className="w-3 h-3 shrink-0 text-[var(--accent)]" />
                   ) : (
-                    <FileText
+                    <NotePageIcon
+                      icon={null}
                       className={`w-3 h-3 shrink-0 ${
                         isActive
                           ? "text-[var(--accent)]"

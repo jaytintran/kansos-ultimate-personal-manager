@@ -13,7 +13,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { DynamicIcon } from "../IconLibrary";
+import { DynamicIcon, NotePageIcon } from "../IconLibrary";
 import { buildNoteChildrenMap, wouldCreateParentCycle } from "../../lib/noteGraphUtils";
 import type { Entry, NoteNotebook } from "../../types";
 
@@ -298,9 +298,16 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
             }}
             className="flex-1 min-w-0 flex items-center gap-1.5 text-left py-0.5 cursor-pointer"
           >
-            <FileText
-              className="w-3.5 h-3.5 shrink-0 opacity-75"
-              style={{ color: isFocused ? "var(--accent)" : "var(--text-muted)" }}
+            <NotePageIcon
+              icon={note.icon}
+              className="w-3.5 h-3.5 shrink-0 opacity-85"
+              style={{
+                color: isFocused
+                  ? "var(--accent)"
+                  : note.icon
+                    ? "var(--accent)"
+                    : "var(--text-muted)",
+              }}
             />
             <span
               className={`truncate ${isFocused ? "font-medium" : ""}`}

@@ -22,7 +22,8 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { DynamicIcon, LIST_ICON_KEYS } from "../components/IconLibrary";
+import { DynamicIcon, NotePageIcon } from "../components/IconLibrary";
+import { IconPicker } from "../components/IconPicker";
 import { BookCover } from "../components/library/BookCover";
 import {
   NoteBranchActionPrompt,
@@ -142,16 +143,9 @@ const LEGACY_EMOJI_ICON_MAP: Record<string, string> = {
   "📚": "BookOpen",
   "🌿": "Leaf",
   "✍️": "PenLine",
-  "📓": "Bookmark",
+  "📓": "NotebookPen",
+  "📝": "FileText",
 };
-
-const NOTEBOOK_ICON_KEYS = [
-  "BookOpen",
-  "Leaf",
-  "PenLine",
-  "Bookmark",
-  ...LIST_ICON_KEYS.filter((k) => !["BookOpen", "Bookmark"].includes(k)),
-];
 
 function resolveNotebookIconName(rawIcon?: string): string {
   if (!rawIcon) return "BookOpen";
@@ -998,6 +992,32 @@ export const NotesView: React.FC<NotesViewProps> = ({
           ? "Archived Notes"
           : "Notes";
 
+  const homeTabMeta = useMemo(() => {
+    if (drilledParentNote) {
+      return {
+        label: drilledParentNote.title?.trim() || "Untitled Note",
+        icon: drilledParentNote.icon || "FileText",
+      };
+    }
+    if (activeNotebook) {
+      return {
+        label: activeNotebook.name,
+        icon: resolveNotebookIconName(activeNotebook.icon),
+      };
+    }
+    switch (scope.kind) {
+      case "book_notes":
+        return { label: "Book Notes", icon: "Library" };
+      case "unfiled":
+        return { label: "Unfiled Notes", icon: "FolderOpen" };
+      case "archive":
+        return { label: "Archived Notes", icon: "Archive" };
+      case "all":
+      default:
+        return { label: "Notes", icon: "BookOpen" };
+    }
+  }, [drilledParentNote, activeNotebook, scope.kind]);
+
   return (
     <div className="h-full flex-1 min-h-0 lg:h-dvh flex overflow-hidden">
       {/* Desktop Resizable/Collapsible Left Sidebar + Mobile Slide-Over Tree Drawer */}
@@ -1043,6 +1063,8 @@ export const NotesView: React.FC<NotesViewProps> = ({
         <NotesTabStrip
           openNotes={openNotes}
           activeTabId={activeTabNote ? activeTabNote.id : null}
+          homeTabLabel={homeTabMeta.label}
+          homeTabIcon={homeTabMeta.icon}
           onSelectHome={() => setActiveTabId(null)}
           onSelectTab={handleOpenNoteById}
           onCloseTab={handleCloseNoteTab}
@@ -1925,6 +1947,16 @@ export const NotesView: React.FC<NotesViewProps> = ({
                           </div>
                         )}
 
+                        <NotePageIcon
+                          icon={note.icon}
+                          className="w-3.5 h-3.5 shrink-0 mt-0.5"
+                          style={{
+                            color: note.icon
+                              ? "var(--accent)"
+                              : "var(--text-muted)",
+                          }}
+                        />
+
                         <div className="min-w-0 flex-1">
                           <h2
                             className="text-sm font-medium leading-snug line-clamp-2 min-w-0"
@@ -2289,6 +2321,15 @@ export const NotesView: React.FC<NotesViewProps> = ({
                         <Pin className="w-3.5 h-3.5" />
                       </button>
                     )}
+                    <NotePageIcon
+                      icon={note.icon}
+                      className="w-3.5 h-3.5 shrink-0"
+                      style={{
+                        color: note.icon
+                          ? "var(--accent)"
+                          : "var(--text-muted)",
+                      }}
+                    />
                     <span
                       className="text-sm font-medium leading-snug truncate"
                       style={{ color: "var(--text-primary)" }}
@@ -2705,41 +2746,31 @@ export const NotesView: React.FC<NotesViewProps> = ({
             </div>
 
             <div className="space-y-1.5">
-              <label
-                className="text-xs font-medium"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                Icon
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {NOTEBOOK_ICON_KEYS.map((key) => {
-                  const active = notebookModal.icon === key;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() =>
-                        setNotebookModal({ ...notebookModal, icon: key })
-                      }
-                      className="h-8 w-8 flex items-center justify-center rounded-lg border transition-colors"
-                      style={{
-                        backgroundColor: active
-                          ? "var(--accent-soft)"
-                          : "var(--bg-surface)",
-                        borderColor: active
-                          ? "var(--accent)"
-                          : "var(--border-subtle)",
-                        color: active
-                          ? "var(--accent)"
-                          : "var(--text-secondary)",
-                      }}
-                      title={key}
-                    >
-                      <DynamicIcon name={key} className="w-4 h-4" />
-                    </button>
-                  );
-                })}
+              <div className="flex items-center justify-between">
+                <label
+                  className="text-xs font-medium"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  Icon
+                </label>
+                <span
+                  className="inline-flex items-center gap-1.5 text-[11px] font-mono"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  <DynamicIcon
+                    name={notebookModal.icon}
+                    className="w-3.5 h-3.5"
+                    style={{ color: "var(--accent)" }}
+                  />
+                  <span>{notebookModal.icon}</span>
+                </span>
               </div>
+              <IconPicker
+                value={notebookModal.icon}
+                onChange={(key) =>
+                  setNotebookModal({ ...notebookModal, icon: key })
+                }
+              />
             </div>
 
             <div className="flex justify-end gap-2 pt-1">

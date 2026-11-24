@@ -37,6 +37,8 @@ import {
 } from "../../utils/date";
 import type { TimestampFieldFocus } from "../TimestampsModal";
 import { TiptapEditor, TiptapThumbToolbar } from "../TiptapEditor";
+import { NotePageIcon } from "../IconLibrary";
+import { IconPickerPopover } from "../IconPicker";
 
 const PROPS_OPEN_STORAGE_KEY = "kanso_note_tab_props_open_v1";
 
@@ -97,6 +99,7 @@ interface NoteTabEditorProps {
 
 function buildNoteSnapshot(src: {
   title: string;
+  icon: string;
   content: string;
   tags: string[];
   pinned: boolean;
@@ -130,6 +133,8 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   const { workspace, updateEntry, addNotePage, pushToast } = useWorkspace();
 
   const [title, setTitle] = useState(() => note.title ?? "");
+  const [icon, setIcon] = useState<string>(() => note.icon ?? "");
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [content, setContent] = useState(() => note.content ?? "");
   const [tags, setTags] = useState<string[]>(() => note.tags ?? []);
   const [tagInput, setTagInput] = useState("");
@@ -161,6 +166,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   const lastSavedSnapRef = useRef<string>(
     buildNoteSnapshot({
       title: note.title ?? "",
+      icon: note.icon ?? "",
       content: note.content ?? "",
       tags: note.tags ?? [],
       pinned: Boolean(note.pinned),
@@ -175,6 +181,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   const latestDraftRef = useRef({
     noteId: note.id,
     title,
+    icon,
     content,
     tags,
     pinned,
@@ -188,6 +195,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   latestDraftRef.current = {
     noteId: note.id,
     title,
+    icon,
     content,
     tags,
     pinned,
@@ -223,6 +231,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   useEffect(() => {
     const incomingSnap = buildNoteSnapshot({
       title: note.title ?? "",
+      icon: note.icon ?? "",
       content: note.content ?? "",
       tags: note.tags ?? [],
       pinned: Boolean(note.pinned),
@@ -236,6 +245,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
 
     const currentLocalSnap = buildNoteSnapshot({
       title: latestDraftRef.current.title,
+      icon: latestDraftRef.current.icon,
       content: latestDraftRef.current.content,
       tags: latestDraftRef.current.tags,
       pinned: latestDraftRef.current.pinned,
@@ -249,6 +259,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
     if (currentLocalSnap === lastSavedSnapRef.current) {
       // Local draft isn't dirty: sync cleanly to incoming note
       setTitle(note.title ?? "");
+      setIcon(note.icon ?? "");
       setContent(note.content ?? "");
       setTags(note.tags ?? []);
       setPinned(Boolean(note.pinned));
@@ -262,6 +273,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   }, [
     note.id,
     note.title,
+    note.icon,
     note.content,
     note.tags,
     note.pinned,
@@ -281,6 +293,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
 
     const snap = buildNoteSnapshot({
       title: draft.title,
+      icon: draft.icon,
       content: effectiveContent,
       tags: draft.tags,
       pinned: draft.pinned,
@@ -297,6 +310,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
 
     updateEntry(draft.noteId, {
       title: draft.title.trim() || "Untitled Note",
+      icon: draft.icon || "",
       content: effectiveContent,
       tags: draft.tags,
       pinned: draft.pinned,
@@ -314,6 +328,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   useEffect(() => {
     const currentSnap = buildNoteSnapshot({
       title,
+      icon,
       content,
       tags,
       pinned,
@@ -338,6 +353,7 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
     };
   }, [
     title,
+    icon,
     content,
     tags,
     pinned,
@@ -546,10 +562,17 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
               <ChevronRight className="w-3 h-3 shrink-0 opacity-60 hidden sm:inline" />
             )}
             <span
-              className="truncate font-medium"
+              className="inline-flex items-center gap-1.5 truncate font-medium"
               style={{ color: "var(--text-primary)" }}
             >
-              {title.trim() || "Untitled Note"}
+              {icon && (
+                <NotePageIcon
+                  icon={icon}
+                  className="w-3.5 h-3.5 shrink-0"
+                  style={{ color: "var(--accent)" }}
+                />
+              )}
+              <span className="truncate">{title.trim() || "Untitled Note"}</span>
             </span>
           </nav>
         </div>
@@ -695,22 +718,58 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
       {/* Main Writing Canvas */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-none px-5 sm:px-8 lg:px-10 py-6 lg:py-8 pb-24 lg:pb-12">
         <div className="max-w-3xl mx-auto space-y-5">
-          {/* Clean Auto-Growing Display Title */}
-          <textarea
-            ref={titleRef}
-            rows={1}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                if (editorInstance) editorInstance.commands.focus("start");
-              }
-            }}
-            placeholder="Untitled Note"
-            className="w-full bg-transparent font-display text-2xl sm:text-[1.85rem] font-bold tracking-tight leading-snug resize-none outline-none overflow-hidden placeholder:opacity-35"
-            style={{ color: "var(--text-primary)" }}
-          />
+          {/* Page Icon + Clean Auto-Growing Display Title */}
+          <div className="flex items-start gap-2.5 sm:gap-3">
+            <div className="relative shrink-0 pt-0.5 sm:pt-1">
+              <button
+                type="button"
+                onClick={() => setIconPickerOpen((prev) => !prev)}
+                title={icon ? "Change page icon" : "Add page icon"}
+                aria-label={icon ? "Change page icon" : "Add page icon"}
+                aria-expanded={iconPickerOpen}
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                style={{
+                  backgroundColor: icon
+                    ? "var(--accent-soft)"
+                    : "var(--bg-surface)",
+                  borderColor: iconPickerOpen
+                    ? "var(--accent)"
+                    : "var(--border-subtle)",
+                  color: icon ? "var(--accent)" : "var(--text-muted)",
+                }}
+              >
+                <NotePageIcon icon={icon} className="w-5 h-5" />
+              </button>
+
+              <IconPickerPopover
+                open={iconPickerOpen}
+                onClose={() => setIconPickerOpen(false)}
+                value={icon}
+                onChange={(nextIcon) => setIcon(nextIcon)}
+                onClear={() => setIcon("")}
+                allowClear
+                clearLabel="Default"
+                title="Page Icon"
+                align="left"
+              />
+            </div>
+
+            <textarea
+              ref={titleRef}
+              rows={1}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (editorInstance) editorInstance.commands.focus("start");
+                }
+              }}
+              placeholder="Untitled Note"
+              className="flex-1 min-w-0 bg-transparent font-display text-2xl sm:text-[1.85rem] font-bold tracking-tight leading-snug resize-none outline-none overflow-hidden placeholder:opacity-35"
+              style={{ color: "var(--text-primary)" }}
+            />
+          </div>
 
           {/* Collapsible Properties Section */}
           <section

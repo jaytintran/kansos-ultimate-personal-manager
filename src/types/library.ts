@@ -111,12 +111,14 @@ export interface FolderRecord {
   name: string;
   parentId: string | null;
   color: FolderColor;
+  icon?: string;
   createdAt: number;
 }
 
 export interface CategoryRecord {
   id: string;
   name: string;
+  icon?: string;
   createdAt: number;
 }
 

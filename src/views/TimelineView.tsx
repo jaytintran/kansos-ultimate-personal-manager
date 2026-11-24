@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Calendar,
   CalendarClock,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -12,6 +13,7 @@ import {
   Clock,
   FileText,
   Flame,
+  Layers,
   MoreVertical,
   Search,
   Timer,
@@ -28,6 +30,7 @@ import {
   DetailSheetTarget,
   Entry,
   EntryType,
+  Habit,
 } from "../types";
 import {
   addDaysToKey,
@@ -82,6 +85,34 @@ function formatDurationLabel(
   return `${m}m`;
 }
 
+function buildStructuredDayItems(entries: Entry[]) {
+  const blocks = entries.filter(
+    (e) => e.type === "timeblock" && e.scheduledAt && e.endAt,
+  );
+  const nestedIds = new Set<string>();
+  const blockChildren = new Map<string, Entry[]>();
+
+  for (const block of blocks) {
+    const start = new Date(block.scheduledAt!).getTime();
+    const end = new Date(block.endAt!).getTime();
+    const children: Entry[] = [];
+    for (const candidate of entries) {
+      if (candidate.id === block.id || candidate.type === "timeblock")
+        continue;
+      if (nestedIds.has(candidate.id)) continue;
+      const t = getEntrySortTime(candidate);
+      if (t >= start && t <= end) {
+        children.push(candidate);
+        nestedIds.add(candidate.id);
+      }
+    }
+    blockChildren.set(block.id, children);
+  }
+
+  const topLevel = entries.filter((e) => !nestedIds.has(e.id));
+  return { topLevel, blockChildren };
+}
+
 interface TimelineViewProps {
   onOpenDetail: (target: DetailSheetTarget) => void;
   onOpenContextMenu: (record: ContextMenuRecord, e: React.MouseEvent) => void;
@@ -102,6 +133,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   } = useWorkspace();
 
   const todayKey = getTodayKey();
+  const [subview, setSubview] = useState<"day" | "all-dates">("day");
   const [selectedDateKey, setSelectedDateKey] = useState<string>(todayKey);
   const [calendarPopoverOpen, setCalendarPopoverOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -151,6 +183,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         setSearchQuery("");
         searchInputRef.current?.blur();
       } else if (
+        subview === "day" &&
         !isEditable &&
         !activeIsEditable &&
         !calendarPopoverOpen &&
@@ -172,11 +205,28 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [calendarPopoverOpen]);
+  }, [calendarPopoverOpen, subview]);
+
+  const habitMap = useMemo(() => {
+    const map = new Map<string, Habit>();
+    for (const h of workspace.habits) map.set(h.id, h);
+    return map;
+  }, [workspace.habits]);
 
   const visibleEntries = useMemo(
-    () => workspace.entries.filter((e) => isVisibleOnTimeline(e)),
-    [workspace.entries],
+    () =>
+      workspace.entries.filter((e) => {
+        if (!isVisibleOnTimeline(e)) return false;
+        if ((e.source === "habit" || e.habitId) && e.habitId) {
+          const habit = habitMap.get(e.habitId);
+          const dateKey = e.habitDateKey || getEntryDayKey(e);
+          if (habit?.missedDates?.[dateKey] && !habit.completions?.[dateKey]) {
+            return false;
+          }
+        }
+        return true;
+      }),
+    [workspace.entries, habitMap],
   );
 
   const matchesTypeFilter = (entry: Entry): boolean => {
@@ -220,6 +270,45 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trimmedSearch, visibleEntries, typeFilter]);
 
+  // All-Dates Spine grouped newest-first, skipping days with no records
+  // (future dates with records are included; empty future/past days are skipped)
+  const allDatesGroups = useMemo(() => {
+    const byDay = new Map<string, Entry[]>();
+    let total = 0;
+
+    for (const entry of visibleEntries) {
+      if (!matchesTypeFilter(entry)) continue;
+      if (trimmedSearch) {
+        const hay = `${entry.title} ${stripHtmlToText(entry.content)} ${(
+          entry.tags || []
+        ).join(" ")}`.toLowerCase();
+        if (!hay.includes(trimmedSearch)) continue;
+      }
+      const dayKey = getEntryDayKey(entry);
+      const list = byDay.get(dayKey) || [];
+      list.push(entry);
+      byDay.set(dayKey, list);
+      total++;
+    }
+
+    const days = Array.from(byDay.entries())
+      .filter(([, items]) => items.length > 0)
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([dayKey, items]) => {
+        const sorted = [...items].sort(
+          (a, b) => getEntrySortTime(a) - getEntrySortTime(b),
+        );
+        return {
+          dayKey,
+          count: sorted.length,
+          structured: buildStructuredDayItems(sorted),
+        };
+      });
+
+    return { total, days };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleEntries, typeFilter, trimmedSearch]);
+
   // Day entries for selectedDateKey
   const dayEntries = useMemo(() => {
     return visibleEntries
@@ -230,45 +319,23 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleEntries, selectedDateKey, typeFilter]);
 
-  // Unfinished carry-over tasks from earlier days (shown on Today only)
+  // Unfinished carry-over tasks from earlier days (shown on Today only in Day subview)
   const carryOverTasks = useMemo(() => {
-    if (selectedDateKey !== todayKey || trimmedSearch) return [];
+    if (subview !== "day" || selectedDateKey !== todayKey || trimmedSearch)
+      return [];
     return visibleEntries
       .filter(
         (e) =>
           e.type === "task" && !e.completed && getEntryDayKey(e) < todayKey,
       )
       .sort((a, b) => getEntryDayKey(b).localeCompare(getEntryDayKey(a)));
-  }, [visibleEntries, selectedDateKey, todayKey, trimmedSearch]);
+  }, [subview, visibleEntries, selectedDateKey, todayKey, trimmedSearch]);
 
   // Structure day entries so Time Blocks wrap entries occurring inside their [start, end] range
-  const structuredDayItems = useMemo(() => {
-    const blocks = dayEntries.filter(
-      (e) => e.type === "timeblock" && e.scheduledAt && e.endAt,
-    );
-    const nestedIds = new Set<string>();
-    const blockChildren = new Map<string, Entry[]>();
-
-    for (const block of blocks) {
-      const start = new Date(block.scheduledAt!).getTime();
-      const end = new Date(block.endAt!).getTime();
-      const children: Entry[] = [];
-      for (const candidate of dayEntries) {
-        if (candidate.id === block.id || candidate.type === "timeblock")
-          continue;
-        if (nestedIds.has(candidate.id)) continue;
-        const t = getEntrySortTime(candidate);
-        if (t >= start && t <= end) {
-          children.push(candidate);
-          nestedIds.add(candidate.id);
-        }
-      }
-      blockChildren.set(block.id, children);
-    }
-
-    const topLevel = dayEntries.filter((e) => !nestedIds.has(e.id));
-    return { topLevel, blockChildren };
-  }, [dayEntries]);
+  const structuredDayItems = useMemo(
+    () => buildStructuredDayItems(dayEntries),
+    [dayEntries],
+  );
 
   const openEntryDetail = (entry: Entry) => {
     const mode =
@@ -757,202 +824,304 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden overscroll-none lg:block lg:h-auto lg:overflow-visible">
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-none lg:overflow-visible">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-4 lg:pb-36 space-y-5">
-      {/* Header: Interactive Title Date Picker + Search */}
+      {/* Header: Interactive Title Date Picker / All-Dates Toggle + Search + Type Filters */}
       <header
-        className="space-y-3 relative"
+        className="space-y-2.5 relative"
         style={{ borderColor: "var(--border-subtle)" }}
       >
-        <div className="flex items-center justify-between gap-2">
-          {/* Interactive Title-like Date Scrubber with Flanking Chevrons */}
-          <div className="relative flex items-center gap-1.5 shrink-0 min-w-0">
-            <div className="flex items-center gap-0.5 min-w-0">
-              <button
-                type="button"
-                onClick={() =>
-                  setSelectedDateKey((prev) => addDaysToKey(prev, -1))
-                }
-                className="h-8 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
-                style={{ color: "var(--text-secondary)" }}
-                title="Previous day (A)"
-                aria-label="Previous day"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {/* Left: Single-Day Scrubber OR All-Dates Title */}
+          {subview === "day" ? (
+            <div className="relative flex items-center gap-1.5 shrink-0 min-w-0">
+              <div className="flex items-center gap-0.5 min-w-0">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedDateKey((prev) => addDaysToKey(prev, -1))
+                  }
+                  className="h-8 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                  style={{ color: "var(--text-secondary)" }}
+                  title="Previous day (A)"
+                  aria-label="Previous day"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setCalendarPopoverOpen((v) => !v)}
-                className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1 px-1 py-0.5 rounded-lg hover:bg-[var(--bg-surface-subtle)] focus:outline-none"
-                style={{ color: "var(--text-primary)" }}
-                title="Change date"
-              >
-                <span>{formatCompactDayHeading(selectedDateKey)}</span>
-                <ChevronDown className="w-4 h-4 opacity-50 shrink-0 mt-0.5" />
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setCalendarPopoverOpen((v) => !v)}
+                  className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1 px-1 py-0.5 rounded-lg hover:bg-[var(--bg-surface-subtle)] focus:outline-none"
+                  style={{ color: "var(--text-primary)" }}
+                  title="Change date"
+                >
+                  <span>{formatCompactDayHeading(selectedDateKey)}</span>
+                  <ChevronDown className="w-4 h-4 opacity-50 shrink-0 mt-0.5" />
+                </button>
 
-              <button
-                type="button"
-                onClick={() =>
-                  setSelectedDateKey((prev) => addDaysToKey(prev, 1))
-                }
-                className="h-8 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
-                style={{ color: "var(--text-secondary)" }}
-                title="Next day (D)"
-                aria-label="Next day"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedDateKey((prev) => addDaysToKey(prev, 1))
+                  }
+                  className="h-8 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                  style={{ color: "var(--text-secondary)" }}
+                  title="Next day (D)"
+                  aria-label="Next day"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              {selectedDateKey !== todayKey && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedDateKey(todayKey);
+                    setCalendarPopoverOpen(false);
+                  }}
+                  className="h-7 px-2 rounded-lg border text-[11px] font-semibold transition-colors hover:bg-[var(--accent-soft)] cursor-pointer shrink-0"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--accent)",
+                  }}
+                  title="Jump back to Today"
+                >
+                  Today
+                </button>
+              )}
+
+              {/* Calendar Dropdown (Theme-Integrated react-day-picker) */}
+              {calendarPopoverOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-20"
+                    onClick={() => setCalendarPopoverOpen(false)}
+                  />
+                  <div
+                    className="absolute left-0 top-10 z-30 p-3 rounded-xl border shadow-lg w-[320px]"
+                    style={{
+                      backgroundColor: "var(--bg-elevated)",
+                      borderColor: "var(--border-strong)",
+                      boxShadow: "var(--shadow-popover)",
+                    }}
+                  >
+                    <div className="flex flex-col gap-2">
+                      <DayPicker
+                        mode="single"
+                        selected={parseLocalDateKey(selectedDateKey)}
+                        defaultMonth={parseLocalDateKey(selectedDateKey)}
+                        showOutsideDays
+                        onSelect={(day) => {
+                          if (day) {
+                            setSelectedDateKey(toLocalDateKey(day));
+                            setCalendarPopoverOpen(false);
+                          }
+                        }}
+                        components={{
+                          Chevron: ({ orientation }) =>
+                            orientation === "left" ? (
+                              <ChevronLeft className="w-4 h-4" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4" />
+                            ),
+                        }}
+                        classNames={{
+                          root: "w-full max-w-[308px] select-none",
+                          months: "relative flex flex-col",
+                          month: "w-full space-y-2.5",
+                          month_caption:
+                            "flex items-center justify-center relative h-8",
+                          caption_label:
+                            "font-display text-sm font-semibold text-[var(--text-primary)]",
+                          nav: "flex items-center justify-between absolute inset-x-0 top-0 h-8 pointer-events-none z-10",
+                          button_previous:
+                            "pointer-events-auto h-7 w-7 inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors cursor-pointer",
+                          button_next:
+                            "pointer-events-auto h-7 w-7 inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors cursor-pointer",
+                          month_grid: "w-full border-collapse",
+                          weekdays: "grid grid-cols-7 mb-1",
+                          weekday:
+                            "text-center text-[11px] font-medium text-[var(--text-muted)] py-1",
+                          weeks: "space-y-0.5",
+                          week: "grid grid-cols-7",
+                          day: "flex items-center justify-center p-0.5",
+                          day_button:
+                            "w-9 h-8 rounded-lg font-mono tabular-nums text-xs flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] text-[var(--text-primary)] cursor-pointer",
+                          selected:
+                            "[&>button]:bg-[var(--accent)] [&>button]:text-[var(--accent-fg)] [&>button]:font-semibold [&>button]:hover:bg-[var(--accent)]",
+                          today:
+                            "[&>button]:ring-1 [&>button]:ring-[var(--accent)] [&>button]:text-[var(--accent)] [&>button]:font-semibold",
+                          outside: "[&>button]:opacity-35",
+                          disabled:
+                            "[&>button]:opacity-25 [&>button]:cursor-not-allowed",
+                        }}
+                      />
+
+                      {/* Jump to Today Footer */}
+                      {selectedDateKey !== todayKey && (
+                        <div
+                          className="pt-2 border-t"
+                          style={{ borderColor: "var(--border-subtle)" }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedDateKey(todayKey);
+                              setCalendarPopoverOpen(false);
+                            }}
+                            className="w-full h-8 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center cursor-pointer hover:bg-[var(--accent-soft)]"
+                            style={{
+                              backgroundColor: "var(--bg-surface)",
+                              color: "var(--accent)",
+                              border: "1px solid var(--border-subtle)",
+                            }}
+                          >
+                            Jump to Today
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
+          ) : (
+            <div className="flex items-baseline gap-2.5 min-w-0">
+              <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight whitespace-nowrap">
+                All Dates
+              </h1>
+              <span
+                className="text-xs font-mono tabular-nums whitespace-nowrap"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {allDatesGroups.days.length}{" "}
+                {allDatesGroups.days.length === 1 ? "day" : "days"} ·{" "}
+                {allDatesGroups.total}{" "}
+                {allDatesGroups.total === 1 ? "record" : "records"}
+              </span>
+            </div>
+          )}
 
-            {selectedDateKey !== todayKey && (
+          {/* Right: Subview Toggle + Search Bar */}
+          <div className="flex items-center gap-2 flex-1 sm:flex-initial justify-end min-w-0">
+            {/* Day / All Dates Subview Toggle */}
+            <div
+              className="inline-flex items-center h-8 p-0.5 rounded-lg border shrink-0"
+              style={{
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--border-subtle)",
+              }}
+              role="group"
+              aria-label="Timeline subview"
+            >
               <button
                 type="button"
                 onClick={() => {
-                  setSelectedDateKey(todayKey);
-                  setCalendarPopoverOpen(false);
+                  setSubview("day");
                 }}
-                className="h-7 px-2 rounded-lg border text-[11px] font-semibold transition-colors hover:bg-[var(--accent-soft)] cursor-pointer shrink-0"
+                className="h-full px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
                 style={{
-                  backgroundColor: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--accent)",
+                  backgroundColor:
+                    subview === "day" ? "var(--accent-soft)" : "transparent",
+                  color:
+                    subview === "day" ? "var(--accent)" : "var(--text-muted)",
                 }}
-                title="Jump back to Today"
+                aria-pressed={subview === "day"}
               >
-                Today
+                <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+                <span>Day</span>
               </button>
-            )}
-
-            {/* Calendar Dropdown (Theme-Integrated react-day-picker) */}
-            {calendarPopoverOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-20"
-                  onClick={() => setCalendarPopoverOpen(false)}
-                />
-                <div
-                  className="absolute left-0 top-10 z-30 p-3 rounded-xl border shadow-lg w-[320px]"
-                  style={{
-                    backgroundColor: "var(--bg-elevated)",
-                    borderColor: "var(--border-strong)",
-                    boxShadow: "var(--shadow-popover)",
-                  }}
-                >
-                  <div className="flex flex-col gap-2">
-                    <DayPicker
-                      mode="single"
-                      selected={parseLocalDateKey(selectedDateKey)}
-                      defaultMonth={parseLocalDateKey(selectedDateKey)}
-                      showOutsideDays
-                      onSelect={(day) => {
-                        if (day) {
-                          setSelectedDateKey(toLocalDateKey(day));
-                          setCalendarPopoverOpen(false);
-                        }
-                      }}
-                      components={{
-                        Chevron: ({ orientation }) =>
-                          orientation === "left" ? (
-                            <ChevronLeft className="w-4 h-4" />
-                          ) : (
-                            <ChevronRight className="w-4 h-4" />
-                          ),
-                      }}
-                      classNames={{
-                        root: "w-full max-w-[308px] select-none",
-                        months: "relative flex flex-col",
-                        month: "w-full space-y-2.5",
-                        month_caption:
-                          "flex items-center justify-center relative h-8",
-                        caption_label:
-                          "font-display text-sm font-semibold text-[var(--text-primary)]",
-                        nav: "flex items-center justify-between absolute inset-x-0 top-0 h-8 pointer-events-none z-10",
-                        button_previous:
-                          "pointer-events-auto h-7 w-7 inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors cursor-pointer",
-                        button_next:
-                          "pointer-events-auto h-7 w-7 inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-canvas)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors cursor-pointer",
-                        month_grid: "w-full border-collapse",
-                        weekdays: "grid grid-cols-7 mb-1",
-                        weekday:
-                          "text-center text-[11px] font-medium text-[var(--text-muted)] py-1",
-                        weeks: "space-y-0.5",
-                        week: "grid grid-cols-7",
-                        day: "flex items-center justify-center p-0.5",
-                        day_button:
-                          "w-9 h-8 rounded-lg font-mono tabular-nums text-xs flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] text-[var(--text-primary)] cursor-pointer",
-                        selected:
-                          "[&>button]:bg-[var(--accent)] [&>button]:text-[var(--accent-fg)] [&>button]:font-semibold [&>button]:hover:bg-[var(--accent)]",
-                        today:
-                          "[&>button]:ring-1 [&>button]:ring-[var(--accent)] [&>button]:text-[var(--accent)] [&>button]:font-semibold",
-                        outside: "[&>button]:opacity-35",
-                        disabled:
-                          "[&>button]:opacity-25 [&>button]:cursor-not-allowed",
-                      }}
-                    />
-
-                    {/* Jump to Today Footer */}
-                    {selectedDateKey !== todayKey && (
-                      <div
-                        className="pt-2 border-t"
-                        style={{ borderColor: "var(--border-subtle)" }}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedDateKey(todayKey);
-                            setCalendarPopoverOpen(false);
-                          }}
-                          className="w-full h-8 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center cursor-pointer hover:bg-[var(--accent-soft)]"
-                          style={{
-                            backgroundColor: "var(--bg-surface)",
-                            color: "var(--accent)",
-                            border: "1px solid var(--border-subtle)",
-                          }}
-                        >
-                          Jump to Today
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Search Bar (Cmd+K / / to focus, Esc to clear) */}
-          <div
-            className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border flex-1 min-w-0 sm:flex-none sm:w-56 transition-colors"
-            style={{
-              backgroundColor: "var(--bg-surface)",
-              borderColor: searchQuery
-                ? "var(--accent)"
-                : "var(--border-subtle)",
-            }}
-          >
-            <Search
-              className="w-3.5 h-3.5 shrink-0"
-              style={{ color: "var(--text-muted)" }}
-            />
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search... (⌘K)"
-              className="flex-1 min-w-0 bg-transparent text-xs outline-none"
-              style={{ color: "var(--text-primary)" }}
-            />
-            {searchQuery && (
               <button
                 type="button"
-                onClick={() => setSearchQuery("")}
-                className="opacity-70 hover:opacity-100 shrink-0"
-                aria-label="Clear search"
+                onClick={() => {
+                  setCalendarPopoverOpen(false);
+                  setSubview("all-dates");
+                }}
+                className="h-full px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+                style={{
+                  backgroundColor:
+                    subview === "all-dates"
+                      ? "var(--accent-soft)"
+                      : "transparent",
+                  color:
+                    subview === "all-dates"
+                      ? "var(--accent)"
+                      : "var(--text-muted)",
+                }}
+                aria-pressed={subview === "all-dates"}
               >
-                <X className="w-3.5 h-3.5" />
+                <Layers className="w-3.5 h-3.5 shrink-0" />
+                <span>All Dates</span>
               </button>
-            )}
+            </div>
+
+            {/* Search Bar (Cmd+K / / to focus, Esc to clear) */}
+            <div
+              className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border flex-1 min-w-[120px] sm:flex-none sm:w-52 transition-colors"
+              style={{
+                backgroundColor: "var(--bg-surface)",
+                borderColor: searchQuery
+                  ? "var(--accent)"
+                  : "var(--border-subtle)",
+              }}
+            >
+              <Search
+                className="w-3.5 h-3.5 shrink-0"
+                style={{ color: "var(--text-muted)" }}
+              />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search... (⌘K)"
+                className="flex-1 min-w-0 bg-transparent text-xs outline-none"
+                style={{ color: "var(--text-primary)" }}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="opacity-70 hover:opacity-100 shrink-0"
+                  aria-label="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
+        </div>
+
+        {/* Type Filter Chips */}
+        <div
+          className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5"
+          role="group"
+          aria-label="Filter timeline by record type"
+        >
+          {FILTER_CHIPS.map((chip) => {
+            const active = typeFilter === chip.id;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => setTypeFilter(chip.id)}
+                aria-pressed={active}
+                className="h-7 px-2.5 rounded-lg border text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                style={{
+                  backgroundColor: active
+                    ? "var(--accent-soft)"
+                    : "var(--bg-surface)",
+                  borderColor: active
+                    ? "var(--accent)"
+                    : "var(--border-subtle)",
+                  color: active ? "var(--accent)" : "var(--text-secondary)",
+                }}
+              >
+                {chip.label}
+              </button>
+            );
+          })}
         </div>
       </header>
 
@@ -1037,8 +1206,128 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         </section>
       )}
 
-      {/* Search Mode Results */}
-      {searchGroups ? (
+      {/* All-Dates Spine Subview vs Search Results vs Single-Day Spine */}
+      {subview === "all-dates" ? (
+        <section className="space-y-6">
+          {trimmedSearch && (
+            <div
+              className="px-3.5 py-2 rounded-xl border text-xs font-medium flex items-center justify-between"
+              style={{
+                backgroundColor: "var(--accent-soft)",
+                borderColor: "var(--accent)",
+                color: "var(--accent)",
+              }}
+            >
+              <span>
+                {allDatesGroups.total}{" "}
+                {allDatesGroups.total === 1 ? "match" : "matches"} for &ldquo;
+                {searchQuery.trim()}&rdquo;
+              </span>
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="underline text-[11px]"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
+          {allDatesGroups.days.length === 0 ? (
+            <div
+              className="rounded-2xl border border-dashed py-14 px-4 text-center space-y-1.5"
+              style={{
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-muted)",
+              }}
+            >
+              <p className="text-sm font-medium">
+                {trimmedSearch || typeFilter !== "all"
+                  ? "No matching records across any dates"
+                  : "No recorded dates on the spine yet"}
+              </p>
+              <p className="text-xs">
+                {trimmedSearch || typeFilter !== "all"
+                  ? "Try clearing your search or switching record filters."
+                  : "Add entries on any day and they will appear here newest-first."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {allDatesGroups.days.map(({ dayKey, count, structured }) => {
+                const isToday = dayKey === todayKey;
+                const isFuture = dayKey > todayKey;
+                return (
+                  <div key={dayKey} className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2 px-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedDateKey(dayKey);
+                          setSubview("day");
+                        }}
+                        className="group/day inline-flex items-center gap-2 text-left rounded-md px-1.5 py-0.5 -ml-1.5 transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                        title={`Open ${formatCompactDayHeading(dayKey)} in Day view`}
+                      >
+                        <span
+                          className="text-xs font-semibold font-mono"
+                          style={{
+                            color: isToday
+                              ? "var(--accent)"
+                              : isFuture
+                                ? "var(--color-entity-blue)"
+                                : "var(--text-primary)",
+                          }}
+                        >
+                          {formatCompactDayHeading(dayKey)}
+                        </span>
+                        {isFuture && (
+                          <span
+                            className="text-[10px] font-mono uppercase tracking-wider"
+                            style={{ color: "var(--color-entity-blue)" }}
+                          >
+                            Scheduled
+                          </span>
+                        )}
+                        <ArrowRight
+                          className="w-3 h-3 opacity-0 group-hover/day:opacity-75 transition-opacity"
+                          style={{ color: "var(--accent)" }}
+                        />
+                      </button>
+
+                      <span
+                        className="text-[11px] font-mono tabular-nums shrink-0"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {count} {count === 1 ? "record" : "records"}
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      {displayMode !== "flat" &&
+                        structured.topLevel.length > 1 && (
+                          <div
+                            className={`absolute ${spineLeftClass} top-4 bottom-4 w-px`}
+                            style={{ backgroundColor: "var(--spine-line)" }}
+                            aria-hidden="true"
+                          />
+                        )}
+                      {structured.topLevel.map((entry) =>
+                        entry.type === "timeblock"
+                          ? renderTimeBlock(
+                              entry,
+                              structured.blockChildren.get(entry.id) || [],
+                            )
+                          : renderEntryRow(entry),
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      ) : searchGroups ? (
         <div className="space-y-6">
           <div
             className="px-3.5 py-2 rounded-xl border text-xs font-medium flex items-center justify-between"
@@ -1064,12 +1353,18 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
           {searchGroups.days.map(({ dayKey, items }) => (
             <div key={dayKey} className="space-y-1.5">
-              <div
-                className="text-xs font-semibold font-mono px-1"
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDateKey(dayKey);
+                  setSearchQuery("");
+                  setSubview("day");
+                }}
+                className="text-xs font-semibold font-mono px-1 hover:underline cursor-pointer"
                 style={{ color: "var(--text-muted)" }}
               >
                 {formatCompactDayHeading(dayKey)}
-              </div>
+              </button>
               <div className="relative">
                 {displayMode !== "flat" && items.length > 1 && (
                   <div

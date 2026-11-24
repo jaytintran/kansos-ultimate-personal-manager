@@ -121,6 +121,7 @@ export const StreamerView = forwardRef<
     addStreamFolder,
     updateStreamFolder,
     deleteStreamFolder,
+    setStreamTopicIcon,
     updateStreamerState,
     saveStreamPreset,
     loadStreamPreset,
@@ -130,6 +131,7 @@ export const StreamerView = forwardRef<
 
   const { streams, streamPresets, streamerState } = workspace;
   const streamFolders = workspace.streamFolders ?? [];
+  const streamTopicIcons = workspace.streamTopicIcons ?? {};
 
   const viewMode: StreamViewMode = streamerState.viewMode || "grid";
   const sizingMode: StreamSizingMode = streamerState.sizingMode || "fit";
@@ -1742,7 +1744,10 @@ export const StreamerView = forwardRef<
               addStreamFolder(name, parentId ?? null)
             }
             onRenameFolder={(id, name) => updateStreamFolder(id, { name })}
+            onUpdateFolder={(id, patch) => updateStreamFolder(id, patch)}
             onDeleteFolder={deleteStreamFolder}
+            topicIcons={streamTopicIcons}
+            onSetTopicIcon={(topic, icon) => setStreamTopicIcon(topic, icon)}
             onNotify={pushToast}
           />
         )}

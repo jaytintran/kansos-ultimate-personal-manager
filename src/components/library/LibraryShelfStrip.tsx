@@ -23,6 +23,7 @@ import type {
 } from "../../types/library";
 import type { ActiveLibraryFilter } from "./LibrarySidebar";
 import { LibraryStatusDropdown } from "./LibraryStatusDropdown";
+import { DynamicIcon } from "../IconLibrary";
 
 interface LibraryShelfStripProps {
   books: BookRecord[];
@@ -305,10 +306,11 @@ export const LibraryShelfStrip: React.FC<LibraryShelfStripProps> = ({
                       : "transparent",
                 }}
               >
-                <span
-                  className="w-2 h-2 rounded-full shrink-0"
+                <DynamicIcon
+                  name={folder.icon || "Folder"}
+                  className="w-3.5 h-3.5 shrink-0"
                   style={{
-                    backgroundColor:
+                    color:
                       dotColor ??
                       (active ? "var(--accent)" : "var(--text-muted)"),
                   }}
@@ -384,12 +386,22 @@ export const LibraryShelfStrip: React.FC<LibraryShelfStripProps> = ({
                       : "transparent",
                 }}
               >
-                <BookMarked
-                  className="w-3.5 h-3.5 shrink-0"
-                  style={{
-                    color: active ? "var(--accent)" : "var(--text-muted)",
-                  }}
-                />
+                {cat.icon ? (
+                  <DynamicIcon
+                    name={cat.icon}
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{
+                      color: active ? "var(--accent)" : "var(--text-muted)",
+                    }}
+                  />
+                ) : (
+                  <BookMarked
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{
+                      color: active ? "var(--accent)" : "var(--text-muted)",
+                    }}
+                  />
+                )}
                 <span
                   className={`max-w-[140px] truncate ${active ? "font-semibold" : ""}`}
                 >

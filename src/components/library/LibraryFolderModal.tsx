@@ -1,7 +1,13 @@
 import { X } from "lucide-react";
 import React, { useState } from "react";
-import { FOLDER_COLORS, flattenFoldersHierarchy } from "../../lib/formatters";
+import {
+  FOLDER_COLORS,
+  flattenFoldersHierarchy,
+  getFolderColorHex,
+} from "../../lib/formatters";
 import type { FolderColor, FolderRecord } from "../../types/library";
+import { DynamicIcon } from "../IconLibrary";
+import { IconPicker } from "../IconPicker";
 
 interface LibraryFolderModalProps {
   mode: "create" | "edit";
@@ -12,6 +18,7 @@ interface LibraryFolderModalProps {
     name: string;
     color: FolderColor;
     parentId: string | null;
+    icon: string;
   }) => void;
 }
 
@@ -24,6 +31,7 @@ export const LibraryFolderModal: React.FC<LibraryFolderModalProps> = ({
 }) => {
   const [name, setName] = useState(folder?.name ?? "");
   const [color, setColor] = useState<FolderColor>(folder?.color ?? "neutral");
+  const [icon, setIcon] = useState<string>(folder?.icon ?? "Folder");
   const [parentId, setParentId] = useState<string | null>(
     folder?.parentId ?? null,
   );
@@ -32,11 +40,13 @@ export const LibraryFolderModal: React.FC<LibraryFolderModalProps> = ({
     (item) => item.folder.id !== folder?.id,
   );
 
+  const accentHex = getFolderColorHex(color) ?? undefined;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    onSave({ name: trimmed, color, parentId });
+    onSave({ name: trimmed, color, parentId, icon });
     onClose();
   };
 
@@ -50,7 +60,7 @@ export const LibraryFolderModal: React.FC<LibraryFolderModalProps> = ({
         aria-modal="true"
         aria-label={mode === "create" ? "Create folder" : "Edit folder"}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden"
+        className="w-full max-w-md rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden"
       >
         <div className="px-4 py-3 border-b border-[var(--border-subtle)] flex items-center justify-between">
           <h2 className="font-display text-sm font-semibold text-[var(--text-primary)]">
@@ -111,7 +121,7 @@ export const LibraryFolderModal: React.FC<LibraryFolderModalProps> = ({
 
           <div className="space-y-1.5">
             <span className="block text-xs font-medium text-[var(--text-secondary)]">
-              Accent Dot
+              Accent Color
             </span>
             <div className="flex flex-wrap items-center gap-2">
               {FOLDER_COLORS.map((swatch) => {
@@ -133,6 +143,28 @@ export const LibraryFolderModal: React.FC<LibraryFolderModalProps> = ({
                 );
               })}
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-[var(--text-secondary)]">
+                Folder Icon
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-[var(--text-muted)]">
+                <DynamicIcon
+                  name={icon}
+                  className="w-3.5 h-3.5"
+                  style={accentHex ? { color: accentHex } : { color: "var(--accent)" }}
+                />
+                <span>{icon}</span>
+              </span>
+            </div>
+            <IconPicker
+              value={icon}
+              onChange={setIcon}
+              accentColor={accentHex}
+              maxGridHeightClass="max-h-[168px]"
+            />
           </div>
 
           <div className="pt-1 flex items-center justify-end gap-2">

@@ -34,9 +34,9 @@ import {
   XCircle,
 } from "lucide-react";
 import {
-  LIST_ICON_KEYS,
   ListIcon as CollectionIcon,
 } from "../components/IconLibrary";
+import { IconPicker } from "../components/IconPicker";
 import { NlpInputBar } from "../components/NlpInputBar";
 import { RichContent } from "../components/RichContent";
 import { ListItemInspector } from "../components/lists/ListItemInspector";
@@ -4556,38 +4556,30 @@ export const ListsView: React.FC<ListsViewProps> = ({
             </div>
 
             <div className="space-y-1.5">
-              <label
-                className="text-xs font-medium"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                Icon
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {LIST_ICON_KEYS.map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setListModal({ ...listModal, icon: key })}
-                    className="h-8 w-8 flex items-center justify-center rounded-lg border cursor-pointer"
-                    style={{
-                      backgroundColor:
-                        listModal.icon === key
-                          ? `${listModal.color}20`
-                          : "var(--bg-surface)",
-                      borderColor:
-                        listModal.icon === key
-                          ? listModal.color
-                          : "var(--border-subtle)",
-                      color:
-                        listModal.icon === key
-                          ? listModal.color
-                          : "var(--text-secondary)",
-                    }}
-                  >
-                    <CollectionIcon name={key} className="w-4 h-4" />
-                  </button>
-                ))}
+              <div className="flex items-center justify-between">
+                <label
+                  className="text-xs font-medium"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  Icon
+                </label>
+                <span
+                  className="inline-flex items-center gap-1.5 text-[11px] font-mono"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  <CollectionIcon
+                    name={listModal.icon}
+                    className="w-3.5 h-3.5"
+                    style={{ color: listModal.color }}
+                  />
+                  <span>{listModal.icon}</span>
+                </span>
               </div>
+              <IconPicker
+                value={listModal.icon}
+                accentColor={listModal.color}
+                onChange={(key) => setListModal({ ...listModal, icon: key })}
+              />
             </div>
 
             <div className="flex justify-end gap-2 pt-1">

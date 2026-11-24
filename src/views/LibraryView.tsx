@@ -1705,12 +1705,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       name: string,
       parentId: string | null = null,
       color: FolderColor = "neutral",
+      icon?: string,
     ): Promise<FolderRecord> => {
       const created: FolderRecord = {
         id: makeId("fld"),
         name: name.trim() || "Untitled Folder",
         parentId,
         color,
+        icon: icon || "Folder",
         createdAt: Date.now(),
       };
       updateLibraryState((prev) => ({
@@ -1722,7 +1724,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   );
 
   const handleUpdateFolder = useCallback(
-    (id: string, patch: { name?: string; color?: FolderColor }) => {
+    (id: string, patch: { name?: string; color?: FolderColor; icon?: string }) => {
       updateLibraryState((prev) => ({
         libraryFolders: prev.libraryFolders.map((f) =>
           f.id === id ? { ...f, ...patch } : f,
@@ -1754,16 +1756,28 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   );
 
   const handleCreateCategory = useCallback(
-    async (name: string): Promise<CategoryRecord> => {
+    async (name: string, icon?: string): Promise<CategoryRecord> => {
       const created: CategoryRecord = {
         id: makeId("cat"),
         name: name.trim() || "Untitled Category",
+        icon: icon || undefined,
         createdAt: Date.now(),
       };
       updateLibraryState((prev) => ({
         libraryCategories: [...prev.libraryCategories, created],
       }));
       return created;
+    },
+    [updateLibraryState],
+  );
+
+  const handleUpdateCategory = useCallback(
+    (id: string, patch: { name?: string; icon?: string }) => {
+      updateLibraryState((prev) => ({
+        libraryCategories: prev.libraryCategories.map((c) =>
+          c.id === id ? { ...c, ...patch } : c,
+        ),
+      }));
     },
     [updateLibraryState],
   );
@@ -2510,14 +2524,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             )
           }
           onClearTags={() => setSelectedTags([])}
-          onCreateFolder={(name, parentId, color) => {
-            void handleCreateFolder(name, parentId, color);
+          onCreateFolder={(name, parentId, color, icon) => {
+            void handleCreateFolder(name, parentId, color, icon);
           }}
           onUpdateFolder={handleUpdateFolder}
           onDeleteFolder={handleDeleteFolder}
-          onCreateCategory={(name) => {
-            void handleCreateCategory(name);
+          onCreateCategory={(name, icon) => {
+            void handleCreateCategory(name, icon);
           }}
+          onUpdateCategory={handleUpdateCategory}
           onDeleteCategory={handleDeleteCategory}
           onDropBooksToFolder={handleDropBooksToSidebarFolder}
           onDropBooksToCategory={(bookIds, categoryId) => {
@@ -3790,11 +3805,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           folder={folderModal.mode === "edit" ? folderModal.folder : undefined}
           folders={folders}
           onClose={() => setFolderModal(null)}
-          onSave={({ name, color, parentId }) => {
+          onSave={({ name, color, parentId, icon }) => {
             if (folderModal.mode === "create") {
-              void handleCreateFolder(name, parentId, color);
+              void handleCreateFolder(name, parentId, color, icon);
             } else {
-              handleUpdateFolder(folderModal.folder.id, { name, color });
+              handleUpdateFolder(folderModal.folder.id, { name, color, icon });
             }
           }}
         />

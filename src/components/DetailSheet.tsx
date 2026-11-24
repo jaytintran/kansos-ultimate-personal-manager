@@ -79,7 +79,9 @@ import {
   HABIT_ICON_KEYS,
   HabitIcon,
   ListIcon,
+  NotePageIcon,
 } from "./IconLibrary";
+import { IconPickerPopover } from "./IconPicker";
 import { TimestampFieldFocus } from "./TimestampsModal";
 import { TiptapEditor, TiptapThumbToolbar } from "./TiptapEditor";
 import {
@@ -196,6 +198,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
     updateHabit,
     deleteHabit,
     toggleHabitCompletion,
+    cycleHabitDayStatus,
     addListItem,
     updateListItem,
     deleteListItem,
@@ -263,6 +266,10 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
           ? initialHabitSrc?.title
           : initialListSrc?.title) ?? "",
   );
+  const [noteIcon, setNoteIcon] = useState<string>(
+    () => (isEntryMode ? initialEntrySrc?.icon : "") ?? "",
+  );
+  const [noteIconPickerOpen, setNoteIconPickerOpen] = useState(false);
   const [content, setContent] = useState(
     () =>
       (isEntryMode
@@ -377,6 +384,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
     if (isEntryMode) {
       const src = existingEntry || (target.draft as Partial<Entry> | undefined);
       const nextTitle = src?.title ?? "";
+      const nextNoteIcon = src?.icon ?? "";
       const nextContent = src?.content ?? "";
       const nextTags = src?.tags ?? [];
       const nextPinned = Boolean(src?.pinned);
@@ -395,6 +403,8 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
       const nextBookLink = src?.bookLink ?? null;
 
       setTitle(nextTitle);
+      setNoteIcon(nextNoteIcon);
+      setNoteIconPickerOpen(false);
       setContent(nextContent);
       setTags(nextTags);
       setPinned(nextPinned);
@@ -409,6 +419,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
 
       lastSavedSnapRef.current = JSON.stringify({
         title: nextTitle,
+        noteIcon: nextNoteIcon,
         content: nextContent,
         tags: nextTags,
         pinned: nextPinned,
@@ -504,6 +515,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
     if (isEntryMode) {
       const snapObj = {
         title,
+        noteIcon,
         content: effectiveContent,
         tags,
         pinned,
@@ -523,6 +535,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         title:
           title.trim() ||
           (target.mode === "note" ? "Untitled Note" : "Untitled"),
+        icon: target.mode === "note" ? noteIcon || "" : undefined,
         content: effectiveContent,
         tags,
         pinned,
@@ -641,6 +654,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
     activeId,
     editorInstance,
     title,
+    noteIcon,
     content,
     tags,
     pinned,
@@ -733,6 +747,8 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
     for (let i = 0; i < 365; i++) {
       if (liveHabit.completions[cursor]) {
         streak++;
+        cursor = addDaysToKey(cursor, -1);
+      } else if (liveHabit.missedDates?.[cursor]) {
         cursor = addDaysToKey(cursor, -1);
       } else if (i === 0) {
         cursor = addDaysToKey(cursor, -1);
@@ -2348,37 +2364,97 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                   ))}
                   <ChevronRight className="w-3 h-3 shrink-0 opacity-60" />
                   <span
-                    className="truncate max-w-[200px] font-medium"
+                    className="inline-flex items-center gap-1.5 truncate max-w-[200px] font-medium"
                     style={{ color: "var(--text-primary)" }}
                   >
-                    {title.trim() || "Untitled Note"}
+                    {noteIcon && (
+                      <NotePageIcon
+                        icon={noteIcon}
+                        className="w-3.5 h-3.5 shrink-0"
+                        style={{ color: "var(--accent)" }}
+                      />
+                    )}
+                    <span className="truncate">{title.trim() || "Untitled Note"}</span>
                   </span>
                 </nav>
               )}
 
-              {/* Borderless Auto-Growing Display Title */}
-              <textarea
-                ref={titleRef}
-                rows={1}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    if (editorInstance) editorInstance.commands.focus("start");
-                  }
-                }}
-                placeholder={
-                  target.mode === "habit"
-                    ? "Habit name (e.g. Morning Walk)..."
-                    : target.mode === "note"
-                      ? "Untitled Note"
+              {/* Borderless Auto-Growing Display Title (+ Note Page Icon Picker) */}
+              {target.mode === "note" ? (
+                <div className="flex items-start gap-2.5 sm:gap-3">
+                  <div className="relative shrink-0 pt-0.5 sm:pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setNoteIconPickerOpen((prev) => !prev)}
+                      title={noteIcon ? "Change page icon" : "Add page icon"}
+                      aria-label={noteIcon ? "Change page icon" : "Add page icon"}
+                      aria-expanded={noteIconPickerOpen}
+                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                      style={{
+                        backgroundColor: noteIcon
+                          ? "var(--accent-soft)"
+                          : "var(--bg-surface)",
+                        borderColor: noteIconPickerOpen
+                          ? "var(--accent)"
+                          : "var(--border-subtle)",
+                        color: noteIcon ? "var(--accent)" : "var(--text-muted)",
+                      }}
+                    >
+                      <NotePageIcon icon={noteIcon} className="w-5 h-5" />
+                    </button>
+
+                    <IconPickerPopover
+                      open={noteIconPickerOpen}
+                      onClose={() => setNoteIconPickerOpen(false)}
+                      value={noteIcon}
+                      onChange={(nextIcon) => setNoteIcon(nextIcon)}
+                      onClear={() => setNoteIcon("")}
+                      allowClear
+                      clearLabel="Default"
+                      title="Page Icon"
+                      align="left"
+                    />
+                  </div>
+
+                  <textarea
+                    ref={titleRef}
+                    rows={1}
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (editorInstance) editorInstance.commands.focus("start");
+                      }
+                    }}
+                    placeholder="Untitled Note"
+                    autoFocus={isCreateMode}
+                    className="flex-1 min-w-0 bg-transparent font-display text-2xl sm:text-[1.75rem] font-bold tracking-tight leading-snug resize-none outline-none overflow-hidden placeholder:opacity-35"
+                    style={{ color: "var(--text-primary)" }}
+                  />
+                </div>
+              ) : (
+                <textarea
+                  ref={titleRef}
+                  rows={1}
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (editorInstance) editorInstance.commands.focus("start");
+                    }
+                  }}
+                  placeholder={
+                    target.mode === "habit"
+                      ? "Habit name (e.g. Morning Walk)..."
                       : "Untitled"
-                }
-                autoFocus={isCreateMode}
-                className="w-full bg-transparent font-display text-2xl sm:text-[1.75rem] font-bold tracking-tight leading-snug resize-none outline-none overflow-hidden placeholder:opacity-35"
-                style={{ color: "var(--text-primary)" }}
-              />
+                  }
+                  autoFocus={isCreateMode}
+                  className="w-full bg-transparent font-display text-2xl sm:text-[1.75rem] font-bold tracking-tight leading-snug resize-none outline-none overflow-hidden placeholder:opacity-35"
+                  style={{ color: "var(--text-primary)" }}
+                />
+              )}
 
               {/* Habit Borderless Purpose Line (right beneath title) */}
               {target.mode === "habit" && (
@@ -2509,7 +2585,8 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                               }}
                             >
                               <span className="flex items-center gap-2 min-w-0">
-                                <FileText
+                                <NotePageIcon
+                                  icon={child.icon}
                                   className="w-3.5 h-3.5 shrink-0"
                                   style={{ color: "var(--accent)" }}
                                 />
@@ -2618,35 +2695,46 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                           className="text-[11px] font-semibold uppercase tracking-wider"
                           style={{ color: "var(--text-muted)" }}
                         >
-                          Last 30 Days · Tap any day to toggle
+                          Last 30 Days · Tap to cycle Done / Missed / Clear
                         </div>
                         <div className="grid grid-cols-6 sm:grid-cols-10 gap-1.5">
                           {habitRecent30.map((key) => {
                             const done = Boolean(liveHabit.completions[key]);
+                            const missed = !done && Boolean(liveHabit.missedDates?.[key]);
                             const isToday = key === todayKey;
                             return (
                               <button
                                 key={key}
                                 type="button"
                                 onClick={() =>
-                                  toggleHabitCompletion(liveHabit.id, key)
+                                  cycleHabitDayStatus(liveHabit.id, key)
                                 }
-                                title={`${getDayAbbrev(key)} ${key}`}
-                                className="h-10 rounded-lg border flex flex-col items-center justify-center text-[11px] font-mono tabular-nums transition-colors"
+                                title={`${getDayAbbrev(key)} ${key}${
+                                  done ? " · Done" : missed ? " · Missed" : ""
+                                }`}
+                                className="h-10 rounded-lg border flex flex-col items-center justify-center text-[11px] font-mono tabular-nums transition-colors cursor-pointer"
                                 style={{
                                   backgroundColor: done
                                     ? habitColor
-                                    : "var(--bg-surface)",
+                                    : missed
+                                      ? "var(--bg-surface-subtle)"
+                                      : "var(--bg-surface)",
                                   borderColor: isToday
                                     ? "var(--accent)"
                                     : done
                                       ? habitColor
                                       : "var(--border-subtle)",
-                                  color: done ? "#fff" : "var(--text-muted)",
+                                  color: done
+                                    ? "#fff"
+                                    : missed
+                                      ? "var(--text-muted)"
+                                      : "var(--text-muted)",
                                 }}
                               >
                                 {done ? (
                                   <Check className="w-3.5 h-3.5" />
+                                ) : missed ? (
+                                  <X className="w-3.5 h-3.5 opacity-80" />
                                 ) : (
                                   key.slice(-2)
                                 )}

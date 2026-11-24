@@ -475,12 +475,41 @@ function inlineMd(s: string): string {
 }
 
 function markdownToHtml(md: string): string {
-  const lines = md.replace(/\r\n/g, '\n').split('\n');
+  const normalized = md.replace(/\r\n?/g, '\n');
+  const lines = normalized.split('\n');
   const out: string[] = [];
   let inCode = false;
   let codeLang = 'plaintext';
   let codeBuf: string[] = [];
   let listMode: 'ul' | 'ol' | 'task' | null = null;
+  let paragraphBuf: string[] = [];
+  let quoteBuf: string[] = [];
+
+  const flushParagraph = () => {
+    if (paragraphBuf.length === 0) return;
+    const joined = paragraphBuf
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s{2,}/g, ' ');
+    if (joined) {
+      out.push(`<p>${inlineMd(joined)}</p>`);
+    }
+    paragraphBuf = [];
+  };
+
+  const flushQuote = () => {
+    if (quoteBuf.length === 0) return;
+    const joined = quoteBuf
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s{2,}/g, ' ');
+    if (joined) {
+      out.push(`<blockquote><p>${inlineMd(joined)}</p></blockquote>`);
+    }
+    quoteBuf = [];
+  };
 
   const closeList = () => {
     if (listMode === 'ul') out.push('</ul>');
@@ -489,9 +518,19 @@ function markdownToHtml(md: string): string {
     listMode = null;
   };
 
+  const detectListKind = (raw: string): 'task' | 'ul' | 'ol' | null => {
+    const t = raw.trim();
+    if (/^[-*+]\s+\[([ xX])\]\s+/.test(t)) return 'task';
+    if (/^[-*+]\s+/.test(t)) return 'ul';
+    if (/^\d+[.)]\s+/.test(t)) return 'ol';
+    return null;
+  };
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line.trim().startsWith('```')) {
+      flushParagraph();
+      flushQuote();
       if (!inCode) {
         closeList();
         inCode = true;
@@ -516,7 +555,20 @@ function markdownToHtml(md: string): string {
 
     const trimmed = line.trim();
     if (!trimmed) {
-      closeList();
+      flushParagraph();
+      flushQuote();
+      if (listMode) {
+        // Keep the list open across blank lines when the next non-blank line continues the same list type
+        let lookahead = i + 1;
+        while (lookahead < lines.length && !lines[lookahead].trim()) {
+          lookahead++;
+        }
+        const nextKind =
+          lookahead < lines.length ? detectListKind(lines[lookahead]) : null;
+        if (nextKind !== listMode) {
+          closeList();
+        }
+      }
       continue;
     }
 
@@ -526,6 +578,8 @@ function markdownToHtml(md: string): string {
         ? parseTableSeparatorRow(lines[i + 1])
         : null;
     if (nextAligns) {
+      flushParagraph();
+      flushQuote();
       closeList();
       const headerCells = splitMarkdownTableRow(trimmed);
       const colCount = Math.max(nextAligns.length, headerCells.length);
@@ -569,22 +623,28 @@ function markdownToHtml(md: string): string {
       continue;
     }
 
-    if (/^---+$/.test(trimmed)) {
+    if (/^([-*_])\1{2,}$/.test(trimmed)) {
+      flushParagraph();
+      flushQuote();
       closeList();
       out.push('<hr />');
       continue;
     }
 
-    const hMatch = trimmed.match(/^(#{1,3})\s+(.*)$/);
+    const hMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
     if (hMatch) {
+      flushParagraph();
+      flushQuote();
       closeList();
-      const lvl = hMatch[1].length;
-      out.push(`<h${lvl}>${inlineMd(hMatch[2])}</h${lvl}>`);
+      const lvl = Math.min(3, hMatch[1].length);
+      out.push(`<h${lvl}>${inlineMd(hMatch[2].trim())}</h${lvl}>`);
       continue;
     }
 
-    const taskMatch = trimmed.match(/^[-*]\s+\[([ xX])\]\s+(.*)$/);
+    const taskMatch = trimmed.match(/^[-*+]\s+\[([ xX])\]\s+(.*)$/);
     if (taskMatch) {
+      flushParagraph();
+      flushQuote();
       if (listMode !== 'task') {
         closeList();
         out.push('<ul data-type="taskList">');
@@ -593,45 +653,59 @@ function markdownToHtml(md: string): string {
       const checked = taskMatch[1].toLowerCase() === 'x';
       out.push(
         `<li data-type="taskItem" data-checked="${checked ? 'true' : 'false'}"><p>${inlineMd(
-          taskMatch[2]
+          taskMatch[2].trim()
         )}</p></li>`
       );
       continue;
     }
 
-    const ulMatch = trimmed.match(/^[-*]\s+(.*)$/);
+    const ulMatch = trimmed.match(/^[-*+]\s+(.*)$/);
     if (ulMatch) {
+      flushParagraph();
+      flushQuote();
       if (listMode !== 'ul') {
         closeList();
         out.push('<ul>');
         listMode = 'ul';
       }
-      out.push(`<li><p>${inlineMd(ulMatch[1])}</p></li>`);
+      out.push(`<li><p>${inlineMd(ulMatch[1].trim())}</p></li>`);
       continue;
     }
 
-    const olMatch = trimmed.match(/^\d+\.\s+(.*)$/);
+    const olMatch = trimmed.match(/^\d+[.)]\s+(.*)$/);
     if (olMatch) {
+      flushParagraph();
+      flushQuote();
       if (listMode !== 'ol') {
         closeList();
         out.push('<ol>');
         listMode = 'ol';
       }
-      out.push(`<li><p>${inlineMd(olMatch[1])}</p></li>`);
+      out.push(`<li><p>${inlineMd(olMatch[1].trim())}</p></li>`);
       continue;
     }
 
-    const qMatch = trimmed.match(/^>\s+(.*)$/);
+    const qMatch = trimmed.match(/^>\s?(.*)$/);
     if (qMatch) {
+      flushParagraph();
       closeList();
-      out.push(`<blockquote><p>${inlineMd(qMatch[1])}</p></blockquote>`);
+      const qText = qMatch[1].trim();
+      if (!qText) {
+        flushQuote();
+      } else {
+        quoteBuf.push(qText);
+      }
       continue;
     }
 
+    // Continuation or plain paragraph line: join single line wraps cleanly
+    flushQuote();
     closeList();
-    out.push(`<p>${inlineMd(line)}</p>`);
+    paragraphBuf.push(trimmed);
   }
 
+  flushParagraph();
+  flushQuote();
   closeList();
   if (inCode && codeBuf.length > 0) {
     out.push(
@@ -641,6 +715,111 @@ function markdownToHtml(md: string): string {
     );
   }
   return out.join('');
+}
+
+function cleanPastedHtml(rawHtml: string): string {
+  if (typeof DOMParser === 'undefined') return rawHtml;
+  try {
+    const doc = new DOMParser().parseFromString(rawHtml, 'text/html');
+    const body = doc.body;
+    if (!body) return rawHtml;
+
+    const VOID_MEDIA_SELECTOR = 'img, hr, table, svg, pre, code, iframe, video, audio';
+    const isEmptySpacerElement = (el: Element): boolean => {
+      if (el.querySelector(VOID_MEDIA_SELECTOR)) return false;
+      const text = (el.textContent || '')
+        .replace(/[\u00a0\u200b-\u200d\ufeff]/g, '')
+        .trim();
+      return text.length === 0;
+    };
+
+    // 1. Strip empty spacer paragraphs, divs, headings, and blockquotes
+    const spacerCandidates = Array.from(
+      body.querySelectorAll('p, div, span, h1, h2, h3, h4, h5, h6, blockquote')
+    ).reverse();
+    for (const el of spacerCandidates) {
+      const tag = el.tagName.toLowerCase();
+      // Preserve Google Docs / Notion wrapper spans only if non-empty
+      if (tag === 'div' && el.children.length > 0 && !isEmptySpacerElement(el)) continue;
+      if (isEmptySpacerElement(el)) {
+        el.remove();
+      }
+    }
+
+    // 2. Clean leading/trailing/consecutive <br> tags inside text blocks and list items
+    for (const block of Array.from(body.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6'))) {
+      const brs = Array.from(block.querySelectorAll('br'));
+      for (const br of brs) {
+        if (br.closest('pre, code')) continue;
+        const prev = br.previousSibling;
+        const next = br.nextSibling;
+        const prevEmpty =
+          !prev || (prev.nodeType === Node.TEXT_NODE && !(prev.textContent || '').trim());
+        const nextEmpty =
+          !next || (next.nodeType === Node.TEXT_NODE && !(next.textContent || '').trim());
+        const prevIsBr = prev instanceof Element && prev.tagName.toLowerCase() === 'br';
+        if (prevEmpty || nextEmpty || prevIsBr) {
+          br.remove();
+        }
+      }
+    }
+
+    // 3. Remove whitespace-only text nodes between block containers and normalize inline whitespace outside <pre>/<code>
+    const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    let current = walker.nextNode();
+    while (current) {
+      textNodes.push(current as Text);
+      current = walker.nextNode();
+    }
+    const BLOCK_CONTAINER_TAGS = new Set([
+      'BODY',
+      'UL',
+      'OL',
+      'TABLE',
+      'THEAD',
+      'TBODY',
+      'TR',
+      'BLOCKQUOTE',
+    ]);
+    for (const node of textNodes) {
+      const parentEl = node.parentElement;
+      if (!parentEl || parentEl.closest('pre, code')) continue;
+      const val = node.nodeValue || '';
+      if (!val.replace(/[\u00a0\u200b-\u200d\ufeff]/g, '').trim()) {
+        if (BLOCK_CONTAINER_TAGS.has(parentEl.tagName)) {
+          node.remove();
+          continue;
+        }
+      }
+      node.nodeValue = val.replace(/[ \t\r\n]+/g, ' ');
+    }
+
+    // 4. Merge adjacent identical <ul> / <ol> lists that had spacer nodes stripped between them
+    for (const container of [body, ...Array.from(body.querySelectorAll('div, blockquote, li'))]) {
+      let child = container.firstElementChild;
+      while (child && child.nextElementSibling) {
+        const next = child.nextElementSibling;
+        const tag = child.tagName.toLowerCase();
+        if (
+          (tag === 'ul' || tag === 'ol') &&
+          next.tagName.toLowerCase() === tag &&
+          (child.getAttribute('data-type') || '') === (next.getAttribute('data-type') || '')
+        ) {
+          while (next.firstChild) {
+            child.appendChild(next.firstChild);
+          }
+          next.remove();
+          continue;
+        }
+        child = next;
+      }
+    }
+
+    return body.innerHTML.trim();
+  } catch {
+    return rawHtml;
+  }
 }
 
 function isTableHeaderRowActive(editor: Editor): boolean {
@@ -1055,6 +1234,9 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
         return true;
       },
       handlePaste: (_view, event) => {
+        if (editorRef.current?.isActive('codeBlock')) {
+          return false;
+        }
         const htmlData = event.clipboardData?.getData('text/html') || '';
         const textData = event.clipboardData?.getData('text/plain') || '';
         const hasSemanticHtml =
@@ -1096,11 +1278,22 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
           return true;
         }
 
+        if (hasSemanticHtml && editorRef.current) {
+          const cleanedHtml = cleanPastedHtml(htmlData);
+          if (cleanedHtml) {
+            event.preventDefault();
+            editorRef.current.chain().focus().insertContent(cleanedHtml).run();
+            return true;
+          }
+        }
+
         if (
           textData &&
-          ((!htmlData && looksLikeMarkdown(textData)) ||
+          ((!htmlData && (looksLikeMarkdown(textData) || textData.includes('\n'))) ||
             (!hasSemanticHtml &&
-              (hasMarkdownTable(textData) || looksLikeMarkdown(textData))))
+              (hasMarkdownTable(textData) ||
+                looksLikeMarkdown(textData) ||
+                textData.includes('\n'))))
         ) {
           event.preventDefault();
           const converted = markdownToHtml(textData);

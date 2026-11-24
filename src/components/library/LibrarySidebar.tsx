@@ -21,6 +21,8 @@ import {
   X,
 } from "lucide-react";
 import React, { useMemo, useRef, useState } from "react";
+import { DynamicIcon } from "../IconLibrary";
+import { IconPickerPopover } from "../IconPicker";
 import {
   DEFAULT_SIDEBAR_WIDTH,
   MAX_SIDEBAR_WIDTH,
@@ -68,13 +70,18 @@ interface LibrarySidebarProps {
     name: string,
     parentId?: string | null,
     color?: FolderColor,
+    icon?: string,
   ) => void;
   onUpdateFolder: (
     id: string,
-    patch: { name?: string; color?: FolderColor },
+    patch: { name?: string; color?: FolderColor; icon?: string },
   ) => void;
   onDeleteFolder: (id: string) => void;
-  onCreateCategory: (name: string) => void;
+  onCreateCategory: (name: string, icon?: string) => void;
+  onUpdateCategory: (
+    id: string,
+    patch: { name?: string; icon?: string },
+  ) => void;
   onDeleteCategory: (id: string) => void;
   onDropBooksToFolder: (bookIds: string[], folderId: string) => void;
   onDropBooksToCategory: (bookIds: string[], categoryId: string) => void;
@@ -134,6 +141,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
   onUpdateFolder,
   onDeleteFolder,
   onCreateCategory,
+  onUpdateCategory,
   onDeleteCategory,
   onDropBooksToFolder,
   onDropBooksToCategory,
@@ -153,21 +161,31 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
   >(undefined);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderColor, setNewFolderColor] = useState<FolderColor>("neutral");
+  const [newFolderIcon, setNewFolderIcon] = useState("Folder");
+  const [newFolderIconOpen, setNewFolderIconOpen] = useState(false);
 
-  // Inline folder editing state (name + color)
+  // Inline folder editing state (name + color + icon)
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState("");
   const [editingFolderColor, setEditingFolderColor] =
     useState<FolderColor>("neutral");
+  const [editingFolderIcon, setEditingFolderIcon] = useState("Folder");
+  const [editingFolderIconOpen, setEditingFolderIconOpen] = useState(false);
 
   // Collapsed folder tree nodes
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(
     new Set(),
   );
 
-  // Category creation
+  // Category creation & inline edit state
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryIcon, setNewCategoryIcon] = useState("Bookmark");
+  const [newCategoryIconOpen, setNewCategoryIconOpen] = useState(false);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState("");
+  const [editingCategoryIcon, setEditingCategoryIcon] = useState("Bookmark");
+  const [editingCategoryIconOpen, setEditingCategoryIconOpen] = useState(false);
 
   // Drag-over highlight target
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -289,7 +307,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
     e.preventDefault();
     const trimmed = newFolderName.trim();
     if (trimmed && addingFolderParentId !== undefined) {
-      onCreateFolder(trimmed, addingFolderParentId, newFolderColor);
+      onCreateFolder(trimmed, addingFolderParentId, newFolderColor, newFolderIcon);
       if (addingFolderParentId) {
         setCollapsedFolderIds((prev) => {
           const next = new Set(prev);
@@ -299,6 +317,8 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
       }
       setNewFolderName("");
       setNewFolderColor("neutral");
+      setNewFolderIcon("Folder");
+      setNewFolderIconOpen(false);
       setAddingFolderParentId(undefined);
     }
   };
@@ -310,20 +330,38 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
       onUpdateFolder(editingFolderId, {
         name: trimmed,
         color: editingFolderColor,
+        icon: editingFolderIcon,
       });
     }
     setEditingFolderId(null);
     setEditingFolderName("");
+    setEditingFolderIconOpen(false);
   };
 
   const handleCategorySubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = newCategoryName.trim();
     if (trimmed) {
-      onCreateCategory(trimmed);
+      onCreateCategory(trimmed, newCategoryIcon);
       setNewCategoryName("");
+      setNewCategoryIcon("Bookmark");
+      setNewCategoryIconOpen(false);
       setAddingCategory(false);
     }
+  };
+
+  const handleCategoryEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = editingCategoryName.trim();
+    if (editingCategoryId && trimmed) {
+      onUpdateCategory(editingCategoryId, {
+        name: trimmed,
+        icon: editingCategoryIcon,
+      });
+    }
+    setEditingCategoryId(null);
+    setEditingCategoryName("");
+    setEditingCategoryIconOpen(false);
   };
 
   const selectAndClose = (filter: ActiveLibraryFilter) => {
@@ -363,37 +401,62 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
     </div>
   );
 
-  const renderFolderForm = (parentId: string | null, depth: number) => (
-    <form
-      onSubmit={handleFolderSubmit}
-      className="my-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 space-y-1.5"
-      style={{ marginLeft: `${depth * 12}px` }}
-    >
-      <div className="flex items-center gap-1.5">
-        <input
-          type="text"
-          autoFocus
-          value={newFolderName}
-          onChange={(e) => setNewFolderName(e.target.value)}
-          placeholder={parentId ? "Sub-folder name..." : "Folder name..."}
-          className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-[var(--border-strong)] bg-[var(--bg-input)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              setAddingFolderParentId(undefined);
-              setNewFolderName("");
-            }
-          }}
-        />
-        <button
-          type="submit"
-          className="px-2 py-1 text-[11px] font-medium rounded bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] cursor-pointer shrink-0"
-        >
-          Add
-        </button>
-      </div>
-      {renderColorSwatches(newFolderColor, setNewFolderColor)}
-    </form>
-  );
+  const renderFolderForm = (parentId: string | null, depth: number) => {
+    const newFolderHex = getFolderColorHex(newFolderColor) ?? undefined;
+    return (
+      <form
+        onSubmit={handleFolderSubmit}
+        className="my-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 space-y-1.5"
+        style={{ marginLeft: `${depth * 12}px` }}
+      >
+        <div className="flex items-center gap-1.5">
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setNewFolderIconOpen((v) => !v)}
+              title="Choose folder icon"
+              aria-label="Choose folder icon"
+              className="w-7 h-7 rounded border border-[var(--border-strong)] bg-[var(--bg-input)] flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              style={newFolderHex ? { color: newFolderHex } : { color: "var(--accent)" }}
+            >
+              <DynamicIcon name={newFolderIcon} className="w-3.5 h-3.5" />
+            </button>
+            <IconPickerPopover
+              open={newFolderIconOpen}
+              onClose={() => setNewFolderIconOpen(false)}
+              value={newFolderIcon}
+              onChange={setNewFolderIcon}
+              accentColor={newFolderHex}
+              title="Folder Icon"
+              widthClass="w-[268px]"
+            />
+          </div>
+          <input
+            type="text"
+            autoFocus
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            placeholder={parentId ? "Sub-folder name..." : "Folder name..."}
+            className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-[var(--border-strong)] bg-[var(--bg-input)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setAddingFolderParentId(undefined);
+                setNewFolderName("");
+                setNewFolderIconOpen(false);
+              }
+            }}
+          />
+          <button
+            type="submit"
+            className="px-2 py-1 text-[11px] font-medium rounded bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] cursor-pointer shrink-0"
+          >
+            Add
+          </button>
+        </div>
+        {renderColorSwatches(newFolderColor, setNewFolderColor)}
+      </form>
+    );
+  };
 
   const renderFolderTree = (
     parentId: string | null,
@@ -411,6 +474,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
       const dropKey = `folder:${folder.id}`;
       const isDragOver = dragOverKey === dropKey;
       const accentHex = getFolderColorHex(folder.color);
+      const editingHex = getFolderColorHex(editingFolderColor) ?? undefined;
 
       return (
         <div key={folder.id}>
@@ -421,13 +485,37 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
               style={{ marginLeft: `${depth * 12}px` }}
             >
               <div className="flex items-center gap-1">
+                <div className="relative shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setEditingFolderIconOpen((v) => !v)}
+                    title="Choose folder icon"
+                    aria-label="Choose folder icon"
+                    className="w-7 h-7 rounded border border-[var(--border-strong)] bg-[var(--bg-input)] flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={editingHex ? { color: editingHex } : { color: "var(--accent)" }}
+                  >
+                    <DynamicIcon name={editingFolderIcon} className="w-3.5 h-3.5" />
+                  </button>
+                  <IconPickerPopover
+                    open={editingFolderIconOpen}
+                    onClose={() => setEditingFolderIconOpen(false)}
+                    value={editingFolderIcon}
+                    onChange={setEditingFolderIcon}
+                    accentColor={editingHex}
+                    title="Folder Icon"
+                    widthClass="w-[268px]"
+                  />
+                </div>
                 <input
                   type="text"
                   autoFocus
                   value={editingFolderName}
                   onChange={(e) => setEditingFolderName(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Escape") setEditingFolderId(null);
+                    if (e.key === "Escape") {
+                      setEditingFolderId(null);
+                      setEditingFolderIconOpen(false);
+                    }
                   }}
                   className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-[var(--border-strong)] bg-[var(--bg-input)] text-[var(--text-primary)]"
                 />
@@ -500,12 +588,13 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                   }
                   className="flex-1 min-w-0 flex items-center gap-2 text-left cursor-pointer"
                 >
-                  <Folder
+                  <DynamicIcon
+                    name={folder.icon || "Folder"}
                     className="w-3.5 h-3.5 shrink-0"
                     style={
                       accentHex
-                        ? { color: accentHex, fill: `${accentHex}24` }
-                        : undefined
+                        ? { color: accentHex }
+                        : { color: active ? "var(--accent)" : "var(--text-secondary)" }
                     }
                   />
                   <span className="truncate">{folder.name}</span>
@@ -521,6 +610,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                       setAddingFolderParentId(folder.id);
                       setNewFolderName("");
                       setNewFolderColor(folder.color ?? "neutral");
+                      setNewFolderIcon("Folder");
                     }}
                     title={`Add sub-folder inside ${folder.name}`}
                     aria-label={`Add sub-folder inside ${folder.name}`}
@@ -536,8 +626,10 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     setEditingFolderId(folder.id);
                     setEditingFolderName(folder.name);
                     setEditingFolderColor(folder.color ?? "neutral");
+                    setEditingFolderIcon(folder.icon || "Folder");
+                    setEditingFolderIconOpen(false);
                   }}
-                  title="Edit folder name & color"
+                  title="Edit folder name, color & icon"
                   aria-label={`Edit ${folder.name}`}
                   className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer transition-opacity"
                 >
@@ -795,6 +887,26 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
               {addingCategory && (
                 <form onSubmit={handleCategorySubmit} className="px-1.5 mb-1.5">
                   <div className="flex items-center gap-1.5">
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setNewCategoryIconOpen((v) => !v)}
+                        title="Choose category icon"
+                        aria-label="Choose category icon"
+                        className="w-7 h-7 rounded border border-[var(--border-strong)] bg-[var(--bg-input)] flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                        style={{ color: "var(--accent)" }}
+                      >
+                        <DynamicIcon name={newCategoryIcon} className="w-3.5 h-3.5" />
+                      </button>
+                      <IconPickerPopover
+                        open={newCategoryIconOpen}
+                        onClose={() => setNewCategoryIconOpen(false)}
+                        value={newCategoryIcon}
+                        onChange={setNewCategoryIcon}
+                        title="Category Icon"
+                        widthClass="w-[268px]"
+                      />
+                    </div>
                     <input
                       type="text"
                       autoFocus
@@ -806,6 +918,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                         if (e.key === "Escape") {
                           setAddingCategory(false);
                           setNewCategoryName("");
+                          setNewCategoryIconOpen(false);
                         }
                       }}
                     />
@@ -829,6 +942,62 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                   ).length;
                   const dropKey = `category:${cat.id}`;
                   const isDragOver = dragOverKey === dropKey;
+                  const isEditingCat = editingCategoryId === cat.id;
+
+                  if (isEditingCat) {
+                    return (
+                      <form
+                        key={cat.id}
+                        onSubmit={handleCategoryEditSubmit}
+                        className="my-1 rounded-md border border-[var(--accent)] bg-[var(--bg-surface)] p-1.5"
+                      >
+                        <div className="flex items-center gap-1">
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setEditingCategoryIconOpen((v) => !v)}
+                              title="Choose category icon"
+                              aria-label="Choose category icon"
+                              className="w-7 h-7 rounded border border-[var(--border-strong)] bg-[var(--bg-input)] flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                              style={{ color: "var(--accent)" }}
+                            >
+                              <DynamicIcon
+                                name={editingCategoryIcon}
+                                className="w-3.5 h-3.5"
+                              />
+                            </button>
+                            <IconPickerPopover
+                              open={editingCategoryIconOpen}
+                              onClose={() => setEditingCategoryIconOpen(false)}
+                              value={editingCategoryIcon}
+                              onChange={setEditingCategoryIcon}
+                              title="Category Icon"
+                              widthClass="w-[268px]"
+                            />
+                          </div>
+                          <input
+                            type="text"
+                            autoFocus
+                            value={editingCategoryName}
+                            onChange={(e) => setEditingCategoryName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                setEditingCategoryId(null);
+                                setEditingCategoryIconOpen(false);
+                              }
+                            }}
+                            className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-[var(--border-strong)] bg-[var(--bg-input)] text-[var(--text-primary)]"
+                          />
+                          <button
+                            type="submit"
+                            className="px-2 py-1 text-[11px] font-medium rounded bg-[var(--accent)] text-[var(--accent-contrast)] cursor-pointer shrink-0"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </form>
+                    );
+                  }
 
                   return (
                     <div
@@ -863,11 +1032,46 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                         onClick={() =>
                           selectAndClose({ kind: "category", id: cat.id })
                         }
-                        className="flex-1 min-w-0 text-left truncate cursor-pointer"
+                        className="flex-1 min-w-0 flex items-center gap-2 text-left cursor-pointer"
                       >
-                        {cat.name}
+                        {cat.icon ? (
+                          <DynamicIcon
+                            name={cat.icon}
+                            className="w-3.5 h-3.5 shrink-0"
+                            style={{
+                              color: active
+                                ? "var(--accent)"
+                                : "var(--text-secondary)",
+                            }}
+                          />
+                        ) : (
+                          <BookMarked
+                            className="w-3.5 h-3.5 shrink-0"
+                            style={{
+                              color: active
+                                ? "var(--accent)"
+                                : "var(--text-secondary)",
+                            }}
+                          />
+                        )}
+                        <span className="truncate">{cat.name}</span>
                       </button>
                       <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingCategoryId(cat.id);
+                            setEditingCategoryName(cat.name);
+                            setEditingCategoryIcon(cat.icon || "Bookmark");
+                            setEditingCategoryIconOpen(false);
+                          }}
+                          title="Edit category name & icon"
+                          aria-label={`Edit ${cat.name}`}
+                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer transition-opacity"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
                         <button
                           type="button"
                           onClick={(e) => {

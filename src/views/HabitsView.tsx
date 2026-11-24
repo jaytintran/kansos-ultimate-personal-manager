@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Plus,
   Table2,
+  X,
 } from "lucide-react";
 import { HabitIcon } from "../components/IconLibrary";
 import { useWorkspace } from "../context/WorkspaceContext";
@@ -53,6 +54,9 @@ function computeStreak(habit: Habit, todayKey: string): number {
     if (habit.completions[cursor]) {
       streak++;
       cursor = addDaysToKey(cursor, -1);
+    } else if (habit.missedDates?.[cursor]) {
+      // Missed status pauses the streak without breaking or incrementing
+      cursor = addDaysToKey(cursor, -1);
     } else if (i === 0) {
       cursor = addDaysToKey(cursor, -1);
     } else if (!isHabitScheduledOnDay(habit, cursor)) {
@@ -65,7 +69,13 @@ function computeStreak(habit: Habit, todayKey: string): number {
 }
 
 export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
-  const { workspace, toggleHabitCompletion, reorderHabits } = useWorkspace();
+  const {
+    workspace,
+    toggleHabitCompletion,
+    setHabitDayStatus,
+    cycleHabitDayStatus,
+    reorderHabits,
+  } = useWorkspace();
   const todayKey = getTodayKey();
 
   const [viewMode, setViewMode] = useState<HabitsViewMode>(() => {
@@ -672,8 +682,14 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                       {/* Day Cells */}
                       {matrixKeys.map((key) => {
                         const done = Boolean(habit.completions[key]);
+                        const missed = !done && Boolean(habit.missedDates?.[key]);
                         const isToday = key === todayKey;
                         const scheduled = isHabitScheduledOnDay(habit, key);
+                        const statusLabel = done
+                          ? "Done"
+                          : missed
+                            ? "Missed"
+                            : "Not logged";
                         return (
                           <td
                             key={key}
@@ -687,28 +703,34 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                           >
                             <button
                               type="button"
-                              onClick={() =>
-                                toggleHabitCompletion(habit.id, key)
-                              }
-                              title={`${habit.title} · ${key}`}
+                              onClick={() => cycleHabitDayStatus(habit.id, key)}
+                              title={`${habit.title} · ${key} · ${statusLabel} (click to cycle)`}
+                              aria-label={`${habit.title} ${key}: ${statusLabel}`}
                               className="mx-auto w-7 h-7 rounded-lg border flex items-center justify-center transition-transform active:scale-90"
                               style={{
                                 backgroundColor: done
                                   ? habit.color
-                                  : scheduled
-                                    ? "var(--bg-canvas)"
-                                    : "transparent",
+                                  : missed
+                                    ? "var(--bg-surface-subtle)"
+                                    : scheduled
+                                      ? "var(--bg-canvas)"
+                                      : "transparent",
                                 borderColor: done
                                   ? habit.color
                                   : isToday
                                     ? "var(--accent)"
                                     : "var(--border-subtle)",
-                                opacity: done || scheduled ? 1 : 0.4,
+                                opacity: done || missed || scheduled ? 1 : 0.4,
                               }}
                             >
-                              {done && (
+                              {done ? (
                                 <Check className="w-3.5 h-3.5 text-white stroke-[2.75]" />
-                              )}
+                              ) : missed ? (
+                                <X
+                                  className="w-3.5 h-3.5 stroke-[2.25]"
+                                  style={{ color: "var(--text-muted)" }}
+                                />
+                              ) : null}
                             </button>
                           </td>
                         );
@@ -748,6 +770,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
             const keys = getDateRange(range, offset, todayKey);
             const streak = computeStreak(habit, todayKey);
             const doneToday = Boolean(habit.completions[todayKey]);
+            const missedToday = !doneToday && Boolean(habit.missedDates?.[todayKey]);
             const rangeLabel = `${formatDaySlashMonth(keys[0])} – ${formatDaySlashMonth(
               keys[keys.length - 1],
             )}`;
@@ -1028,18 +1051,27 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                   >
                     {keys.map((key) => {
                       const done = Boolean(habit.completions[key]);
+                      const missed = !done && Boolean(habit.missedDates?.[key]);
                       const isToday = key === todayKey;
+                      const statusLabel = done
+                        ? "Done"
+                        : missed
+                          ? "Missed"
+                          : "Not logged";
                       return (
                         <button
                           key={key}
                           type="button"
-                          onClick={() => toggleHabitCompletion(habit.id, key)}
-                          title={`${getDayAbbrev(key)} ${key}`}
+                          onClick={() => cycleHabitDayStatus(habit.id, key)}
+                          title={`${getDayAbbrev(key)} ${key} · ${statusLabel} (click to cycle)`}
+                          aria-label={`${habit.title} ${key}: ${statusLabel}`}
                           className="h-8 sm:h-9 rounded-lg border flex flex-col items-center justify-center text-[10px] font-mono tabular-nums transition-colors"
                           style={{
                             backgroundColor: done
                               ? habit.color
-                              : "var(--bg-canvas)",
+                              : missed
+                                ? "var(--bg-surface-subtle)"
+                                : "var(--bg-canvas)",
                             borderColor: done
                               ? habit.color
                               : isToday
@@ -1050,6 +1082,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                         >
                           {done ? (
                             <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                          ) : missed ? (
+                            <X className="w-3.5 h-3.5 stroke-[2.25]" />
                           ) : (
                             <span>{key.slice(-2)}</span>
                           )}
@@ -1059,31 +1093,64 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
                   </div>
                 </div>
 
-                {/* Bottom-Right Check Today / Done Today Button */}
+                {/* Bottom-Right Dismiss + Check Today / Done Today Buttons */}
                 <div
-                  className="flex items-center justify-between pt-1.5 sm:pt-2 border-t"
+                  className="flex items-center justify-between gap-2 pt-1.5 sm:pt-2 border-t"
                   style={{ borderColor: "var(--border-subtle)" }}
                 >
                   <span
-                    className="text-[11px] capitalize"
+                    className="text-[11px] capitalize truncate"
                     style={{ color: "var(--text-muted)" }}
                   >
                     {habit.frequencyType}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => toggleHabitCompletion(habit.id, todayKey)}
-                    className="h-7 sm:h-8 px-2.5 sm:px-3 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-semibold inline-flex items-center gap-1.5 transition-colors"
-                    style={{
-                      backgroundColor: doneToday
-                        ? habit.color
-                        : "var(--bg-surface-subtle)",
-                      color: doneToday ? "#fff" : "var(--text-primary)",
-                    }}
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>{doneToday ? "Done Today" : "Check Today"}</span>
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setHabitDayStatus(
+                          habit.id,
+                          todayKey,
+                          missedToday ? "empty" : "missed",
+                        )
+                      }
+                      aria-pressed={missedToday}
+                      title={
+                        missedToday
+                          ? "Clear missed status for today"
+                          : "Dismiss today as missed (pauses streak)"
+                      }
+                      className="h-7 sm:h-8 px-2.5 rounded-lg sm:rounded-xl border text-[11px] sm:text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+                      style={{
+                        backgroundColor: missedToday
+                          ? "var(--bg-surface-subtle)"
+                          : "transparent",
+                        borderColor: missedToday
+                          ? "var(--border-strong)"
+                          : "var(--border-subtle)",
+                        color: missedToday
+                          ? "var(--text-primary)"
+                          : "var(--text-muted)",
+                      }}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>{missedToday ? "Dismissed" : "Dismiss"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleHabitCompletion(habit.id, todayKey)}
+                      className="h-7 sm:h-8 px-2.5 sm:px-3 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                      style={{
+                        backgroundColor: doneToday
+                          ? habit.color
+                          : "var(--bg-surface-subtle)",
+                        color: doneToday ? "#fff" : "var(--text-primary)",
+                      }}
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{doneToday ? "Done Today" : "Check Today"}</span>
+                    </button>
+                  </div>
                 </div>
               </article>
             );

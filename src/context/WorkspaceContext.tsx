@@ -342,6 +342,19 @@ function normalizeParsedWorkspace(
       ? parsed.customTabs!
       : (seed.customTabs ?? []),
     habitLogs: Array.isArray(parsed.habitLogs) ? parsed.habitLogs : [],
+    habits: Array.isArray(parsed.habits)
+      ? parsed.habits.map((h) => ({
+          ...h,
+          completions:
+            h.completions && typeof h.completions === "object"
+              ? h.completions
+              : {},
+          missedDates:
+            h.missedDates && typeof h.missedDates === "object"
+              ? h.missedDates
+              : {},
+        }))
+      : seed.habits,
     noteNotebooks: Array.isArray(parsed.noteNotebooks)
       ? parsed.noteNotebooks
       : (seed.noteNotebooks ?? []),
@@ -357,6 +370,10 @@ function normalizeParsedWorkspace(
       : hasStreamsField
         ? []
         : (seed.streamFolders ?? []),
+    streamTopicIcons:
+      parsed.streamTopicIcons && typeof parsed.streamTopicIcons === "object"
+        ? parsed.streamTopicIcons
+        : {},
     streamPresets: Array.isArray(parsed.streamPresets)
       ? parsed.streamPresets
       : hasStreamsField
@@ -589,6 +606,12 @@ interface WorkspaceContextValue {
   updateHabit: (id: string, patch: Partial<Habit>) => void;
   deleteHabit: (id: string) => void;
   toggleHabitCompletion: (habitId: string, dateKey: string) => void;
+  setHabitDayStatus: (
+    habitId: string,
+    dateKey: string,
+    status: "empty" | "done" | "missed",
+  ) => void;
+  cycleHabitDayStatus: (habitId: string, dateKey: string) => void;
   reorderHabits: (
     draggedId: string,
     targetId: string,
@@ -690,6 +713,7 @@ interface WorkspaceContextValue {
   ) => StreamFolder;
   updateStreamFolder: (id: string, patch: Partial<StreamFolder>) => void;
   deleteStreamFolder: (id: string) => void;
+  setStreamTopicIcon: (topic: string, icon: string | undefined) => void;
   reorderActiveStreams: (fromIndex: number, toIndex: number) => void;
   reorderVaultStreams: (sortOrderById: Record<string, number>) => void;
   updateStreamerState: (patch: Partial<StreamerState>) => void;
@@ -2146,8 +2170,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace, pushToast],
   );
 
-  const toggleHabitCompletion = useCallback(
-    (habitId: string, dateKey: string) => {
+  const setHabitDayStatus = useCallback(
+    (
+      habitId: string,
+      dateKey: string,
+      status: "empty" | "done" | "missed",
+    ) => {
       const now = new Date();
       const nowIso = now.toISOString();
       const todayKey = getTodayKey();
@@ -2159,21 +2187,31 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       mutateWorkspace((prev) => {
         const habit = prev.habits.find((h) => h.id === habitId);
         if (!habit) return prev;
-        const wasDone = Boolean(habit.completions[dateKey]);
 
         const nextHabits = prev.habits.map((h) => {
           if (h.id !== habitId) return h;
           const nextCompletions = { ...h.completions };
-          if (wasDone) {
-            delete nextCompletions[dateKey];
-          } else {
+          const nextMissed = { ...(h.missedDates ?? {}) };
+          if (status === "done") {
             nextCompletions[dateKey] = true;
+            delete nextMissed[dateKey];
+          } else if (status === "missed") {
+            delete nextCompletions[dateKey];
+            nextMissed[dateKey] = true;
+          } else {
+            delete nextCompletions[dateKey];
+            delete nextMissed[dateKey];
           }
-          return { ...h, completions: nextCompletions, updatedAt: nowIso };
+          return {
+            ...h,
+            completions: nextCompletions,
+            missedDates: nextMissed,
+            updatedAt: nowIso,
+          };
         });
 
-        if (wasDone) {
-          // Turning OFF: remove matching HabitLog and linked Timeline entry
+        if (status !== "done") {
+          // Missed or empty: remove matching HabitLog and linked Timeline entry so missed habits stay hidden from Timeline
           return {
             ...prev,
             habits: nextHabits,
@@ -2183,6 +2221,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
             entries: prev.entries.filter(
               (e) => !(e.habitId === habitId && e.habitDateKey === dateKey),
             ),
+          };
+        }
+
+        const alreadyHasEntry = prev.entries.some(
+          (e) => e.habitId === habitId && e.habitDateKey === dateKey,
+        );
+        if (alreadyHasEntry) {
+          return {
+            ...prev,
+            habits: nextHabits,
           };
         }
 
@@ -2224,6 +2272,32 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       });
     },
     [mutateWorkspace],
+  );
+
+  const toggleHabitCompletion = useCallback(
+    (habitId: string, dateKey: string) => {
+      const targetHabit = workspace.habits.find((h) => h.id === habitId);
+      if (!targetHabit) return;
+      const wasDone = Boolean(targetHabit.completions[dateKey]);
+      setHabitDayStatus(habitId, dateKey, wasDone ? "empty" : "done");
+    },
+    [workspace.habits, setHabitDayStatus],
+  );
+
+  const cycleHabitDayStatus = useCallback(
+    (habitId: string, dateKey: string) => {
+      const targetHabit = workspace.habits.find((h) => h.id === habitId);
+      if (!targetHabit) return;
+      const isDone = Boolean(targetHabit.completions[dateKey]);
+      const isMissed = Boolean(targetHabit.missedDates?.[dateKey]);
+      const nextStatus: "empty" | "done" | "missed" = isDone
+        ? "missed"
+        : isMissed
+          ? "empty"
+          : "done";
+      setHabitDayStatus(habitId, dateKey, nextStatus);
+    },
+    [workspace.habits, setHabitDayStatus],
   );
 
   const reorderHabits = useCallback(
@@ -3125,6 +3199,26 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           f.id === id ? { ...f, ...patch } : f,
         ),
       }));
+    },
+    [mutateWorkspace],
+  );
+
+  const setStreamTopicIcon = useCallback(
+    (topic: string, icon: string | undefined) => {
+      const normalizedKey = topic.trim().toLowerCase();
+      if (!normalizedKey) return;
+      mutateWorkspace((prev) => {
+        const nextMap = { ...(prev.streamTopicIcons ?? {}) };
+        if (icon && icon.trim()) {
+          nextMap[normalizedKey] = icon.trim();
+        } else {
+          delete nextMap[normalizedKey];
+        }
+        return {
+          ...prev,
+          streamTopicIcons: nextMap,
+        };
+      });
     },
     [mutateWorkspace],
   );
@@ -4979,6 +5073,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           streamFolders: Array.isArray(cleanNext.streamFolders)
             ? cleanNext.streamFolders
             : [],
+          streamTopicIcons:
+            cleanNext.streamTopicIcons &&
+            typeof cleanNext.streamTopicIcons === "object"
+              ? cleanNext.streamTopicIcons
+              : {},
           streamPresets: Array.isArray(cleanNext.streamPresets)
             ? cleanNext.streamPresets
             : [],
@@ -5218,6 +5317,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         updateHabit,
         deleteHabit,
         toggleHabitCompletion,
+        setHabitDayStatus,
+        cycleHabitDayStatus,
         reorderHabits,
         addList,
         updateList,
@@ -5250,6 +5351,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         addStreamFolder,
         updateStreamFolder,
         deleteStreamFolder,
+        setStreamTopicIcon,
         reorderActiveStreams,
         reorderVaultStreams,
         updateStreamerState,

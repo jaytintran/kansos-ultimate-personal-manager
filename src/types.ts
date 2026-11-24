@@ -141,6 +141,7 @@ export interface Habit {
   createdAt: string;
   updatedAt?: string;
   completions: Record<string, boolean>; // YYYY-MM-DD -> true
+  missedDates?: Record<string, boolean>; // YYYY-MM-DD -> true
 }
 
 export interface HabitLog {
@@ -305,6 +306,7 @@ export interface StreamFolder {
   id: string;
   name: string;
   parentId: string | null;
+  icon?: string;
   description?: string;
   createdAt: string;
 }
@@ -486,6 +488,7 @@ export interface KansoWorkspace {
   bookHighlights?: BookHighlight[];
   streams: StreamItem[];
   streamFolders?: StreamFolder[];
+  streamTopicIcons?: Record<string, string>;
   streamPresets: StreamPreset[];
   streamerState: StreamerState;
   audioTracks?: AudioTrackRecord[];

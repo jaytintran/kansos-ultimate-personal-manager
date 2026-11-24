@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { StreamFolder, StreamItem } from '../../types';
 import { VIEW_PREFERENCE_SYNC_EVENT } from '../../utils/viewPreferences';
+import { DynamicIcon } from '../IconLibrary';
 import { StreamEditorDrawer } from './StreamEditorDrawer';
 import { StreamVaultBulkBar } from './StreamVaultBulkBar';
 import { BulkModalType, StreamVaultBulkModal } from './StreamVaultBulkModal';
@@ -61,7 +62,10 @@ interface StreamVaultViewProps {
   onIncrementListen: (id: string) => void;
   onAddFolder: (name: string, parentId?: string | null) => StreamFolder;
   onRenameFolder: (id: string, name: string) => void;
+  onUpdateFolder?: (id: string, patch: Partial<StreamFolder>) => void;
   onDeleteFolder: (id: string) => void;
+  topicIcons?: Record<string, string>;
+  onSetTopicIcon?: (topic: string, icon: string | undefined) => void;
   onNotify: (text: string, tone?: 'neutral' | 'success' | 'error') => void;
 }
 
@@ -87,7 +91,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   onIncrementListen,
   onAddFolder,
   onRenameFolder,
+  onUpdateFolder,
   onDeleteFolder,
+  topicIcons = {},
+  onSetTopicIcon,
   onNotify,
 }) => {
   const [scope, setScope] = useState<VaultScope>({ kind: 'all' });
@@ -280,6 +287,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         return {
           breadcrumb: `Vault / Folders / ${chain.join(' / ') || 'Folder'}`,
           title: folder?.name || 'Folder',
+          icon: folder?.icon,
           description: folder?.description || 'Listening stack & folder collection.',
           canBatchLoad: true,
         };
@@ -288,6 +296,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         return {
           breadcrumb: `Vault / Topics / ${scope.topic}`,
           title: scope.topic,
+          icon: topicIcons[scope.topic.trim().toLowerCase()],
           description: `All saved streams grouped under the ${scope.topic} theme.`,
           canBatchLoad: true,
         };
@@ -306,7 +315,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
           canBatchLoad: true,
         };
     }
-  }, [scope, folderById]);
+  }, [scope, folderById, topicIcons]);
 
   const customStreamOrderCompare = useCallback((a: StreamItem, b: StreamItem) => {
     const aOrder =
@@ -698,6 +707,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         <StreamVaultSidebar
           streams={streams}
           folders={folders}
+          topicIcons={topicIcons}
           activeIdSet={activeIdSet}
           scope={scope}
           selectedTags={selectedTags}
@@ -705,7 +715,9 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
           onToggleTag={handleToggleTag}
           onAddFolder={(name, parentId) => onAddFolder(name, parentId)}
           onRenameFolder={onRenameFolder}
+          onUpdateFolder={onUpdateFolder}
           onDeleteFolder={onDeleteFolder}
+          onSetTopicIcon={onSetTopicIcon}
           onLoadFolderToGrid={handleLoadFolderToGrid}
           onLoadChannelToGrid={handleLoadChannelToGrid}
         />
@@ -751,6 +763,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               <StreamVaultSidebar
                 streams={streams}
                 folders={folders}
+                topicIcons={topicIcons}
                 activeIdSet={activeIdSet}
                 scope={scope}
                 selectedTags={selectedTags}
@@ -758,7 +771,9 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                 onToggleTag={handleToggleTag}
                 onAddFolder={(name, parentId) => onAddFolder(name, parentId)}
                 onRenameFolder={onRenameFolder}
+                onUpdateFolder={onUpdateFolder}
                 onDeleteFolder={onDeleteFolder}
+                onSetTopicIcon={onSetTopicIcon}
                 onLoadFolderToGrid={handleLoadFolderToGrid}
                 onLoadChannelToGrid={handleLoadChannelToGrid}
                 onCloseMobile={() => setMobileSidebarOpen(false)}
@@ -802,17 +817,24 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                   >
                     {scopeMeta.breadcrumb}
                   </div>
-                  <div className="flex items-baseline gap-2.5 mt-0.5 flex-wrap">
+                  <div className="flex items-center gap-2.5 mt-0.5 flex-wrap">
+                    {scopeMeta.icon && (
+                      <DynamicIcon
+                        name={scopeMeta.icon}
+                        className="w-4 h-4 shrink-0"
+                        style={{ color: 'var(--accent)' }}
+                      />
+                    )}
                     <h2 className="font-display text-base font-semibold tracking-tight truncate">
                       {scopeMeta.title}
                     </h2>
-                  <span
-                    className="text-xs font-mono tabular-nums"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    {visibleStreams.length} {visibleStreams.length === 1 ? 'stream' : 'streams'}
-                  </span>
-                </div>
+                    <span
+                      className="text-xs font-mono tabular-nums"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      {visibleStreams.length} {visibleStreams.length === 1 ? 'stream' : 'streams'}
+                    </span>
+                  </div>
               </div>
             </div>
 

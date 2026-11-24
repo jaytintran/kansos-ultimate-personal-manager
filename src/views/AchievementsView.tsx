@@ -1,10 +1,12 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
   CheckCircle2,
   Flame,
+  Info,
   MoreVertical,
   Trophy,
+  X,
   Zap,
 } from "lucide-react";
 import { NlpInputBar } from "../components/NlpInputBar";
@@ -50,6 +52,33 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
   const { workspace, addAchievementEntry } = useWorkspace();
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [infoOpen, setInfoOpen] = useState(false);
+  const infoPopoverRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!infoOpen) return;
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      if (
+        infoPopoverRef.current &&
+        !infoPopoverRef.current.contains(e.target as Node)
+      ) {
+        setInfoOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setInfoOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [infoOpen]);
 
   const todayKey = getTodayKey();
   const timeFormat = workspace.settings.timeFormat;
@@ -214,7 +243,7 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
         className="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b"
         style={{ borderColor: "var(--border-subtle)" }}
       >
-        <div className="flex items-baseline gap-2.5 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight inline-flex items-center gap-2">
             <Trophy
               className="w-4 h-4 shrink-0"
@@ -222,6 +251,98 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
             />
             <span>Achievements</span>
           </h1>
+          <div className="relative flex items-center" ref={infoPopoverRef}>
+            <button
+              type="button"
+              onClick={() => setInfoOpen((v) => !v)}
+              aria-expanded={infoOpen}
+              aria-label="How achievements are created"
+              title="How achievements are created"
+              className="h-6 w-6 rounded-md flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              style={{
+                backgroundColor: infoOpen ? "var(--accent-soft)" : "transparent",
+                color: infoOpen ? "var(--accent)" : "var(--text-muted)",
+              }}
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
+
+            {infoOpen && (
+              <div
+                role="dialog"
+                aria-label="How achievements are created"
+                className="absolute left-0 top-full mt-2 z-40 w-[290px] sm:w-[340px] rounded-xl border p-3.5 space-y-2.5"
+                style={{
+                  backgroundColor: "var(--bg-elevated)",
+                  borderColor: "var(--border-strong)",
+                  boxShadow: "var(--shadow-popover)",
+                }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className="text-xs font-semibold"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    How Achievements Are Created
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setInfoOpen(false)}
+                    aria-label="Close guide"
+                    className="h-5 w-5 rounded flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <ul
+                  className="space-y-2 text-xs leading-relaxed"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2
+                      className="w-3.5 h-3.5 mt-0.5 shrink-0"
+                      style={{ color: "var(--success)" }}
+                    />
+                    <span>
+                      <strong style={{ color: "var(--text-primary)" }}>
+                        Lists:
+                      </strong>{" "}
+                      Any list item marked <strong>Done</strong> automatically
+                      appears here.
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Zap
+                      className="w-3.5 h-3.5 mt-0.5 shrink-0"
+                      style={{ color: "var(--accent)" }}
+                    />
+                    <span>
+                      <strong style={{ color: "var(--text-primary)" }}>
+                        Timeline, Events &amp; Focus:
+                      </strong>{" "}
+                      Toggle <strong>Mark as Achievement</strong> (Trophy) on an
+                      event, log, or completed task.
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Flame
+                      className="w-3.5 h-3.5 mt-0.5 shrink-0"
+                      style={{ color: "var(--warning)" }}
+                    />
+                    <span>
+                      <strong style={{ color: "var(--text-primary)" }}>
+                        Direct Log:
+                      </strong>{" "}
+                      Use the composer bar below to record standalone milestones
+                      and wins anytime.
+                    </span>
+                  </li>
+                </ul>
+              </div>
+            )}
+          </div>
           <span
             className="text-xs font-mono tabular-nums shrink-0"
             style={{ color: "var(--text-muted)" }}

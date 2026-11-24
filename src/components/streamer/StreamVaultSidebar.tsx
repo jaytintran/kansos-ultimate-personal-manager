@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Check,
   ChevronDown,
@@ -12,7 +13,8 @@ import {
   Play,
   Plus,
   Radio,
-  Search,
+  RotateCcw,
+  Smile,
   Star,
   Tag,
   Trash2,
@@ -20,6 +22,8 @@ import {
   X,
 } from 'lucide-react';
 import { StreamFolder, StreamItem } from '../../types';
+import { DynamicIcon } from '../IconLibrary';
+import { IconPickerPopover } from '../IconPicker';
 
 export type VaultScope =
   | { kind: 'all' }
@@ -34,6 +38,7 @@ export type VaultScope =
 interface StreamVaultSidebarProps {
   streams: StreamItem[];
   folders: StreamFolder[];
+  topicIcons?: Record<string, string>;
   activeIdSet: Set<string>;
   scope: VaultScope;
   selectedTags: string[];
@@ -41,7 +46,9 @@ interface StreamVaultSidebarProps {
   onToggleTag: (tag: string) => void;
   onAddFolder: (name: string, parentId: string | null) => StreamFolder;
   onRenameFolder: (id: string, name: string) => void;
+  onUpdateFolder?: (id: string, patch: Partial<StreamFolder>) => void;
   onDeleteFolder: (id: string) => void;
+  onSetTopicIcon?: (topic: string, icon: string | undefined) => void;
   onLoadFolderToGrid: (folderId: string, folderName: string) => void;
   onLoadChannelToGrid: (channel: string) => void;
   onCloseMobile?: () => void;
@@ -65,6 +72,7 @@ export function getDescendantFolderIds(folderId: string, folders: StreamFolder[]
 export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
   streams,
   folders,
+  topicIcons = {},
   activeIdSet,
   scope,
   selectedTags,
@@ -72,7 +80,9 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
   onToggleTag,
   onAddFolder,
   onRenameFolder,
+  onUpdateFolder,
   onDeleteFolder,
+  onSetTopicIcon,
   onLoadFolderToGrid,
   onLoadChannelToGrid,
   onCloseMobile,
@@ -82,11 +92,40 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
   const [newFolderName, setNewFolderName] = useState('');
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [renameIconOpen, setRenameIconOpen] = useState(false);
+  const [iconPickerTarget, setIconPickerTarget] = useState<
+    | { kind: 'folder'; folderId: string }
+    | { kind: 'topic'; topic: string }
+    | null
+  >(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    target:
+      | { kind: 'folder'; folder: StreamFolder }
+      | { kind: 'topic'; topicName: string };
+  } | null>(null);
   const [sectionsOpen, setSectionsOpen] = useState({
     folders: true,
     topics: true,
     tags: true,
   });
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const closeMenu = () => setContextMenu(null);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
+    window.addEventListener('mousedown', closeMenu);
+    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', closeMenu);
+      window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [contextMenu]);
 
   // Total channels count for smart views
   const totalChannels = useMemo(() => {
@@ -195,6 +234,7 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
     }
     setRenamingFolderId(null);
     setRenameValue('');
+    setRenameIconOpen(false);
   };
 
   const renderFolderNodes = (parentId: string | null, depth: number): React.ReactNode => {
@@ -208,6 +248,8 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
           const isSelected = scope.kind === 'folder' && scope.folderId === folder.id;
           const itemCount = folderStreamCounts.get(folder.id) || 0;
           const isRenaming = renamingFolderId === folder.id;
+          const isIconPickerOpen =
+            iconPickerTarget?.kind === 'folder' && iconPickerTarget.folderId === folder.id;
 
           return (
             <div key={folder.id}>
@@ -217,6 +259,36 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                   className="flex items-center gap-1 py-1 pr-1"
                   style={{ paddingLeft: `${8 + depth * 14}px` }}
                 >
+                  <div className="relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setRenameIconOpen((v) => !v)}
+                      title="Choose folder icon"
+                      aria-label="Choose folder icon"
+                      className="h-7 w-7 rounded-md border flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)]"
+                      style={{
+                        backgroundColor: 'var(--bg-surface)',
+                        borderColor: renameIconOpen ? 'var(--accent)' : 'var(--border-subtle)',
+                        color: folder.icon ? 'var(--accent)' : 'var(--text-secondary)',
+                      }}
+                    >
+                      {folder.icon ? (
+                        <DynamicIcon name={folder.icon} className="w-3.5 h-3.5" />
+                      ) : (
+                        <Folder className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                    <IconPickerPopover
+                      open={renameIconOpen}
+                      onClose={() => setRenameIconOpen(false)}
+                      value={folder.icon}
+                      onChange={(iconKey) => onUpdateFolder?.(folder.id, { icon: iconKey })}
+                      onClear={() => onUpdateFolder?.(folder.id, { icon: undefined })}
+                      allowClear
+                      clearLabel="Default"
+                      title="Folder Icon"
+                    />
+                  </div>
                   <input
                     type="text"
                     value={renameValue}
@@ -239,7 +311,10 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setRenamingFolderId(null)}
+                    onClick={() => {
+                      setRenamingFolderId(null);
+                      setRenameIconOpen(false);
+                    }}
                     className="h-7 w-7 rounded-md flex items-center justify-center shrink-0"
                     style={{ color: 'var(--text-muted)' }}
                     aria-label="Cancel folder rename"
@@ -249,7 +324,16 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                 </form>
               ) : (
                 <div
-                  className="group flex items-center gap-1 rounded-lg transition-colors pr-1"
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setContextMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      target: { kind: 'folder', folder },
+                    });
+                  }}
+                  className="relative group flex items-center gap-1 rounded-lg transition-colors pr-1"
                   style={{
                     paddingLeft: `${4 + depth * 14}px`,
                     backgroundColor: isSelected ? 'var(--accent-soft)' : 'transparent',
@@ -285,7 +369,9 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                     onClick={() => handleSelectAndClose({ kind: 'folder', folderId: folder.id })}
                     className="flex-1 min-w-0 h-8 flex items-center gap-2 text-left text-xs font-medium"
                   >
-                    {isSelected || (hasChildren && isExpanded) ? (
+                    {folder.icon ? (
+                      <DynamicIcon name={folder.icon} className="w-3.5 h-3.5 shrink-0" />
+                    ) : isSelected || (hasChildren && isExpanded) ? (
                       <FolderOpen className="w-3.5 h-3.5 shrink-0" />
                     ) : (
                       <Folder className="w-3.5 h-3.5 shrink-0" />
@@ -293,7 +379,7 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                     <span className="truncate">{folder.name}</span>
                   </button>
 
-                  {/* Hover actions: Load stack, Add subfolder, Rename, Delete */}
+                  {/* Hover actions: Load stack, Add subfolder, Edit (name & icon), Delete */}
                   <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
                     {itemCount > 0 && (
                       <button
@@ -331,11 +417,12 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                         e.stopPropagation();
                         setRenamingFolderId(folder.id);
                         setRenameValue(folder.name);
+                        setRenameIconOpen(false);
                       }}
                       className="h-6 w-6 rounded flex items-center justify-center"
                       style={{ color: 'var(--text-muted)' }}
-                      title="Rename folder"
-                      aria-label={`Rename ${folder.name}`}
+                      title="Edit folder name & icon"
+                      aria-label={`Edit ${folder.name}`}
                     >
                       <Pencil className="w-3 h-3" />
                     </button>
@@ -361,6 +448,17 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                   >
                     {itemCount}
                   </span>
+
+                  <IconPickerPopover
+                    open={isIconPickerOpen}
+                    onClose={() => setIconPickerTarget(null)}
+                    value={folder.icon}
+                    onChange={(iconKey) => onUpdateFolder?.(folder.id, { icon: iconKey })}
+                    onClear={() => onUpdateFolder?.(folder.id, { icon: undefined })}
+                    allowClear
+                    clearLabel="Default"
+                    title={`Icon · ${folder.name}`}
+                  />
                 </div>
               )}
 
@@ -565,28 +663,76 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
             <div className="space-y-0.5">
               {topics.map((t) => {
                 const active = scope.kind === 'topic' && scope.topic === t.name;
+                const topicKey = t.name.trim().toLowerCase();
+                const customIcon = topicIcons[topicKey];
+                const isTopicPickerOpen =
+                  iconPickerTarget?.kind === 'topic' && iconPickerTarget.topic === t.name;
+
                 return (
-                  <button
+                  <div
                     key={t.name}
-                    type="button"
-                    onClick={() => handleSelectAndClose({ kind: 'topic', topic: t.name })}
-                    className="w-full h-8 px-2.5 rounded-lg flex items-center justify-between gap-2 text-xs font-medium transition-colors"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setContextMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        target: { kind: 'topic', topicName: t.name },
+                      });
+                    }}
+                    className="relative group flex items-center justify-between gap-1 rounded-lg px-2.5 transition-colors"
                     style={{
                       backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
                       color: active ? 'var(--accent)' : 'var(--text-secondary)',
                     }}
                   >
-                    <span className="inline-flex items-center gap-2 min-w-0 truncate">
-                      <Tag className="w-3.5 h-3.5 shrink-0 opacity-75" />
+                    <button
+                      type="button"
+                      onClick={() => handleSelectAndClose({ kind: 'topic', topic: t.name })}
+                      className="flex-1 min-w-0 h-8 flex items-center gap-2 text-left text-xs font-medium"
+                    >
+                      {customIcon ? (
+                        <DynamicIcon name={customIcon} className="w-3.5 h-3.5 shrink-0" />
+                      ) : (
+                        <Tag className="w-3.5 h-3.5 shrink-0 opacity-75" />
+                      )}
                       <span className="truncate">{t.name}</span>
-                    </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIconPickerTarget(
+                          isTopicPickerOpen ? null : { kind: 'topic', topic: t.name }
+                        );
+                      }}
+                      title={`Change icon for ${t.name}`}
+                      aria-label={`Change icon for ${t.name}`}
+                      className="hidden group-hover:flex focus:flex h-6 w-6 rounded items-center justify-center shrink-0 hover:bg-[var(--bg-surface-hover)]"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+
                     <span
-                      className="text-[11px] font-mono tabular-nums shrink-0"
+                      className="group-hover:hidden text-[11px] font-mono tabular-nums shrink-0"
                       style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
                     >
                       {t.count}
                     </span>
-                  </button>
+
+                    <IconPickerPopover
+                      open={isTopicPickerOpen}
+                      onClose={() => setIconPickerTarget(null)}
+                      value={customIcon}
+                      onChange={(iconKey) => onSetTopicIcon?.(t.name, iconKey)}
+                      onClear={() => onSetTopicIcon?.(t.name, undefined)}
+                      allowClear
+                      clearLabel="Default"
+                      title={`Topic Icon · ${t.name}`}
+                    />
+                  </div>
                 );
               })}
             </div>
@@ -640,6 +786,151 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
           </div>
         )}
       </div>
+
+      {/* Vault Sidebar Context Menu (Folders & Topics) */}
+      {contextMenu &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              top: `${Math.min(contextMenu.y, window.innerHeight - 190)}px`,
+              left: `${Math.min(contextMenu.x, window.innerWidth - 196)}px`,
+              backgroundColor: 'var(--bg-elevated)',
+              borderColor: 'var(--border-strong)',
+              boxShadow: 'var(--shadow-popover)',
+            }}
+            className="fixed z-[95] w-48 rounded-xl border p-1.5 space-y-0.5"
+            role="menu"
+          >
+            {contextMenu.target.kind === 'folder' ? (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const folderId = contextMenu.target.kind === 'folder' ? contextMenu.target.folder.id : '';
+                    setContextMenu(null);
+                    setIconPickerTarget({ kind: 'folder', folderId });
+                  }}
+                  className="w-full h-8 px-2.5 rounded-lg text-xs font-medium flex items-center gap-2 hover:bg-[var(--bg-surface-hover)] text-left"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  <Smile className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
+                  <span>Change Icon...</span>
+                </button>
+                {contextMenu.target.folder.icon && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      if (contextMenu.target.kind === 'folder') {
+                        onUpdateFolder?.(contextMenu.target.folder.id, { icon: undefined });
+                      }
+                      setContextMenu(null);
+                    }}
+                    className="w-full h-8 px-2.5 rounded-lg text-xs font-medium flex items-center gap-2 hover:bg-[var(--bg-surface-hover)] text-left"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset to Default Icon</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    if (contextMenu.target.kind === 'folder') {
+                      setRenamingFolderId(contextMenu.target.folder.id);
+                      setRenameValue(contextMenu.target.folder.name);
+                      setRenameIconOpen(false);
+                    }
+                    setContextMenu(null);
+                  }}
+                  className="w-full h-8 px-2.5 rounded-lg text-xs font-medium flex items-center gap-2 hover:bg-[var(--bg-surface-hover)] text-left"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Rename Folder</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    if (contextMenu.target.kind === 'folder') {
+                      const fid = contextMenu.target.folder.id;
+                      setExpandedFolders((prev) => ({ ...prev, [fid]: true }));
+                      setCreatingParentId(fid);
+                      setNewFolderName('');
+                    }
+                    setContextMenu(null);
+                  }}
+                  className="w-full h-8 px-2.5 rounded-lg text-xs font-medium flex items-center gap-2 hover:bg-[var(--bg-surface-hover)] text-left"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  <FolderPlus className="w-3.5 h-3.5" />
+                  <span>New Subfolder</span>
+                </button>
+                <div className="my-1 border-t" style={{ borderColor: 'var(--border-subtle)' }} />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    if (contextMenu.target.kind === 'folder') {
+                      const fid = contextMenu.target.folder.id;
+                      onDeleteFolder(fid);
+                      if (scope.kind === 'folder' && scope.folderId === fid) {
+                        onSelectScope({ kind: 'all' });
+                      }
+                    }
+                    setContextMenu(null);
+                  }}
+                  className="w-full h-8 px-2.5 rounded-lg text-xs font-medium flex items-center gap-2 hover:bg-[var(--bg-surface-hover)] text-left"
+                  style={{ color: 'var(--danger)' }}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Folder</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const topicName = contextMenu.target.kind === 'topic' ? contextMenu.target.topicName : '';
+                    setContextMenu(null);
+                    setIconPickerTarget({ kind: 'topic', topic: topicName });
+                  }}
+                  className="w-full h-8 px-2.5 rounded-lg text-xs font-medium flex items-center gap-2 hover:bg-[var(--bg-surface-hover)] text-left"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  <Smile className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
+                  <span>Change Icon...</span>
+                </button>
+                {topicIcons[contextMenu.target.topicName.trim().toLowerCase()] && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      if (contextMenu.target.kind === 'topic') {
+                        onSetTopicIcon?.(contextMenu.target.topicName, undefined);
+                      }
+                      setContextMenu(null);
+                    }}
+                    className="w-full h-8 px-2.5 rounded-lg text-xs font-medium flex items-center gap-2 hover:bg-[var(--bg-surface-hover)] text-left"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset to Default Icon</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 };
