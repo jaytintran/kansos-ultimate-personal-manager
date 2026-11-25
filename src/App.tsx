@@ -364,11 +364,49 @@ const KansoShell: React.FC = () => {
   }, []);
 
   // Safely redirect if the active view is turned off (e.g. from Settings or a Gist pull)
+  // and immediately unmount persistent heavy views (Library, Streamer, Audio) while keeping their data.
   useEffect(() => {
+    if (navConfig.hiddenSet.has("library") && hasVisitedLibrary) {
+      setHasVisitedLibrary(false);
+    }
+    if (navConfig.hiddenSet.has("streamer") && hasVisitedStreamer) {
+      setHasVisitedStreamer(false);
+      setStreamerPlayback({
+        activeCount: 0,
+        playingCount: 0,
+        isPlaying: false,
+        isViewMuted: false,
+        isAllPaused: false,
+      });
+    }
+    if (navConfig.hiddenSet.has("audio") && hasVisitedAudio) {
+      setHasVisitedAudio(false);
+      setAudioPlayback({
+        activeCount: 0,
+        playingCount: 0,
+        isPlaying: false,
+        isViewMuted: false,
+        isAllPaused: false,
+        primaryTrackId: null,
+        primaryTitle: null,
+        primaryArtist: null,
+        primaryCoverDataUrl: null,
+        currentTime: 0,
+        duration: 0,
+      });
+    }
     if (navConfig.hiddenSet.has(activeView)) {
       navigateToView(navConfig.resolveSafeView(workspace.settings.defaultView));
     }
-  }, [navConfig, activeView, workspace.settings.defaultView, navigateToView]);
+  }, [
+    navConfig,
+    activeView,
+    workspace.settings.defaultView,
+    navigateToView,
+    hasVisitedLibrary,
+    hasVisitedStreamer,
+    hasVisitedAudio,
+  ]);
 
   const handleJumpToBookLocation = useCallback(
     (bookLink: BookNoteLink) => {
@@ -469,43 +507,86 @@ const KansoShell: React.FC = () => {
 
   const todayKey = getTodayKey();
 
+  const showNavCounts = workspace.settings.showNavCounts ?? true;
+
   const navCounts = useMemo(() => {
+    const hidden = navConfig.hiddenSet;
+    if (!showNavCounts) {
+      return {
+        focus: 0,
+        timeline: 0,
+        habits: 0,
+        achievements: 0,
+        notes: 0,
+        events: 0,
+        lists: 0,
+        library: 0,
+        streamer: 0,
+        audio: 0,
+        contacts: 0,
+        finance: 0,
+        languages: 0,
+      };
+    }
+
     const activeEntries = workspace.entries;
-    const activeListsSet = new Set(workspace.lists.map((l) => l.id));
-    const activeListItems = workspace.listItems.filter((i) =>
-      activeListsSet.has(i.listId),
-    );
-    const activeHabits = workspace.habits;
-    const activeFocus = activeEntries.filter(
-      (e) =>
-        (e.source === "focus-anchor" ||
-          e.source === "focus-active" ||
-          e.focusBucket === "anchor" ||
-          e.focusBucket === "x-active") &&
-        !e.completed,
-    ).length;
-    const todayTimeline = activeEntries.filter(
-      (e) => isVisibleOnTimeline(e) && getEntryDayKey(e) === todayKey,
-    ).length;
-    const notesCount = activeEntries.filter(
-      (e) => e.type === "note" && !e.archived && e.noteStatus !== "archived",
-    ).length;
-    const eventsCount = activeEntries.filter((e) => e.type === "event").length;
-    const habitsTodayLeft = activeHabits.filter(
-      (h) => !h.completions[todayKey],
-    ).length;
-    const achievementsCount =
-      activeListItems.filter((i) => i.status === "done").length +
-      activeEntries.filter(
-        (e) => e.isAchievement && (e.type !== "task" || e.completed),
-      ).length;
-    const listsCount = activeListItems.length;
-    const libraryCount = workspace.books.length;
-    const streamerCount = workspace.streamerState.activeStreamIds.length;
-    const audioCount = (workspace.audioTracks ?? []).length;
-    const contactsCount = (workspace.contacts ?? []).length;
-    const financeCount = (workspace.financeTransactions ?? []).length;
-    const languagesCount = (workspace.languageItems ?? []).length;
+    const needLists = !hidden.has("lists") || !hidden.has("achievements");
+    const activeListItems = needLists
+      ? (() => {
+          const activeListsSet = new Set(workspace.lists.map((l) => l.id));
+          return workspace.listItems.filter((i) => activeListsSet.has(i.listId));
+        })()
+      : [];
+
+    const activeFocus = hidden.has("focus")
+      ? 0
+      : activeEntries.filter(
+          (e) =>
+            (e.source === "focus-anchor" ||
+              e.source === "focus-active" ||
+              e.focusBucket === "anchor" ||
+              e.focusBucket === "x-active") &&
+            !e.completed,
+        ).length;
+    const todayTimeline = hidden.has("timeline")
+      ? 0
+      : activeEntries.filter(
+          (e) => isVisibleOnTimeline(e) && getEntryDayKey(e) === todayKey,
+        ).length;
+    const notesCount = hidden.has("notes")
+      ? 0
+      : activeEntries.filter(
+          (e) => e.type === "note" && !e.archived && e.noteStatus !== "archived",
+        ).length;
+    const eventsCount = hidden.has("events")
+      ? 0
+      : activeEntries.filter((e) => e.type === "event").length;
+    const habitsTodayLeft = hidden.has("habits")
+      ? 0
+      : workspace.habits.filter((h) => !h.completions[todayKey]).length;
+    const achievementsCount = hidden.has("achievements")
+      ? 0
+      : activeListItems.filter((i) => i.status === "done").length +
+        activeEntries.filter(
+          (e) => e.isAchievement && (e.type !== "task" || e.completed),
+        ).length;
+    const listsCount = hidden.has("lists") ? 0 : activeListItems.length;
+    const libraryCount = hidden.has("library") ? 0 : workspace.books.length;
+    const streamerCount = hidden.has("streamer")
+      ? 0
+      : workspace.streamerState.activeStreamIds.length;
+    const audioCount = hidden.has("audio")
+      ? 0
+      : (workspace.audioTracks ?? []).length;
+    const contactsCount = hidden.has("contacts")
+      ? 0
+      : (workspace.contacts ?? []).length;
+    const financeCount = hidden.has("finance")
+      ? 0
+      : (workspace.financeTransactions ?? []).length;
+    const languagesCount = hidden.has("languages")
+      ? 0
+      : (workspace.languageItems ?? []).length;
 
     return {
       focus: activeFocus,
@@ -523,6 +604,8 @@ const KansoShell: React.FC = () => {
       languages: languagesCount,
     };
   }, [
+    showNavCounts,
+    navConfig.hiddenSet,
     workspace.entries,
     workspace.habits,
     workspace.lists,
@@ -586,7 +669,6 @@ const KansoShell: React.FC = () => {
   const hasGistToken = Boolean(gistConfig.token.trim());
   const hasGistId = Boolean(gistConfig.gistId.trim());
   const isGistConfigured = hasGistToken || hasGistId;
-  const showNavCounts = workspace.settings.showNavCounts ?? true;
 
   const isMoreViewActive = navConfig.mobileMoreVisible.includes(activeView);
   const activeViewDef = VIEW_META_MAP[activeView];
@@ -1451,7 +1533,7 @@ const KansoShell: React.FC = () => {
         {activeView === "contacts" && <ContactsView />}
         {activeView === "finance" && <FinanceView />}
         {activeView === "languages" && <LanguagesView />}
-        {hasVisitedLibrary && (
+        {hasVisitedLibrary && !navConfig.hiddenSet.has("library") && (
           <div
             className={
               activeView === "library"
@@ -1471,7 +1553,7 @@ const KansoShell: React.FC = () => {
             />
           </div>
         )}
-        {hasVisitedStreamer && (
+        {hasVisitedStreamer && !navConfig.hiddenSet.has("streamer") && (
           <div
             className={
               activeView === "streamer"
@@ -1487,7 +1569,7 @@ const KansoShell: React.FC = () => {
             />
           </div>
         )}
-        {hasVisitedAudio && (
+        {hasVisitedAudio && !navConfig.hiddenSet.has("audio") && (
           <div
             className={
               activeView === "audio"

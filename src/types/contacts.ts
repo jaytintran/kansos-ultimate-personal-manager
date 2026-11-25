@@ -4,6 +4,22 @@ export type ContactClosenessTier =
   | "regular"
   | "acquaintance";
 
+export type ContactCheckInChannel =
+  | "call"
+  | "message"
+  | "email"
+  | "in-person"
+  | "video"
+  | "other";
+
+export interface ContactCheckInLog {
+  id: string;
+  date: string; // YYYY-MM-DD
+  channel: ContactCheckInChannel;
+  note: string;
+  createdAt: string;
+}
+
 export interface ContactLabeledValue {
   id: string;
   label: string;
@@ -61,6 +77,7 @@ export interface ContactRecord {
   addresses: ContactAddress[];
   customFields: ContactCustomField[];
   relationships: ContactRelationshipLink[];
+  checkInLogs?: ContactCheckInLog[];
   birthday?: string | null; // YYYY-MM-DD or --MM-DD
   anniversary?: string | null; // YYYY-MM-DD or --MM-DD
   syncBirthdayToTimeline?: boolean;

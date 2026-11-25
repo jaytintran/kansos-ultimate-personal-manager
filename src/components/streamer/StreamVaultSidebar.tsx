@@ -21,6 +21,7 @@ import {
   Tv,
   X,
 } from 'lucide-react';
+import type { VaultPointerDropTarget } from '../../hooks/useVaultStreamDrag';
 import { StreamFolder, StreamItem } from '../../types';
 import { DynamicIcon } from '../IconLibrary';
 import { IconPickerPopover } from '../IconPicker';
@@ -42,6 +43,8 @@ interface StreamVaultSidebarProps {
   activeIdSet: Set<string>;
   scope: VaultScope;
   selectedTags: string[];
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+  activePointerDropTarget?: VaultPointerDropTarget | null;
   onSelectScope: (scope: VaultScope) => void;
   onToggleTag: (tag: string) => void;
   onAddFolder: (name: string, parentId: string | null) => StreamFolder;
@@ -76,6 +79,8 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
   activeIdSet,
   scope,
   selectedTags,
+  scrollContainerRef,
+  activePointerDropTarget,
   onSelectScope,
   onToggleTag,
   onAddFolder,
@@ -324,6 +329,9 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                 </form>
               ) : (
                 <div
+                  data-vault-drop-kind="sidebar-folder"
+                  data-vault-drop-id={folder.id}
+                  data-vault-drop-label={folder.name}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -333,11 +341,27 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                       target: { kind: 'folder', folder },
                     });
                   }}
-                  className="relative group flex items-center gap-1 rounded-lg transition-colors pr-1"
+                  className={`relative group flex items-center gap-1 rounded-lg transition-colors pr-1 ${
+                    activePointerDropTarget?.kind === 'sidebar-folder' &&
+                    activePointerDropTarget.id === folder.id
+                      ? 'ring-1 ring-[var(--accent)]'
+                      : ''
+                  }`}
                   style={{
                     paddingLeft: `${4 + depth * 14}px`,
-                    backgroundColor: isSelected ? 'var(--accent-soft)' : 'transparent',
-                    color: isSelected ? 'var(--accent)' : 'var(--text-secondary)',
+                    backgroundColor:
+                      activePointerDropTarget?.kind === 'sidebar-folder' &&
+                      activePointerDropTarget.id === folder.id
+                        ? 'var(--accent-soft)'
+                        : isSelected
+                          ? 'var(--accent-soft)'
+                          : 'transparent',
+                    color:
+                      (activePointerDropTarget?.kind === 'sidebar-folder' &&
+                        activePointerDropTarget.id === folder.id) ||
+                      isSelected
+                        ? 'var(--accent)'
+                        : 'var(--text-secondary)',
                   }}
                 >
                   <button
@@ -515,7 +539,7 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-5">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-5">
         {/* Smart Views */}
         <div className="space-y-0.5">
           {[
@@ -527,15 +551,24 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
           ].map((item) => {
             const Icon = item.icon;
             const active = scope.kind === item.id;
+            const isFavDropOver =
+              item.id === 'favorites' &&
+              activePointerDropTarget?.kind === 'sidebar-favorites';
             return (
               <button
                 key={item.id}
                 type="button"
+                data-vault-drop-kind={item.id === 'favorites' ? 'sidebar-favorites' : undefined}
+                data-vault-drop-label={item.id === 'favorites' ? 'Favorites' : undefined}
                 onClick={() => handleSelectAndClose({ kind: item.id })}
-                className="w-full h-8 px-2.5 rounded-lg flex items-center justify-between gap-2 text-xs font-medium transition-colors"
+                className={`w-full h-8 px-2.5 rounded-lg flex items-center justify-between gap-2 text-xs font-medium transition-colors ${
+                  isFavDropOver ? 'ring-1 ring-[var(--accent)]' : ''
+                }`}
                 style={{
-                  backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
-                  color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                  backgroundColor:
+                    isFavDropOver || active ? 'var(--accent-soft)' : 'transparent',
+                  color:
+                    isFavDropOver || active ? 'var(--accent)' : 'var(--text-secondary)',
                 }}
               >
                 <span className="inline-flex items-center gap-2 min-w-0 truncate">

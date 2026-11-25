@@ -1,5 +1,6 @@
 import type {
   ContactAddress,
+  ContactCheckInChannel,
   ContactCircle,
   ContactClosenessTier,
   ContactLabeledValue,
@@ -22,13 +23,141 @@ export const CONTACT_AVATAR_PALETTE = [
 
 export const CLOSENESS_TIER_META: Record<
   ContactClosenessTier,
-  { label: string; rank: number; color: string }
+  { label: string; rank: number; color: string; cadenceDays: number }
 > = {
-  inner: { label: "Inner Circle", rank: 4, color: "#be185d" },
-  close: { label: "Close", rank: 3, color: "#b45309" },
-  regular: { label: "Regular", rank: 2, color: "#3b6998" },
-  acquaintance: { label: "Acquaintance", rank: 1, color: "#64748b" },
+  inner: { label: "Inner Circle", rank: 4, color: "#be185d", cadenceDays: 14 },
+  close: { label: "Close", rank: 3, color: "#b45309", cadenceDays: 30 },
+  regular: { label: "Regular", rank: 2, color: "#3b6998", cadenceDays: 60 },
+  acquaintance: {
+    label: "Acquaintance",
+    rank: 1,
+    color: "#64748b",
+    cadenceDays: 120,
+  },
 };
+
+export const CHECKIN_CHANNEL_META: Record<
+  ContactCheckInChannel,
+  { label: string }
+> = {
+  call: { label: "Call" },
+  message: { label: "Message" },
+  email: { label: "Email" },
+  "in-person": { label: "In-Person" },
+  video: { label: "Video" },
+  other: { label: "Other" },
+};
+
+export type ContactFreshnessStatus = "fresh" | "due-soon" | "overdue" | "never";
+
+export interface ContactFreshnessInfo {
+  status: ContactFreshnessStatus;
+  daysSince: number | null;
+  cadenceDays: number;
+  label: string;
+  shortLabel: string;
+  dotColor: string;
+}
+
+export function getContactFreshness(
+  contact: Pick<ContactRecord, "lastContactedAt" | "closeness">,
+  todayKey = getTodayKey(),
+): ContactFreshnessInfo {
+  const cadenceDays = CLOSENESS_TIER_META[contact.closeness].cadenceDays;
+  const daysSince = daysSinceDateKey(contact.lastContactedAt, todayKey);
+
+  if (daysSince === null) {
+    return {
+      status: "never",
+      daysSince: null,
+      cadenceDays,
+      label: "No check-in logged",
+      shortLabel: "New",
+      dotColor: "var(--text-muted)",
+    };
+  }
+
+  const shortLabel =
+    daysSince <= 0 ? "Today" : daysSince === 1 ? "1d" : `${daysSince}d`;
+
+  if (daysSince > cadenceDays) {
+    return {
+      status: "overdue",
+      daysSince,
+      cadenceDays,
+      label: `Overdue · ${daysSince}d ago`,
+      shortLabel,
+      dotColor: "var(--danger)",
+    };
+  }
+
+  if (daysSince >= Math.round(cadenceDays * 0.7)) {
+    return {
+      status: "due-soon",
+      daysSince,
+      cadenceDays,
+      label:
+        daysSince === 1
+          ? "Due soon · Yesterday"
+          : `Due soon · ${daysSince}d ago`,
+      shortLabel,
+      dotColor: "var(--warning)",
+    };
+  }
+
+  return {
+    status: "fresh",
+    daysSince,
+    cadenceDays,
+    label:
+      daysSince <= 0
+        ? "Fresh · Today"
+        : daysSince === 1
+          ? "Fresh · Yesterday"
+          : `Fresh · ${daysSince}d ago`,
+    shortLabel,
+    dotColor: "var(--success)",
+  };
+}
+
+export function getPrimaryLabeledValue(
+  items: ContactLabeledValue[],
+): ContactLabeledValue | null {
+  const nonEmpty = items.filter((item) => item.value.trim().length > 0);
+  if (nonEmpty.length === 0) return null;
+  return nonEmpty.find((item) => item.isPrimary) ?? nonEmpty[0];
+}
+
+export function getContactPrimaryCopyTarget(
+  contact: Pick<ContactRecord, "phones" | "emails">,
+): { kind: "phone" | "email"; value: string; label: string } | null {
+  const primaryPhone = getPrimaryLabeledValue(contact.phones);
+  if (primaryPhone) {
+    return {
+      kind: "phone",
+      value: primaryPhone.value.trim(),
+      label: primaryPhone.label || "phone",
+    };
+  }
+  const primaryEmail = getPrimaryLabeledValue(contact.emails);
+  if (primaryEmail) {
+    return {
+      kind: "email",
+      value: primaryEmail.value.trim(),
+      label: primaryEmail.label || "email",
+    };
+  }
+  return null;
+}
+
+export function buildTelHref(phone: string): string {
+  const cleaned = phone.trim().replace(/[^\d+*#]/g, "");
+  return `tel:${cleaned || phone.trim()}`;
+}
+
+export function buildMailtoHref(email: string): string {
+  return `mailto:${email.trim()}`;
+}
 
 export function getContactDisplayName(
   c: Pick<ContactRecord, "firstName" | "lastName" | "nickname" | "company">,

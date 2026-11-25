@@ -23,10 +23,17 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
+import { useVaultStreamDrag } from '../../hooks/useVaultStreamDrag';
 import { StreamFolder, StreamItem } from '../../types';
 import { VIEW_PREFERENCE_SYNC_EVENT } from '../../utils/viewPreferences';
 import { DynamicIcon } from '../IconLibrary';
+import { FloatingStreamFolderDropDock } from './FloatingStreamFolderDropDock';
 import { StreamEditorDrawer } from './StreamEditorDrawer';
+import {
+  PendingStreamFolderDrop,
+  StreamFolderDropActionModal,
+  StreamFolderPickerModal,
+} from './StreamFolderDropModal';
 import { StreamVaultBulkBar } from './StreamVaultBulkBar';
 import { BulkModalType, StreamVaultBulkModal } from './StreamVaultBulkModal';
 import {
@@ -126,21 +133,6 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedStreamIds, setSelectedStreamIds] = useState<Set<string>>(new Set());
   const [bulkModalType, setBulkModalType] = useState<BulkModalType>(null);
-  const longPressTimerRef = useRef<number | null>(null);
-
-  const handleTouchStart = (streamId: string) => {
-    longPressTimerRef.current = window.setTimeout(() => {
-      setBulkMode(true);
-      setSelectedStreamIds((prev) => new Set([...prev, streamId]));
-    }, 500);
-  };
-
-  const handleTouchEnd = () => {
-    if (longPressTimerRef.current) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  };
 
   const toggleSelectStream = (streamId: string) => {
     setSelectedStreamIds((prev) => {
@@ -151,21 +143,15 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     });
   };
 
-  // Drag-and-drop reorder state (Custom Order)
-  const activeDragStreamIdRef = useRef<string | null>(null);
-  const streamElRefs = useRef<Map<string, HTMLElement>>(new Map());
+  // Drag-and-drop scroll containers & folder drop modals
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const [draggingStreamId, setDraggingStreamId] = useState<string | null>(null);
-  const [streamDropTarget, setStreamDropTarget] = useState<{
-    streamId: string;
-    position: 'before' | 'after';
-  } | null>(null);
-
-  const clearDragState = useCallback(() => {
-    activeDragStreamIdRef.current = null;
-    setDraggingStreamId(null);
-    setStreamDropTarget(null);
-  }, []);
+  const mainScrollRef = useRef<HTMLDivElement | null>(null);
+  const sidebarScrollRef = useRef<HTMLDivElement | null>(null);
+  const dockScrollRef = useRef<HTMLDivElement | null>(null);
+  const [pendingFolderDrop, setPendingFolderDrop] =
+    useState<PendingStreamFolderDrop | null>(null);
+  const [folderPickerStreamIds, setFolderPickerStreamIds] =
+    useState<string[] | null>(null);
 
   useEffect(() => {
     try {
@@ -198,15 +184,6 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       window.removeEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
     };
   }, []);
-
-  useEffect(() => {
-    window.addEventListener('dragend', clearDragState);
-    window.addEventListener('drop', clearDragState);
-    return () => {
-      window.removeEventListener('dragend', clearDragState);
-      window.removeEventListener('drop', clearDragState);
-    };
-  }, [clearDragState]);
 
   // Editor drawer state
   const [drawerState, setDrawerState] = useState<
@@ -478,19 +455,25 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   }, [streams, scope, folders, activeIdSet, selectedTags, searchQuery, sortBy, customStreamOrderCompare, channelsOverviewData]);
 
   const handleReorderStreams = useCallback(
-    (draggedId: string, targetId: string, position: 'before' | 'after') => {
-      if (!draggedId || !targetId || draggedId === targetId) return;
-      const visibleIds = visibleStreams.map((s) => s.id);
-      if (!visibleIds.includes(draggedId) || !visibleIds.includes(targetId)) return;
+    (draggedIds: string[], targetId: string, position: 'before' | 'after') => {
+      if (draggedIds.length === 0 || !targetId) return;
+      const draggedSet = new Set(draggedIds);
+      if (draggedSet.has(targetId)) return;
 
-      const remainingVisible = visibleIds.filter((id) => id !== draggedId);
+      const visibleIds = visibleStreams.map((s) => s.id);
+      if (!visibleIds.includes(targetId)) return;
+
+      const movingVisibleIds = visibleIds.filter((id) => draggedSet.has(id));
+      if (movingVisibleIds.length === 0) return;
+
+      const remainingVisible = visibleIds.filter((id) => !draggedSet.has(id));
       const targetIndex = remainingVisible.indexOf(targetId);
       if (targetIndex === -1) return;
 
       const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
       const nextVisibleIds = [
         ...remainingVisible.slice(0, insertIndex),
-        draggedId,
+        ...movingVisibleIds,
         ...remainingVisible.slice(insertIndex),
       ];
 
@@ -537,38 +520,186 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     return typeof window !== 'undefined' ? window.innerWidth < 640 : false;
   }, [viewMode]);
 
-  const resolveVaultTouchDrop = useCallback(
-    (
-      clientX: number,
-      clientY: number,
-      activeStreamId: string
-    ): { streamId: string; position: 'before' | 'after' } | null => {
-      const singleCol = isSingleColumnGrid();
-      for (const item of visibleStreams) {
-        if (item.id === activeStreamId) continue;
-        const el = streamElRefs.current.get(item.id);
-        if (!el) continue;
-        const rect = el.getBoundingClientRect();
-        if (
-          clientX >= rect.left &&
-          clientX <= rect.right &&
-          clientY >= rect.top &&
-          clientY <= rect.bottom
-        ) {
-          const position: 'before' | 'after' = singleCol
-            ? clientY < rect.top + rect.height / 2
-              ? 'before'
-              : 'after'
-            : clientX < rect.left + rect.width / 2
-            ? 'before'
-            : 'after';
-          return { streamId: item.id, position };
+  const handleDropToFolder = useCallback(
+    (streamIds: string[], folderId: string) => {
+      const targetFolder = folderById.get(folderId);
+      if (!targetFolder || streamIds.length === 0) return;
+
+      const targetSet = new Set(streamIds);
+      const targetStreams = streams.filter((s) => targetSet.has(s.id));
+      if (targetStreams.length === 0) return;
+
+      const allAlreadyInTarget = targetStreams.every((s) =>
+        (s.folderIds ?? []).includes(folderId)
+      );
+      if (allAlreadyInTarget) {
+        setPendingFolderDrop({
+          actionMode: 'remove',
+          targetFolderId: folderId,
+          targetFolderName: targetFolder.name,
+          streamIds,
+          streamTitles: targetStreams.map((s) => s.customLabel || s.title),
+          existingFolderNames: [],
+        });
+        return;
+      }
+
+      const otherFolderIds = new Set<string>();
+      for (const s of targetStreams) {
+        for (const fid of s.folderIds ?? []) {
+          if (fid !== folderId) otherFolderIds.add(fid);
         }
       }
-      return null;
+
+      if (otherFolderIds.size > 0) {
+        const existingNames = Array.from(otherFolderIds)
+          .map((fid) => folderById.get(fid)?.name)
+          .filter((n): n is string => Boolean(n));
+        setPendingFolderDrop({
+          actionMode: 'add-or-move',
+          targetFolderId: folderId,
+          targetFolderName: targetFolder.name,
+          streamIds,
+          streamTitles: targetStreams.map((s) => s.customLabel || s.title),
+          existingFolderNames: existingNames,
+        });
+        return;
+      }
+
+      for (const s of targetStreams) {
+        onUpdateStream(s.id, { folderIds: [folderId] });
+      }
+      onNotify(
+        targetStreams.length === 1
+          ? `Moved “${targetStreams[0].customLabel || targetStreams[0].title}” to ${targetFolder.name}`
+          : `Moved ${targetStreams.length} streams to ${targetFolder.name}`,
+        'success'
+      );
     },
-    [visibleStreams, isSingleColumnGrid]
+    [folderById, streams, onUpdateStream, onNotify]
   );
+
+  const handleConfirmDropAdd = useCallback(() => {
+    if (!pendingFolderDrop) return;
+    const { streamIds, targetFolderId, targetFolderName } = pendingFolderDrop;
+    const targetSet = new Set(streamIds);
+    for (const s of streams) {
+      if (!targetSet.has(s.id)) continue;
+      const next = Array.from(new Set([...(s.folderIds ?? []), targetFolderId]));
+      onUpdateStream(s.id, { folderIds: next });
+    }
+    setPendingFolderDrop(null);
+    onNotify(
+      streamIds.length === 1
+        ? `Added stream to ${targetFolderName}`
+        : `Added ${streamIds.length} streams to ${targetFolderName}`,
+      'success'
+    );
+  }, [pendingFolderDrop, streams, onUpdateStream, onNotify]);
+
+  const handleConfirmDropMove = useCallback(() => {
+    if (!pendingFolderDrop) return;
+    const { streamIds, targetFolderId, targetFolderName } = pendingFolderDrop;
+    for (const id of streamIds) {
+      onUpdateStream(id, { folderIds: [targetFolderId] });
+    }
+    setPendingFolderDrop(null);
+    onNotify(
+      streamIds.length === 1
+        ? `Moved stream to ${targetFolderName}`
+        : `Moved ${streamIds.length} streams to ${targetFolderName}`,
+      'success'
+    );
+  }, [pendingFolderDrop, onUpdateStream, onNotify]);
+
+  const handleConfirmDropRemove = useCallback(() => {
+    if (!pendingFolderDrop) return;
+    const { streamIds, targetFolderId, targetFolderName } = pendingFolderDrop;
+    const targetSet = new Set(streamIds);
+    for (const s of streams) {
+      if (!targetSet.has(s.id)) continue;
+      const next = (s.folderIds ?? []).filter((fid) => fid !== targetFolderId);
+      onUpdateStream(s.id, { folderIds: next });
+    }
+    setPendingFolderDrop(null);
+    onNotify(
+      streamIds.length === 1
+        ? `Removed stream from ${targetFolderName}`
+        : `Removed ${streamIds.length} streams from ${targetFolderName}`,
+      'success'
+    );
+  }, [pendingFolderDrop, streams, onUpdateStream, onNotify]);
+
+  const handleDropToFavorites = useCallback(
+    (streamIds: string[]) => {
+      if (streamIds.length === 0) return;
+      for (const id of streamIds) {
+        onUpdateStream(id, { favorite: true });
+      }
+      onNotify(
+        streamIds.length === 1
+          ? 'Added stream to Favorites'
+          : `Added ${streamIds.length} streams to Favorites`,
+        'success'
+      );
+    },
+    [onUpdateStream, onNotify]
+  );
+
+  const handleApplyFolderPicker = useCallback(
+    (streamIds: string[], addFolderIds: string[], removeFolderIds: string[]) => {
+      const targetSet = new Set(streamIds);
+      const removeSet = new Set(removeFolderIds);
+      for (const s of streams) {
+        if (!targetSet.has(s.id)) continue;
+        const filtered = (s.folderIds ?? []).filter((fid) => !removeSet.has(fid));
+        const next = Array.from(new Set([...filtered, ...addFolderIds]));
+        onUpdateStream(s.id, { folderIds: next });
+      }
+      onNotify(
+        streamIds.length === 1
+          ? 'Updated folders for stream'
+          : `Updated folders for ${streamIds.length} streams`,
+        'success'
+      );
+    },
+    [streams, onUpdateStream, onNotify]
+  );
+
+  const {
+    isDraggingStreams,
+    activeDropTarget,
+    activeDragStreamIds,
+    handleStreamPointerDown,
+    shouldSuppressClick,
+    renderDragPreview,
+  } = useVaultStreamDrag({
+    enabled:
+      isActiveView &&
+      !drawerState.open &&
+      !bulkModalType &&
+      !pendingFolderDrop &&
+      !folderPickerStreamIds,
+    streams,
+    selectedIds: selectedStreamIds,
+    isCustomSort,
+    mainScrollRef,
+    sidebarScrollRef,
+    dockScrollRef,
+    onDropToFolder: handleDropToFolder,
+    onDropToFavorites: handleDropToFavorites,
+    onDropToMoreFolders: (ids) => setFolderPickerStreamIds(ids),
+    onReorderStreams: handleReorderStreams,
+  });
+
+  const trayMemberFolderIds = useMemo(() => {
+    if (bulkMode || activeDragStreamIds.size !== 1) {
+      return new Set<string>();
+    }
+    const singleId = Array.from(activeDragStreamIds)[0];
+    const stream = streams.find((s) => s.id === singleId);
+    return new Set(stream?.folderIds ?? []);
+  }, [bulkMode, activeDragStreamIds, streams]);
 
   const handleLoadFolderToGrid = (folderId: string, folderName: string) => {
     const subtree = getDescendantFolderIds(folderId, folders);
@@ -711,6 +842,8 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
           activeIdSet={activeIdSet}
           scope={scope}
           selectedTags={selectedTags}
+          scrollContainerRef={sidebarScrollRef}
+          activePointerDropTarget={activeDropTarget}
           onSelectScope={setScope}
           onToggleTag={handleToggleTag}
           onAddFolder={(name, parentId) => onAddFolder(name, parentId)}
@@ -1089,8 +1222,14 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
           )}
         </div>
 
-        {/* Main Scrollable Catalog Area */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+        {/* Main Scrollable Catalog Area + Floating Folder Drop Dock Wrapper */}
+        <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden">
+        <div
+          ref={mainScrollRef}
+          className={`flex-1 overflow-y-auto px-4 sm:px-6 py-4 ${
+            isDraggingStreams ? 'pb-40' : ''
+          }`}
+        >
           {scope.kind === 'channels' ? (
             channelsOverviewData.length === 0 ? (
               <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-3">
@@ -1186,13 +1325,15 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                       {ch.streams.map((item) => {
                         const inGrid = activeIdSet.has(item.id);
                         const isSelected = selectedStreamIds.has(item.id);
+                        const isBeingDragged = activeDragStreamIds.has(item.id);
 
                         return (
                           <div
                             key={item.id}
-                            onTouchStart={() => handleTouchStart(item.id)}
-                            onTouchEnd={handleTouchEnd}
+                            onPointerDown={(e) => handleStreamPointerDown(item.id, e)}
                             className={`w-64 shrink-0 rounded-xl border flex flex-col overflow-hidden transition-all duration-150 ${
+                              isBeingDragged ? 'opacity-45 scale-[0.98]' : ''
+                            } ${
                               isSelected ? 'ring-2 ring-[var(--accent)]' : ''
                             }`}
                             style={{
@@ -1209,6 +1350,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => {
+                                  if (shouldSuppressClick()) return;
                                   if (bulkMode) {
                                     toggleSelectStream(item.id);
                                   } else {
@@ -1238,6 +1380,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                               {(bulkMode || isSelected) && (
                                 <button
                                   type="button"
+                                  data-no-stream-drag="true"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     toggleSelectStream(item.id);
@@ -1273,6 +1416,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => {
+                                    if (shouldSuppressClick()) return;
                                     if (bulkMode) {
                                       toggleSelectStream(item.id);
                                     } else {
@@ -1293,6 +1437,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                               <div className="flex items-center justify-between gap-1 pt-1.5 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
                                 <button
                                   type="button"
+                                  data-no-stream-drag="true"
                                   onClick={() => onStackStream(item.id)}
                                   className="h-6 px-2 rounded-md border text-[10px] font-semibold inline-flex items-center gap-1 transition-colors"
                                   style={{
@@ -1307,6 +1452,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
 
                                 <button
                                   type="button"
+                                  data-no-stream-drag="true"
                                   onClick={() => onUpdateStream(item.id, { favorite: !item.favorite })}
                                   className="h-6 w-6 rounded-md flex items-center justify-center"
                                   style={{ color: item.favorite ? 'var(--warning)' : 'var(--text-muted)' }}
@@ -1392,91 +1538,21 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                 const itemFolders = (item.folderIds ?? [])
                   .map((fid) => folderById.get(fid)?.name)
                   .filter((n): n is string => Boolean(n));
-                const isBeingDragged = draggingStreamId === item.id;
-                const isDropTarget = streamDropTarget?.streamId === item.id;
+                const isBeingDragged = activeDragStreamIds.has(item.id);
+                const reorderTarget =
+                  activeDropTarget?.kind === 'stream-reorder' &&
+                  activeDropTarget.streamId === item.id
+                    ? activeDropTarget
+                    : null;
+                const isDropTarget = reorderTarget !== null;
                 const singleCol = isSingleColumnGrid();
 
                 return (
                   <article
                     key={item.id}
-                    ref={(el) => {
-                      if (el) streamElRefs.current.set(item.id, el);
-                      else streamElRefs.current.delete(item.id);
-                    }}
-                    draggable={isCustomSort}
-                    onDragStart={(e) => {
-                      if (!isCustomSort) return;
-                      if (
-                        e.target instanceof HTMLElement &&
-                        e.target.closest('input, textarea')
-                      ) {
-                        e.preventDefault();
-                        return;
-                      }
-                      e.dataTransfer.setData('application/x-kanso-vault-stream-id', item.id);
-                      e.dataTransfer.effectAllowed = 'move';
-                      activeDragStreamIdRef.current = item.id;
-                      setDraggingStreamId(item.id);
-                      setStreamDropTarget(null);
-                    }}
-                    onDragOver={(e) => {
-                      if (
-                        !isCustomSort ||
-                        !e.dataTransfer.types.includes('application/x-kanso-vault-stream-id')
-                      ) {
-                        return;
-                      }
-                      const activeId = activeDragStreamIdRef.current;
-                      if (!activeId || activeId === item.id) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = 'move';
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const position: 'before' | 'after' = singleCol
-                        ? e.clientY < rect.top + rect.height / 2
-                          ? 'before'
-                          : 'after'
-                        : e.clientX < rect.left + rect.width / 2
-                        ? 'before'
-                        : 'after';
-                      setStreamDropTarget((prev) =>
-                        prev?.streamId === item.id && prev.position === position
-                          ? prev
-                          : { streamId: item.id, position }
-                      );
-                    }}
-                    onDragLeave={(e) => {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                        setStreamDropTarget((prev) =>
-                          prev?.streamId === item.id ? null : prev
-                        );
-                      }
-                    }}
-                    onDrop={(e) => {
-                      if (
-                        !isCustomSort ||
-                        !e.dataTransfer.types.includes('application/x-kanso-vault-stream-id')
-                      ) {
-                        return;
-                      }
-                      const draggedId =
-                        e.dataTransfer.getData('application/x-kanso-vault-stream-id') ||
-                        activeDragStreamIdRef.current;
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const position: 'before' | 'after' = singleCol
-                        ? e.clientY < rect.top + rect.height / 2
-                          ? 'before'
-                          : 'after'
-                        : e.clientX < rect.left + rect.width / 2
-                        ? 'before'
-                        : 'after';
-                      clearDragState();
-                      if (!draggedId || draggedId === item.id) return;
-                      e.preventDefault();
-                      handleReorderStreams(draggedId, item.id, position);
-                    }}
-                    onDragEnd={clearDragState}
-                    onTouchStart={() => handleTouchStart(item.id)}
-                    onTouchEnd={handleTouchEnd}
+                    data-vault-reorder-id={item.id}
+                    data-vault-reorder-axis={singleCol ? 'y' : 'x'}
+                    onPointerDown={(e) => handleStreamPointerDown(item.id, e)}
                     className={`relative rounded-xl border flex flex-col transition-all duration-150 ${
                       isBeingDragged ? 'opacity-45 scale-[0.98]' : ''
                     } ${
@@ -1497,18 +1573,18 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                         : 'var(--border-subtle)',
                     }}
                   >
-                    {isDropTarget && (
+                    {reorderTarget && (
                       <div
                         aria-hidden="true"
                         className={
                           singleCol
                             ? `pointer-events-none absolute inset-x-2 h-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
-                                streamDropTarget.position === 'before'
+                                reorderTarget.position === 'before'
                                   ? '-top-1.5'
                                   : '-bottom-1.5'
                               }`
                             : `pointer-events-none absolute top-1.5 bottom-1.5 w-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
-                                streamDropTarget.position === 'before'
+                                reorderTarget.position === 'before'
                                   ? '-left-1.5'
                                   : '-right-1.5'
                               }`
@@ -1521,7 +1597,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        if (draggingStreamId) return;
+                        if (shouldSuppressClick()) return;
                         if (bulkMode) {
                           toggleSelectStream(item.id);
                           return;
@@ -1553,6 +1629,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                       {(bulkMode || selectedStreamIds.has(item.id)) && (
                         <div
                           role="checkbox"
+                          data-no-stream-drag="true"
                           aria-checked={selectedStreamIds.has(item.id)}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1594,51 +1671,9 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                         <div className="flex items-start gap-1.5 min-w-0 flex-1">
                           {isCustomSort && (
                             <div
-                              role="button"
-                              tabIndex={0}
-                              aria-label={`Reorder ${item.customLabel || item.title}`}
+                              aria-hidden="true"
                               title="Drag to reorder"
-                              onClick={(e) => e.stopPropagation()}
-                              onPointerDown={(e) => {
-                                if (e.pointerType === 'mouse') return;
-                                e.stopPropagation();
-                                e.currentTarget.setPointerCapture(e.pointerId);
-                                activeDragStreamIdRef.current = item.id;
-                                setDraggingStreamId(item.id);
-                                setStreamDropTarget(null);
-                              }}
-                              onPointerMove={(e) => {
-                                if (
-                                  e.pointerType === 'mouse' ||
-                                  draggingStreamId !== item.id
-                                ) {
-                                  return;
-                                }
-                                setStreamDropTarget(
-                                  resolveVaultTouchDrop(e.clientX, e.clientY, item.id)
-                                );
-                              }}
-                              onPointerUp={(e) => {
-                                if (e.pointerType === 'mouse') return;
-                                e.stopPropagation();
-                                if (draggingStreamId === item.id) {
-                                  const target =
-                                    resolveVaultTouchDrop(e.clientX, e.clientY, item.id) ??
-                                    streamDropTarget;
-                                  clearDragState();
-                                  if (target && target.streamId !== item.id) {
-                                    handleReorderStreams(
-                                      item.id,
-                                      target.streamId,
-                                      target.position
-                                    );
-                                  }
-                                } else {
-                                  clearDragState();
-                                }
-                              }}
-                              onPointerCancel={clearDragState}
-                              className="touch-none select-none w-6 h-6 -ml-1 -mt-0.5 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+                              className="w-6 h-6 -ml-1 -mt-0.5 flex items-center justify-center rounded-md text-[var(--text-muted)] cursor-grab active:cursor-grabbing shrink-0"
                             >
                               <GripVertical className="w-3.5 h-3.5" />
                             </div>
@@ -1646,7 +1681,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              if (draggingStreamId) return;
+                              if (shouldSuppressClick()) return;
                               if (bulkMode) {
                                 toggleSelectStream(item.id);
                                 return;
@@ -1662,6 +1697,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                         </div>
                         <button
                           type="button"
+                          data-no-stream-drag="true"
                           onClick={() => onUpdateStream(item.id, { favorite: !item.favorite })}
                           className="h-7 w-7 -mr-1 -mt-1 rounded-md flex items-center justify-center shrink-0"
                           style={{
@@ -1716,6 +1752,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             <button
                               key={star}
                               type="button"
+                              data-no-stream-drag="true"
                               onClick={() =>
                                 onUpdateStream(item.id, { rating: rating === star ? 0 : star })
                               }
@@ -1732,6 +1769,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
 
                         <button
                           type="button"
+                          data-no-stream-drag="true"
                           onClick={() => onIncrementListen(item.id)}
                           className="text-[11px] font-mono tabular-nums inline-flex items-center gap-1 px-1.5 py-0.5 rounded hover:opacity-80"
                           style={{ color: 'var(--text-muted)' }}
@@ -1752,6 +1790,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                           <>
                             <button
                               type="button"
+                              data-no-stream-drag="true"
                               onClick={() => onToggleStreamInGrid(item.id)}
                               className="h-8 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
                               style={{
@@ -1766,6 +1805,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             </button>
                             <button
                               type="button"
+                              data-no-stream-drag="true"
                               onClick={() => onStackStream(item.id)}
                               className="flex-1 h-8 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
                               style={{
@@ -1782,6 +1822,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                         ) : (
                           <button
                             type="button"
+                            data-no-stream-drag="true"
                             onClick={() => onStackStream(item.id)}
                             className="flex-1 h-8 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)]"
                             style={{
@@ -1797,6 +1838,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
 
                         <button
                           type="button"
+                          data-no-stream-drag="true"
                           onClick={() =>
                             setDrawerState({ open: true, mode: 'edit', streamId: item.id })
                           }
@@ -1854,10 +1896,14 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                       const itemFolders = (item.folderIds ?? [])
                         .map((fid) => folderById.get(fid)?.name)
                         .filter((n): n is string => Boolean(n));
-                      const isBeingDragged = draggingStreamId === item.id;
-                      const isDropTarget = streamDropTarget?.streamId === item.id;
-                      const rowDropShadow = isDropTarget
-                        ? streamDropTarget.position === 'before'
+                      const isBeingDragged = activeDragStreamIds.has(item.id);
+                      const reorderTarget =
+                        activeDropTarget?.kind === 'stream-reorder' &&
+                        activeDropTarget.streamId === item.id
+                          ? activeDropTarget
+                          : null;
+                      const rowDropShadow = reorderTarget
+                        ? reorderTarget.position === 'before'
                           ? 'inset 0 2.5px 0 var(--accent)'
                           : 'inset 0 -2.5px 0 var(--accent)'
                         : undefined;
@@ -1865,86 +1911,9 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                       return (
                         <tr
                           key={item.id}
-                          ref={(el) => {
-                            if (el) streamElRefs.current.set(item.id, el);
-                            else streamElRefs.current.delete(item.id);
-                          }}
-                          onTouchStart={() => handleTouchStart(item.id)}
-                          onTouchEnd={handleTouchEnd}
-                          draggable={isCustomSort}
-                          onDragStart={(e) => {
-                            if (!isCustomSort) return;
-                            if (
-                              e.target instanceof HTMLElement &&
-                              e.target.closest('input, textarea')
-                            ) {
-                              e.preventDefault();
-                              return;
-                            }
-                            e.dataTransfer.setData(
-                              'application/x-kanso-vault-stream-id',
-                              item.id
-                            );
-                            e.dataTransfer.effectAllowed = 'move';
-                            activeDragStreamIdRef.current = item.id;
-                            setDraggingStreamId(item.id);
-                            setStreamDropTarget(null);
-                          }}
-                          onDragOver={(e) => {
-                            if (
-                              !isCustomSort ||
-                              !e.dataTransfer.types.includes(
-                                'application/x-kanso-vault-stream-id'
-                              )
-                            ) {
-                              return;
-                            }
-                            const activeId = activeDragStreamIdRef.current;
-                            if (!activeId || activeId === item.id) return;
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = 'move';
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            const position: 'before' | 'after' =
-                              e.clientY < rect.top + rect.height / 2
-                                ? 'before'
-                                : 'after';
-                            setStreamDropTarget((prev) =>
-                              prev?.streamId === item.id && prev.position === position
-                                ? prev
-                                : { streamId: item.id, position }
-                            );
-                          }}
-                          onDragLeave={(e) => {
-                            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                              setStreamDropTarget((prev) =>
-                                prev?.streamId === item.id ? null : prev
-                              );
-                            }
-                          }}
-                          onDrop={(e) => {
-                            if (
-                              !isCustomSort ||
-                              !e.dataTransfer.types.includes(
-                                'application/x-kanso-vault-stream-id'
-                              )
-                            ) {
-                              return;
-                            }
-                            const draggedId =
-                              e.dataTransfer.getData(
-                                'application/x-kanso-vault-stream-id'
-                              ) || activeDragStreamIdRef.current;
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            const position: 'before' | 'after' =
-                              e.clientY < rect.top + rect.height / 2
-                                ? 'before'
-                                : 'after';
-                            clearDragState();
-                            if (!draggedId || draggedId === item.id) return;
-                            e.preventDefault();
-                            handleReorderStreams(draggedId, item.id, position);
-                          }}
-                          onDragEnd={clearDragState}
+                          data-vault-reorder-id={item.id}
+                          data-vault-reorder-axis="y"
+                          onPointerDown={(e) => handleStreamPointerDown(item.id, e)}
                           className={`transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02] ${
                             isBeingDragged ? 'opacity-45' : ''
                           }`}
@@ -1964,6 +1933,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                               {(bulkMode || selectedStreamIds.has(item.id)) && (
                                 <button
                                   type="button"
+                                  data-no-stream-drag="true"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     toggleSelectStream(item.id);
@@ -1987,58 +1957,9 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                               )}
                               {isCustomSort && (
                                 <div
-                                  role="button"
-                                  tabIndex={0}
-                                  aria-label={`Reorder ${item.customLabel || item.title}`}
+                                  aria-hidden="true"
                                   title="Drag to reorder"
-                                  onClick={(e) => e.stopPropagation()}
-                                  onPointerDown={(e) => {
-                                    if (e.pointerType === 'mouse') return;
-                                    e.stopPropagation();
-                                    e.currentTarget.setPointerCapture(e.pointerId);
-                                    activeDragStreamIdRef.current = item.id;
-                                    setDraggingStreamId(item.id);
-                                    setStreamDropTarget(null);
-                                  }}
-                                  onPointerMove={(e) => {
-                                    if (
-                                      e.pointerType === 'mouse' ||
-                                      draggingStreamId !== item.id
-                                    ) {
-                                      return;
-                                    }
-                                    setStreamDropTarget(
-                                      resolveVaultTouchDrop(
-                                        e.clientX,
-                                        e.clientY,
-                                        item.id
-                                      )
-                                    );
-                                  }}
-                                  onPointerUp={(e) => {
-                                    if (e.pointerType === 'mouse') return;
-                                    e.stopPropagation();
-                                    if (draggingStreamId === item.id) {
-                                      const target =
-                                        resolveVaultTouchDrop(
-                                          e.clientX,
-                                          e.clientY,
-                                          item.id
-                                        ) ?? streamDropTarget;
-                                      clearDragState();
-                                      if (target && target.streamId !== item.id) {
-                                        handleReorderStreams(
-                                          item.id,
-                                          target.streamId,
-                                          target.position
-                                        );
-                                      }
-                                    } else {
-                                      clearDragState();
-                                    }
-                                  }}
-                                  onPointerCancel={clearDragState}
-                                  className="touch-none select-none w-6 h-6 -ml-1 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+                                  className="w-6 h-6 -ml-1 flex items-center justify-center rounded-md text-[var(--text-muted)] cursor-grab active:cursor-grabbing shrink-0"
                                 >
                                   <GripVertical className="w-3.5 h-3.5" />
                                 </div>
@@ -2046,7 +1967,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  if (draggingStreamId) return;
+                                  if (shouldSuppressClick()) return;
                                   if (bulkMode) {
                                     toggleSelectStream(item.id);
                                     return;
@@ -2089,7 +2010,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    if (draggingStreamId) return;
+                                    if (shouldSuppressClick()) return;
                                     if (bulkMode) {
                                       toggleSelectStream(item.id);
                                       return;
@@ -2122,6 +2043,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                           >
                             <button
                               type="button"
+                              data-no-stream-drag="true"
                               onClick={() =>
                                 setScope({
                                   kind: 'channel',
@@ -2168,6 +2090,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                 <button
                                   key={star}
                                   type="button"
+                                  data-no-stream-drag="true"
                                   onClick={() =>
                                     onUpdateStream(item.id, { rating: rating === star ? 0 : star })
                                   }
@@ -2191,6 +2114,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                           >
                             <button
                               type="button"
+                              data-no-stream-drag="true"
                               onClick={() => onIncrementListen(item.id)}
                               className="text-xs font-mono tabular-nums inline-flex items-center gap-1 hover:opacity-80"
                               style={{ color: 'var(--text-secondary)' }}
@@ -2208,6 +2132,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             <div className="inline-flex items-center gap-1">
                               <button
                                 type="button"
+                                data-no-stream-drag="true"
                                 onClick={() => onStackStream(item.id)}
                                 className="h-7 px-2.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 transition-colors"
                                 style={{
@@ -2228,6 +2153,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                               </button>
                               <button
                                 type="button"
+                                data-no-stream-drag="true"
                                 onClick={() =>
                                   setDrawerState({ open: true, mode: 'edit', streamId: item.id })
                                 }
@@ -2243,6 +2169,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                               </button>
                               <button
                                 type="button"
+                                data-no-stream-drag="true"
                                 onClick={() => onDeleteStream(item.id)}
                                 className="h-7 w-7 rounded-md border inline-flex items-center justify-center"
                                 style={{
@@ -2264,6 +2191,16 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               </div>
             </div>
           )}
+        </div>
+
+        {/* Floating Folder & "More" Drag-and-Drop Dock */}
+        <FloatingStreamFolderDropDock
+          visible={isDraggingStreams}
+          folders={folders}
+          memberFolderIds={trayMemberFolderIds}
+          dockScrollRef={dockScrollRef}
+          activePointerDropTarget={activeDropTarget}
+        />
         </div>
 
         {/* Compact Persistent Live Audio Bar (stays docked while streams play uninterrupted in background) */}
@@ -2392,7 +2329,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       )}
 
       {/* Floating Bottom Action Bar for Bulk Edit */}
-      {bulkMode && selectedStreamIds.size > 0 && (
+      {bulkMode && selectedStreamIds.size > 0 && !isDraggingStreams && (
         <StreamVaultBulkBar
           selectedCount={selectedStreamIds.size}
           totalVisibleCount={visibleStreams.length}
@@ -2426,6 +2363,27 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         onApplyRating={handleBulkApplyRating}
         onConfirmDelete={handleBulkConfirmDelete}
       />
+
+      {/* Folder Drop Add/Move/Remove Modal */}
+      <StreamFolderDropActionModal
+        pendingDrop={pendingFolderDrop}
+        onAdd={handleConfirmDropAdd}
+        onMove={handleConfirmDropMove}
+        onRemove={handleConfirmDropRemove}
+        onCancel={() => setPendingFolderDrop(null)}
+      />
+
+      {/* "More" Folder Picker Modal */}
+      <StreamFolderPickerModal
+        streamIds={folderPickerStreamIds}
+        streams={streams}
+        folders={folders}
+        onAddFolder={(name, parentId) => onAddFolder(name, parentId ?? null)}
+        onApply={handleApplyFolderPicker}
+        onClose={() => setFolderPickerStreamIds(null)}
+      />
+
+      {renderDragPreview()}
     </div>
   );
 };
