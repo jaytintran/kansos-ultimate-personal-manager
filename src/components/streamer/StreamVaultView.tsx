@@ -34,6 +34,7 @@ import {
   StreamFolderDropActionModal,
   StreamFolderPickerModal,
 } from './StreamFolderDropModal';
+import { StreamFolderEditModal } from './StreamFolderEditModal';
 import { StreamVaultBulkBar } from './StreamVaultBulkBar';
 import { BulkModalType, StreamVaultBulkModal } from './StreamVaultBulkModal';
 import {
@@ -152,6 +153,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     useState<PendingStreamFolderDrop | null>(null);
   const [folderPickerStreamIds, setFolderPickerStreamIds] =
     useState<string[] | null>(null);
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -700,7 +702,8 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       !drawerState.open &&
       !bulkModalType &&
       !pendingFolderDrop &&
-      !folderPickerStreamIds,
+      !folderPickerStreamIds &&
+      !editingFolderId,
     streams,
     selectedIds: selectedStreamIds,
     isCustomSort,
@@ -972,7 +975,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                   >
                     {scopeMeta.breadcrumb}
                   </div>
-                  <div className="flex items-center gap-2.5 mt-0.5 flex-wrap">
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                     {scopeMeta.icon && (
                       <DynamicIcon
                         name={scopeMeta.icon}
@@ -983,6 +986,18 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     <h2 className="font-display text-base font-semibold tracking-tight truncate">
                       {scopeMeta.title}
                     </h2>
+                    {scope.kind === 'folder' && folderById.has(scope.folderId) && (
+                      <button
+                        type="button"
+                        onClick={() => setEditingFolderId(scope.folderId)}
+                        title="Edit folder name & icon"
+                        aria-label={`Edit ${scopeMeta.title}`}
+                        className="h-6 w-6 rounded-md inline-flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <span
                       className="text-xs font-mono tabular-nums"
                       style={{ color: 'var(--text-muted)' }}
@@ -2412,6 +2427,19 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         onAddFolder={(name, parentId) => onAddFolder(name, parentId ?? null)}
         onApply={handleApplyFolderPicker}
         onClose={() => setFolderPickerStreamIds(null)}
+      />
+
+      {/* Edit Folder Name & Expanded Icon Picker Modal */}
+      <StreamFolderEditModal
+        folder={editingFolderId ? folderById.get(editingFolderId) ?? null : null}
+        onClose={() => setEditingFolderId(null)}
+        onSave={(folderId, patch) => {
+          if (onUpdateFolder) {
+            onUpdateFolder(folderId, patch);
+          } else {
+            onRenameFolder(folderId, patch.name);
+          }
+        }}
       />
 
       {renderDragPreview()}

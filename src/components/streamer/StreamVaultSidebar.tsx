@@ -9,6 +9,7 @@ import {
   FolderPlus,
   Hash,
   Layers,
+  MoreVertical,
   Pencil,
   Play,
   Plus,
@@ -403,75 +404,33 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                     <span className="truncate">{folder.name}</span>
                   </button>
 
-                  {/* Hover actions: Load stack, Add subfolder, Edit (name & icon), Delete */}
-                  <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
-                    {itemCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onLoadFolderToGrid(folder.id, folder.name);
-                        }}
-                        className="h-6 w-6 rounded flex items-center justify-center hover:opacity-100"
-                        style={{ color: 'var(--accent)' }}
-                        title={`Load "${folder.name}" to Live Grid`}
-                        aria-label={`Load ${folder.name} to Live Grid`}
-                      >
-                        <Play className="w-3 h-3 fill-current" />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setExpandedFolders((prev) => ({ ...prev, [folder.id]: true }));
-                        setCreatingParentId(folder.id);
-                        setNewFolderName('');
-                      }}
-                      className="h-6 w-6 rounded flex items-center justify-center"
-                      style={{ color: 'var(--text-muted)' }}
-                      title="New subfolder"
-                      aria-label={`New subfolder inside ${folder.name}`}
-                    >
-                      <FolderPlus className="w-3 h-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setRenamingFolderId(folder.id);
-                        setRenameValue(folder.name);
-                        setRenameIconOpen(false);
-                      }}
-                      className="h-6 w-6 rounded flex items-center justify-center"
-                      style={{ color: 'var(--text-muted)' }}
-                      title="Edit folder name & icon"
-                      aria-label={`Edit ${folder.name}`}
-                    >
-                      <Pencil className="w-3 h-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteFolder(folder.id);
-                        if (isSelected) onSelectScope({ kind: 'all' });
-                      }}
-                      className="h-6 w-6 rounded flex items-center justify-center"
-                      style={{ color: 'var(--danger)' }}
-                      title="Delete folder"
-                      aria-label={`Delete ${folder.name}`}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-
                   <span
-                    className="group-hover:hidden text-[11px] font-mono tabular-nums px-1.5 shrink-0"
+                    className="lg:group-hover:hidden text-[11px] font-mono tabular-nums px-1 shrink-0"
                     style={{ color: isSelected ? 'var(--accent)' : 'var(--text-muted)' }}
                   >
                     {itemCount}
                   </span>
+
+                  {/* Single three-dots trigger opening the folder context menu */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setContextMenu({
+                        x: rect.left,
+                        y: rect.bottom + 4,
+                        target: { kind: 'folder', folder },
+                      });
+                    }}
+                    className="flex lg:hidden lg:group-hover:flex focus:flex h-6 w-6 rounded items-center justify-center shrink-0 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{ color: 'var(--text-muted)' }}
+                    title={`Actions for ${folder.name}`}
+                    aria-label={`More actions for ${folder.name}`}
+                    aria-haspopup="menu"
+                  >
+                    <MoreVertical className="w-3.5 h-3.5" />
+                  </button>
 
                   <IconPickerPopover
                     open={isIconPickerOpen}
@@ -843,7 +802,7 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
             style={{
-              top: `${Math.min(contextMenu.y, window.innerHeight - 190)}px`,
+              top: `${Math.min(contextMenu.y, window.innerHeight - 240)}px`,
               left: `${Math.min(contextMenu.x, window.innerWidth - 196)}px`,
               backgroundColor: 'var(--bg-elevated)',
               borderColor: 'var(--border-strong)',
@@ -854,6 +813,29 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
           >
             {contextMenu.target.kind === 'folder' ? (
               <>
+                {(folderStreamCounts.get(contextMenu.target.folder.id) || 0) > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        if (contextMenu.target.kind === 'folder') {
+                          onLoadFolderToGrid(
+                            contextMenu.target.folder.id,
+                            contextMenu.target.folder.name
+                          );
+                        }
+                        setContextMenu(null);
+                      }}
+                      className="w-full h-8 px-2.5 rounded-lg text-xs font-medium flex items-center gap-2 hover:bg-[var(--bg-surface-hover)] text-left"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" style={{ color: 'var(--accent)' }} />
+                      <span>Load Folder</span>
+                    </button>
+                    <div className="my-1 border-t" style={{ borderColor: 'var(--border-subtle)' }} />
+                  </>
+                )}
                 <button
                   type="button"
                   role="menuitem"
