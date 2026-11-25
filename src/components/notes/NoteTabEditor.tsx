@@ -38,6 +38,7 @@ import {
 } from "../../utils/date";
 import { normalizeListItemNoteLinks } from "../../utils/listItemLinks";
 import { ListItemLinksPicker } from "../lists/ListItemLinksPicker";
+import { BookLinkPicker, buildBookNoteLink } from "../library/BookLinkPicker";
 import type { TimestampFieldFocus } from "../TimestampsModal";
 import { TiptapEditor, TiptapThumbToolbar } from "../TiptapEditor";
 import { NotePageIcon } from "../IconLibrary";
@@ -1156,88 +1157,21 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
                   alignTop
                 >
                   <div className="space-y-2 -mx-1 px-1">
-                    <select
-                      value={
-                        linkedBook
-                          ? linkedBook.id
-                          : isRemovedSnapshot
-                            ? "__removed__"
-                            : ""
+                    <BookLinkPicker
+                      books={workspace.books}
+                      selectedBook={linkedBook}
+                      removedBookTitle={
+                        isRemovedSnapshot && bookLink ? bookLink.bookTitle : null
                       }
-                      onChange={(e) => {
-                        const nextId = e.target.value;
-                        if (!nextId) {
+                      emptyLabel="None (unlinked)"
+                      onSelectBook={(chosen) => {
+                        if (!chosen) {
                           setBookLink(null);
                           return;
                         }
-                        if (nextId === "__removed__") return;
-                        const chosen = workspace.books.find(
-                          (b) => b.id === nextId,
-                        );
-                        if (!chosen) return;
-                        const unitIndex =
-                          chosen.currentLocation?.unitIndex ??
-                          (chosen.format === "pdf" ? 1 : 0);
-                        const scrollRatio =
-                          chosen.currentLocation?.scrollRatio ?? 0;
-                        const locationLabel =
-                          chosen.currentLocation?.label ||
-                          (chosen.format === "pdf"
-                            ? `Page ${unitIndex}`
-                            : `Section ${unitIndex + 1}`);
-                        setBookLink({
-                          bookId: chosen.id,
-                          bookTitle: chosen.title,
-                          bookAuthor: chosen.author,
-                          bookFormat: chosen.format,
-                          unitIndex,
-                          scrollRatio,
-                          locationLabel,
-                          quote: bookLink?.quote,
-                          bookRemoved: false,
-                        });
+                        setBookLink(buildBookNoteLink(chosen, bookLink?.quote));
                       }}
-                      className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
-                      style={{
-                        color: bookLink
-                          ? "var(--text-primary)"
-                          : "var(--text-muted)",
-                      }}
-                    >
-                      <option
-                        value=""
-                        style={{
-                          backgroundColor: "var(--bg-elevated)",
-                          color: "var(--text-primary)",
-                        }}
-                      >
-                        None (unlinked)
-                      </option>
-                      {isRemovedSnapshot && bookLink && (
-                        <option
-                          value="__removed__"
-                          disabled
-                          style={{
-                            backgroundColor: "var(--bg-elevated)",
-                            color: "var(--text-muted)",
-                          }}
-                        >
-                          {bookLink.bookTitle} (Removed)
-                        </option>
-                      )}
-                      {workspace.books.map((b) => (
-                        <option
-                          key={b.id}
-                          value={b.id}
-                          style={{
-                            backgroundColor: "var(--bg-elevated)",
-                            color: "var(--text-primary)",
-                          }}
-                        >
-                          {b.title}
-                        </option>
-                      ))}
-                    </select>
+                    />
 
                     {bookLink && linkedBook && (
                       <div className="space-y-1.5">

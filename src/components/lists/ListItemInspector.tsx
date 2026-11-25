@@ -33,6 +33,7 @@ import { countLinkedNotesForListItems } from "../../utils/listItemLinks";
 import { TiptapEditor } from "../TiptapEditor";
 import { DeleteListItemsConfirmModal } from "./DeleteListItemsConfirmModal";
 import { ListItemLinkedNotesSection } from "./ListItemLinkedNotesSection";
+import { BookLinkPicker, buildBookNoteLink } from "../library/BookLinkPicker";
 
 const STATUS_OPTIONS: { id: ListItemStatus; label: string }[] = [
   { id: "inbox", label: "Inbox" },
@@ -600,69 +601,21 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
               alignTop
             >
               <div className="space-y-1.5 -mx-1 px-1">
-                <select
-                  value={linkedBook ? linkedBook.id : ""}
-                  onChange={(e) => {
-                    const nextId = e.target.value;
-                    if (!nextId) {
+                <BookLinkPicker
+                  books={workspace.books}
+                  selectedBook={linkedBook}
+                  emptyLabel="None (this device only)"
+                  onSelectBook={(chosen) => {
+                    if (!chosen) {
                       setBookLink(null);
                       setListItemBookLink(item.id, null);
                       return;
                     }
-                    const chosen = workspace.books.find((b) => b.id === nextId);
-                    if (!chosen) return;
-                    const unitIndex =
-                      chosen.currentLocation?.unitIndex ??
-                      (chosen.format === "pdf" ? 1 : 0);
-                    const scrollRatio =
-                      chosen.currentLocation?.scrollRatio ?? 0;
-                    const locationLabel =
-                      chosen.currentLocation?.label ||
-                      (chosen.format === "pdf"
-                        ? `Page ${unitIndex}`
-                        : `Section ${unitIndex + 1}`);
-                    const nextLink: BookNoteLink = {
-                      bookId: chosen.id,
-                      bookTitle: chosen.title,
-                      bookAuthor: chosen.author,
-                      bookFormat: chosen.format,
-                      unitIndex,
-                      scrollRatio,
-                      locationLabel,
-                      bookRemoved: false,
-                    };
+                    const nextLink: BookNoteLink = buildBookNoteLink(chosen);
                     setBookLink(nextLink);
                     setListItemBookLink(item.id, nextLink);
                   }}
-                  className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
-                  style={{
-                    color: linkedBook
-                      ? "var(--text-primary)"
-                      : "var(--text-muted)",
-                  }}
-                >
-                  <option
-                    value=""
-                    style={{
-                      backgroundColor: "var(--bg-elevated)",
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    None (this device only)
-                  </option>
-                  {workspace.books.map((b) => (
-                    <option
-                      key={b.id}
-                      value={b.id}
-                      style={{
-                        backgroundColor: "var(--bg-elevated)",
-                        color: "var(--text-primary)",
-                      }}
-                    >
-                      {b.title}
-                    </option>
-                  ))}
-                </select>
+                />
 
                 {bookLink && linkedBook && (
                   <div className="flex flex-wrap items-center gap-2 text-[11px]">
