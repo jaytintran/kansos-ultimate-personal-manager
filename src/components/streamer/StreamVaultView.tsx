@@ -1371,6 +1371,8 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             <div className="relative aspect-video w-full overflow-hidden bg-[var(--bg-surface-subtle)]">
                               <button
                                 type="button"
+                                draggable={false}
+                                onDragStart={(e) => e.preventDefault()}
                                 onClick={() => {
                                   if (shouldSuppressClick()) return;
                                   if (bulkMode) {
@@ -1379,20 +1381,21 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                     setDrawerState({ open: true, mode: 'edit', streamId: item.id });
                                   }
                                 }}
-                                className="w-full h-full text-left group"
+                                className="w-full h-full text-left group select-none"
                               >
                                 {!brokenThumbs[item.id] ? (
                                   <img
                                     src={item.thumbnailUrl}
                                     alt={item.customLabel || item.title}
+                                    draggable={false}
                                     referrerPolicy="no-referrer"
                                     onError={() =>
                                       setBrokenThumbs((prev) => ({ ...prev, [item.id]: true }))
                                     }
-                                    className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                                    className="w-full h-full object-cover pointer-events-none select-none transition-transform duration-200 group-hover:scale-[1.02]"
                                   />
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
+                                  <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)] pointer-events-none">
                                     <MonitorPlay className="w-6 h-6" />
                                   </div>
                                 )}
@@ -1618,6 +1621,8 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     {/* Thumbnail */}
                     <button
                       type="button"
+                      draggable={false}
+                      onDragStart={(e) => e.preventDefault()}
                       onClick={() => {
                         if (shouldSuppressClick()) return;
                         if (bulkMode) {
@@ -1626,22 +1631,23 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                         }
                         setDrawerState({ open: true, mode: 'edit', streamId: item.id });
                       }}
-                      className="relative aspect-video w-full overflow-hidden text-left group"
+                      className="relative aspect-video w-full overflow-hidden text-left group select-none"
                       style={{ backgroundColor: 'var(--bg-surface-subtle)' }}
                     >
                       {!brokenThumbs[item.id] ? (
                         <img
                           src={item.thumbnailUrl}
                           alt={item.customLabel || item.title}
+                          draggable={false}
                           referrerPolicy="no-referrer"
                           onError={() =>
                             setBrokenThumbs((prev) => ({ ...prev, [item.id]: true }))
                           }
-                          className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                          className="w-full h-full object-cover pointer-events-none select-none transition-transform duration-200 group-hover:scale-[1.02]"
                         />
                       ) : (
                         <div
-                          className="w-full h-full flex items-center justify-center"
+                          className="w-full h-full flex items-center justify-center pointer-events-none"
                           style={{ color: 'var(--text-muted)' }}
                         >
                           <MonitorPlay className="w-7 h-7" />
@@ -1988,6 +1994,8 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                               )}
                               <button
                                 type="button"
+                                draggable={false}
+                                onDragStart={(e) => e.preventDefault()}
                                 onClick={() => {
                                   if (shouldSuppressClick()) return;
                                   if (bulkMode) {
@@ -2000,7 +2008,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                     streamId: item.id,
                                   });
                                 }}
-                                className="w-14 h-8 rounded overflow-hidden shrink-0 border"
+                                className="w-14 h-8 rounded overflow-hidden shrink-0 border select-none"
                                 style={{
                                   backgroundColor: 'var(--bg-surface-subtle)',
                                   borderColor: 'var(--border-subtle)',
@@ -2010,6 +2018,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                   <img
                                     src={item.thumbnailUrl}
                                     alt={item.customLabel || item.title}
+                                    draggable={false}
                                     referrerPolicy="no-referrer"
                                     onError={() =>
                                       setBrokenThumbs((prev) => ({
@@ -2017,10 +2026,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                         [item.id]: true,
                                       }))
                                     }
-                                    className="w-full h-full object-cover"
+                                    className="w-full h-full object-cover pointer-events-none select-none"
                                   />
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center">
+                                  <div className="w-full h-full flex items-center justify-center pointer-events-none">
                                     <MonitorPlay
                                       className="w-3.5 h-3.5"
                                       style={{ color: 'var(--text-muted)' }}
