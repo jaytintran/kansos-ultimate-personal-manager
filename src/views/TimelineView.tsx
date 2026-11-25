@@ -840,7 +840,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   return (
     <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden overscroll-none lg:block lg:h-auto lg:overflow-visible">
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-none lg:overflow-visible">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-4 lg:pb-36 space-y-5">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-4 lg:pb-36 space-y-5">
       {/* Header: Interactive Title Date Picker / All-Dates Toggle + Search + Type Filters */}
       <header
         className="space-y-2.5 relative"
@@ -1446,7 +1446,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
       {/* Docked Mobile Input Bar (above bottom nav) · Floating Desktop Input Bar */}
       <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-canvas)] px-3 py-2 lg:border-t-0 lg:bg-transparent lg:fixed lg:bottom-4 lg:left-60 lg:right-0 lg:z-20 lg:px-6 lg:py-0 lg:pointer-events-none">
-        <div className="max-w-4xl mx-auto lg:pointer-events-auto">
+        <div className="max-w-6xl mx-auto lg:pointer-events-auto">
           <NlpInputBar
             placeholder='Add to timeline ("Deep Work from 1pm to 3pm", "/note Architecture ideas #sys")...'
             onSubmit={(raw) => {

@@ -586,6 +586,11 @@ interface WorkspaceContextValue {
     rawText: string,
     tabId?: string,
   ) => boolean;
+  moveFocusItem: (
+    entryId: string,
+    targetBucket: "anchor" | "x-active" | "custom-tab" | "timeline",
+    options?: { tabId?: string; swapOutEntryId?: string },
+  ) => { ok: boolean; reason?: "capacity" | "not_found" };
   clearFocusDayFromView: (dateKey: string) => void;
   addTimelineEntry: (
     type: EntryType,
@@ -607,8 +612,13 @@ interface WorkspaceContextValue {
   // Scratchpad actions
   addScratchpad: (paletteIndex?: number) => ScratchpadCard;
   updateScratchpad: (id: string, patch: Partial<ScratchpadCard>) => void;
+  reorderScratchpads: (sortOrderById: Record<string, number>) => void;
   deleteScratchpad: (id: string) => void;
   sendScratchpadToTimeline: (id: string) => Entry | null;
+  sendScratchpadToXActive: (
+    id: string,
+    swapOutEntryId?: string,
+  ) => { ok: boolean; reason?: "capacity" | "not_found"; entry?: Entry };
 
   // Custom Focus Tabs actions
   addCustomTab: (name: string, color: string) => CustomFocusTab;
@@ -1366,6 +1376,140 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace, pushToast],
   );
 
+  const moveFocusItem = useCallback(
+    (
+      entryId: string,
+      targetBucket: "anchor" | "x-active" | "custom-tab" | "timeline",
+      options?: { tabId?: string; swapOutEntryId?: string },
+    ): { ok: boolean; reason?: "capacity" | "not_found" } => {
+      const currentWs = latestWorkspaceRef.current;
+      const entry = currentWs.entries.find((e) => e.id === entryId);
+      if (!entry) return { ok: false, reason: "not_found" };
+
+      const alreadyXActive =
+        (entry.source === "focus-active" || entry.focusBucket === "x-active") &&
+        !entry.completed;
+
+      if (targetBucket === "x-active" && !alreadyXActive) {
+        const activeCount = currentWs.entries.filter(
+          (e) =>
+            (e.source === "focus-active" || e.focusBucket === "x-active") &&
+            !e.completed,
+        ).length;
+        if (
+          activeCount >= currentWs.settings.xActiveLimit &&
+          !options?.swapOutEntryId
+        ) {
+          pushToast(
+            `X-Active is at ${currentWs.settings.xActiveLimit}-task capacity — choose one to swap`,
+            "neutral",
+          );
+          return { ok: false, reason: "capacity" };
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      const prevWasCustomTab = entry.source === "custom-tab" && entry.tabId;
+      const prevWasAnchor =
+        entry.source === "focus-anchor" || entry.focusBucket === "anchor";
+
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: prev.entries.map((e) => {
+          if (e.id === entryId) {
+            if (targetBucket === "anchor") {
+              return {
+                ...e,
+                focusBucket: "anchor",
+                source: "focus-anchor",
+                tabId: null,
+                scheduledAt: e.scheduledAt || nowIso,
+                updatedAt: nowIso,
+              };
+            }
+            if (targetBucket === "x-active") {
+              return {
+                ...e,
+                completed: false,
+                completedAt: null,
+                focusBucket: "x-active",
+                source: "focus-active",
+                tabId: null,
+                updatedAt: nowIso,
+              };
+            }
+            if (targetBucket === "custom-tab") {
+              return {
+                ...e,
+                focusBucket: null,
+                source: "custom-tab",
+                tabId: options?.tabId ?? null,
+                updatedAt: nowIso,
+              };
+            }
+            return {
+              ...e,
+              focusBucket: null,
+              source: "timeline",
+              tabId: null,
+              updatedAt: nowIso,
+            };
+          }
+          if (options?.swapOutEntryId && e.id === options.swapOutEntryId) {
+            if (prevWasCustomTab) {
+              return {
+                ...e,
+                focusBucket: null,
+                source: "custom-tab",
+                tabId: entry.tabId ?? null,
+                updatedAt: nowIso,
+              };
+            }
+            if (prevWasAnchor) {
+              return {
+                ...e,
+                focusBucket: "anchor",
+                source: "focus-anchor",
+                tabId: null,
+                scheduledAt: e.scheduledAt || nowIso,
+                updatedAt: nowIso,
+              };
+            }
+            return {
+              ...e,
+              focusBucket: null,
+              source: "timeline",
+              tabId: null,
+              updatedAt: nowIso,
+            };
+          }
+          return e;
+        }),
+      }));
+
+      if (targetBucket === "x-active") {
+        pushToast(
+          options?.swapOutEntryId
+            ? "Swapped task into X-Active"
+            : "Moved to X-Active",
+          "success",
+        );
+      } else if (targetBucket === "anchor") {
+        pushToast("Moved to Daily Anchors", "success");
+      } else if (targetBucket === "custom-tab") {
+        const tabName = currentWs.customTabs?.find(
+          (t) => t.id === options?.tabId,
+        )?.name;
+        pushToast(tabName ? `Moved to ${tabName}` : "Moved to custom tab");
+      } else {
+        pushToast("Moved to Timeline tasks");
+      }
+
+      return { ok: true };
+    },
+    [mutateWorkspace, pushToast],
+  );
+
   const clearFocusDayFromView = useCallback(
     (dateKey: string) => {
       const nowIso = new Date().toISOString();
@@ -1874,6 +2018,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace],
   );
 
+  const reorderScratchpads = useCallback(
+    (sortOrderById: Record<string, number>) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        scratchpads: (prev.scratchpads ?? []).map((c) =>
+          typeof sortOrderById[c.id] === "number"
+            ? { ...c, sortOrder: sortOrderById[c.id], updatedAt: nowIso }
+            : c,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
   const deleteScratchpad = useCallback(
     (id: string) => {
       mutateWorkspace((prev) => ({
@@ -1927,6 +2086,92 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       }));
       pushToast("Sent sticky note to Timeline", "success");
       return noteEntry;
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const sendScratchpadToXActive = useCallback(
+    (
+      id: string,
+      swapOutEntryId?: string,
+    ): { ok: boolean; reason?: "capacity" | "not_found"; entry?: Entry } => {
+      const currentWs = latestWorkspaceRef.current;
+      const card = (currentWs.scratchpads ?? []).find((c) => c.id === id);
+      if (!card) return { ok: false, reason: "not_found" };
+
+      const activeCount = currentWs.entries.filter(
+        (e) =>
+          (e.source === "focus-active" || e.focusBucket === "x-active") &&
+          !e.completed,
+      ).length;
+      if (activeCount >= currentWs.settings.xActiveLimit && !swapOutEntryId) {
+        pushToast(
+          `X-Active is at ${currentWs.settings.xActiveLimit}-task capacity — choose one to swap`,
+          "neutral",
+        );
+        return { ok: false, reason: "capacity" };
+      }
+
+      const lines = card.content
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
+      const firstLine = lines[0]?.slice(0, 120) || "Scratchpad Task";
+      const parsed = parseNlpInput(
+        firstLine,
+        getTodayKey(),
+        currentWs.settings.timeFormat,
+      );
+      const bodyLines = lines.slice(1);
+      const htmlContent = bodyLines
+        .map(
+          (l) =>
+            `<p>${l.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`,
+        )
+        .join("");
+      const nowIso = new Date().toISOString();
+      const xEntry: Entry = {
+        id: uid("ent"),
+        type: "task",
+        title: parsed.cleanTitle || firstLine,
+        content: htmlContent,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        scheduledAt: parsed.scheduledAt,
+        completedAt: null,
+        endAt: parsed.endAt,
+        completed: false,
+        focusBucket: "x-active",
+        source: "focus-active",
+        tags: parsed.tags,
+        listIds: [],
+      };
+
+      mutateWorkspace((prev) => ({
+        ...prev,
+        entries: [
+          xEntry,
+          ...prev.entries.map((e) =>
+            swapOutEntryId && e.id === swapOutEntryId
+              ? {
+                  ...e,
+                  focusBucket: null,
+                  source: "timeline" as const,
+                  tabId: null,
+                  updatedAt: nowIso,
+                }
+              : e,
+          ),
+        ],
+        scratchpads: (prev.scratchpads ?? []).filter((c) => c.id !== id),
+      }));
+      pushToast(
+        swapOutEntryId
+          ? "Swapped sticky note into X-Active"
+          : "Promoted sticky note to X-Active",
+        "success",
+      );
+      return { ok: true, entry: xEntry };
     },
     [mutateWorkspace, pushToast],
   );
@@ -5646,6 +5891,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       gistConfig,
       pushToast,
       addFocusItem,
+      moveFocusItem,
       clearFocusDayFromView,
       addTimelineEntry,
       createEntry,
@@ -5660,8 +5906,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       moveEntryToDate,
       addScratchpad,
       updateScratchpad,
+      reorderScratchpads,
       deleteScratchpad,
       sendScratchpadToTimeline,
+      sendScratchpadToXActive,
       addCustomTab,
       updateCustomTab,
       deleteCustomTab,
@@ -5799,6 +6047,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       gistConfig,
       pushToast,
       addFocusItem,
+      moveFocusItem,
       clearFocusDayFromView,
       addTimelineEntry,
       createEntry,
@@ -5813,8 +6062,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       moveEntryToDate,
       addScratchpad,
       updateScratchpad,
+      reorderScratchpads,
       deleteScratchpad,
       sendScratchpadToTimeline,
+      sendScratchpadToXActive,
       addCustomTab,
       updateCustomTab,
       deleteCustomTab,

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  ArrowRightLeft,
   CalendarClock,
   CheckCircle2,
   CheckSquare,
@@ -10,6 +11,7 @@ import {
   PanelTop,
   Plus,
   Tag,
+  Target,
   Trash2,
   Trophy,
   X,
@@ -54,6 +56,7 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
   const {
     workspace,
     updateEntry,
+    moveFocusItem,
     toggleEntryAchievement,
     setEventAttendance,
     duplicateEntry,
@@ -64,7 +67,7 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
     deleteListItem,
   } = useWorkspace();
 
-  const [subPanel, setSubPanel] = useState<'none' | 'reschedule' | 'tags'>('none');
+  const [subPanel, setSubPanel] = useState<'none' | 'reschedule' | 'tags' | 'move'>('none');
   const [tagDraft, setTagDraft] = useState('');
   const [branchPrompt, setBranchPrompt] = useState<NoteBranchActionPrompt | null>(null);
   const [pendingListItemDelete, setPendingListItemDelete] = useState<{
@@ -152,6 +155,9 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
     freshEntry &&
       !freshEntry.completed &&
       (freshEntry.type === 'task' || freshEntry.type === 'event' || freshEntry.type === 'timeblock')
+  );
+  const canMoveFocusBucket = Boolean(
+    freshEntry && freshEntry.type === 'task' && !freshEntry.completed
   );
 
   const handleOpenDetails = () => {
@@ -428,6 +434,18 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
             </button>
           )}
 
+          {canMoveFocusBucket && (
+            <button
+              type="button"
+              onClick={() => setSubPanel('move')}
+              className={btnCls}
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
+              <span>Move Bucket</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => setSubPanel('tags')}
@@ -450,6 +468,105 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
             <span>Delete</span>
           </button>
         </>
+      )}
+
+      {subPanel === 'move' && freshEntry && (
+        <div className="space-y-1 p-1">
+          <div className="flex items-center justify-between px-2 py-1">
+            <span className="text-[11px] font-semibold" style={{ color: 'var(--text-secondary)' }}>
+              Move to bucket
+            </span>
+            <button
+              type="button"
+              onClick={() => setSubPanel('none')}
+              className="text-[11px]"
+              style={{ color: 'var(--accent)' }}
+            >
+              Back
+            </button>
+          </div>
+          {[
+            {
+              id: 'x-active' as const,
+              label: 'X-Active Tasks',
+              active:
+                freshEntry.source === 'focus-active' ||
+                freshEntry.focusBucket === 'x-active',
+            },
+            {
+              id: 'anchor' as const,
+              label: 'Daily Anchors',
+              active:
+                freshEntry.source === 'focus-anchor' ||
+                freshEntry.focusBucket === 'anchor',
+            },
+          ].map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => {
+                const res = moveFocusItem(freshEntry.id, opt.id);
+                onClose();
+                if (!res.ok && res.reason === 'capacity') {
+                  window.dispatchEvent(
+                    new CustomEvent('kanso:focus-swap-request', {
+                      detail: { entryId: freshEntry.id },
+                    }),
+                  );
+                }
+              }}
+              className={btnCls}
+              style={{
+                color: opt.active ? 'var(--accent)' : 'var(--text-primary)',
+                backgroundColor: opt.active ? 'var(--accent-soft)' : undefined,
+              }}
+            >
+              {opt.id === 'x-active' ? (
+                <Target className="w-3.5 h-3.5" style={{ color: 'var(--color-entity-blue)' }} />
+              ) : (
+                <Clock className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
+              )}
+              <span>{opt.label}</span>
+            </button>
+          ))}
+          {(workspace.customTabs ?? []).map((ct) => {
+            const active =
+              freshEntry.source === 'custom-tab' && freshEntry.tabId === ct.id;
+            return (
+              <button
+                key={ct.id}
+                type="button"
+                onClick={() => {
+                  moveFocusItem(freshEntry.id, 'custom-tab', { tabId: ct.id });
+                  onClose();
+                }}
+                className={btnCls}
+                style={{
+                  color: active ? ct.color : 'var(--text-primary)',
+                  backgroundColor: active ? 'var(--accent-soft)' : undefined,
+                }}
+              >
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: ct.color }}
+                />
+                <span className="truncate">{ct.name}</span>
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => {
+              moveFocusItem(freshEntry.id, 'timeline');
+              onClose();
+            }}
+            className={btnCls}
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            <CalendarClock className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+            <span>Timeline only</span>
+          </button>
+        </div>
       )}
 
       {subPanel === 'reschedule' && freshEntry && (

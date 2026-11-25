@@ -81,6 +81,7 @@ export const InlineTitleEdit: React.FC<InlineTitleEditProps> = ({
         rows={1}
         value={draft}
         onClick={(e) => e.stopPropagation()}
+        onDoubleClick={() => cancel()}
         onChange={(e) => setDraft(e.target.value.replace(/\r?\n/g, ' '))}
         onBlur={commit}
         onKeyDown={(e) => {
@@ -95,7 +96,7 @@ export const InlineTitleEdit: React.FC<InlineTitleEditProps> = ({
           }
         }}
         placeholder={placeholder}
-        className={`w-full resize-none overflow-hidden bg-transparent border-0 outline-none p-0 m-0 leading-snug ${className}`}
+        className={`w-full resize-none overflow-hidden bg-[var(--bg-surface-subtle)] border-0 outline-none rounded-md px-1.5 -mx-1.5 py-0.5 m-0 leading-snug ring-1 ring-[var(--accent)]/40 transition-colors ${className}`}
         style={{
           color: 'var(--text-primary)',
           ...style,
@@ -107,11 +108,15 @@ export const InlineTitleEdit: React.FC<InlineTitleEditProps> = ({
   return (
     <span
       onClick={startEditing}
-      className={`block break-words leading-snug ${!disabled ? 'sm:cursor-text' : ''} ${
-        allowMobileEdit && !disabled ? 'cursor-text' : ''
+      className={`block break-words leading-snug rounded-md px-1.5 -mx-1.5 py-0.5 transition-colors ${
+        !disabled ? 'sm:cursor-text sm:hover:bg-[var(--bg-surface-hover)]/75' : ''
+      } ${
+        allowMobileEdit && !disabled
+          ? 'cursor-text hover:bg-[var(--bg-surface-hover)]/75'
+          : ''
       } ${className}`}
       style={style}
-      title={disabled ? undefined : 'Click to edit title'}
+      title={disabled ? undefined : 'Click to edit title · Double-click for details'}
     >
       {value || placeholder}
     </span>

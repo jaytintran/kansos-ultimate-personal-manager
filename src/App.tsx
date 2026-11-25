@@ -589,6 +589,7 @@ const KansoShell: React.FC = () => {
   const activeViewDef = VIEW_META_MAP[activeView];
 
   const isFixedHeightView =
+    activeView === "focus" ||
     activeView === "streamer" ||
     activeView === "audio" ||
     activeView === "library" ||
@@ -1385,6 +1386,15 @@ const KansoShell: React.FC = () => {
           <FocusView
             onOpenDetail={setDetailTarget}
             onOpenContextMenu={handleOpenContextMenu}
+            audioPlayback={audioPlayback}
+            streamerPlayback={streamerPlayback}
+            onToggleAudioPlayback={() =>
+              audioControllerRef.current?.togglePauseAll()
+            }
+            onToggleStreamerPlayback={() =>
+              streamerControllerRef.current?.togglePauseAll()
+            }
+            onNavigateView={(viewId) => navigateToView(viewId)}
           />
         )}
         {activeView === "timeline" && (

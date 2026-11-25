@@ -5,26 +5,34 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
-  Clock,
   GripVertical,
   MoreVertical,
-  Pencil,
-  Pin,
+  Play,
   Plus,
-  Send,
   StickyNote,
   Target,
   Trash2,
   X,
 } from "lucide-react";
 import { InlineTitleEdit } from "../components/InlineTitleEdit";
-import { NlpInputBar } from "../components/NlpInputBar";
+import { FocusAnchorsSection } from "../components/focus/FocusAnchorsSection";
+import {
+  FocusCaptureBar,
+  FocusCaptureSubmitTarget,
+  TodayCaptureBucket,
+} from "../components/focus/FocusCaptureBar";
+import { FocusCustomTab } from "../components/focus/FocusCustomTab";
+import { FocusScratchpadTab } from "../components/focus/FocusScratchpadTab";
+import { FocusSpotlightBanner } from "../components/focus/FocusSpotlightBanner";
+import { PinnedScratchpadRail } from "../components/focus/PinnedScratchpadRail";
+import { SwapXActiveModal } from "../components/focus/SwapXActiveModal";
 import { useWorkspace } from "../context/WorkspaceContext";
 import {
   ContextMenuRecord,
   CustomFocusTab,
   DetailSheetTarget,
   Entry,
+  ViewId,
 } from "../types";
 import {
   formatCompactDayHeading,
@@ -32,22 +40,9 @@ import {
   getEntryDayKey,
   getTodayKey,
 } from "../utils/date";
-
-const SCRATCHPAD_LIGHT = [
-  { bg: "#fef9c3", border: "#fde047", text: "#422006" }, // Butter yellow
-  { bg: "#dcfce7", border: "#86efac", text: "#052e16" }, // Mint
-  { bg: "#dbeafe", border: "#93c5fd", text: "#172554" }, // Sky
-  { bg: "#fce7f3", border: "#f9a8d4", text: "#500724" }, // Rose
-  { bg: "#f3e8ff", border: "#d8b4fe", text: "#3b0764" }, // Lavender
-];
-
-const SCRATCHPAD_DARK = [
-  { bg: "#2e2814", border: "#655217", text: "#fef08a" },
-  { bg: "#12291c", border: "#1e5b38", text: "#bbf7d0" },
-  { bg: "#13233a", border: "#21487a", text: "#bfdbfe" },
-  { bg: "#321626", border: "#72264d", text: "#fbcfe8" },
-  { bg: "#251738", border: "#572d87", text: "#e9d5ff" },
-];
+import { parseNlpInput } from "../utils/nlp";
+import type { AudioPlaybackSummary } from "./AudioView";
+import type { StreamerPlaybackSummary } from "./StreamerView";
 
 const TAB_COLORS = [
   "#b45309",
@@ -59,38 +54,82 @@ const TAB_COLORS = [
   "#d97706",
 ];
 
+type MobileTodaySection = "all" | "anchors" | "active" | "done";
+
+type PendingSwap =
+  | { kind: "move-entry"; entryId: string; title: string }
+  | { kind: "promote-scratchpad"; scratchpadId: string; title: string }
+  | { kind: "create-xactive"; rawText: string; title: string };
+
 interface FocusViewProps {
   onOpenDetail: (target: DetailSheetTarget) => void;
   onOpenContextMenu: (record: ContextMenuRecord, e: React.MouseEvent) => void;
+  audioPlayback?: AudioPlaybackSummary;
+  streamerPlayback?: StreamerPlaybackSummary;
+  onToggleAudioPlayback?: () => void;
+  onToggleStreamerPlayback?: () => void;
+  onNavigateView?: (view: ViewId) => void;
+}
+
+function formatPrefillHour(hour24: number, timeFormat: "12h" | "24h"): string {
+  if (timeFormat === "24h") {
+    return `${String(hour24).padStart(2, "0")}:00`;
+  }
+  const suffix = hour24 >= 12 ? "pm" : "am";
+  const h12 = hour24 % 12 || 12;
+  return `${h12}${suffix}`;
 }
 
 export const FocusView: React.FC<FocusViewProps> = ({
   onOpenDetail,
   onOpenContextMenu,
+  audioPlayback,
+  streamerPlayback,
+  onToggleAudioPlayback,
+  onToggleStreamerPlayback,
+  onNavigateView,
 }) => {
   const {
     workspace,
     addFocusItem,
+    moveFocusItem,
     clearFocusDayFromView,
     updateEntry,
     toggleEntryCompleted,
     addScratchpad,
     updateScratchpad,
+    reorderScratchpads,
     deleteScratchpad,
     sendScratchpadToTimeline,
+    sendScratchpadToXActive,
     addCustomTab,
     updateCustomTab,
     deleteCustomTab,
     deleteEntry,
     reorderNoteEntries,
+    pushToast,
   } = useWorkspace();
 
   const [activeTab, setActiveTab] = useState<"today" | "scratchpad" | string>(
     "today",
   );
+  const [mobileSection, setMobileSection] =
+    useState<MobileTodaySection>("all");
+  const [captureBucket, setCaptureBucket] =
+    useState<TodayCaptureBucket>("x-active");
+  const [capturePrefill, setCapturePrefill] = useState<{
+    nonce: number;
+    text: string;
+    bucket?: TodayCaptureBucket;
+  } | null>(null);
+
+  const [focusedEntryId, setFocusedEntryId] = useState<string | null>(null);
+  const [completedPanelOpen, setCompletedPanelOpen] = useState(true);
   const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>(
     {},
   );
+  const [pendingSwap, setPendingSwap] = useState<PendingSwap | null>(null);
+
   const [isDark, setIsDark] = useState<boolean>(
     () =>
       typeof document !== "undefined" &&
@@ -137,6 +176,33 @@ export const FocusView: React.FC<FocusViewProps> = ({
   }, [activeTab, activeCustomTabs]);
 
   const activeEntries = useMemo(() => workspace.entries, [workspace.entries]);
+
+  const allTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    for (const e of activeEntries) {
+      for (const t of e.tags) tagSet.add(t);
+    }
+    return Array.from(tagSet).sort((a, b) => a.localeCompare(b));
+  }, [activeEntries]);
+
+  // Listen for capacity swap requests fired from DetailSheet or UniversalContextMenu
+  useEffect(() => {
+    const onSwapRequest = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ entryId?: string }>).detail;
+      const entryId = detail?.entryId;
+      if (!entryId) return;
+      const found = workspace.entries.find((e) => e.id === entryId);
+      if (!found) return;
+      setPendingSwap({
+        kind: "move-entry",
+        entryId: found.id,
+        title: found.title,
+      });
+    };
+    window.addEventListener("kanso:focus-swap-request", onSwapRequest);
+    return () =>
+      window.removeEventListener("kanso:focus-swap-request", onSwapRequest);
+  }, [workspace.entries]);
 
   // Today tab buckets
   const anchors = useMemo(
@@ -262,6 +328,23 @@ export const FocusView: React.FC<FocusViewProps> = ({
 
   const atXCapacity = xActiveTasks.length >= xLimit;
 
+  // Resolve spotlight entry (only active incomplete X-Active or Anchor item)
+  const focusedEntry = useMemo(() => {
+    if (!focusedEntryId) return null;
+    return (
+      xActiveTasks.find((e) => e.id === focusedEntryId) ??
+      anchors.find((e) => e.id === focusedEntryId) ??
+      null
+    );
+  }, [focusedEntryId, xActiveTasks, anchors]);
+
+  // Clear stale spotlight ID if item was completed/deleted
+  useEffect(() => {
+    if (focusedEntryId && !focusedEntry) {
+      setFocusedEntryId(null);
+    }
+  }, [focusedEntryId, focusedEntry]);
+
   // Completed (Anchors & Active Work + Log Done entries) grouped by local day key
   const completedByDay = useMemo(() => {
     const completedFocus = activeEntries.filter((e) => {
@@ -291,16 +374,26 @@ export const FocusView: React.FC<FocusViewProps> = ({
       }));
   }, [activeEntries]);
 
-  // Scratchpad cards (pinned first, then updatedAt desc)
+  const totalCompletedCount = useMemo(
+    () => completedByDay.reduce((sum, g) => sum + g.items.length, 0),
+    [completedByDay],
+  );
+
+  // Scratchpad cards
   const scratchpads = useMemo(
-    () =>
-      (workspace.scratchpads ?? []).sort((a, b) => {
-        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-        return (
-          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-        );
-      }),
+    () => [...(workspace.scratchpads ?? [])],
     [workspace.scratchpads],
+  );
+
+  const pinnedScratchpads = useMemo(
+    () =>
+      scratchpads
+        .filter((c) => c.pinned)
+        .sort(
+          (a, b) =>
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        ),
+    [scratchpads],
   );
 
   const currentCustomTab =
@@ -327,7 +420,108 @@ export const FocusView: React.FC<FocusViewProps> = ({
     };
   }, [activeEntries, currentCustomTab]);
 
-  const palette = isDark ? SCRATCHPAD_DARK : SCRATCHPAD_LIGHT;
+  // Unified Capture Bar submission
+  const handleCaptureSubmit = useCallback(
+    (target: FocusCaptureSubmitTarget, rawTextForNlp: string): boolean => {
+      if (target.bucket === "custom-tab" && target.tabId) {
+        const added = addFocusItem("custom-tab", rawTextForNlp, target.tabId);
+        if (added) {
+          const tab = activeCustomTabs.find((t) => t.id === target.tabId);
+          pushToast(
+            `Added to ${tab ? tab.name : "Custom Tab"}`,
+            "success",
+          );
+        }
+        return added;
+      }
+
+      if (target.bucket === "x-active" && atXCapacity) {
+        const parsed = parseNlpInput(rawTextForNlp, todayKey, timeFormat);
+        pushToast(
+          `X-Active is at ${xLimit}-task capacity — choose one to swap`,
+          "neutral",
+        );
+        setPendingSwap({
+          kind: "create-xactive",
+          rawText: rawTextForNlp,
+          title: parsed.cleanTitle || rawTextForNlp.trim(),
+        });
+        return true;
+      }
+
+      return addFocusItem(target.bucket as TodayCaptureBucket, rawTextForNlp);
+    },
+    [
+      addFocusItem,
+      activeCustomTabs,
+      atXCapacity,
+      todayKey,
+      timeFormat,
+      xLimit,
+      pushToast,
+    ],
+  );
+
+  // Move existing entry to X-Active (triggers swap modal if full)
+  const handleMoveEntryToXActive = useCallback(
+    (entry: Entry) => {
+      const res = moveFocusItem(entry.id, "x-active");
+      if (!res.ok && res.reason === "capacity") {
+        setPendingSwap({
+          kind: "move-entry",
+          entryId: entry.id,
+          title: entry.title,
+        });
+      }
+    },
+    [moveFocusItem],
+  );
+
+  // Promote scratchpad card to X-Active (triggers swap modal if full)
+  const handlePromoteScratchpadToXActive = useCallback(
+    (cardId: string) => {
+      const card = scratchpads.find((c) => c.id === cardId);
+      if (!card || !card.content.trim()) return;
+      const res = sendScratchpadToXActive(cardId);
+      if (!res.ok && res.reason === "capacity") {
+        const firstLine =
+          card.content
+            .split("\n")
+            .map((l) => l.trim())
+            .find(Boolean)
+            ?.slice(0, 80) || "Scratchpad Task";
+        setPendingSwap({
+          kind: "promote-scratchpad",
+          scratchpadId: cardId,
+          title: firstLine,
+        });
+      }
+    },
+    [scratchpads, sendScratchpadToXActive],
+  );
+
+  const handleConfirmSwapOut = useCallback(
+    (swapOutEntryId: string) => {
+      if (!pendingSwap) return;
+      if (pendingSwap.kind === "move-entry") {
+        moveFocusItem(pendingSwap.entryId, "x-active", { swapOutEntryId });
+      } else if (pendingSwap.kind === "promote-scratchpad") {
+        sendScratchpadToXActive(pendingSwap.scratchpadId, swapOutEntryId);
+      } else if (pendingSwap.kind === "create-xactive") {
+        moveFocusItem(swapOutEntryId, "timeline");
+        addFocusItem("x-active", pendingSwap.rawText);
+        pushToast(`Swapped into X-Active: ${pendingSwap.title}`, "success");
+      }
+      setPendingSwap(null);
+    },
+    [
+      pendingSwap,
+      moveFocusItem,
+      sendScratchpadToXActive,
+      addFocusItem,
+      pushToast,
+    ],
+  );
 
   const handleSaveTabModal = (e: React.FormEvent) => {
     e.preventDefault();
@@ -344,1088 +538,1056 @@ export const FocusView: React.FC<FocusViewProps> = ({
     setTabModal(null);
   };
 
+  const handleQuickAddPinned = useCallback(() => {
+    const created = addScratchpad(scratchpads.length % 5);
+    updateScratchpad(created.id, { pinned: true });
+  }, [addScratchpad, updateScratchpad, scratchpads.length]);
+
+  const showActiveSection =
+    mobileSection === "all" || mobileSection === "active";
+  const showAnchorsSection =
+    mobileSection === "all" || mobileSection === "anchors";
+  const showDoneSection = mobileSection === "all" || mobileSection === "done";
+
   return (
-    <div className="md:max-w-4xl max-sm:w-full mx-auto sm:px-4 md:px-6 lg:px-8 pt-3 pb-20 space-y-5">
-      {/* Header + Tabs */}
-      <header className="space-y-2">
-        <div className="flex flex-wrap items-baseline justify-between gap-2 pb-2 max-sm:px-4">
-          <div className="flex items-baseline gap-2.5 min-w-0">
-            <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight">
-              Focus
-            </h1>
-            <span
-              className="text-xs font-mono tabular-nums truncate"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {formatCompactDayHeading(todayKey)}
-            </span>
-          </div>
-        </div>
+    <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden overscroll-none lg:block lg:h-auto lg:overflow-visible">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-none lg:overflow-visible">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-20 space-y-5">
+          {/* Header + Shelf Tab Bar */}
+          <header className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 pb-1">
+              <div className="flex items-baseline gap-2.5 min-w-0">
+                <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight">
+                  Focus
+                </h1>
+                <span
+                  className="text-xs font-mono tabular-nums truncate"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {formatCompactDayHeading(todayKey)}
+                </span>
+              </div>
 
-        {/* Tab Bar: Today, Scratchpad, Custom Tabs, + New Tab — styled like Library shelf strip */}
-        <nav
-          aria-label="Focus tabs"
-          className="flex items-center gap-0.5 overflow-x-auto no-scrollbar border-b border-t bg-[var(--bg-canvas)] shrink-0"
-          style={{ borderColor: "var(--border-subtle)" }}
-        >
-          {/* Today */}
-          <button
-            type="button"
-            onClick={() => setActiveTab("today")}
-            className="h-10 px-3 inline-flex items-center gap-1.5 text-xs font-medium shrink-0 border-b-2 transition-colors whitespace-nowrap cursor-pointer"
-            style={{
-              borderColor:
-                activeTab === "today" ? "var(--accent)" : "transparent",
-              color:
-                activeTab === "today"
-                  ? "var(--text-primary)"
-                  : "var(--text-secondary)",
-              backgroundColor:
-                activeTab === "today" ? "var(--accent-soft)" : "transparent",
-            }}
-          >
-            <span
-              style={{
-                color:
-                  activeTab === "today" ? "var(--accent)" : "var(--text-muted)",
-              }}
-            >
-              <Target className="w-3.5 h-3.5 shrink-0" />
-            </span>
-            <span className={activeTab === "today" ? "font-semibold" : ""}>
-              Today
-            </span>
-            <span
-              className="font-mono tabular-nums text-[11px] opacity-75"
-              style={{
-                color:
-                  activeTab === "today" ? "var(--accent)" : "var(--text-muted)",
-              }}
-            >
-              {anchors.length + xActiveTasks.length}
-            </span>
-          </button>
+              <div
+                className="hidden sm:flex items-center gap-2 text-xs font-mono tabular-nums"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <span>
+                  {xActiveTasks.length}/{xLimit} active
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>{anchors.length} anchors</span>
+                <span aria-hidden="true">·</span>
+                <span>{totalCompletedCount} done</span>
+              </div>
+            </div>
 
-          {/* Scratchpad */}
-          <button
-            type="button"
-            onClick={() => setActiveTab("scratchpad")}
-            className="h-10 px-3 inline-flex items-center gap-1.5 text-xs font-medium shrink-0 border-b-2 transition-colors whitespace-nowrap cursor-pointer"
-            style={{
-              borderColor:
-                activeTab === "scratchpad" ? "var(--accent)" : "transparent",
-              color:
-                activeTab === "scratchpad"
-                  ? "var(--text-primary)"
-                  : "var(--text-secondary)",
-              backgroundColor:
-                activeTab === "scratchpad"
-                  ? "var(--accent-soft)"
-                  : "transparent",
-            }}
-          >
-            <span
-              style={{
-                color:
-                  activeTab === "scratchpad"
-                    ? "var(--accent)"
-                    : "var(--text-muted)",
-              }}
+            {/* Clean horizontal top tab bar matching Library shelves */}
+            <nav
+              aria-label="Focus tabs"
+              className="flex items-center gap-0.5 overflow-x-auto no-scrollbar border-b border-t bg-[var(--bg-canvas)] shrink-0"
+              style={{ borderColor: "var(--border-subtle)" }}
             >
-              <StickyNote className="w-3.5 h-3.5 shrink-0" />
-            </span>
-            <span className={activeTab === "scratchpad" ? "font-semibold" : ""}>
-              Scratchpad
-            </span>
-            <span
-              className="font-mono tabular-nums text-[11px] opacity-75"
-              style={{
-                color:
-                  activeTab === "scratchpad"
-                    ? "var(--accent)"
-                    : "var(--text-muted)",
-              }}
-            >
-              {scratchpads.length}
-            </span>
-          </button>
-
-          {/* Custom tabs */}
-          {activeCustomTabs.map((ct) => {
-            const active = activeTab === ct.id;
-            const count = activeEntries.filter(
-              (e) =>
-                e.source === "custom-tab" && e.tabId === ct.id && !e.completed,
-            ).length;
-            return (
+              {/* Today */}
               <button
-                key={ct.id}
                 type="button"
-                onClick={() => setActiveTab(ct.id)}
+                onClick={() => setActiveTab("today")}
                 className="h-10 px-3 inline-flex items-center gap-1.5 text-xs font-medium shrink-0 border-b-2 transition-colors whitespace-nowrap cursor-pointer"
                 style={{
-                  // Keep the user-chosen color on the underline when active
-                  borderColor: active ? ct.color : "transparent",
-                  color: active
-                    ? "var(--text-primary)"
-                    : "var(--text-secondary)",
-                  backgroundColor: active
-                    ? "var(--accent-soft)"
-                    : "transparent",
+                  borderColor:
+                    activeTab === "today" ? "var(--accent)" : "transparent",
+                  color:
+                    activeTab === "today"
+                      ? "var(--text-primary)"
+                      : "var(--text-secondary)",
+                  backgroundColor:
+                    activeTab === "today"
+                      ? "var(--accent-soft)"
+                      : "transparent",
                 }}
               >
                 <span
-                  className="w-2 h-2 rounded-full shrink-0"
                   style={{
-                    backgroundColor: ct.color,
-                    opacity: active ? 1 : 0.75,
+                    color:
+                      activeTab === "today"
+                        ? "var(--accent)"
+                        : "var(--text-muted)",
                   }}
-                />
-                <span className={active ? "font-semibold" : ""}>{ct.name}</span>
+                >
+                  <Target className="w-3.5 h-3.5 shrink-0" />
+                </span>
+                <span className={activeTab === "today" ? "font-semibold" : ""}>
+                  Today
+                </span>
                 <span
                   className="font-mono tabular-nums text-[11px] opacity-75"
-                  style={{ color: active ? ct.color : "var(--text-muted)" }}
+                  style={{
+                    color:
+                      activeTab === "today"
+                        ? "var(--accent)"
+                        : "var(--text-muted)",
+                  }}
                 >
-                  {count}
+                  {anchors.length + xActiveTasks.length}
                 </span>
               </button>
-            );
-          })}
 
-          {/* + New Tab (styled like Library's "+ New Folder") */}
-          <button
-            type="button"
-            onClick={() =>
-              setTabModal({
-                mode: "create",
-                name: "",
-                color: TAB_COLORS[activeCustomTabs.length % TAB_COLORS.length],
-              })
-            }
-            className="h-8 ml-2 px-2.5 inline-flex items-center gap-1 text-xs font-medium rounded-lg shrink-0 whitespace-nowrap transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-            style={{ color: "var(--text-muted)" }}
-            title="New custom focus tab"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Tab</span>
-          </button>
-        </nav>
-      </header>
+              {/* Scratchpad */}
+              <button
+                type="button"
+                onClick={() => setActiveTab("scratchpad")}
+                className="h-10 px-3 inline-flex items-center gap-1.5 text-xs font-medium shrink-0 border-b-2 transition-colors whitespace-nowrap cursor-pointer"
+                style={{
+                  borderColor:
+                    activeTab === "scratchpad"
+                      ? "var(--accent)"
+                      : "transparent",
+                  color:
+                    activeTab === "scratchpad"
+                      ? "var(--text-primary)"
+                      : "var(--text-secondary)",
+                  backgroundColor:
+                    activeTab === "scratchpad"
+                      ? "var(--accent-soft)"
+                      : "transparent",
+                }}
+              >
+                <span
+                  style={{
+                    color:
+                      activeTab === "scratchpad"
+                        ? "var(--accent)"
+                        : "var(--text-muted)",
+                  }}
+                >
+                  <StickyNote className="w-3.5 h-3.5 shrink-0" />
+                </span>
+                <span
+                  className={
+                    activeTab === "scratchpad" ? "font-semibold" : ""
+                  }
+                >
+                  Scratchpad
+                </span>
+                <span
+                  className="font-mono tabular-nums text-[11px] opacity-75"
+                  style={{
+                    color:
+                      activeTab === "scratchpad"
+                        ? "var(--accent)"
+                        : "var(--text-muted)",
+                  }}
+                >
+                  {scratchpads.length}
+                </span>
+              </button>
 
-      <section className="max-sm:px-4">
-        {/* ================= TODAY TAB ================= */}
-        {activeTab === "today" && (
-          <div className="space-y-8">
-            {/* 1. ANCHORS | DAILY SCHEDULE */}
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Clock
-                    className="w-4 h-4"
-                    style={{ color: "var(--accent)" }}
-                  />
-                  <h2 className="font-display text-sm font-bold tracking-tight">
-                    Anchors | Daily Schedule
-                  </h2>
-                  <span
-                    className="text-xs font-mono tabular-nums"
-                    style={{ color: "var(--text-muted)" }}
+              {/* Custom tabs */}
+              {activeCustomTabs.map((ct) => {
+                const active = activeTab === ct.id;
+                const count = activeEntries.filter(
+                  (e) =>
+                    e.source === "custom-tab" &&
+                    e.tabId === ct.id &&
+                    !e.completed,
+                ).length;
+                return (
+                  <button
+                    key={ct.id}
+                    type="button"
+                    onClick={() => setActiveTab(ct.id)}
+                    className="h-10 px-3 inline-flex items-center gap-1.5 text-xs font-medium shrink-0 border-b-2 transition-colors whitespace-nowrap cursor-pointer"
+                    style={{
+                      borderColor: active ? ct.color : "transparent",
+                      color: active
+                        ? "var(--text-primary)"
+                        : "var(--text-secondary)",
+                      backgroundColor: active
+                        ? "var(--accent-soft)"
+                        : "transparent",
+                    }}
                   >
-                    {anchors.length}
-                  </span>
-                </div>
-                <span
-                  className="text-[11px]"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  Focus-only commitments
-                </span>
-              </div>
-
-              <NlpInputBar
-                placeholder='Add anchor (e.g., "Standup in 30 mins", "Board meeting at 2pm")...'
-                onSubmit={(raw) => addFocusItem("anchor", raw)}
-                baseDateKey={todayKey}
-                submitLabel="Anchor"
-                showTimeblockTip={false}
-              />
-
-              {anchors.length > 0 && (
-                <div
-                  className="rounded-2xl border divide-y overflow-hidden"
-                  style={{
-                    backgroundColor: "var(--bg-surface)",
-                    borderColor: "var(--border-subtle)",
-                  }}
-                >
-                  {anchors.map((entry) => (
-                    <div
-                      key={entry.id}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        onOpenContextMenu({ kind: "entry", entry }, e);
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{
+                        backgroundColor: ct.color,
+                        opacity: active ? 1 : 0.75,
                       }}
-                      className="group flex items-start gap-3 px-3.5 py-3 transition-colors hover:bg-[var(--bg-surface-subtle)]"
-                      style={{ borderColor: "var(--border-subtle)" }}
+                    />
+                    <span className={active ? "font-semibold" : ""}>
+                      {ct.name}
+                    </span>
+                    <span
+                      className="font-mono tabular-nums text-[11px] opacity-75"
+                      style={{
+                        color: active ? ct.color : "var(--text-muted)",
+                      }}
                     >
-                      <button
-                        type="button"
-                        onClick={() => toggleEntryCompleted(entry.id)}
-                        className="mt-0.5 h-5 w-5 flex items-center justify-center rounded-full shrink-0 transition-colors"
-                        style={{ color: "var(--accent)" }}
-                        title="Complete anchor"
-                        aria-label={`Complete ${entry.title}`}
-                      >
-                        <Circle className="w-4.5 h-4.5" />
-                      </button>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
 
-                      <div className="flex-1 min-w-0 space-y-0.5">
-                        <InlineTitleEdit
-                          value={entry.title}
-                          allowMobileEdit
-                          onCommit={(nextTitle) =>
-                            updateEntry(entry.id, { title: nextTitle })
-                          }
-                          className="text-sm font-medium"
-                        />
-                        <div
-                          className="flex flex-wrap items-center gap-x-2 text-xs font-mono tabular-nums"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          {entry.scheduledAt && (
-                            <span style={{ color: "var(--accent)" }}>
-                              {formatTime(entry.scheduledAt, timeFormat)}
-                              {entry.endAt
-                                ? ` – ${formatTime(entry.endAt, timeFormat)}`
-                                : ""}
-                            </span>
-                          )}
-                          {entry.tags.length > 0 && (
-                            <span>
-                              {entry.tags.map((t) => `#${t}`).join(" ")}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+              {/* + Tab */}
+              <button
+                type="button"
+                onClick={() =>
+                  setTabModal({
+                    mode: "create",
+                    name: "",
+                    color:
+                      TAB_COLORS[activeCustomTabs.length % TAB_COLORS.length],
+                  })
+                }
+                className="h-8 ml-2 px-2.5 inline-flex items-center gap-1 text-xs font-medium rounded-lg shrink-0 whitespace-nowrap transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                style={{ color: "var(--text-muted)" }}
+                title="New custom focus tab"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Tab</span>
+              </button>
+            </nav>
 
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onOpenContextMenu({ kind: "entry", entry }, e);
-                        }}
-                        className="self-center h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0"
-                        style={{ color: "var(--text-muted)" }}
-                        aria-label="More actions"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+            {/* Mobile section filter pills (under tabs when Today is active) */}
+            {activeTab === "today" && (
+              <div
+                className="lg:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5"
+                role="tablist"
+                aria-label="Filter Today sections"
+              >
+                {(
+                  [
+                    { id: "all", label: "All" },
+                    {
+                      id: "anchors",
+                      label: `Anchors · ${anchors.length}`,
+                    },
+                    {
+                      id: "active",
+                      label: `Active · ${xActiveTasks.length}/${xLimit}`,
+                    },
+                    { id: "done", label: `Done · ${totalCompletedCount}` },
+                  ] as const
+                ).map((pill) => {
+                  const selected = mobileSection === pill.id;
+                  return (
+                    <button
+                      key={pill.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      onClick={() => setMobileSection(pill.id)}
+                      className="h-7 px-3 rounded-lg border text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                      style={{
+                        backgroundColor: selected
+                          ? "var(--accent-soft)"
+                          : "var(--bg-surface)",
+                        borderColor: selected
+                          ? "var(--accent)"
+                          : "var(--border-subtle)",
+                        color: selected
+                          ? "var(--accent)"
+                          : "var(--text-secondary)",
+                      }}
+                    >
+                      {pill.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </header>
 
-            {/* 2. X-ACTIVE MAX TASKS */}
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Target
-                    className="w-4 h-4"
-                    style={{ color: "var(--color-entity-blue)" }}
-                  />
-                  <h2 className="font-display text-sm font-bold tracking-tight">
-                    X-Active Max Tasks
-                  </h2>
-                </div>
-                <span
-                  className="px-2.5 py-0.5 rounded-full text-[11px] font-mono tabular-nums font-semibold"
-                  style={{
-                    backgroundColor: atXCapacity
-                      ? "rgba(220, 38, 38, 0.14)"
-                      : "var(--accent-soft)",
-                    color: atXCapacity ? "var(--danger)" : "var(--accent)",
-                  }}
-                >
-                  {xActiveTasks.length} / {xLimit} ACTIVE
-                </span>
+          {/* ================= TODAY TAB ================= */}
+          {activeTab === "today" && (
+            <div className="space-y-5">
+              {/* 1. Pinned Scratchpad Quick-Peek: always visible on desktop; on mobile in All when pinned stickies exist */}
+              <div
+                className={
+                  mobileSection === "all" && pinnedScratchpads.length > 0
+                    ? "block"
+                    : "hidden lg:block"
+                }
+              >
+                <PinnedScratchpadRail
+                  pinnedCards={pinnedScratchpads}
+                  isDark={isDark}
+                  onUpdateScratchpad={updateScratchpad}
+                  onPromoteToXActive={handlePromoteScratchpadToXActive}
+                  onPromoteToTimeline={sendScratchpadToTimeline}
+                  onOpenScratchpadTab={() => setActiveTab("scratchpad")}
+                  onQuickAddPinned={handleQuickAddPinned}
+                />
               </div>
 
-              <NlpInputBar
-                placeholder="Add active task (hidden from Timeline until completed)..."
-                disabled={atXCapacity}
-                disabledHint={`At ${xLimit}-task active capacity — finish one to unlock`}
-                onSubmit={(raw) => addFocusItem("x-active", raw)}
-                baseDateKey={todayKey}
-                submitLabel="Queue"
-                showTimeblockTip={false}
-              />
-
-              {xActiveTasks.length > 0 ? (
-                <div
-                  className="rounded-2xl border divide-y overflow-hidden"
-                  style={{
-                    backgroundColor: "var(--bg-surface)",
-                    borderColor: "var(--border-subtle)",
+              {/* 2. Now Focusing Spotlight Banner (only when an item is pinned) */}
+              {focusedEntry && (
+                <FocusSpotlightBanner
+                  entry={focusedEntry}
+                  timeFormat={timeFormat}
+                  onCompleteItem={(id) => {
+                    toggleEntryCompleted(id);
+                    setFocusedEntryId(null);
                   }}
-                >
-                  {xActiveTasks.map((entry) => {
-                    const isBeingDragged = draggingXId === entry.id;
-                    const isDropTarget = xDropTarget?.entryId === entry.id;
-                    const hasTags = entry.tags.length > 0;
+                  onExitSpotlight={() => setFocusedEntryId(null)}
+                  onOpenDetail={(entry) =>
+                    onOpenDetail({ mode: "task", id: entry.id })
+                  }
+                  onTimerCompleteToast={(title) =>
+                    pushToast(`Focus timer complete: ${title}`, "success")
+                  }
+                  audioPlayback={audioPlayback}
+                  streamerPlayback={streamerPlayback}
+                  onToggleAudioPlayback={onToggleAudioPlayback}
+                  onToggleStreamerPlayback={onToggleStreamerPlayback}
+                  onNavigateView={onNavigateView}
+                />
+              )}
 
-                    return (
-                      <div
-                        key={entry.id}
-                        ref={(el) => {
-                          if (el) xRowRefs.current.set(entry.id, el);
-                          else xRowRefs.current.delete(entry.id);
-                        }}
-                        draggable={xActiveTasks.length > 1}
-                        onDragStart={(e) => {
-                          if (
-                            e.target instanceof HTMLElement &&
-                            e.target.closest("input, textarea")
-                          ) {
-                            e.preventDefault();
-                            return;
-                          }
-                          e.dataTransfer.setData(
-                            "application/x-kanso-xactive-id",
-                            entry.id,
-                          );
-                          e.dataTransfer.effectAllowed = "move";
-                          activeDragXIdRef.current = entry.id;
-                          setDraggingXId(entry.id);
-                        }}
-                        onDragEnd={clearXDragState}
-                        onDragOver={(e) => {
-                          if (
-                            !e.dataTransfer.types.includes(
-                              "application/x-kanso-xactive-id",
-                            )
-                          ) {
-                            return;
-                          }
-                          if (activeDragXIdRef.current === entry.id) return;
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = "move";
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const position: "before" | "after" =
-                            e.clientY < rect.top + rect.height / 2
-                              ? "before"
-                              : "after";
-                          setXDropTarget((prev) =>
-                            prev?.entryId === entry.id &&
-                            prev.position === position
-                              ? prev
-                              : { entryId: entry.id, position },
-                          );
-                        }}
-                        onDragLeave={(e) => {
-                          if (
-                            !e.currentTarget.contains(e.relatedTarget as Node)
-                          ) {
-                            setXDropTarget((prev) =>
-                              prev?.entryId === entry.id ? null : prev,
-                            );
-                          }
-                        }}
-                        onDrop={(e) => {
-                          if (
-                            !e.dataTransfer.types.includes(
-                              "application/x-kanso-xactive-id",
-                            )
-                          ) {
-                            return;
-                          }
-                          const draggedId =
-                            e.dataTransfer.getData(
-                              "application/x-kanso-xactive-id",
-                            ) || activeDragXIdRef.current;
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const position: "before" | "after" =
-                            e.clientY < rect.top + rect.height / 2
-                              ? "before"
-                              : "after";
-                          clearXDragState();
-                          if (!draggedId || draggedId === entry.id) return;
-                          e.preventDefault();
-                          handleReorderXActive(draggedId, entry.id, position);
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          onOpenContextMenu({ kind: "entry", entry }, e);
-                        }}
-                        className={`relative group flex items-center gap-2.5 px-3.5 ${
-                          hasTags ? "py-3" : "py-2"
-                        } transition-colors hover:bg-[var(--bg-surface-subtle)] ${
-                          isBeingDragged
-                            ? "opacity-45 bg-[var(--accent-soft)]"
-                            : ""
-                        }`}
-                        style={{
-                          borderColor: "var(--border-subtle)",
-                          boxShadow: isDropTarget
-                            ? xDropTarget.position === "before"
-                              ? "inset 0 2.5px 0 var(--accent)"
-                              : "inset 0 -2.5px 0 var(--accent)"
-                            : undefined,
-                        }}
-                      >
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          aria-label={`Reorder ${entry.title}`}
-                          title="Drag to reorder"
-                          onClick={(e) => e.stopPropagation()}
-                          onPointerDown={(e) => {
-                            if (e.pointerType === "mouse") return;
-                            if (xActiveTasks.length <= 1) return;
-                            e.stopPropagation();
-                            e.currentTarget.setPointerCapture(e.pointerId);
-                            activeDragXIdRef.current = entry.id;
-                            setDraggingXId(entry.id);
-                            setXDropTarget(null);
-                          }}
-                          onPointerMove={(e) => {
-                            if (
-                              e.pointerType === "mouse" ||
-                              draggingXId !== entry.id
-                            ) {
-                              return;
-                            }
-                            setXDropTarget(
-                              resolveXTouchDrop(e.clientY, entry.id),
-                            );
-                          }}
-                          onPointerUp={(e) => {
-                            if (e.pointerType === "mouse") return;
-                            e.stopPropagation();
-                            if (draggingXId === entry.id) {
-                              const resolved =
-                                resolveXTouchDrop(e.clientY, entry.id) ??
-                                xDropTarget;
-                              clearXDragState();
-                              if (resolved && resolved.entryId !== entry.id) {
-                                handleReorderXActive(
-                                  entry.id,
-                                  resolved.entryId,
-                                  resolved.position,
-                                );
-                              }
-                            } else {
-                              clearXDragState();
-                            }
-                          }}
-                          onPointerCancel={clearXDragState}
-                          className="touch-none select-none w-6 h-6 -ml-1.5 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
-                        >
-                          <GripVertical className="w-3.5 h-3.5" />
-                        </div>
+              {/* 3. Desktop Unified Smart Capture Bar spanning both columns */}
+              <div className="hidden lg:block">
+                <FocusCaptureBar
+                  customTabs={activeCustomTabs}
+                  baseDateKey={todayKey}
+                  xActiveCount={xActiveTasks.length}
+                  xLimit={xLimit}
+                  availableTags={allTags}
+                  bucket={captureBucket}
+                  onBucketChange={setCaptureBucket}
+                  onSubmitItem={handleCaptureSubmit}
+                  previewPosition="bottom"
+                  prefillSeed={capturePrefill}
+                />
+              </div>
 
-                        <button
-                          type="button"
-                          onClick={() => toggleEntryCompleted(entry.id)}
-                          className="h-5 w-5 flex items-center justify-center rounded-full shrink-0 transition-colors"
-                          style={{ color: "var(--text-muted)" }}
-                          title="Mark complete"
-                          aria-label={`Complete ${entry.title}`}
-                        >
-                          <Circle className="w-4.5 h-4.5" />
-                        </button>
-
-                        <div className="flex-1 min-w-0 space-y-0.5">
-                          <InlineTitleEdit
-                            value={entry.title}
-                            allowMobileEdit
-                            onCommit={(nextTitle) =>
-                              updateEntry(entry.id, { title: nextTitle })
-                            }
-                            className="text-sm font-medium"
+              {/* Two-column cockpit on desktop, stacked on mobile */}
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_minmax(330px,0.85fr)] gap-6 items-start">
+                {/* LEFT COLUMN: X-Active Max Tasks + Collapsible Completed Card */}
+                <div className="space-y-6 min-w-0">
+                  {/* 1. X-ACTIVE MAX TASKS */}
+                  {showActiveSection && (
+                    <section className="space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Target
+                            className="w-4 h-4 shrink-0"
+                            style={{ color: "var(--accent)" }}
                           />
-                          {(entry.scheduledAt || hasTags) && (
-                            <div
-                              className="flex flex-wrap items-center gap-x-2 text-xs font-mono tabular-nums"
-                              style={{ color: "var(--text-muted)" }}
-                            >
-                              {entry.scheduledAt && (
-                                <span>
-                                  {formatTime(entry.scheduledAt, timeFormat)}
-                                </span>
-                              )}
-                              {hasTags && (
-                                <span>
-                                  {entry.tags.map((t) => `#${t}`).join(" ")}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          <h2 className="font-display text-sm font-bold tracking-tight truncate">
+                            X-Active Max Tasks
+                          </h2>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenContextMenu({ kind: "entry", entry }, e);
-                          }}
-                          className={`${
-                            hasTags ? "h-8 w-8" : "h-7 w-7"
-                          } flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0`}
-                          style={{ color: "var(--text-muted)" }}
-                          aria-label="More actions"
-                        >
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div
-                  className="rounded-2xl border border-dashed px-4 py-6 text-center text-xs"
-                  style={{
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--text-muted)",
-                  }}
-                >
-                  No active tasks queued. Add up to {xLimit} focused tasks
-                  above.
-                </div>
-              )}
-            </section>
-
-            {/* 3. COMPLETED (ANCHORS & ACTIVE WORK) + LOG DONE */}
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2
-                    className="w-4 h-4"
-                    style={{ color: "var(--success)" }}
-                  />
-                  <h2 className="font-display text-sm font-bold tracking-tight">
-                    Completed (Anchors &amp; Active Work)
-                  </h2>
-                </div>
-              </div>
-
-              <NlpInputBar
-                placeholder='Log Done (e.g., "Fixed OAuth redirect bug at 10am")...'
-                onSubmit={(raw) => addFocusItem("completed", raw)}
-                baseDateKey={todayKey}
-                submitLabel="Log Done"
-                showTimeblockTip={false}
-              />
-
-              {completedByDay.length > 0 && (
-                <div className="space-y-2.5">
-                  {completedByDay.map(({ dayKey, items }) => {
-                    const collapsed = Boolean(collapsedDays[dayKey]);
-                    return (
-                      <div
-                        key={dayKey}
-                        className="rounded-2xl border overflow-hidden"
-                        style={{
-                          backgroundColor: "var(--bg-surface)",
-                          borderColor: "var(--border-subtle)",
-                        }}
-                      >
-                        {/* Collapsible Day Strip */}
-                        <div
-                          className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b"
-                          style={{
-                            backgroundColor: "var(--bg-surface-subtle)",
-                            borderColor: collapsed
-                              ? "transparent"
-                              : "var(--border-subtle)",
-                          }}
-                        >
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCollapsedDays((prev) => ({
-                                ...prev,
-                                [dayKey]: !prev[dayKey],
-                              }))
-                            }
-                            className="flex items-center gap-2 text-xs font-semibold min-w-0"
-                            style={{ color: "var(--text-secondary)" }}
-                          >
-                            {collapsed ? (
-                              <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-                            ) : (
-                              <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                            )}
-                            <span>{formatCompactDayHeading(dayKey)}</span>
-                            <span
-                              className="font-mono tabular-nums"
-                              style={{ color: "var(--text-muted)" }}
-                            >
-                              · {items.length}
-                            </span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => clearFocusDayFromView(dayKey)}
-                            className="px-2 py-1 rounded-md text-[11px] font-medium transition-colors hover:bg-[rgba(217,119,6,0.14)] hover:text-[var(--warning)]"
-                            style={{ color: "var(--text-muted)" }}
-                            title="Removes from Focus View while keeping entries in Timeline"
-                          >
-                            Clear from Focus View
-                          </button>
-                        </div>
-
-                        {!collapsed && (
+                        {/* Thin segmented capacity bar + tabular counter */}
+                        <div className="flex items-center gap-2.5 shrink-0">
                           <div
-                            className="divide-y"
-                            style={{ borderColor: "var(--border-subtle)" }}
+                            className="flex items-center gap-1"
+                            aria-hidden="true"
                           >
-                            {items.map((entry) => {
-                              const isLog = entry.type === "log";
-                              const ts = entry.completedAt || entry.createdAt;
+                            {Array.from({ length: xLimit }).map((_, idx) => {
+                              const filled = idx < xActiveTasks.length;
                               return (
-                                <div
-                                  key={entry.id}
-                                  onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    onOpenContextMenu(
-                                      { kind: "entry", entry },
-                                      e,
-                                    );
-                                  }}
-                                  onClick={() =>
-                                    onOpenDetail({
-                                      mode: isLog ? "log" : "task",
-                                      id: entry.id,
-                                    })
-                                  }
-                                  className="group flex items-center gap-3 px-3.5 py-2.5 cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]"
+                                <span
+                                  key={idx}
+                                  className="h-1.5 w-4 rounded-full transition-colors"
                                   style={{
-                                    borderColor: "var(--border-subtle)",
+                                    backgroundColor: filled
+                                      ? atXCapacity
+                                        ? "var(--warning)"
+                                        : "var(--accent)"
+                                      : "var(--border-strong)",
+                                    opacity: filled ? 1 : 0.45,
                                   }}
-                                >
-                                  {isLog ? (
-                                    <span
-                                      className="h-5 w-5 flex items-center justify-center shrink-0"
-                                      aria-hidden="true"
-                                    >
-                                      <span
-                                        className="w-2.5 h-2.5 rounded-full"
-                                        style={{
-                                          backgroundColor: "var(--accent)",
-                                        }}
-                                      />
-                                    </span>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        toggleEntryCompleted(entry.id);
-                                      }}
-                                      className="h-5 w-5 flex items-center justify-center rounded-full shrink-0"
-                                      style={{ color: "var(--success)" }}
-                                      title="Reopen task"
-                                      aria-label={`Reopen ${entry.title}`}
-                                    >
-                                      <CheckCircle2 className="w-4.5 h-4.5" />
-                                    </button>
-                                  )}
+                                />
+                              );
+                            })}
+                          </div>
+                          <span
+                            className="text-xs font-mono tabular-nums font-semibold"
+                            style={{
+                              color: atXCapacity
+                                ? "var(--warning)"
+                                : "var(--text-secondary)",
+                            }}
+                          >
+                            {xActiveTasks.length}/{xLimit}
+                          </span>
+                        </div>
+                      </div>
 
-                                  <div className="flex-1 min-w-0 flex flex-wrap items-baseline gap-x-2">
-                                    <span
-                                      className={`text-sm truncate ${
-                                        isLog ? "" : "line-through"
-                                      }`}
-                                      style={{
-                                        color: isLog
-                                          ? "var(--text-secondary)"
-                                          : "var(--text-muted)",
-                                      }}
-                                    >
-                                      {entry.title}
-                                    </span>
-                                    <span
-                                      className="text-[11px] font-mono tabular-nums shrink-0"
-                                      style={{
-                                        color: isLog
-                                          ? "var(--text-secondary)"
-                                          : "var(--success)",
-                                      }}
-                                    >
-                                      {isLog
-                                        ? `At ${formatTime(ts, timeFormat)}`
-                                        : `Done ${formatTime(ts, timeFormat)}`}
-                                    </span>
+                      {xActiveTasks.length > 0 ? (
+                        <div
+                          className="rounded-2xl border divide-y overflow-hidden"
+                          style={{
+                            backgroundColor: "var(--bg-surface)",
+                            borderColor: "var(--border-subtle)",
+                          }}
+                        >
+                          {xActiveTasks.map((entry, idx) => {
+                            const isBeingDragged = draggingXId === entry.id;
+                            const isDropTarget =
+                              xDropTarget?.entryId === entry.id;
+                            const isFocused = focusedEntryId === entry.id;
+                            const hasTags = entry.tags.length > 0;
+                            const slotLabel = String(idx + 1).padStart(2, "0");
+
+                            return (
+                              <div
+                                key={entry.id}
+                                ref={(el) => {
+                                  if (el) xRowRefs.current.set(entry.id, el);
+                                  else xRowRefs.current.delete(entry.id);
+                                }}
+                                draggable={xActiveTasks.length > 1}
+                                onDoubleClick={() =>
+                                  onOpenDetail({ mode: "task", id: entry.id })
+                                }
+                                onDragStart={(e) => {
+                                  if (
+                                    e.target instanceof HTMLElement &&
+                                    e.target.closest("input, textarea")
+                                  ) {
+                                    e.preventDefault();
+                                    return;
+                                  }
+                                  e.dataTransfer.setData(
+                                    "application/x-kanso-xactive-id",
+                                    entry.id,
+                                  );
+                                  e.dataTransfer.effectAllowed = "move";
+                                  activeDragXIdRef.current = entry.id;
+                                  setDraggingXId(entry.id);
+                                }}
+                                onDragEnd={clearXDragState}
+                                onDragOver={(e) => {
+                                  if (
+                                    !e.dataTransfer.types.includes(
+                                      "application/x-kanso-xactive-id",
+                                    )
+                                  ) {
+                                    return;
+                                  }
+                                  if (activeDragXIdRef.current === entry.id) {
+                                    return;
+                                  }
+                                  e.preventDefault();
+                                  e.dataTransfer.dropEffect = "move";
+                                  const rect =
+                                    e.currentTarget.getBoundingClientRect();
+                                  const position: "before" | "after" =
+                                    e.clientY < rect.top + rect.height / 2
+                                      ? "before"
+                                      : "after";
+                                  setXDropTarget((prev) =>
+                                    prev?.entryId === entry.id &&
+                                    prev.position === position
+                                      ? prev
+                                      : { entryId: entry.id, position },
+                                  );
+                                }}
+                                onDragLeave={(e) => {
+                                  if (
+                                    !e.currentTarget.contains(
+                                      e.relatedTarget as Node,
+                                    )
+                                  ) {
+                                    setXDropTarget((prev) =>
+                                      prev?.entryId === entry.id ? null : prev,
+                                    );
+                                  }
+                                }}
+                                onDrop={(e) => {
+                                  if (
+                                    !e.dataTransfer.types.includes(
+                                      "application/x-kanso-xactive-id",
+                                    )
+                                  ) {
+                                    return;
+                                  }
+                                  const draggedId =
+                                    e.dataTransfer.getData(
+                                      "application/x-kanso-xactive-id",
+                                    ) || activeDragXIdRef.current;
+                                  const rect =
+                                    e.currentTarget.getBoundingClientRect();
+                                  const position: "before" | "after" =
+                                    e.clientY < rect.top + rect.height / 2
+                                      ? "before"
+                                      : "after";
+                                  clearXDragState();
+                                  if (!draggedId || draggedId === entry.id) {
+                                    return;
+                                  }
+                                  e.preventDefault();
+                                  handleReorderXActive(
+                                    draggedId,
+                                    entry.id,
+                                    position,
+                                  );
+                                }}
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  onOpenContextMenu(
+                                    { kind: "entry", entry },
+                                    e,
+                                  );
+                                }}
+                                className={`relative group flex items-center gap-2.5 px-3.5 ${
+                                  hasTags || entry.scheduledAt ? "py-3" : "py-2.5"
+                                } transition-colors hover:bg-[var(--bg-surface-subtle)] ${
+                                  isBeingDragged
+                                    ? "opacity-45 bg-[var(--accent-soft)]"
+                                    : ""
+                                }`}
+                                style={{
+                                  borderColor: "var(--border-subtle)",
+                                  backgroundColor: isFocused
+                                    ? "var(--accent-soft)"
+                                    : undefined,
+                                  boxShadow: isDropTarget
+                                    ? xDropTarget.position === "before"
+                                      ? "inset 0 2.5px 0 var(--accent)"
+                                      : "inset 0 -2.5px 0 var(--accent)"
+                                    : undefined,
+                                }}
+                              >
+                                {/* Drag grip + Numbered Slot 01, 02, 03 */}
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <div
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`Reorder ${entry.title}`}
+                                    title="Drag to reorder"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onPointerDown={(e) => {
+                                      if (e.pointerType === "mouse") return;
+                                      if (xActiveTasks.length <= 1) return;
+                                      e.stopPropagation();
+                                      e.currentTarget.setPointerCapture(
+                                        e.pointerId,
+                                      );
+                                      activeDragXIdRef.current = entry.id;
+                                      setDraggingXId(entry.id);
+                                      setXDropTarget(null);
+                                    }}
+                                    onPointerMove={(e) => {
+                                      if (
+                                        e.pointerType === "mouse" ||
+                                        draggingXId !== entry.id
+                                      ) {
+                                        return;
+                                      }
+                                      setXDropTarget(
+                                        resolveXTouchDrop(e.clientY, entry.id),
+                                      );
+                                    }}
+                                    onPointerUp={(e) => {
+                                      if (e.pointerType === "mouse") return;
+                                      e.stopPropagation();
+                                      if (draggingXId === entry.id) {
+                                        const resolved =
+                                          resolveXTouchDrop(
+                                            e.clientY,
+                                            entry.id,
+                                          ) ?? xDropTarget;
+                                        clearXDragState();
+                                        if (
+                                          resolved &&
+                                          resolved.entryId !== entry.id
+                                        ) {
+                                          handleReorderXActive(
+                                            entry.id,
+                                            resolved.entryId,
+                                            resolved.position,
+                                          );
+                                        }
+                                      } else {
+                                        clearXDragState();
+                                      }
+                                    }}
+                                    onPointerCancel={clearXDragState}
+                                    className="touch-none select-none w-5 h-6 -ml-1 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] active:text-[var(--accent)] cursor-grab active:cursor-grabbing shrink-0"
+                                  >
+                                    <GripVertical className="w-3.5 h-3.5" />
                                   </div>
+                                  <span
+                                    className="w-5 text-[11px] font-mono tabular-nums font-semibold"
+                                    style={{
+                                      color: isFocused
+                                        ? "var(--accent)"
+                                        : "var(--text-muted)",
+                                    }}
+                                  >
+                                    {slotLabel}
+                                  </span>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleEntryCompleted(entry.id);
+                                  }}
+                                  className="h-5 w-5 flex items-center justify-center rounded-full shrink-0 transition-colors cursor-pointer"
+                                  style={{ color: "var(--text-muted)" }}
+                                  title="Mark complete"
+                                  aria-label={`Complete ${entry.title}`}
+                                >
+                                  <Circle className="w-4.5 h-4.5" />
+                                </button>
+
+                                <div className="flex-1 min-w-0 space-y-0.5">
+                                  <InlineTitleEdit
+                                    value={entry.title}
+                                    allowMobileEdit
+                                    onCommit={(nextTitle) =>
+                                      updateEntry(entry.id, {
+                                        title: nextTitle,
+                                      })
+                                    }
+                                    className="text-sm font-medium"
+                                  />
+                                  {(entry.scheduledAt || hasTags) && (
+                                    <div
+                                      className="flex flex-wrap items-center gap-x-1.5 text-xs font-mono tabular-nums"
+                                      style={{ color: "var(--text-muted)" }}
+                                    >
+                                      {entry.scheduledAt && (
+                                        <span>
+                                          {formatTime(
+                                            entry.scheduledAt,
+                                            timeFormat,
+                                          )}
+                                        </span>
+                                      )}
+                                      {entry.scheduledAt && hasTags && (
+                                        <span aria-hidden="true">·</span>
+                                      )}
+                                      {hasTags && (
+                                        <span>
+                                          {entry.tags
+                                            .map((t) => `#${t}`)
+                                            .join(" ")}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Subtle Focus Play + Context Menu */}
+                                <div className="flex items-center gap-0.5 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setFocusedEntryId((prev) =>
+                                        prev === entry.id ? null : entry.id,
+                                      );
+                                    }}
+                                    className={`h-7 w-7 flex items-center justify-center rounded-md transition-all cursor-pointer ${
+                                      isFocused
+                                        ? "opacity-100"
+                                        : "sm:opacity-0 sm:group-hover:opacity-100"
+                                    }`}
+                                    style={{
+                                      backgroundColor: isFocused
+                                        ? "var(--accent-soft)"
+                                        : "transparent",
+                                      color: isFocused
+                                        ? "var(--accent)"
+                                        : "var(--text-muted)",
+                                    }}
+                                    title={
+                                      isFocused
+                                        ? "Exit spotlight"
+                                        : "Focus on this task"
+                                    }
+                                    aria-label={
+                                      isFocused
+                                        ? `Stop focusing on ${entry.title}`
+                                        : `Focus on ${entry.title}`
+                                    }
+                                  >
+                                    <Play className="w-3.5 h-3.5" />
+                                  </button>
 
                                   <button
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      deleteEntry(entry.id);
+                                      onOpenContextMenu(
+                                        { kind: "entry", entry },
+                                        e,
+                                      );
                                     }}
-                                    className="h-7 w-7 flex items-center justify-center rounded-md sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0 hover:bg-[var(--bg-surface)]"
-                                    style={{ color: "var(--danger)" }}
-                                    title="Delete everywhere"
-                                    aria-label="Delete everywhere"
+                                    className="h-7 w-7 flex items-center justify-center rounded-md sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                                    style={{ color: "var(--text-muted)" }}
+                                    aria-label="More actions"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <MoreVertical className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          </div>
-        )}
-
-        {/* ================= SCRATCHPAD TAB ================= */}
-        {activeTab === "scratchpad" && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                Quick-capture sticky cards. Pin to top or promote to a Timeline
-                note in one click.
-              </p>
-              <button
-                type="button"
-                onClick={() => addScratchpad(scratchpads.length % 5)}
-                className="h-9 px-3.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 shrink-0"
-                style={{
-                  backgroundColor: "var(--accent)",
-                  color: "var(--accent-fg)",
-                }}
-              >
-                <Plus className="w-4 h-4" />
-                <span>New Sticky</span>
-              </button>
-            </div>
-
-            {scratchpads.length === 0 ? (
-              <div
-                className="rounded-2xl border border-dashed py-12 px-4 text-center space-y-2"
-                style={{
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-muted)",
-                }}
-              >
-                <StickyNote className="w-7 h-7 mx-auto opacity-50" />
-                <p className="text-sm font-medium">Scratchpad is clear</p>
-                <p className="text-xs">
-                  Jot down transient thoughts, drafts, or meeting snippets.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                {scratchpads.map((card) => {
-                  const pal = palette[card.paletteIndex % palette.length];
-                  return (
-                    <div
-                      key={card.id}
-                      className="rounded-2xl border p-3.5 flex flex-col gap-3 min-h-[180px] transition-colors"
-                      style={{
-                        backgroundColor: pal.bg,
-                        borderColor: pal.border,
-                        color: pal.text,
-                      }}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        {/* 5 Palette Swatches */}
-                        <div className="flex items-center gap-1.5">
-                          {palette.map((sw, idx) => (
-                            <button
-                              key={idx}
-                              type="button"
-                              onClick={() =>
-                                updateScratchpad(card.id, { paletteIndex: idx })
-                              }
-                              className="w-4 h-4 rounded-full border transition-transform"
-                              style={{
-                                backgroundColor: sw.border,
-                                borderColor:
-                                  card.paletteIndex === idx
-                                    ? pal.text
-                                    : "transparent",
-                                transform:
-                                  card.paletteIndex === idx
-                                    ? "scale(1.15)"
-                                    : "scale(1)",
-                              }}
-                              aria-label={`Palette ${idx + 1}`}
-                            />
-                          ))}
+                              </div>
+                            );
+                          })}
                         </div>
-
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateScratchpad(card.id, {
-                                pinned: !card.pinned,
-                              })
-                            }
-                            className="h-7 w-7 flex items-center justify-center rounded-md transition-opacity"
-                            style={{ opacity: card.pinned ? 1 : 0.55 }}
-                            title={card.pinned ? "Unpin" : "Pin to top"}
-                            aria-label="Toggle pin"
-                          >
-                            <Pin className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteScratchpad(card.id)}
-                            className="h-7 w-7 flex items-center justify-center rounded-md opacity-60 hover:opacity-100"
-                            title="Delete card"
-                            aria-label="Delete sticky"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      <textarea
-                        value={card.content}
-                        onChange={(e) =>
-                          updateScratchpad(card.id, { content: e.target.value })
-                        }
-                        placeholder="Write a quick note..."
-                        className="flex-1 w-full bg-transparent resize-none outline-none text-sm leading-relaxed placeholder:opacity-50"
-                        style={{ color: pal.text }}
-                      />
-
-                      <div className="flex items-center justify-between pt-2 border-t border-black/10 dark:border-white/10">
-                        <span className="text-[10px] font-mono opacity-65">
-                          {formatTime(card.updatedAt, timeFormat)}
-                        </span>
-                        <button
-                          type="button"
-                          disabled={!card.content.trim()}
-                          onClick={() => sendScratchpadToTimeline(card.id)}
-                          className="h-7 px-2.5 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 transition-opacity disabled:opacity-35 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15"
-                        >
-                          <Send className="w-3 h-3" />
-                          <span>Send to Timeline</span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ================= CUSTOM FOCUS TAB ================= */}
-        {currentCustomTab && (
-          <div className="space-y-5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <span
-                  className="w-3 h-3 rounded-full shrink-0"
-                  style={{ backgroundColor: currentCustomTab.color }}
-                />
-                <h2 className="font-display text-base font-bold">
-                  {currentCustomTab.name}
-                </h2>
-                <span
-                  className="text-xs font-mono tabular-nums"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {customTabTasks.active.length} active
-                </span>
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setTabModal({
-                      mode: "edit",
-                      tab: currentCustomTab,
-                      name: currentCustomTab.name,
-                      color: currentCustomTab.color,
-                    })
-                  }
-                  className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1"
-                  style={{
-                    backgroundColor: "var(--bg-surface)",
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--text-secondary)",
-                  }}
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                  <span>Edit</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => deleteCustomTab(currentCustomTab.id)}
-                  className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1"
-                  style={{
-                    backgroundColor: "var(--bg-surface)",
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--danger)",
-                  }}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Delete</span>
-                </button>
-              </div>
-            </div>
-
-            <NlpInputBar
-              placeholder={`Add task to ${currentCustomTab.name} (surfaces in Timeline when completed)...`}
-              onSubmit={(raw) =>
-                addFocusItem("custom-tab", raw, currentCustomTab.id)
-              }
-              baseDateKey={todayKey}
-              submitLabel="Add"
-              showTimeblockTip={false}
-            />
-
-            {/* Active queue */}
-            {customTabTasks.active.length > 0 ? (
-              <div
-                className="rounded-2xl border divide-y overflow-hidden"
-                style={{
-                  backgroundColor: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
-                }}
-              >
-                {customTabTasks.active.map((entry) => (
-                  <div
-                    key={entry.id}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      onOpenContextMenu({ kind: "entry", entry }, e);
-                    }}
-                    className="group flex items-start gap-3 px-3.5 py-3 hover:bg-[var(--bg-surface-subtle)]"
-                    style={{ borderColor: "var(--border-subtle)" }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => toggleEntryCompleted(entry.id)}
-                      className="mt-0.5 h-5 w-5 flex items-center justify-center rounded-full shrink-0"
-                      style={{ color: currentCustomTab.color }}
-                      aria-label={`Complete ${entry.title}`}
-                    >
-                      <Circle className="w-4.5 h-4.5" />
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <InlineTitleEdit
-                        value={entry.title}
-                        allowMobileEdit
-                        onCommit={(nextTitle) =>
-                          updateEntry(entry.id, { title: nextTitle })
-                        }
-                        className="text-sm font-medium"
-                      />
-                      {entry.tags.length > 0 && (
+                      ) : (
                         <div
-                          className="text-xs font-mono mt-0.5"
-                          style={{ color: "var(--text-muted)" }}
+                          className="rounded-2xl border border-dashed px-4 py-6 text-center text-xs"
+                          style={{
+                            borderColor: "var(--border-subtle)",
+                            color: "var(--text-muted)",
+                          }}
                         >
-                          {entry.tags.map((t) => `#${t}`).join(" ")}
+                          No active tasks queued. Add up to {xLimit} focused
+                          tasks using the capture bar.
                         </div>
                       )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenContextMenu({ kind: "entry", entry }, e);
-                      }}
-                      className="self-center h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
-                      style={{ color: "var(--text-muted)" }}
-                      aria-label="More actions"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div
-                className="rounded-2xl border border-dashed py-8 px-4 text-center text-xs"
-                style={{
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-muted)",
-                }}
-              >
-                No pending tasks in {currentCustomTab.name}.
-              </div>
-            )}
+                    </section>
+                  )}
 
-            {/* Completed tasks in this custom tab */}
-            {customTabTasks.completed.length > 0 && (
-              <div className="space-y-2">
-                <div
-                  className="text-xs font-semibold"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  Completed ({customTabTasks.completed.length})
-                </div>
-                <div
-                  className="rounded-2xl border divide-y overflow-hidden"
-                  style={{
-                    backgroundColor: "var(--bg-surface)",
-                    borderColor: "var(--border-subtle)",
-                  }}
-                >
-                  {customTabTasks.completed.map((entry) => (
-                    <div
-                      key={entry.id}
-                      onClick={() =>
-                        onOpenDetail({ mode: "task", id: entry.id })
-                      }
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        onOpenContextMenu({ kind: "entry", entry }, e);
+                  {/* 2. COLLAPSIBLE COMPLETED CARD BELOW X-ACTIVE */}
+                  {showDoneSection && (
+                    <section
+                      className="rounded-2xl border overflow-hidden"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
                       }}
-                      className="flex items-center gap-3 px-3.5 py-2.5 cursor-pointer hover:bg-[var(--bg-surface-subtle)]"
-                      style={{ borderColor: "var(--border-subtle)" }}
                     >
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleEntryCompleted(entry.id);
-                        }}
-                        className="h-5 w-5 flex items-center justify-center shrink-0"
-                        style={{ color: "var(--success)" }}
-                        aria-label="Reopen task"
+                        onClick={() => setCompletedPanelOpen((o) => !o)}
+                        className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                        aria-expanded={completedPanelOpen}
                       >
-                        <CheckCircle2 className="w-4.5 h-4.5" />
+                        <div className="flex items-center gap-2 min-w-0">
+                          <CheckCircle2
+                            className="w-4 h-4 shrink-0"
+                            style={{ color: "var(--success)" }}
+                          />
+                          <h2 className="font-display text-sm font-bold tracking-tight truncate">
+                            Completed (Anchors &amp; Active Work)
+                          </h2>
+                          <span
+                            className="text-xs font-mono tabular-nums shrink-0"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            {totalCompletedCount}
+                          </span>
+                        </div>
+                        {completedPanelOpen ? (
+                          <ChevronDown
+                            className="w-4 h-4 shrink-0"
+                            style={{ color: "var(--text-muted)" }}
+                          />
+                        ) : (
+                          <ChevronRight
+                            className="w-4 h-4 shrink-0"
+                            style={{ color: "var(--text-muted)" }}
+                          />
+                        )}
                       </button>
-                      <span
-                        className="text-sm line-through truncate flex-1"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        {entry.title}
-                      </span>
-                      {entry.completedAt && (
-                        <span
-                          className="text-[11px] font-mono tabular-nums"
-                          style={{ color: "var(--success)" }}
+
+                      {completedPanelOpen && (
+                        <div
+                          className="border-t p-3 space-y-2.5"
+                          style={{ borderColor: "var(--border-subtle)" }}
                         >
-                          Done {formatTime(entry.completedAt, timeFormat)}
-                        </span>
+                          {completedByDay.length === 0 ? (
+                            <p
+                              className="py-3 text-center text-xs"
+                              style={{ color: "var(--text-muted)" }}
+                            >
+                              Completed anchors, finished tasks, and Done logs
+                              will gather here.
+                            </p>
+                          ) : (
+                            completedByDay.map(({ dayKey, items }) => {
+                              const collapsed = Boolean(collapsedDays[dayKey]);
+                              return (
+                                <div
+                                  key={dayKey}
+                                  className="rounded-xl border overflow-hidden"
+                                  style={{
+                                    backgroundColor: "var(--bg-surface)",
+                                    borderColor: "var(--border-subtle)",
+                                  }}
+                                >
+                                  {/* Collapsible Day Strip */}
+                                  <div
+                                    className="flex items-center justify-between gap-2 px-3 py-2 border-b"
+                                    style={{
+                                      backgroundColor:
+                                        "var(--bg-surface-subtle)",
+                                      borderColor: collapsed
+                                        ? "transparent"
+                                        : "var(--border-subtle)",
+                                    }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setCollapsedDays((prev) => ({
+                                          ...prev,
+                                          [dayKey]: !prev[dayKey],
+                                        }))
+                                      }
+                                      className="flex items-center gap-1.5 text-xs font-semibold min-w-0 cursor-pointer"
+                                      style={{ color: "var(--text-secondary)" }}
+                                    >
+                                      {collapsed ? (
+                                        <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                                      ) : (
+                                        <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                                      )}
+                                      <span>
+                                        {formatCompactDayHeading(dayKey)}
+                                      </span>
+                                      <span
+                                        className="font-mono tabular-nums"
+                                        style={{ color: "var(--text-muted)" }}
+                                      >
+                                        · {items.length}
+                                      </span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        clearFocusDayFromView(dayKey)
+                                      }
+                                      className="px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors hover:bg-[rgba(217,119,6,0.14)] hover:text-[var(--warning)] cursor-pointer"
+                                      style={{ color: "var(--text-muted)" }}
+                                      title="Removes from Focus View while keeping entries in Timeline"
+                                    >
+                                      Clear from Focus View
+                                    </button>
+                                  </div>
+
+                                  {!collapsed && (
+                                    <div
+                                      className="divide-y"
+                                      style={{
+                                        borderColor: "var(--border-subtle)",
+                                      }}
+                                    >
+                                      {items.map((entry) => {
+                                        const isLog = entry.type === "log";
+                                        const ts =
+                                          entry.completedAt || entry.createdAt;
+                                        return (
+                                          <div
+                                            key={entry.id}
+                                            onContextMenu={(e) => {
+                                              e.preventDefault();
+                                              onOpenContextMenu(
+                                                { kind: "entry", entry },
+                                                e,
+                                              );
+                                            }}
+                                            onClick={() =>
+                                              onOpenDetail({
+                                                mode: isLog ? "log" : "task",
+                                                id: entry.id,
+                                              })
+                                            }
+                                            className="group flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]"
+                                            style={{
+                                              borderColor:
+                                                "var(--border-subtle)",
+                                            }}
+                                          >
+                                            {isLog ? (
+                                              <span
+                                                className="h-5 w-5 flex items-center justify-center shrink-0"
+                                                aria-hidden="true"
+                                              >
+                                                <span
+                                                  className="w-2 h-2 rounded-full"
+                                                  style={{
+                                                    backgroundColor:
+                                                      "var(--accent)",
+                                                  }}
+                                                />
+                                              </span>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  toggleEntryCompleted(
+                                                    entry.id,
+                                                  );
+                                                }}
+                                                className="h-5 w-5 flex items-center justify-center rounded-full shrink-0 cursor-pointer"
+                                                style={{
+                                                  color: "var(--success)",
+                                                }}
+                                                title="Reopen task"
+                                                aria-label={`Reopen ${entry.title}`}
+                                              >
+                                                <CheckCircle2 className="w-4 h-4" />
+                                              </button>
+                                            )}
+
+                                            <div className="flex-1 min-w-0 flex flex-wrap items-baseline gap-x-2">
+                                              <span
+                                                className={`text-xs sm:text-sm truncate ${
+                                                  isLog ? "" : "line-through"
+                                                }`}
+                                                style={{
+                                                  color: isLog
+                                                    ? "var(--text-secondary)"
+                                                    : "var(--text-muted)",
+                                                }}
+                                              >
+                                                {entry.title}
+                                              </span>
+                                              <span
+                                                className="text-[11px] font-mono tabular-nums shrink-0"
+                                                style={{
+                                                  color: isLog
+                                                    ? "var(--text-secondary)"
+                                                    : "var(--success)",
+                                                }}
+                                              >
+                                                {isLog
+                                                  ? `At ${formatTime(ts, timeFormat)}`
+                                                  : `Done ${formatTime(ts, timeFormat)}`}
+                                              </span>
+                                            </div>
+
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                deleteEntry(entry.id);
+                                              }}
+                                              className="h-6 w-6 flex items-center justify-center rounded-md sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0 hover:bg-[var(--bg-surface)] cursor-pointer"
+                                              style={{ color: "var(--danger)" }}
+                                              title="Delete everywhere"
+                                              aria-label="Delete everywhere"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
                       )}
-                    </div>
-                  ))}
+                    </section>
+                  )}
+                </div>
+
+                {/* RIGHT RAIL: Daily Anchors */}
+                <div className="space-y-6 min-w-0">
+                  {showAnchorsSection && (
+                    <FocusAnchorsSection
+                      anchors={anchors}
+                      timeFormat={timeFormat}
+                      focusedEntryId={focusedEntryId}
+                      onToggleComplete={toggleEntryCompleted}
+                      onUpdateTitle={(entryId, nextTitle) =>
+                        updateEntry(entryId, { title: nextTitle })
+                      }
+                      onFocusEntry={(id) =>
+                        setFocusedEntryId((prev) => (prev === id ? null : id))
+                      }
+                      onOpenDetail={onOpenDetail}
+                      onOpenContextMenu={onOpenContextMenu}
+                      onPrefillAnchorHour={(hour24) => {
+                        setCapturePrefill({
+                          nonce: Date.now(),
+                          bucket: "anchor",
+                          text:
+                            hour24 !== null
+                              ? `at ${formatPrefillHour(hour24, timeFormat)} `
+                              : "",
+                        });
+                      }}
+                    />
+                  )}
                 </div>
               </div>
-            )}
-          </div>
-        )}
-      </section>
+            </div>
+          )}
+
+          {/* ================= SCRATCHPAD TAB ================= */}
+          {activeTab === "scratchpad" && (
+            <FocusScratchpadTab
+              scratchpads={scratchpads}
+              isDark={isDark}
+              timeFormat={timeFormat}
+              onAddScratchpad={(paletteIndex) => addScratchpad(paletteIndex)}
+              onUpdateScratchpad={updateScratchpad}
+              onDeleteScratchpad={deleteScratchpad}
+              onReorderScratchpads={reorderScratchpads}
+              onPromoteToTimeline={sendScratchpadToTimeline}
+              onPromoteToXActive={handlePromoteScratchpadToXActive}
+            />
+          )}
+
+          {/* ================= CUSTOM FOCUS TAB ================= */}
+          {currentCustomTab && (
+            <FocusCustomTab
+              tab={currentCustomTab}
+              activeEntries={customTabTasks.active}
+              completedEntries={customTabTasks.completed}
+              isDark={isDark}
+              todayKey={todayKey}
+              timeFormat={timeFormat}
+              availableTags={allTags}
+              onAddEntry={(raw) =>
+                addFocusItem("custom-tab", raw, currentCustomTab.id)
+              }
+              onUpdateEntry={updateEntry}
+              onToggleCompleted={toggleEntryCompleted}
+              onReorderEntries={reorderNoteEntries}
+              onMoveToXActive={handleMoveEntryToXActive}
+              onOpenDetail={onOpenDetail}
+              onOpenContextMenu={onOpenContextMenu}
+              onEditTab={() =>
+                setTabModal({
+                  mode: "edit",
+                  tab: currentCustomTab,
+                  name: currentCustomTab.name,
+                  color: currentCustomTab.color,
+                })
+              }
+              onDeleteTab={() => deleteCustomTab(currentCustomTab.id)}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Mobile-only Docked Bottom Capture Bar above mobile nav / keyboard */}
+      {activeTab === "today" && (
+        <div className="lg:hidden shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-canvas)] px-3 py-2">
+          <FocusCaptureBar
+            customTabs={activeCustomTabs}
+            baseDateKey={todayKey}
+            xActiveCount={xActiveTasks.length}
+            xLimit={xLimit}
+            availableTags={allTags}
+            bucket={captureBucket}
+            onBucketChange={setCaptureBucket}
+            onSubmitItem={handleCaptureSubmit}
+            previewPosition="top"
+            compact
+            elevated
+            prefillSeed={capturePrefill}
+          />
+        </div>
+      )}
+
       {/* Custom Tab Create / Edit Modal */}
       {tabModal && (
         <div
@@ -1455,7 +1617,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
               <button
                 type="button"
                 onClick={() => setTabModal(null)}
-                className="h-7 w-7 flex items-center justify-center rounded-md"
+                className="h-7 w-7 flex items-center justify-center rounded-md cursor-pointer"
                 style={{ color: "var(--text-muted)" }}
               >
                 <X className="w-4 h-4" />
@@ -1499,7 +1661,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
                     key={hex}
                     type="button"
                     onClick={() => setTabModal({ ...tabModal, color: hex })}
-                    className="w-7 h-7 rounded-full flex items-center justify-center"
+                    className="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
                     style={{ backgroundColor: hex }}
                   >
                     {tabModal.color === hex && (
@@ -1514,7 +1676,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
               <button
                 type="button"
                 onClick={() => setTabModal(null)}
-                className="h-9 px-3.5 rounded-xl border text-xs font-medium"
+                className="h-9 px-3.5 rounded-xl border text-xs font-medium cursor-pointer"
                 style={{
                   backgroundColor: "var(--bg-surface)",
                   borderColor: "var(--border-subtle)",
@@ -1526,7 +1688,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
               <button
                 type="submit"
                 disabled={!tabModal.name.trim()}
-                className="h-9 px-4 rounded-xl text-xs font-semibold disabled:opacity-40"
+                className="h-9 px-4 rounded-xl text-xs font-semibold disabled:opacity-40 cursor-pointer"
                 style={{
                   backgroundColor: "var(--accent)",
                   color: "var(--accent-fg)",
@@ -1538,6 +1700,16 @@ export const FocusView: React.FC<FocusViewProps> = ({
           </form>
         </div>
       )}
+
+      {/* X-Active Capacity Swap Modal */}
+      <SwapXActiveModal
+        open={pendingSwap !== null}
+        incomingTitle={pendingSwap?.title ?? ""}
+        xActiveTasks={xActiveTasks}
+        xLimit={xLimit}
+        onSelectSwapOut={handleConfirmSwapOut}
+        onCancel={() => setPendingSwap(null)}
+      />
     </div>
   );
 };

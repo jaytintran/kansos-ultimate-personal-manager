@@ -100,6 +100,7 @@ export interface Entry {
   tabId?: string | null;
   tags: string[];
   pinned?: boolean;
+  paletteIndex?: number | null;
   sortOrder?: number;
   location?: string;
   isAchievement?: boolean;
@@ -130,6 +131,7 @@ export interface ScratchpadCard {
   content: string;
   paletteIndex: number; // 0..4
   pinned: boolean;
+  sortOrder?: number;
   createdAt: string;
   updatedAt: string;
 }

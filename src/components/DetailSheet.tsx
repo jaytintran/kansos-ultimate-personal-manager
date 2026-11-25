@@ -199,6 +199,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
 }) => {
   const {
     workspace,
+    moveFocusItem,
     createEntry,
     updateEntry,
     deleteEntry,
@@ -1030,6 +1031,125 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                 )}
                 <span>{liveEntry.completed ? "Completed" : "Open"}</span>
               </button>
+            </PropertyRow>
+          )}
+
+          {/* Focus Bucket Switcher (Anchor / X-Active / Custom Tab / Timeline) */}
+          {liveEntry && liveEntry.type === "task" && !liveEntry.completed && (
+            <PropertyRow
+              icon={<Sparkles className="w-3.5 h-3.5" />}
+              label="Focus Bucket"
+              alignTop
+            >
+              <div className="flex flex-wrap items-center gap-1 -mx-1">
+                {(() => {
+                  const isAnchor =
+                    liveEntry.source === "focus-anchor" ||
+                    liveEntry.focusBucket === "anchor";
+                  const isXActive =
+                    liveEntry.source === "focus-active" ||
+                    liveEntry.focusBucket === "x-active";
+                  const customTabId =
+                    liveEntry.source === "custom-tab" ? liveEntry.tabId : null;
+                  const isTimelineOnly =
+                    !isAnchor && !isXActive && !customTabId;
+
+                  const applyMove = (
+                    targetBucket:
+                      | "anchor"
+                      | "x-active"
+                      | "custom-tab"
+                      | "timeline",
+                    tabId?: string,
+                  ) => {
+                    const res = moveFocusItem(liveEntry.id, targetBucket, {
+                      tabId,
+                    });
+                    if (!res.ok && res.reason === "capacity") {
+                      window.dispatchEvent(
+                        new CustomEvent("kanso:focus-swap-request", {
+                          detail: { entryId: liveEntry.id },
+                        }),
+                      );
+                    }
+                  };
+
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => applyMove("x-active")}
+                        className="px-2 py-1 rounded-md text-xs font-medium transition-colors"
+                        style={{
+                          backgroundColor: isXActive
+                            ? "var(--accent-soft)"
+                            : "transparent",
+                          color: isXActive
+                            ? "var(--accent)"
+                            : "var(--text-secondary)",
+                        }}
+                      >
+                        X-Active
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyMove("anchor")}
+                        className="px-2 py-1 rounded-md text-xs font-medium transition-colors"
+                        style={{
+                          backgroundColor: isAnchor
+                            ? "var(--accent-soft)"
+                            : "transparent",
+                          color: isAnchor
+                            ? "var(--accent)"
+                            : "var(--text-secondary)",
+                        }}
+                      >
+                        Anchor
+                      </button>
+                      {(workspace.customTabs ?? []).map((ct) => {
+                        const active = customTabId === ct.id;
+                        return (
+                          <button
+                            key={ct.id}
+                            type="button"
+                            onClick={() => applyMove("custom-tab", ct.id)}
+                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors"
+                            style={{
+                              backgroundColor: active
+                                ? "var(--accent-soft)"
+                                : "transparent",
+                              color: active
+                                ? ct.color
+                                : "var(--text-secondary)",
+                            }}
+                          >
+                            <span
+                              className="w-1.5 h-1.5 rounded-full shrink-0"
+                              style={{ backgroundColor: ct.color }}
+                            />
+                            <span>{ct.name}</span>
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => applyMove("timeline")}
+                        className="px-2 py-1 rounded-md text-xs font-medium transition-colors"
+                        style={{
+                          backgroundColor: isTimelineOnly
+                            ? "var(--accent-soft)"
+                            : "transparent",
+                          color: isTimelineOnly
+                            ? "var(--text-primary)"
+                            : "var(--text-muted)",
+                        }}
+                      >
+                        Timeline
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
             </PropertyRow>
           )}
 
