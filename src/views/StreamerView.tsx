@@ -44,11 +44,14 @@ export interface StreamerPlaybackSummary {
   isPlaying: boolean;
   isViewMuted: boolean;
   isAllPaused: boolean;
+  primaryTitle?: string;
+  primarySubtitle?: string;
 }
 
 export interface StreamerControllerHandle {
   toggleViewMute: () => void;
   togglePauseAll: () => void;
+  stopAll: () => void;
 }
 
 export interface StreamerViewProps {
@@ -871,6 +874,8 @@ export const StreamerView = forwardRef<
       isPlaying,
       isViewMuted: allActiveMuted,
       isAllPaused,
+      primaryTitle: backgroundMediaMeta.title,
+      primarySubtitle: backgroundMediaMeta.subtitle,
     };
     const prev = prevSummaryRef.current;
     if (
@@ -879,7 +884,9 @@ export const StreamerView = forwardRef<
       prev.playingCount === next.playingCount &&
       prev.isPlaying === next.isPlaying &&
       prev.isViewMuted === next.isViewMuted &&
-      prev.isAllPaused === next.isAllPaused
+      prev.isAllPaused === next.isAllPaused &&
+      prev.primaryTitle === next.primaryTitle &&
+      prev.primarySubtitle === next.primarySubtitle
     ) {
       return;
     }
@@ -891,6 +898,8 @@ export const StreamerView = forwardRef<
     isPlaying,
     allActiveMuted,
     isAllPaused,
+    backgroundMediaMeta.title,
+    backgroundMediaMeta.subtitle,
     onPlaybackStateChange,
   ]);
 
@@ -1109,14 +1118,59 @@ export const StreamerView = forwardRef<
     pushToast("Synced all streams to 0:00", "success");
   }, [activeSlots, applySlotAudio, pushToast]);
 
-  // Expose imperative controls for KansoShell's nav tab quick-buttons
+  // Explicit Stop All helper (pauses and resets all streams to 0:00 while keeping layout intact)
+  const stopAllStreams = useCallback(
+    (silentToast = false) => {
+      const slots = activeSlotsRef.current;
+      bannerDismissedRef.current = true;
+      hasSyncedAndroidRef.current = false;
+      markIntentionalPause();
+      preBackgroundPlayingRef.current.clear();
+      pausedSlotIdsRef.current = [];
+      playingIntentsRef.current.clear();
+      setSleepRemainingSeconds(null);
+      allPausedRef.current = false;
+      setAllPaused(false);
+      setLoopDoneMap({});
+
+      for (const sl of slots) {
+        const iframe = iframeRefs.current[sl.slotId] || null;
+        sendYouTubeCommand(iframe, "pauseVideo", [], sl.slotId);
+        sendYouTubeCommand(iframe, "seekTo", [0, true], sl.slotId);
+      }
+
+      setPlayerStates((prev) => {
+        const next = { ...prev };
+        for (const sl of slots) {
+          next[sl.slotId] = 2;
+        }
+        return next;
+      });
+
+      if (isAndroidCapacitor()) {
+        void syncAndroidBackgroundAudio({
+          source: "streamer",
+          playing: false,
+          keepServiceAlive: false,
+          showTrackControls: false,
+        });
+      }
+      if (!silentToast && slots.length > 0) {
+        pushToast("Stopped and reset streams");
+      }
+    },
+    [markIntentionalPause, pushToast],
+  );
+
+  // Expose imperative controls for KansoShell's nav tab quick-buttons & corner widget
   useImperativeHandle(
     ref,
     () => ({
       toggleViewMute: () => handleToggleViewMute(true),
       togglePauseAll: () => handleTogglePauseAll(true),
+      stopAll: () => stopAllStreams(false),
     }),
-    [handleToggleViewMute, handleTogglePauseAll],
+    [handleToggleViewMute, handleTogglePauseAll, stopAllStreams],
   );
 
   // Quick-Add URL / 11-char ID handler (saves to Vault if new, layers onto stack)

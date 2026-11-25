@@ -6,11 +6,16 @@ import {
   Flame,
   Info,
   MoreVertical,
+  PanelRight,
   Timer,
   Trophy,
   X,
   Zap,
 } from "lucide-react";
+import {
+  AchievementInspector,
+  AchievementInspectorTarget,
+} from "../components/achievements/AchievementInspector";
 import { NlpInputBar, NlpTypeOption } from "../components/NlpInputBar";
 import { useWorkspace } from "../context/WorkspaceContext";
 import {
@@ -41,7 +46,10 @@ interface AchievementRowItem {
   dayKey: string;
   record: ContextMenuRecord;
   detailTarget: DetailSheetTarget;
+  inspectorTarget: AchievementInspectorTarget;
 }
+
+const ACHIEVEMENTS_SPLIT_STORAGE_KEY = "kanso_achievements_split_open_v1";
 
 interface AchievementsViewProps {
   onOpenDetail: (target: DetailSheetTarget) => void;
@@ -93,7 +101,26 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [composerType, setComposerType] = useState<EntryType>("log");
   const [infoOpen, setInfoOpen] = useState(false);
+  const [splitOpen, setSplitOpen] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(ACHIEVEMENTS_SPLIT_STORAGE_KEY);
+      return saved === null ? true : saved === "1";
+    } catch {
+      return true;
+    }
+  });
+  const [selectedAchievementId, setSelectedAchievementId] = useState<
+    string | null
+  >(null);
   const infoPopoverRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACHIEVEMENTS_SPLIT_STORAGE_KEY, splitOpen ? "1" : "0");
+    } catch {
+      // ignore storage errors
+    }
+  }, [splitOpen]);
 
   useEffect(() => {
     if (!infoOpen) return;
@@ -148,16 +175,26 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
       if (item.status !== "done") continue;
       if (!listMap.has(item.listId)) continue;
       const achievedAt = item.completedAt || item.updatedAt || item.createdAt;
+      const listTitle = listMap.get(item.listId) || "List";
+      const sourceLabel = `LIST · ${listTitle.toUpperCase()}`;
+      const detailTarget: DetailSheetTarget = { mode: "list_item", id: item.id };
       rows.push({
         id: `li-${item.id}`,
         source: "lists",
-        sourceLabel: `LIST · ${listMap.get(item.listId)?.toUpperCase() || "LIST"}`,
+        sourceLabel,
         title: item.title,
         tags: item.tags || [],
         achievedAt,
         dayKey: toLocalDateKey(achievedAt),
         record: { kind: "list_item", item },
-        detailTarget: { mode: "list_item", id: item.id },
+        detailTarget,
+        inspectorTarget: {
+          kind: "list_item",
+          item,
+          listTitle,
+          sourceLabel,
+          detailTarget,
+        },
       });
     }
 
@@ -186,6 +223,7 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
 
       const achievedAt =
         entry.completedAt || entry.scheduledAt || entry.createdAt;
+      const detailTarget: DetailSheetTarget = { mode, id: entry.id };
       rows.push({
         id: `ent-${entry.id}`,
         source,
@@ -195,7 +233,13 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
         achievedAt,
         dayKey: toLocalDateKey(achievedAt),
         record: { kind: "entry", entry },
-        detailTarget: { mode, id: entry.id },
+        detailTarget,
+        inspectorTarget: {
+          kind: "entry",
+          entry,
+          sourceLabel,
+          detailTarget,
+        },
       });
     }
 
@@ -204,6 +248,30 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
         new Date(b.achievedAt).getTime() - new Date(a.achievedAt).getTime(),
     );
   }, [workspace.listItems, workspace.entries, listMap]);
+
+  const selectedRow = useMemo(
+    () =>
+      selectedAchievementId
+        ? allAchievements.find((r) => r.id === selectedAchievementId) ?? null
+        : null,
+    [allAchievements, selectedAchievementId],
+  );
+
+  useEffect(() => {
+    if (selectedAchievementId && !selectedRow) {
+      setSelectedAchievementId(null);
+    }
+  }, [selectedAchievementId, selectedRow]);
+
+  const handleRowClick = (row: AchievementRowItem) => {
+    const isDesktop =
+      typeof window !== "undefined" && window.innerWidth >= 1024;
+    if (isDesktop && splitOpen) {
+      setSelectedAchievementId(row.id);
+      return;
+    }
+    onOpenDetail(row.detailTarget);
+  };
 
   const filteredGrouped = useMemo(() => {
     const weekCutoff = addDaysToKey(todayKey, -7);
@@ -286,9 +354,34 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
   };
 
   return (
-    <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden overscroll-none lg:block lg:h-auto lg:overflow-visible">
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-none lg:overflow-visible">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-4 lg:pb-32 space-y-5">
+    <div
+      className={
+        splitOpen
+          ? "h-full flex-1 min-h-0 lg:h-dvh flex overflow-hidden overscroll-none"
+          : "h-full flex-1 min-h-0 flex flex-col overflow-hidden overscroll-none lg:block lg:h-auto lg:overflow-visible"
+      }
+    >
+      <div
+        className={
+          splitOpen
+            ? "flex-1 min-w-0 h-full flex flex-col overflow-hidden overscroll-none"
+            : "flex-1 min-h-0 flex flex-col overflow-hidden overscroll-none lg:block lg:h-auto lg:overflow-visible"
+        }
+      >
+        <div
+          className={
+            splitOpen
+              ? "flex-1 min-h-0 overflow-y-auto overscroll-none"
+              : "flex-1 min-h-0 overflow-y-auto overscroll-none lg:overflow-visible"
+          }
+        >
+          <div
+            className={
+              splitOpen
+                ? "max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-6 space-y-5"
+                : "max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-4 lg:pb-32 space-y-5"
+            }
+          >
       {/* Header */}
       <header
         className="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b"
@@ -402,8 +495,29 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
           </span>
         </div>
 
-        {/* FilterSelect Dropdowns: Time & Source */}
+        {/* FilterSelect Dropdowns & Desktop Inspector Toggle */}
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setSplitOpen((v) => !v)}
+            title={splitOpen ? "Hide inspector" : "Show inspector"}
+            aria-label={splitOpen ? "Hide inspector" : "Show inspector"}
+            aria-pressed={splitOpen}
+            className="hidden lg:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium whitespace-nowrap shrink-0 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+            style={{
+              backgroundColor: splitOpen
+                ? "var(--accent-soft)"
+                : "var(--bg-surface)",
+              borderColor: splitOpen
+                ? "var(--accent)"
+                : "var(--border-subtle)",
+              color: splitOpen ? "var(--accent)" : "var(--text-secondary)",
+            }}
+          >
+            <PanelRight className="w-3.5 h-3.5" />
+            <span>Inspector</span>
+          </button>
+
           <select
             value={timeFilter}
             onChange={(e) => setTimeFilter(e.target.value as TimeFilter)}
@@ -485,87 +599,144 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
                   borderColor: "var(--border-subtle)",
                 }}
               >
-                {items.map((row) => (
-                  <div
-                    key={row.id}
-                    onClick={() => onOpenDetail(row.detailTarget)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      onOpenContextMenu(row.record, e);
-                    }}
-                    className="group flex items-center gap-3.5 px-4 py-3 cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]"
-                    style={{ borderColor: "var(--border-subtle)" }}
-                  >
-                    {renderSourceIcon(row.source)}
-
-                    <div className="flex-1 min-w-0 space-y-0.5">
-                      <div className="text-sm font-semibold truncate">
-                        {row.title}
-                      </div>
-                      <div
-                        className="flex flex-wrap items-center gap-x-2 text-[11px] font-mono tabular-nums"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        <span>{row.sourceLabel}</span>
-                        {row.tags.length > 0 && (
-                          <>
-                            <span>·</span>
-                            <span>
-                              {row.tags.map((t) => `#${t}`).join(" ")}
-                            </span>
-                          </>
-                        )}
-                        <span>·</span>
-                        <span style={{ color: "var(--warning)" }}>
-                          Achieved {formatTime(row.achievedAt, timeFormat)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
+                {items.map((row) => {
+                  const isSelected = splitOpen && selectedAchievementId === row.id;
+                  return (
+                    <div
+                      key={row.id}
+                      onClick={() => handleRowClick(row)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
                         onOpenContextMenu(row.record, e);
                       }}
-                      className="h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
-                      style={{ color: "var(--text-muted)" }}
-                      aria-label="Achievement actions"
+                      className={`group flex items-center gap-3.5 px-4 py-3 cursor-pointer transition-colors ${
+                        isSelected
+                          ? "bg-[var(--accent-soft)]"
+                          : "hover:bg-[var(--bg-surface-subtle)]"
+                      }`}
+                      style={{ borderColor: "var(--border-subtle)" }}
                     >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
+                      {renderSourceIcon(row.source)}
+
+                      <div className="flex-1 min-w-0 space-y-0.5">
+                        <div className="text-sm font-semibold truncate">
+                          {row.title}
+                        </div>
+                        <div
+                          className="flex flex-wrap items-center gap-x-2 text-[11px] font-mono tabular-nums"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          <span>{row.sourceLabel}</span>
+                          {row.tags.length > 0 && (
+                            <>
+                              <span>·</span>
+                              <span>
+                                {row.tags.map((t) => `#${t}`).join(" ")}
+                              </span>
+                            </>
+                          )}
+                          <span>·</span>
+                          <span style={{ color: "var(--warning)" }}>
+                            Achieved {formatTime(row.achievedAt, timeFormat)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenContextMenu(row.record, e);
+                        }}
+                        className="h-8 w-8 flex items-center justify-center rounded-lg sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
+                        style={{ color: "var(--text-muted)" }}
+                        aria-label="Achievement actions"
+                      >
+                        <MoreVertical className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </section>
           ))}
         </div>
       )}
 
+          </div>
+        </div>
+
+        {/* Docked Mobile Input Bar (and docked inside left column when desktop split pane is open) */}
+        <div
+          className={
+            splitOpen
+              ? "shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-canvas)] px-3 py-2 lg:px-8 lg:py-3"
+              : "shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-canvas)] px-3 py-2 lg:border-t-0 lg:bg-transparent lg:fixed lg:bottom-4 lg:left-60 lg:right-0 lg:z-20 lg:px-6 lg:py-0 lg:pointer-events-none"
+          }
+        >
+          <div
+            className={
+              splitOpen
+                ? "max-w-5xl mx-auto"
+                : "max-w-6xl mx-auto lg:pointer-events-auto"
+            }
+          >
+            <NlpInputBar
+              placeholder='Record an achievement (type "/" for /log, /task, /event, /timeblock)...'
+              onSubmit={(raw) => Boolean(addAchievementEntry(raw, composerType))}
+              baseDateKey={todayKey}
+              availableTags={availableTags}
+              submitLabel="Record"
+              previewPosition="top"
+              elevated
+              showTimeblockTip={false}
+              typeSwitcher={{
+                value: composerType,
+                onChange: setComposerType,
+                options: ACHIEVEMENT_TYPE_OPTIONS,
+                menuHeading: "Record achievement",
+              }}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Docked Mobile Input Bar (above bottom nav) · Floating Desktop Input Bar */}
-      <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-canvas)] px-3 py-2 lg:border-t-0 lg:bg-transparent lg:fixed lg:bottom-4 lg:left-60 lg:right-0 lg:z-20 lg:px-6 lg:py-0 lg:pointer-events-none">
-        <div className="max-w-6xl mx-auto lg:pointer-events-auto">
-          <NlpInputBar
-            placeholder='Record an achievement (type "/" for /log, /task, /event, /timeblock)...'
-            onSubmit={(raw) => Boolean(addAchievementEntry(raw, composerType))}
-            baseDateKey={todayKey}
-            availableTags={availableTags}
-            submitLabel="Record"
-            previewPosition="top"
-            elevated
-            showTimeblockTip={false}
-            typeSwitcher={{
-              value: composerType,
-              onChange: setComposerType,
-              options: ACHIEVEMENT_TYPE_OPTIONS,
-              menuHeading: "Record achievement",
-            }}
-          />
-        </div>
-      </div>
+      {/* Desktop Right-Side Split-Pane Inspector */}
+      {splitOpen && (
+        <aside
+          className="hidden lg:flex lg:flex-col w-80 xl:w-[400px] shrink-0 border-l overflow-hidden"
+          style={{
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
+          }}
+        >
+          {selectedRow ? (
+            <AchievementInspector
+              key={selectedRow.id}
+              target={selectedRow.inspectorTarget}
+              allTags={availableTags}
+              onClose={() => setSelectedAchievementId(null)}
+              onOpenModal={onOpenDetail}
+            />
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-2">
+              <Trophy
+                className="w-7 h-7 opacity-40"
+                style={{ color: "var(--warning)" }}
+              />
+              <p
+                className="text-xs font-medium"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                Select an achievement to inspect
+              </p>
+              <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                Edit title, notes, date, tags, or status without leaving the feed.
+              </p>
+            </div>
+          )}
+        </aside>
+      )}
     </div>
   );
 };

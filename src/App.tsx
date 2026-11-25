@@ -6,6 +6,7 @@ import {
   CloudUpload,
   Headphones,
   Loader2,
+  MonitorPlay,
   Moon,
   MoreHorizontal,
   PanelLeftClose,
@@ -16,6 +17,7 @@ import {
   Settings,
   SkipBack,
   SkipForward,
+  Square,
   Sun,
   Volume2,
   VolumeX,
@@ -169,6 +171,7 @@ const KansoShell: React.FC = () => {
     currentTime: 0,
     duration: 0,
   });
+  const [streamerMiniCollapsed, setStreamerMiniCollapsed] = useState(false);
   const [audioMiniCollapsed, setAudioMiniCollapsed] = useState(false);
   const audioControllerRef = useRef<AudioControllerHandle | null>(null);
 
@@ -784,7 +787,7 @@ const KansoShell: React.FC = () => {
                       >
                         <Icon className="w-[18px] h-[18px] shrink-0" />
 
-                        {showNavCounts && count > 0 && (
+                        {showNavCounts && !hasMediaState && count > 0 && (
                           <span
                             className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-full text-[9px] font-mono font-semibold tabular-nums leading-none flex items-center justify-center border pointer-events-none"
                             style={{
@@ -941,18 +944,22 @@ const KansoShell: React.FC = () => {
                             )}
                           </button>
 
-                          {showNavCounts && (
-                            <span
-                              className="text-xs font-mono tabular-nums pl-0.5 pr-0.5"
-                              style={{
-                                color: active
-                                  ? "var(--accent)"
-                                  : "var(--text-muted)",
-                              }}
-                            >
-                              {count}
-                            </span>
-                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isAudioRow) {
+                                audioControllerRef.current?.stopAll();
+                              } else {
+                                streamerControllerRef.current?.stopAll();
+                              }
+                            }}
+                            className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-subtle)] hover:text-[var(--danger)] text-[var(--text-secondary)] cursor-pointer"
+                            title={isAudioRow ? "Stop Audio" : "Stop all streams"}
+                            aria-label={isAudioRow ? "Stop Audio" : "Stop all streams"}
+                          >
+                            <Square className="w-3 h-3 fill-current" />
+                          </button>
                         </div>
                       </div>
                     );
@@ -1687,7 +1694,7 @@ const KansoShell: React.FC = () => {
                                 streamerControllerRef.current?.togglePauseAll();
                               }
                             }}
-                            className="h-8 w-8 flex items-center justify-center rounded-lg border transition-colors"
+                            className="h-7 w-7 flex items-center justify-center rounded-lg border transition-colors cursor-pointer"
                             style={{
                               backgroundColor: "var(--bg-surface-subtle)",
                               borderColor: "var(--border-subtle)",
@@ -1720,7 +1727,7 @@ const KansoShell: React.FC = () => {
                                 streamerControllerRef.current?.toggleViewMute();
                               }
                             }}
-                            className="h-8 w-8 flex items-center justify-center rounded-lg border transition-colors"
+                            className="h-7 w-7 flex items-center justify-center rounded-lg border transition-colors cursor-pointer"
                             style={{
                               backgroundColor: "var(--bg-surface-subtle)",
                               borderColor: cardMuted
@@ -1746,6 +1753,30 @@ const KansoShell: React.FC = () => {
                               <Volume2 className="w-3.5 h-3.5" />
                             )}
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isAudioCard) {
+                                audioControllerRef.current?.stopAll();
+                              } else {
+                                streamerControllerRef.current?.stopAll();
+                              }
+                            }}
+                            className="h-7 w-7 flex items-center justify-center rounded-lg border transition-colors hover:text-[var(--danger)] cursor-pointer"
+                            style={{
+                              backgroundColor: "var(--bg-surface-subtle)",
+                              borderColor: "var(--border-subtle)",
+                              color: "var(--text-secondary)",
+                            }}
+                            aria-label={
+                              isAudioCard ? "Stop Audio" : "Stop all streams"
+                            }
+                            title={
+                              isAudioCard ? "Stop Audio" : "Stop all streams"
+                            }
+                          >
+                            <Square className="w-3 h-3 fill-current" />
+                          </button>
                         </div>
                       </div>
                       <button
@@ -1767,18 +1798,6 @@ const KansoShell: React.FC = () => {
                           >
                             {item.label}
                           </span>
-                          {showNavCounts && (
-                            <span
-                              className="text-xs font-mono tabular-nums"
-                              style={{
-                                color: active
-                                  ? "var(--accent)"
-                                  : "var(--text-muted)",
-                              }}
-                            >
-                              {count}
-                            </span>
-                          )}
                         </div>
                         <div
                           className="text-[11px] mt-0.5 line-clamp-1"
@@ -2015,159 +2034,326 @@ const KansoShell: React.FC = () => {
         onClose={() => setTimestampsState(null)}
       />
 
-      {/* Slim Global Background Audio Mini-Player outside Audio view */}
-      {activeView !== "audio" &&
-        hasVisitedAudio &&
-        audioPlayback.activeCount > 0 &&
-        !isMobileKeyboardOpen && (
-          <div
-            role="region"
-            aria-label="Background Audio Mini-Player"
-            className={`fixed bottom-[4.5rem] lg:bottom-4 right-3 z-40 rounded-xl border transition-all ${
-              audioMiniCollapsed
-                ? "w-auto max-w-[calc(100vw-1.5rem)]"
-                : "left-3 sm:left-auto sm:w-[390px]"
-            }`}
-            style={{
-              backgroundColor: "var(--bg-elevated)",
-              borderColor: "var(--border-strong)",
-              boxShadow: "var(--shadow-popover)",
-            }}
-          >
-            <div className="flex items-center justify-between gap-2 px-2.5 py-2">
-              <button
-                type="button"
-                onClick={() => navigateToView("audio")}
-                className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer"
-                title="Open Audio Studio"
+      {/* Floating Bottom-Corner Background Media Widgets (Streamer & Audio) */}
+      {!isMobileKeyboardOpen &&
+        ((activeView !== "streamer" && showStreamerAudioControls) ||
+          (activeView !== "audio" &&
+            hasVisitedAudio &&
+            audioPlayback.activeCount > 0)) && (
+          <div className="fixed bottom-[4.5rem] lg:bottom-4 right-3 left-3 sm:left-auto z-40 flex flex-col items-end gap-2 pointer-events-none">
+            {activeView !== "streamer" && showStreamerAudioControls && (
+              <div
+                role="region"
+                aria-label="Background Streamer Corner Widget"
+                className={`pointer-events-auto rounded-xl border transition-all ${
+                  streamerMiniCollapsed
+                    ? "w-auto max-w-full"
+                    : "w-full sm:w-[390px]"
+                }`}
+                style={{
+                  backgroundColor: "var(--bg-elevated)",
+                  borderColor: "var(--border-strong)",
+                  boxShadow: "var(--shadow-popover)",
+                }}
               >
-                {audioPlayback.primaryCoverDataUrl ? (
-                  <img
-                    src={audioPlayback.primaryCoverDataUrl}
-                    alt={audioPlayback.primaryTitle || "Audio"}
-                    className="w-8 h-8 rounded-lg object-cover shrink-0 border border-[var(--border-subtle)]"
-                  />
-                ) : (
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border"
-                    style={{
-                      backgroundColor: "var(--accent-soft)",
-                      borderColor: "var(--border-subtle)",
-                      color: "var(--accent)",
-                    }}
-                  >
-                    <Headphones className="w-4 h-4" />
-                  </div>
-                )}
-
-                {!audioMiniCollapsed && (
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-semibold truncate text-[var(--text-primary)]">
-                      {audioPlayback.primaryTitle || "Kanso Audio"}
-                      {audioPlayback.activeCount > 1
-                        ? ` (+${audioPlayback.activeCount - 1})`
-                        : ""}
-                    </div>
-                    <div className="text-[11px] truncate text-[var(--text-muted)] font-mono tabular-nums">
-                      {audioPlayback.primaryArtist || "Audio Studio"} ·{" "}
-                      {formatAudioDuration(audioPlayback.currentTime)}
-                      {audioPlayback.duration > 0
-                        ? ` / ${formatAudioDuration(audioPlayback.duration)}`
-                        : ""}
-                    </div>
-                  </div>
-                )}
-              </button>
-
-              <div className="flex items-center gap-0.5 shrink-0">
-                {!audioMiniCollapsed && (
+                <div className="flex items-center justify-between gap-2 px-2.5 py-2">
                   <button
                     type="button"
-                    onClick={() => audioControllerRef.current?.prevTrack()}
-                    className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] text-[var(--text-secondary)] cursor-pointer"
-                    aria-label="Previous audio track"
-                    title="Previous track"
+                    onClick={() => navigateToView("streamer")}
+                    className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer"
+                    title="Open Streamer"
                   >
-                    <SkipBack className="w-3.5 h-3.5" />
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => audioControllerRef.current?.togglePauseAll()}
-                  className="h-8 w-8 flex items-center justify-center rounded-lg cursor-pointer"
-                  style={{
-                    backgroundColor: "var(--accent)",
-                    color: "var(--accent-fg)",
-                  }}
-                  aria-label={
-                    audioPlayback.isAllPaused ? "Play audio" : "Pause audio"
-                  }
-                  title={audioPlayback.isAllPaused ? "Play" : "Pause"}
-                >
-                  {audioPlayback.isAllPaused ? (
-                    <Play className="w-3.5 h-3.5 ml-0.5" />
-                  ) : (
-                    <Pause className="w-3.5 h-3.5" />
-                  )}
-                </button>
-
-                {!audioMiniCollapsed && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => audioControllerRef.current?.nextTrack()}
-                      className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] text-[var(--text-secondary)] cursor-pointer"
-                      aria-label="Next audio track"
-                      title="Next track"
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border"
+                      style={{
+                        backgroundColor: "var(--accent-soft)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--accent)",
+                      }}
                     >
-                      <SkipForward className="w-3.5 h-3.5" />
-                    </button>
+                      <MonitorPlay className="w-4 h-4" />
+                    </div>
 
+                    {!streamerMiniCollapsed && (
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-semibold truncate text-[var(--text-primary)]">
+                          {streamerPlayback.primaryTitle || "Kanso Streamer"}
+                        </div>
+                        <div className="text-[11px] truncate text-[var(--text-muted)] font-mono tabular-nums">
+                          {streamerPlayback.primarySubtitle ||
+                            `${streamerPlayback.playingCount}/${streamerPlayback.activeCount} playing`}
+                        </div>
+                      </div>
+                    )}
+                  </button>
+
+                  <div className="flex items-center gap-0.5 shrink-0">
                     <button
                       type="button"
                       onClick={() =>
-                        audioControllerRef.current?.toggleViewMute()
+                        streamerControllerRef.current?.togglePauseAll()
                       }
-                      className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                      className="h-8 w-8 flex items-center justify-center rounded-lg cursor-pointer"
                       style={{
-                        color: audioPlayback.isViewMuted
-                          ? "var(--danger)"
-                          : "var(--text-secondary)",
+                        backgroundColor: "var(--accent)",
+                        color: "var(--accent-fg)",
                       }}
                       aria-label={
-                        audioPlayback.isViewMuted ? "Unmute audio" : "Mute audio"
+                        streamerPlayback.isAllPaused
+                          ? "Resume streams"
+                          : "Pause streams"
                       }
-                      title={audioPlayback.isViewMuted ? "Unmute" : "Mute"}
+                      title={
+                        streamerPlayback.isAllPaused
+                          ? "Resume all streams"
+                          : "Pause all streams"
+                      }
                     >
-                      {audioPlayback.isViewMuted ? (
-                        <VolumeX className="w-3.5 h-3.5" />
+                      {streamerPlayback.isAllPaused ? (
+                        <Play className="w-3.5 h-3.5 ml-0.5" />
                       ) : (
-                        <Volume2 className="w-3.5 h-3.5" />
+                        <Pause className="w-3.5 h-3.5" />
                       )}
                     </button>
-                  </>
-                )}
 
-                <button
-                  type="button"
-                  onClick={() => setAudioMiniCollapsed((c) => !c)}
-                  className="h-8 w-7 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] cursor-pointer"
-                  aria-label={
-                    audioMiniCollapsed
-                      ? "Expand audio mini-player"
-                      : "Collapse audio mini-player"
-                  }
-                  title={audioMiniCollapsed ? "Expand" : "Minimize"}
-                >
-                  {audioMiniCollapsed ? (
-                    <ChevronUp className="w-3.5 h-3.5" />
-                  ) : (
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  )}
-                </button>
+                    <button
+                      type="button"
+                      onClick={() => streamerControllerRef.current?.stopAll()}
+                      className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] hover:text-[var(--danger)] text-[var(--text-secondary)] cursor-pointer transition-colors"
+                      aria-label="Stop all streams"
+                      title="Stop all streams"
+                    >
+                      <Square className="w-3.5 h-3.5 fill-current" />
+                    </button>
+
+                    {!streamerMiniCollapsed && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          streamerControllerRef.current?.toggleViewMute()
+                        }
+                        className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                        style={{
+                          color: streamerPlayback.isViewMuted
+                            ? "var(--danger)"
+                            : "var(--text-secondary)",
+                        }}
+                        aria-label={
+                          streamerPlayback.isViewMuted
+                            ? "Unmute Streamer"
+                            : "Mute Streamer"
+                        }
+                        title={
+                          streamerPlayback.isViewMuted
+                            ? "Unmute Streamer"
+                            : "Temporarily mute Streamer"
+                        }
+                      >
+                        {streamerPlayback.isViewMuted ? (
+                          <VolumeX className="w-3.5 h-3.5" />
+                        ) : (
+                          <Volume2 className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setStreamerMiniCollapsed((c) => !c)}
+                      className="h-8 w-7 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] cursor-pointer"
+                      aria-label={
+                        streamerMiniCollapsed
+                          ? "Expand streamer mini-player"
+                          : "Collapse streamer mini-player"
+                      }
+                      title={streamerMiniCollapsed ? "Expand" : "Minimize"}
+                    >
+                      {streamerMiniCollapsed ? (
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+
+            {activeView !== "audio" &&
+              hasVisitedAudio &&
+              audioPlayback.activeCount > 0 && (
+                <div
+                  role="region"
+                  aria-label="Background Audio Mini-Player"
+                  className={`pointer-events-auto rounded-xl border transition-all ${
+                    audioMiniCollapsed
+                      ? "w-auto max-w-full"
+                      : "w-full sm:w-[390px]"
+                  }`}
+                  style={{
+                    backgroundColor: "var(--bg-elevated)",
+                    borderColor: "var(--border-strong)",
+                    boxShadow: "var(--shadow-popover)",
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+                    <button
+                      type="button"
+                      onClick={() => navigateToView("audio")}
+                      className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer"
+                      title="Open Audio Studio"
+                    >
+                      {audioPlayback.primaryCoverDataUrl ? (
+                        <img
+                          src={audioPlayback.primaryCoverDataUrl}
+                          alt={audioPlayback.primaryTitle || "Audio"}
+                          className="w-8 h-8 rounded-lg object-cover shrink-0 border border-[var(--border-subtle)]"
+                        />
+                      ) : (
+                        <div
+                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border"
+                          style={{
+                            backgroundColor: "var(--accent-soft)",
+                            borderColor: "var(--border-subtle)",
+                            color: "var(--accent)",
+                          }}
+                        >
+                          <Headphones className="w-4 h-4" />
+                        </div>
+                      )}
+
+                      {!audioMiniCollapsed && (
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-semibold truncate text-[var(--text-primary)]">
+                            {audioPlayback.primaryTitle || "Kanso Audio"}
+                            {audioPlayback.activeCount > 1
+                              ? ` (+${audioPlayback.activeCount - 1})`
+                              : ""}
+                          </div>
+                          <div className="text-[11px] truncate text-[var(--text-muted)] font-mono tabular-nums">
+                            {audioPlayback.primaryArtist || "Audio Studio"} ·{" "}
+                            {formatAudioDuration(audioPlayback.currentTime)}
+                            {audioPlayback.duration > 0
+                              ? ` / ${formatAudioDuration(audioPlayback.duration)}`
+                              : ""}
+                          </div>
+                        </div>
+                      )}
+                    </button>
+
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      {!audioMiniCollapsed && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            audioControllerRef.current?.prevTrack()
+                          }
+                          className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] text-[var(--text-secondary)] cursor-pointer"
+                          aria-label="Previous audio track"
+                          title="Previous track"
+                        >
+                          <SkipBack className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          audioControllerRef.current?.togglePauseAll()
+                        }
+                        className="h-8 w-8 flex items-center justify-center rounded-lg cursor-pointer"
+                        style={{
+                          backgroundColor: "var(--accent)",
+                          color: "var(--accent-fg)",
+                        }}
+                        aria-label={
+                          audioPlayback.isAllPaused
+                            ? "Play audio"
+                            : "Pause audio"
+                        }
+                        title={audioPlayback.isAllPaused ? "Play" : "Pause"}
+                      >
+                        {audioPlayback.isAllPaused ? (
+                          <Play className="w-3.5 h-3.5 ml-0.5" />
+                        ) : (
+                          <Pause className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => audioControllerRef.current?.stopAll()}
+                        className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] hover:text-[var(--danger)] text-[var(--text-secondary)] cursor-pointer transition-colors"
+                        aria-label="Stop audio"
+                        title="Stop audio and unload slots"
+                      >
+                        <Square className="w-3.5 h-3.5 fill-current" />
+                      </button>
+
+                      {!audioMiniCollapsed && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              audioControllerRef.current?.nextTrack()
+                            }
+                            className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] text-[var(--text-secondary)] cursor-pointer"
+                            aria-label="Next audio track"
+                            title="Next track"
+                          >
+                            <SkipForward className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              audioControllerRef.current?.toggleViewMute()
+                            }
+                            className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                            style={{
+                              color: audioPlayback.isViewMuted
+                                ? "var(--danger)"
+                                : "var(--text-secondary)",
+                            }}
+                            aria-label={
+                              audioPlayback.isViewMuted
+                                ? "Unmute audio"
+                                : "Mute audio"
+                            }
+                            title={
+                              audioPlayback.isViewMuted ? "Unmute" : "Mute"
+                            }
+                          >
+                            {audioPlayback.isViewMuted ? (
+                              <VolumeX className="w-3.5 h-3.5" />
+                            ) : (
+                              <Volume2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setAudioMiniCollapsed((c) => !c)}
+                        className="h-8 w-7 flex items-center justify-center rounded-lg hover:bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] cursor-pointer"
+                        aria-label={
+                          audioMiniCollapsed
+                            ? "Expand audio mini-player"
+                            : "Collapse audio mini-player"
+                        }
+                        title={audioMiniCollapsed ? "Expand" : "Minimize"}
+                      >
+                        {audioMiniCollapsed ? (
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
           </div>
         )}
 

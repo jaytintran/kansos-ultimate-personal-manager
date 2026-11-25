@@ -19,6 +19,7 @@ import {
   SkipBack,
   SkipForward,
   SlidersHorizontal,
+  Square,
   Trash2,
   Volume2,
   VolumeX,
@@ -63,6 +64,7 @@ interface AudioPlayerDeckProps {
   scrubberStyle: AudioScrubberStyle;
   onChangeScrubberStyle: (style: AudioScrubberStyle) => void;
   onTogglePlayPauseAll: () => void;
+  onStopAll: () => void;
   onTogglePlaySlot: (slotId: string) => void;
   onToggleViewMute: () => void;
   onSeekSlot: (slotId: string, seconds: number) => void;
@@ -112,6 +114,7 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
   scrubberStyle,
   onChangeScrubberStyle,
   onTogglePlayPauseAll,
+  onStopAll,
   onTogglePlaySlot,
   onToggleViewMute,
   onSeekSlot,
@@ -1018,6 +1021,17 @@ export const AudioPlayerDeck: React.FC<AudioPlayerDeckProps> = ({
               ) : (
                 <Play className="w-4 h-4 fill-current ml-0.5" />
               )}
+            </button>
+
+            <button
+              type="button"
+              disabled={activeCount === 0}
+              onClick={onStopAll}
+              title="Stop audio and unload slots"
+              aria-label="Stop audio"
+              className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--danger)] disabled:opacity-40 cursor-pointer transition-colors"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
             </button>
 
             <button

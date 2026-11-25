@@ -935,11 +935,17 @@ export function useAudioMixerEngine({
     for (const node of slotsRef.current.values()) {
       try {
         node.audio.pause();
-        persistSlotPosition(node);
+        node.audio.currentTime = 0;
+        onUpdateTrackRef.current(node.trackId, { currentPositionSeconds: 0 });
       } catch {
         // Ignore
       }
     }
+    setSlotRuntime({});
+    onUpdateAudioStateRef.current({
+      activeSlots: [],
+      primaryTrackId: null,
+    });
     if (isAndroidCapacitor()) {
       void syncAndroidBackgroundAudio({
         source: "audio",
@@ -948,7 +954,7 @@ export function useAudioMixerEngine({
         showTrackControls: true,
       });
     }
-  }, [persistSlotPosition, setAllPausedSync]);
+  }, [setAllPausedSync]);
 
   // Sleep Timer with smooth 8-second fade-out
   useEffect(() => {
