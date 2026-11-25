@@ -6,18 +6,26 @@ interface AutoGrowTextareaProps
   minRows?: number;
 }
 
-export const AutoGrowTextarea: React.FC<AutoGrowTextareaProps> = ({
-  value,
-  minRows = 2,
-  className = "",
-  style,
-  onChange,
-  ...rest
-}) => {
-  const ref = useRef<HTMLTextAreaElement | null>(null);
+export const AutoGrowTextarea = React.forwardRef<
+  HTMLTextAreaElement,
+  AutoGrowTextareaProps
+>(({ value, minRows = 2, className = "", style, onChange, ...rest }, forwardedRef) => {
+  const innerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const setRefs = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      innerRef.current = el;
+      if (typeof forwardedRef === "function") {
+        forwardedRef(el);
+      } else if (forwardedRef) {
+        forwardedRef.current = el;
+      }
+    },
+    [forwardedRef],
+  );
 
   const syncHeight = useCallback(() => {
-    const el = ref.current;
+    const el = innerRef.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
@@ -28,7 +36,7 @@ export const AutoGrowTextarea: React.FC<AutoGrowTextareaProps> = ({
   }, [value, syncHeight]);
 
   useLayoutEffect(() => {
-    const el = ref.current;
+    const el = innerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
       syncHeight();
@@ -39,7 +47,7 @@ export const AutoGrowTextarea: React.FC<AutoGrowTextareaProps> = ({
 
   return (
     <textarea
-      ref={ref}
+      ref={setRefs}
       rows={minRows}
       value={value}
       onChange={(e) => {
@@ -51,4 +59,6 @@ export const AutoGrowTextarea: React.FC<AutoGrowTextareaProps> = ({
       {...rest}
     />
   );
-};
+});
+
+AutoGrowTextarea.displayName = "AutoGrowTextarea";

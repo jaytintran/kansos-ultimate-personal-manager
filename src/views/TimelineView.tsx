@@ -5,6 +5,7 @@ import {
   Calendar,
   CalendarClock,
   CalendarDays,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -14,8 +15,10 @@ import {
   FileText,
   Flame,
   Layers,
+  ListFilter,
   MoreVertical,
   Search,
+  Sparkles,
   Timer,
   Trophy,
   X,
@@ -61,14 +64,19 @@ type TimelineFilter =
 
 const TIMELINE_SUBVIEW_STORAGE_KEY = "kanso_timeline_subview_v1";
 
-const FILTER_CHIPS: { id: TimelineFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "task", label: "Task" },
-  { id: "log", label: "Log" },
-  { id: "note", label: "Note" },
-  { id: "event", label: "Event" },
-  { id: "timeblock", label: "Blocks" },
-  { id: "habit", label: "Habit" },
+const FILTER_OPTIONS: {
+  id: TimelineFilter;
+  label: string;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+  colorVar: string;
+}[] = [
+  { id: "all", label: "All", icon: ListFilter, colorVar: "var(--text-secondary)" },
+  { id: "task", label: "Tasks", icon: CheckCircle2, colorVar: "var(--color-entity-blue)" },
+  { id: "log", label: "Log", icon: Flame, colorVar: "var(--accent)" },
+  { id: "note", label: "Note", icon: FileText, colorVar: "var(--color-entity-violet)" },
+  { id: "event", label: "Event", icon: Calendar, colorVar: "var(--success)" },
+  { id: "timeblock", label: "Blocks", icon: Timer, colorVar: "var(--warning)" },
+  { id: "habit", label: "Habit", icon: Sparkles, colorVar: "var(--success)" },
 ];
 
 function formatDurationLabel(
@@ -147,12 +155,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   const [calendarPopoverOpen, setCalendarPopoverOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<TimelineFilter>("all");
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [composerType, setComposerType] = useState<EntryType>(
     workspace.settings.defaultTimelineType || "task",
   );
   const [carryOverCollapsed, setCarryOverCollapsed] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const filterMenuRef = useRef<HTMLDivElement | null>(null);
   const timeFormat = workspace.settings.timeFormat;
   const displayMode = workspace.settings.timelineDisplayMode || "default";
 
@@ -163,6 +173,31 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
       // Ignore storage errors
     }
   }, [subview]);
+
+  useEffect(() => {
+    if (!filterMenuOpen) return;
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      if (
+        filterMenuRef.current &&
+        !filterMenuRef.current.contains(e.target as Node)
+      ) {
+        setFilterMenuOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setFilterMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [filterMenuOpen]);
 
   // Keyboard shortcuts: Cmd/Ctrl+K or '/' focuses search, Escape clears, A/D steps days
   useEffect(() => {
@@ -849,22 +884,22 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden overscroll-none lg:block lg:h-auto lg:overflow-visible">
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-none lg:overflow-visible">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-4 lg:pb-36 space-y-5">
-      {/* Header: Interactive Title Date Picker / All-Dates Toggle + Search + Type Filters */}
+      {/* Header: Title Date Picker / All-Dates + Mode Switcher & Type Filter Dropdown + Search */}
       <header
         className="space-y-2.5 relative"
         style={{ borderColor: "var(--border-subtle)" }}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          {/* Left: Single-Day Scrubber OR All-Dates Title (order-2 below mobile Search Bar, sm:order-1 on desktop) */}
+          {/* Left: Single-Day Scrubber OR All-Dates Title */}
           {subview === "day" ? (
-            <div className="order-2 sm:order-1 relative flex items-center gap-1.5 shrink-0 min-w-0">
+            <div className="order-1 relative flex items-center gap-1 sm:gap-1.5 shrink-0 min-w-0">
               <div className="flex items-center gap-0.5 min-w-0">
                 <button
                   type="button"
                   onClick={() =>
                     setSelectedDateKey((prev) => addDaysToKey(prev, -1))
                   }
-                  className="h-8 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                  className="h-8 w-6 sm:w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
                   style={{ color: "var(--text-secondary)" }}
                   title="Previous day (A)"
                   aria-label="Previous day"
@@ -875,12 +910,12 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setCalendarPopoverOpen((v) => !v)}
-                  className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1 px-1 py-0.5 rounded-lg hover:bg-[var(--bg-surface-subtle)] focus:outline-none"
+                  className="font-display text-[15px] sm:text-[20px] font-semibold tracking-tight leading-tight whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1 px-1 py-0.5 rounded-lg hover:bg-[var(--bg-surface-subtle)] focus:outline-none"
                   style={{ color: "var(--text-primary)" }}
                   title="Change date"
                 >
                   <span>{formatCompactDayHeading(selectedDateKey)}</span>
-                  <ChevronDown className="w-4 h-4 opacity-50 shrink-0 mt-0.5" />
+                  <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-50 shrink-0 mt-0.5" />
                 </button>
 
                 <button
@@ -888,7 +923,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                   onClick={() =>
                     setSelectedDateKey((prev) => addDaysToKey(prev, 1))
                   }
-                  className="h-8 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
+                  className="h-8 w-6 sm:w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
                   style={{ color: "var(--text-secondary)" }}
                   title="Next day (D)"
                   aria-label="Next day"
@@ -1012,7 +1047,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               )}
             </div>
           ) : (
-            <div className="order-2 sm:order-1 flex items-baseline gap-2.5 min-w-0">
+            <div className="order-1 flex items-baseline gap-2.5 min-w-0">
               <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight whitespace-nowrap">
                 All Dates
               </h1>
@@ -1028,62 +1063,171 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             </div>
           )}
 
-          {/* Right controls on desktop; on mobile uses contents so Search sits order-1 at very top of canvas */}
+          {/* Right controls on desktop; on mobile Search drops below the header (order-3 basis-full) */}
           <div className="contents sm:flex sm:items-center sm:gap-2 sm:order-2">
-            {/* Day / All Dates Subview Toggle */}
-            <div
-              className="order-3 sm:order-1 inline-flex items-center h-8 p-0.5 rounded-lg border shrink-0"
-              style={{
-                backgroundColor: "var(--bg-surface)",
-                borderColor: "var(--border-subtle)",
-              }}
-              role="group"
-              aria-label="Timeline subview"
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  setSubview("day");
-                }}
-                className="h-full px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+            {/* Mode Switcher (Day | All Dates) + Custom Kanso Filter Dropdown */}
+            <div className="order-2 sm:order-1 flex items-center gap-1.5 shrink-0">
+              <div
+                className="inline-flex items-center h-8 p-0.5 rounded-lg border shrink-0"
                 style={{
-                  backgroundColor:
-                    subview === "day" ? "var(--accent-soft)" : "transparent",
-                  color:
-                    subview === "day" ? "var(--accent)" : "var(--text-muted)",
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
                 }}
-                aria-pressed={subview === "day"}
+                role="group"
+                aria-label="Timeline subview"
               >
-                <CalendarDays className="w-3.5 h-3.5 shrink-0" />
-                <span>Day</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setCalendarPopoverOpen(false);
-                  setSubview("all-dates");
-                }}
-                className="h-full px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
-                style={{
-                  backgroundColor:
-                    subview === "all-dates"
-                      ? "var(--accent-soft)"
-                      : "transparent",
-                  color:
-                    subview === "all-dates"
-                      ? "var(--accent)"
-                      : "var(--text-muted)",
-                }}
-                aria-pressed={subview === "all-dates"}
-              >
-                <Layers className="w-3.5 h-3.5 shrink-0" />
-                <span>All Dates</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSubview("day");
+                  }}
+                  className="h-full px-2 sm:px-2.5 rounded-md text-[11px] sm:text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  style={{
+                    backgroundColor:
+                      subview === "day" ? "var(--accent-soft)" : "transparent",
+                    color:
+                      subview === "day" ? "var(--accent)" : "var(--text-muted)",
+                  }}
+                  aria-pressed={subview === "day"}
+                >
+                  <CalendarDays className="hidden sm:inline w-3.5 h-3.5 shrink-0" />
+                  <span>Day</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCalendarPopoverOpen(false);
+                    setSubview("all-dates");
+                  }}
+                  className="h-full px-2 sm:px-2.5 rounded-md text-[11px] sm:text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  style={{
+                    backgroundColor:
+                      subview === "all-dates"
+                        ? "var(--accent-soft)"
+                        : "transparent",
+                    color:
+                      subview === "all-dates"
+                        ? "var(--accent)"
+                        : "var(--text-muted)",
+                  }}
+                  aria-pressed={subview === "all-dates"}
+                >
+                  <Layers className="hidden sm:inline w-3.5 h-3.5 shrink-0" />
+                  <span>All Dates</span>
+                </button>
+              </div>
+
+              {/* Restyled Kanso Type Filter Popover */}
+              {(() => {
+                const activeMeta =
+                  FILTER_OPTIONS.find((o) => o.id === typeFilter) ??
+                  FILTER_OPTIONS[0];
+                const ActiveIcon = activeMeta.icon;
+                const isFiltered = typeFilter !== "all";
+                return (
+                  <div className="relative shrink-0" ref={filterMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setFilterMenuOpen((v) => !v)}
+                      aria-haspopup="listbox"
+                      aria-expanded={filterMenuOpen}
+                      aria-label="Filter timeline by record type"
+                      className="h-8 px-2 sm:px-2.5 rounded-lg border text-[11px] sm:text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer hover:bg-[var(--bg-surface-hover)]"
+                      style={{
+                        backgroundColor:
+                          isFiltered || filterMenuOpen
+                            ? "var(--accent-soft)"
+                            : "var(--bg-surface)",
+                        borderColor:
+                          isFiltered || filterMenuOpen
+                            ? "var(--accent)"
+                            : "var(--border-subtle)",
+                        color:
+                          isFiltered || filterMenuOpen
+                            ? "var(--accent)"
+                            : "var(--text-secondary)",
+                      }}
+                    >
+                      <ActiveIcon
+                        className="w-3.5 h-3.5 shrink-0"
+                        style={{
+                          color: isFiltered
+                            ? "var(--accent)"
+                            : activeMeta.colorVar,
+                        }}
+                      />
+                      <span>{activeMeta.label}</span>
+                      <ChevronDown
+                        className="w-3.5 h-3.5 opacity-60 shrink-0 transition-transform duration-150"
+                        style={{
+                          transform: filterMenuOpen
+                            ? "rotate(180deg)"
+                            : undefined,
+                        }}
+                      />
+                    </button>
+
+                    {filterMenuOpen && (
+                      <div
+                        role="listbox"
+                        aria-label="Timeline record types"
+                        className="absolute right-0 top-full mt-1.5 w-44 rounded-xl border p-1 space-y-0.5 z-40"
+                        style={{
+                          backgroundColor: "var(--bg-elevated)",
+                          borderColor: "var(--border-strong)",
+                          boxShadow: "var(--shadow-popover)",
+                        }}
+                      >
+                        {FILTER_OPTIONS.map((opt) => {
+                          const Icon = opt.icon;
+                          const selected = opt.id === typeFilter;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              role="option"
+                              aria-selected={selected}
+                              onClick={() => {
+                                setTypeFilter(opt.id);
+                                setFilterMenuOpen(false);
+                              }}
+                              className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left transition-colors cursor-pointer hover:bg-[var(--bg-surface-subtle)]"
+                              style={{
+                                backgroundColor: selected
+                                  ? "var(--accent-soft)"
+                                  : "transparent",
+                                color: selected
+                                  ? "var(--accent)"
+                                  : "var(--text-primary)",
+                              }}
+                            >
+                              <span className="inline-flex items-center gap-2 min-w-0">
+                                <Icon
+                                  className="w-3.5 h-3.5 shrink-0"
+                                  style={{
+                                    color: selected
+                                      ? "var(--accent)"
+                                      : opt.colorVar,
+                                  }}
+                                />
+                                <span className="truncate">{opt.label}</span>
+                              </span>
+                              {selected && (
+                                <Check className="w-3.5 h-3.5 shrink-0" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
-            {/* Search Bar: top full-width on mobile (order-1 basis-full), inline right on desktop */}
+            {/* Search Bar: below view header on mobile (order-3 basis-full), right of controls on desktop */}
             <div
-              className="order-1 basis-full sm:order-2 sm:basis-auto flex items-center gap-1.5 h-9 sm:h-8 px-2.5 rounded-xl sm:rounded-lg border sm:w-52 transition-colors"
+              className="order-3 basis-full sm:order-2 sm:basis-auto flex items-center gap-1.5 h-9 sm:h-8 px-2.5 rounded-xl sm:rounded-lg border sm:w-44 md:w-52 transition-colors"
               style={{
                 backgroundColor: "var(--bg-surface)",
                 borderColor: searchQuery
@@ -1116,37 +1260,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               )}
             </div>
           </div>
-        </div>
-
-        {/* Type Filter Chips */}
-        <div
-          className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5"
-          role="group"
-          aria-label="Filter timeline by record type"
-        >
-          {FILTER_CHIPS.map((chip) => {
-            const active = typeFilter === chip.id;
-            return (
-              <button
-                key={chip.id}
-                type="button"
-                onClick={() => setTypeFilter(chip.id)}
-                aria-pressed={active}
-                className="h-7 px-2.5 rounded-lg border text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                style={{
-                  backgroundColor: active
-                    ? "var(--accent-soft)"
-                    : "var(--bg-surface)",
-                  borderColor: active
-                    ? "var(--accent)"
-                    : "var(--border-subtle)",
-                  color: active ? "var(--accent)" : "var(--text-secondary)",
-                }}
-              >
-                {chip.label}
-              </button>
-            );
-          })}
         </div>
       </header>
 

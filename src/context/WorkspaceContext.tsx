@@ -2054,6 +2054,13 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         (c) => c.id === id,
       );
       if (!card) return null;
+      if (
+        !card.content.trim() ||
+        /[\r\n]/.test(card.content) ||
+        /^\s*-\s*\[[ xX]?\]/m.test(card.content)
+      ) {
+        return null;
+      }
       const lines = card.content
         .split("\n")
         .map((l) => l.trim())
@@ -2103,6 +2110,13 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       const currentWs = latestWorkspaceRef.current;
       const card = (currentWs.scratchpads ?? []).find((c) => c.id === id);
       if (!card) return { ok: false, reason: "not_found" };
+      if (
+        !card.content.trim() ||
+        /[\r\n]/.test(card.content) ||
+        /^\s*-\s*\[[ xX]?\]/m.test(card.content)
+      ) {
+        return { ok: false, reason: "not_found" };
+      }
 
       const activeCount = currentWs.entries.filter(
         (e) =>

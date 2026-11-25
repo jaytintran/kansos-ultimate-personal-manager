@@ -15,7 +15,10 @@ import {
 } from "lucide-react";
 import { ScratchpadCard } from "../../types";
 import { formatTime } from "../../utils/date";
-import { AutoGrowTextarea } from "./AutoGrowTextarea";
+import {
+  isScratchpadSingleLinePlain,
+  ScratchpadEditor,
+} from "./ScratchpadEditor";
 
 export const SCRATCHPAD_LIGHT = [
   { name: "Butter", bg: "#fef9c3", border: "#fde047", text: "#422006" },
@@ -760,43 +763,44 @@ export const FocusScratchpadTab: React.FC<FocusScratchpadTabProps> = ({
                       </div>
                     </div>
 
-                    <AutoGrowTextarea
+                    <ScratchpadEditor
                       minRows={2}
                       value={card.content}
-                      onChange={(e) =>
-                        onUpdateScratchpad(card.id, { content: e.target.value })
+                      onChange={(nextContent) =>
+                        onUpdateScratchpad(card.id, { content: nextContent })
                       }
-                      placeholder="Write a quick note..."
-                      className="text-sm leading-relaxed placeholder:opacity-50"
-                      style={{ color: pal.text }}
+                      placeholder="Write a quick note or - [] for a checklist..."
+                      className="text-sm leading-relaxed"
+                      textColor={pal.text}
+                      bgColor={pal.bg}
                     />
 
                     <div className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-black/10 dark:border-white/10">
                       <span className="text-[10px] font-mono tabular-nums opacity-65">
                         {formatTime(card.updatedAt, timeFormat)}
                       </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          disabled={!card.content.trim()}
-                          onClick={() => onPromoteToXActive(card.id)}
-                          className="h-7 px-2 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 transition-opacity disabled:opacity-35 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15 whitespace-nowrap cursor-pointer"
-                          title="Promote sticky to X-Active task"
-                        >
-                          <Target className="w-3 h-3" />
-                          <span>X-Active</span>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!card.content.trim()}
-                          onClick={() => onPromoteToTimeline(card.id)}
-                          className="h-7 px-2 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 transition-opacity disabled:opacity-35 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15 whitespace-nowrap cursor-pointer"
-                          title="Promote sticky to Timeline Note"
-                        >
-                          <Send className="w-3 h-3" />
-                          <span>Timeline</span>
-                        </button>
-                      </div>
+                      {isScratchpadSingleLinePlain(card.content) && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => onPromoteToXActive(card.id)}
+                            className="h-7 px-2 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15 whitespace-nowrap cursor-pointer"
+                            title="Promote sticky to X-Active task"
+                          >
+                            <Target className="w-3 h-3" />
+                            <span>X-Active</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onPromoteToTimeline(card.id)}
+                            className="h-7 px-2 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15 whitespace-nowrap cursor-pointer"
+                            title="Promote sticky to Timeline Note"
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>Timeline</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -951,15 +955,16 @@ export const FocusScratchpadTab: React.FC<FocusScratchpadTabProps> = ({
                 </div>
 
                 <div className="flex-1 min-w-0 space-y-1.5">
-                  <AutoGrowTextarea
+                  <ScratchpadEditor
                     minRows={1}
                     value={card.content}
-                    onChange={(e) =>
-                      onUpdateScratchpad(card.id, { content: e.target.value })
+                    onChange={(nextContent) =>
+                      onUpdateScratchpad(card.id, { content: nextContent })
                     }
-                    placeholder="Write a quick note..."
-                    className="text-sm leading-snug placeholder:opacity-50"
-                    style={{ color: pal.text }}
+                    placeholder="Write a quick note or - [] for a checklist..."
+                    className="text-sm leading-snug"
+                    textColor={pal.text}
+                    bgColor={pal.bg}
                   />
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
@@ -987,24 +992,26 @@ export const FocusScratchpadTab: React.FC<FocusScratchpadTabProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        disabled={!card.content.trim()}
-                        onClick={() => onPromoteToXActive(card.id)}
-                        className="h-6 px-2 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 disabled:opacity-35 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15 cursor-pointer"
-                      >
-                        <Target className="w-3 h-3" />
-                        <span>X-Active</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!card.content.trim()}
-                        onClick={() => onPromoteToTimeline(card.id)}
-                        className="h-6 px-2 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 disabled:opacity-35 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15 cursor-pointer"
-                      >
-                        <Send className="w-3 h-3" />
-                        <span>Timeline</span>
-                      </button>
+                      {isScratchpadSingleLinePlain(card.content) && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => onPromoteToXActive(card.id)}
+                            className="h-6 px-2 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15 cursor-pointer"
+                          >
+                            <Target className="w-3 h-3" />
+                            <span>X-Active</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onPromoteToTimeline(card.id)}
+                            className="h-6 px-2 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15 cursor-pointer"
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>Timeline</span>
+                          </button>
+                        </>
+                      )}
                       <button
                         type="button"
                         onClick={() =>

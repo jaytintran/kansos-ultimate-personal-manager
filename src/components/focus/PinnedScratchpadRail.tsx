@@ -1,8 +1,11 @@
 import React from "react";
 import { ArrowRight, Pin, Plus, Send, StickyNote, Target } from "lucide-react";
 import { ScratchpadCard } from "../../types";
-import { AutoGrowTextarea } from "./AutoGrowTextarea";
 import { SCRATCHPAD_DARK, SCRATCHPAD_LIGHT } from "./FocusScratchpadTab";
+import {
+  isScratchpadSingleLinePlain,
+  ScratchpadEditor,
+} from "./ScratchpadEditor";
 
 interface PinnedScratchpadRailProps {
   pinnedCards: ScratchpadCard[];
@@ -84,7 +87,7 @@ export const PinnedScratchpadRail: React.FC<PinnedScratchpadRailProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 items-start">
           {pinnedCards.map((card) => {
             const pal = palette[card.paletteIndex % palette.length];
-            const hasContent = Boolean(card.content.trim());
+            const canRoute = isScratchpadSingleLinePlain(card.content);
             return (
               <div
                 key={card.id}
@@ -95,15 +98,16 @@ export const PinnedScratchpadRail: React.FC<PinnedScratchpadRailProps> = ({
                   color: pal.text,
                 }}
               >
-                <AutoGrowTextarea
+                <ScratchpadEditor
                   minRows={2}
                   value={card.content}
-                  onChange={(e) =>
-                    onUpdateScratchpad(card.id, { content: e.target.value })
+                  onChange={(nextContent) =>
+                    onUpdateScratchpad(card.id, { content: nextContent })
                   }
-                  placeholder="Quick pinned thought..."
-                  className="text-xs sm:text-sm leading-relaxed placeholder:opacity-55"
-                  style={{ color: pal.text }}
+                  placeholder="Quick pinned thought or - []..."
+                  className="text-xs sm:text-sm leading-relaxed"
+                  textColor={pal.text}
+                  bgColor={pal.bg}
                 />
 
                 <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-black/10 dark:border-white/10">
@@ -119,28 +123,28 @@ export const PinnedScratchpadRail: React.FC<PinnedScratchpadRailProps> = ({
                     <span>Unpin</span>
                   </button>
 
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      disabled={!hasContent}
-                      onClick={() => onPromoteToXActive(card.id)}
-                      className="h-6 px-2 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 disabled:opacity-35 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15 cursor-pointer"
-                      title="Send to X-Active"
-                    >
-                      <Target className="w-3 h-3" />
-                      <span>Active</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!hasContent}
-                      onClick={() => onPromoteToTimeline(card.id)}
-                      className="h-6 px-2 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 disabled:opacity-35 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15 cursor-pointer"
-                      title="Promote to Timeline Note"
-                    >
-                      <Send className="w-3 h-3" />
-                      <span>Note</span>
-                    </button>
-                  </div>
+                  {canRoute && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onPromoteToXActive(card.id)}
+                        className="h-6 px-2 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15 cursor-pointer"
+                        title="Send to X-Active"
+                      >
+                        <Target className="w-3 h-3" />
+                        <span>Active</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onPromoteToTimeline(card.id)}
+                        className="h-6 px-2 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15 cursor-pointer"
+                        title="Promote to Timeline Note"
+                      >
+                        <Send className="w-3 h-3" />
+                        <span>Note</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
