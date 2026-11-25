@@ -1392,7 +1392,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                     onError={() =>
                                       setBrokenThumbs((prev) => ({ ...prev, [item.id]: true }))
                                     }
-                                    className="w-full h-full object-cover pointer-events-none select-none transition-transform duration-200 group-hover:scale-[1.02]"
+                                    className="w-full h-full object-cover pointer-events-none select-none"
                                   />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)] pointer-events-none">
@@ -1450,7 +1450,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                   }}
                                   className="text-left w-full"
                                 >
-                                  <h4 className="text-xs font-semibold leading-snug line-clamp-2 hover:underline">
+                                  <h4 className="text-xs font-semibold leading-snug line-clamp-2">
                                     {item.customLabel || item.title}
                                   </h4>
                                 </button>
@@ -1643,7 +1643,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                           onError={() =>
                             setBrokenThumbs((prev) => ({ ...prev, [item.id]: true }))
                           }
-                          className="w-full h-full object-cover pointer-events-none select-none transition-transform duration-200 group-hover:scale-[1.02]"
+                          className="w-full h-full object-cover pointer-events-none select-none"
                         />
                       ) : (
                         <div
@@ -1718,7 +1718,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                             }}
                             className="text-left min-w-0 flex-1"
                           >
-                            <h3 className="text-sm font-medium leading-snug line-clamp-2 hover:underline">
+                            <h3 className="text-sm font-medium leading-snug line-clamp-2">
                               {item.customLabel || item.title}
                             </h3>
                           </button>
@@ -2052,7 +2052,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                                       streamId: item.id,
                                     });
                                   }}
-                                  className="text-xs font-semibold truncate block max-w-full text-left hover:underline"
+                                  className="text-xs font-semibold truncate block max-w-full text-left"
                                 >
                                   {item.customLabel || item.title}
                                 </button>
