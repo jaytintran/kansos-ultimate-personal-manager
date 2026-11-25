@@ -1,4 +1,4 @@
-import { ArrowLeft, Folder, FolderMinus, FolderSearch, Layers, MonitorPlay, Star } from "lucide-react";
+import { ArrowLeft, Folder, FolderMinus, FolderSearch, Layers, MonitorPlay, Star, Tag } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { StreamItem } from "../types";
@@ -6,6 +6,7 @@ import type { StreamItem } from "../types";
 export type VaultPointerDropTarget =
   | { kind: "sidebar-favorites"; label: string }
   | { kind: "sidebar-folder"; id: string; label: string }
+  | { kind: "sidebar-topic"; id: string; label: string }
   | { kind: "dock-folder"; id: string; label: string; isMember?: boolean }
   | { kind: "dock-more"; label: string }
   | { kind: "stream-reorder"; streamId: string; position: "before" | "after" };
@@ -39,6 +40,7 @@ interface UseVaultStreamDragOptions {
   sidebarScrollRef: React.RefObject<HTMLDivElement | null>;
   dockScrollRef: React.RefObject<HTMLDivElement | null>;
   onDropToFolder: (streamIds: string[], folderId: string) => void;
+  onDropToTopic: (streamIds: string[], topicName: string) => void;
   onDropToFavorites: (streamIds: string[]) => void;
   onDropToMoreFolders: (streamIds: string[]) => void;
   onReorderStreams: (
@@ -135,6 +137,7 @@ export function useVaultStreamDrag({
   sidebarScrollRef,
   dockScrollRef,
   onDropToFolder,
+  onDropToTopic,
   onDropToFavorites,
   onDropToMoreFolders,
   onReorderStreams,
@@ -162,6 +165,7 @@ export function useVaultStreamDrag({
   const callbacksRef = useRef({
     isCustomSort,
     onDropToFolder,
+    onDropToTopic,
     onDropToFavorites,
     onDropToMoreFolders,
     onReorderStreams,
@@ -169,6 +173,7 @@ export function useVaultStreamDrag({
   callbacksRef.current = {
     isCustomSort,
     onDropToFolder,
+    onDropToTopic,
     onDropToFavorites,
     onDropToMoreFolders,
     onReorderStreams,
@@ -197,6 +202,9 @@ export function useVaultStreamDrag({
               };
             case "sidebar-folder":
               if (id) return { kind: "sidebar-folder", id, label };
+              break;
+            case "sidebar-topic":
+              if (id) return { kind: "sidebar-topic", id, label: label || id };
               break;
             case "dock-folder":
               if (id) {
@@ -433,6 +441,9 @@ export function useVaultStreamDrag({
         case "sidebar-folder":
         case "dock-folder":
           cb.onDropToFolder(ids, resolved.id);
+          break;
+        case "sidebar-topic":
+          cb.onDropToTopic(ids, resolved.id);
           break;
         case "dock-more":
           cb.onDropToMoreFolders(ids);
@@ -747,6 +758,10 @@ export function useVaultStreamDrag({
           return "Add to Favorites";
         case "sidebar-folder":
           return `Move to "${activeDropTarget.label}"`;
+        case "sidebar-topic":
+          return activeDropTarget.label === "Uncategorized"
+            ? "Clear topic (Uncategorized)"
+            : `Set topic "${activeDropTarget.label}"`;
         case "dock-folder":
           return activeDropTarget.isMember
             ? `Remove from "${activeDropTarget.label}"`
@@ -765,6 +780,8 @@ export function useVaultStreamDrag({
       switch (activeDropTarget.kind) {
         case "sidebar-favorites":
           return Star;
+        case "sidebar-topic":
+          return Tag;
         case "dock-more":
           return FolderSearch;
         case "dock-folder":

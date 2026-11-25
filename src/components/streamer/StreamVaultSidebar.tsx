@@ -696,6 +696,9 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
             <div className="space-y-0.5">
               {topics.map((t) => {
                 const active = scope.kind === 'topic' && scope.topic === t.name;
+                const isTopicDropOver =
+                  activePointerDropTarget?.kind === 'sidebar-topic' &&
+                  activePointerDropTarget.id === t.name;
                 const topicKey = t.name.trim().toLowerCase();
                 const customIcon = topicIcons[topicKey];
                 const isTopicPickerOpen =
@@ -704,6 +707,9 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                 return (
                   <div
                     key={t.name}
+                    data-vault-drop-kind="sidebar-topic"
+                    data-vault-drop-id={t.name}
+                    data-vault-drop-label={t.name}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -713,10 +719,16 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                         target: { kind: 'topic', topicName: t.name },
                       });
                     }}
-                    className="relative group flex items-center justify-between gap-1 rounded-lg px-2.5 transition-colors"
+                    className={`relative group flex items-center justify-between gap-1 rounded-lg px-2.5 transition-colors ${
+                      isTopicDropOver ? 'ring-1 ring-[var(--accent)]' : ''
+                    }`}
                     style={{
-                      backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
-                      color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                      backgroundColor:
+                        isTopicDropOver || active ? 'var(--accent-soft)' : 'transparent',
+                      color:
+                        isTopicDropOver || active
+                          ? 'var(--accent)'
+                          : 'var(--text-secondary)',
                     }}
                   >
                     <button
@@ -750,7 +762,10 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
 
                     <span
                       className="group-hover:hidden text-[11px] font-mono tabular-nums shrink-0"
-                      style={{ color: active ? 'var(--accent)' : 'var(--text-muted)' }}
+                      style={{
+                        color:
+                          isTopicDropOver || active ? 'var(--accent)' : 'var(--text-muted)',
+                      }}
                     >
                       {t.count}
                     </span>

@@ -646,6 +646,27 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     [onUpdateStream, onNotify]
   );
 
+  const handleDropToTopic = useCallback(
+    (streamIds: string[], topicName: string) => {
+      if (streamIds.length === 0) return;
+      const nextCategory = topicName === 'Uncategorized' ? '' : topicName;
+      for (const id of streamIds) {
+        onUpdateStream(id, { category: nextCategory });
+      }
+      onNotify(
+        nextCategory
+          ? streamIds.length === 1
+            ? `Set topic to ${nextCategory}`
+            : `Set topic to ${nextCategory} for ${streamIds.length} streams`
+          : streamIds.length === 1
+            ? 'Cleared stream topic'
+            : `Cleared topic for ${streamIds.length} streams`,
+        'success'
+      );
+    },
+    [onUpdateStream, onNotify]
+  );
+
   const handleApplyFolderPicker = useCallback(
     (streamIds: string[], addFolderIds: string[], removeFolderIds: string[]) => {
       const targetSet = new Set(streamIds);
@@ -687,6 +708,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     sidebarScrollRef,
     dockScrollRef,
     onDropToFolder: handleDropToFolder,
+    onDropToTopic: handleDropToTopic,
     onDropToFavorites: handleDropToFavorites,
     onDropToMoreFolders: (ids) => setFolderPickerStreamIds(ids),
     onReorderStreams: handleReorderStreams,
