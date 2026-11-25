@@ -34,10 +34,13 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
-            <service
+        <service
             android:name=".KansoMediaPlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+        <receiver
+            android:name=".KansoMediaPlaybackService$MediaActionReceiver"
+            android:exported="false" />
     </application>
 
     <!-- Permissions -->

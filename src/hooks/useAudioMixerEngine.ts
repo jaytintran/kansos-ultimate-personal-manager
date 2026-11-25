@@ -923,10 +923,15 @@ export function useAudioMixerEngine({
     setViewMuted((v) => !v);
   }, []);
 
+  const hasSyncedAndroidRef = useRef(false);
+  const bannerDismissedRef = useRef(false);
+
   const stopAll = useCallback(() => {
     setAllPausedSync(true);
     setSleepRemainingSeconds(null);
     sleepFadeRef.current = 1;
+    bannerDismissedRef.current = true;
+    hasSyncedAndroidRef.current = false;
     for (const node of slotsRef.current.values()) {
       try {
         node.audio.pause();
@@ -934,6 +939,14 @@ export function useAudioMixerEngine({
       } catch {
         // Ignore
       }
+    }
+    if (isAndroidCapacitor()) {
+      void syncAndroidBackgroundAudio({
+        source: "audio",
+        playing: false,
+        keepServiceAlive: false,
+        showTrackControls: true,
+      });
     }
   }, [persistSlotPosition, setAllPausedSync]);
 
@@ -1121,13 +1134,14 @@ export function useAudioMixerEngine({
   ]);
 
   // Native Android Foreground Media Service sync & notification transport buttons
-  const hasSyncedAndroidRef = useRef(false);
   useEffect(() => {
     if (!isAndroidCapacitor()) return;
     if (audioState.activeSlots.length === 0) {
+      bannerDismissedRef.current = false;
       if (hasSyncedAndroidRef.current) {
         hasSyncedAndroidRef.current = false;
         void syncAndroidBackgroundAudio({
+          source: "audio",
           playing: false,
           keepServiceAlive: false,
           showTrackControls: true,
@@ -1136,15 +1150,25 @@ export function useAudioMixerEngine({
       return;
     }
 
-    if (isPlaying || hasSyncedAndroidRef.current) {
+    if (isPlaying) {
+      bannerDismissedRef.current = false;
       hasSyncedAndroidRef.current = true;
+    }
+
+    if (isPlaying || (hasSyncedAndroidRef.current && !bannerDismissedRef.current)) {
+      const title =
+        audioState.activeSlots.length > 1 && primaryTrack
+          ? `${primaryTrack.title} (+${audioState.activeSlots.length - 1} mix)`
+          : primaryTrack?.title || "Kanso Audio";
+      const subtitle = isPlaying
+        ? primaryTrack?.artist || "Offline Audio Studio"
+        : "Paused";
+
       void syncAndroidBackgroundAudio({
+        source: "audio",
         playing: isPlaying,
-        title:
-          audioState.activeSlots.length > 1 && primaryTrack
-            ? `${primaryTrack.title} (+${audioState.activeSlots.length - 1} mix)`
-            : primaryTrack?.title || "Kanso Audio",
-        subtitle: primaryTrack?.artist || "Offline Audio Studio",
+        title,
+        subtitle,
         keepServiceAlive: true,
         showTrackControls: true,
       });
@@ -1153,21 +1177,35 @@ export function useAudioMixerEngine({
 
   useEffect(() => {
     if (!isAndroidCapacitor()) return;
-    return subscribeAndroidMediaControls((action) => {
+    return subscribeAndroidMediaControls((action, source) => {
+      if (source && source !== "audio") return;
       if (audioStateRef.current.activeSlots.length === 0) return;
       if (action === "play") {
-        if (isAllPausedRef.current) togglePlayPauseAll();
+        bannerDismissedRef.current = false;
+        ensurePlaying();
       } else if (action === "pause") {
-        if (!isAllPausedRef.current) togglePlayPauseAll();
+        bannerDismissedRef.current = false;
+        const anyPlaying = Array.from(slotsRef.current.values()).some(
+          (n) => !n.audio.paused && !n.audio.ended,
+        );
+        if (anyPlaying || !isAllPausedRef.current) {
+          setAllPausedSync(true);
+          for (const node of slotsRef.current.values()) {
+            node.audio.pause();
+            persistSlotPosition(node);
+          }
+        }
       } else if (action === "next") {
+        bannerDismissedRef.current = false;
         playNext(true);
       } else if (action === "previous") {
+        bannerDismissedRef.current = false;
         playPrev();
-      } else if (action === "stop") {
+      } else if (action === "stop" || action === "dismiss") {
         stopAll();
       }
     });
-  }, [togglePlayPauseAll, playNext, playPrev, stopAll]);
+  }, [ensurePlaying, persistSlotPosition, playNext, playPrev, setAllPausedSync, stopAll]);
 
   return {
     viewMuted,

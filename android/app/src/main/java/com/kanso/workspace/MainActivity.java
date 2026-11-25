@@ -15,6 +15,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
+import java.lang.ref.WeakReference;
 
 public class MainActivity extends BridgeActivity {
 
@@ -22,12 +23,14 @@ public class MainActivity extends BridgeActivity {
     public static final String CHROME_COLOR_KEY = "chrome_bg_color";
     public static final String CHROME_DARK_KEY = "chrome_is_dark";
     public static volatile boolean backgroundAudioActive = false;
+    private static volatile WeakReference<MainActivity> activeInstance = new WeakReference<>(null);
     private boolean lastImeVisible = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(KansoSafPlugin.class);
         super.onCreate(savedInstanceState);
+        activeInstance = new WeakReference<>(this);
 
         SharedPreferences prefs = getSharedPreferences(CHROME_PREFS_NAME, Context.MODE_PRIVATE);
         int initialColor = prefs.getInt(CHROME_COLOR_KEY, Color.WHITE);
@@ -106,6 +109,9 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onDestroy() {
+        if (activeInstance.get() == this) {
+            activeInstance = new WeakReference<>(null);
+        }
         if (isFinishing()) {
             backgroundAudioActive = false;
             try {
@@ -115,6 +121,15 @@ public class MainActivity extends BridgeActivity {
             }
         }
         super.onDestroy();
+    }
+
+    public static void wakeWebViewForBackgroundPlayback() {
+        backgroundAudioActive = true;
+        MainActivity activity = activeInstance.get();
+        if (activity == null) {
+            return;
+        }
+        activity.runOnUiThread(activity::keepWebViewAliveIfPlaying);
     }
 
     private void keepWebViewAliveIfPlaying() {

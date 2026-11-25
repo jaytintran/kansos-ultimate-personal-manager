@@ -49,10 +49,16 @@ public class KansoSafPlugin extends Plugin {
     public void load() {
         super.load();
         final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-        KansoMediaPlaybackService.setControlListener(action ->
+        KansoMediaPlaybackService.setControlListener((action, source) ->
             mainHandler.post(() -> {
+                if ("play".equals(action) || "next".equals(action) || "previous".equals(action)) {
+                    MainActivity.wakeWebViewForBackgroundPlayback();
+                }
                 JSObject payload = new JSObject();
                 payload.put("action", action);
+                if (source != null && !source.isEmpty()) {
+                    payload.put("source", source);
+                }
                 notifyListeners("mediaControlAction", payload);
             })
         );
@@ -686,6 +692,7 @@ public class KansoSafPlugin extends Plugin {
         boolean playing = Boolean.TRUE.equals(call.getBoolean("playing", false));
         boolean keepServiceAlive = Boolean.TRUE.equals(call.getBoolean("keepServiceAlive", false));
         boolean showTrackControls = Boolean.TRUE.equals(call.getBoolean("showTrackControls", false));
+        String source = call.getString("source", "");
         String title = call.getString("title", "Kanso Media");
         String subtitle = call.getString("subtitle", playing ? "Playing in background" : "Paused");
 
@@ -694,13 +701,8 @@ public class KansoSafPlugin extends Plugin {
         MainActivity.backgroundAudioActive = playing;
 
         if (playing || keepServiceAlive) {
-            if (playing && activity != null && this.bridge != null && this.bridge.getWebView() != null) {
-                final android.webkit.WebView webView = this.bridge.getWebView();
-                activity.runOnUiThread(() -> {
-                    webView.onResume();
-                    webView.resumeTimers();
-                    webView.dispatchWindowVisibilityChanged(android.view.View.VISIBLE);
-                });
+            if (playing) {
+                MainActivity.wakeWebViewForBackgroundPlayback();
             }
             try {
                 Intent serviceIntent = new Intent(ctx, KansoMediaPlaybackService.class);
@@ -709,6 +711,9 @@ public class KansoSafPlugin extends Plugin {
                 serviceIntent.putExtra(KansoMediaPlaybackService.EXTRA_SUBTITLE, subtitle);
                 serviceIntent.putExtra(KansoMediaPlaybackService.EXTRA_PLAYING, playing);
                 serviceIntent.putExtra(KansoMediaPlaybackService.EXTRA_SHOW_TRACK_CONTROLS, showTrackControls);
+                if (source != null && !source.isEmpty()) {
+                    serviceIntent.putExtra(KansoMediaPlaybackService.EXTRA_SOURCE, source);
+                }
                 ContextCompat.startForegroundService(ctx, serviceIntent);
             } catch (Exception ignored) {
                 // Guard against OS foreground-start restrictions if app is already closing
@@ -728,10 +733,13 @@ public class KansoSafPlugin extends Plugin {
                 );
             }
         } else {
-            try {
-                ctx.stopService(new Intent(ctx, KansoMediaPlaybackService.class));
-            } catch (Exception ignored) {
-                // Safe no-op if already stopped
+            String activeSource = KansoMediaPlaybackService.getActiveSource();
+            if (source == null || source.isEmpty() || activeSource.isEmpty() || source.equals(activeSource)) {
+                try {
+                    ctx.stopService(new Intent(ctx, KansoMediaPlaybackService.class));
+                } catch (Exception ignored) {
+                    // Safe no-op if already stopped
+                }
             }
         }
 

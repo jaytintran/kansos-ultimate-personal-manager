@@ -763,10 +763,29 @@ export const StreamerView = forwardRef<
   const isPlaying = playingCount > 0;
   const isAllPaused = allPaused && activeSlots.length > 0 && !isPlaying;
 
+  const hasSyncedAndroidRef = useRef(false);
+  const bannerDismissedRef = useRef(false);
+
   const backgroundMediaMeta = useMemo(() => {
+    const activePreset = streamerState.activePresetId
+      ? streamPresets.find((p) => p.id === streamerState.activePresetId)
+      : undefined;
+
     if (playingSlots.length === 0) {
-      return { title: "Kanso Streamer", subtitle: "Playing in background" };
+      const fallbackSlot =
+        activeSlots.find((sl) => pausedSlotIdsRef.current.includes(sl.slotId)) ||
+        activeSlots[0];
+      const fallbackStream = fallbackSlot
+        ? streamById.get(fallbackSlot.streamId)
+        : undefined;
+      const pausedTitle =
+        activePreset?.name ||
+        fallbackStream?.customLabel ||
+        fallbackStream?.title ||
+        "Kanso Streamer";
+      return { title: pausedTitle, subtitle: "Paused" };
     }
+
     const firstStream = streamById.get(playingSlots[0].streamId);
     const firstTitle =
       firstStream?.customLabel || firstStream?.title || "Kanso Streamer";
@@ -780,34 +799,66 @@ export const StreamerView = forwardRef<
       };
     }
 
-    const activePreset = streamerState.activePresetId
-      ? streamPresets.find((p) => p.id === streamerState.activePresetId)
-      : undefined;
-
     return {
       title: activePreset?.name || firstTitle,
       subtitle: `${playingSlots.length} streams playing in background`,
     };
-  }, [playingSlots, streamById, streamerState.activePresetId, streamPresets]);
+  }, [
+    playingSlots,
+    activeSlots,
+    streamById,
+    streamerState.activePresetId,
+    streamPresets,
+  ]);
 
-  // Sync Android Foreground MediaPlayback Service strictly while streams are playing
+  // Sync Android Foreground MediaPlayback Service (keeps paused banner alive until Stop or swipe dismiss)
   useEffect(() => {
     if (!isAndroidCapacitor()) return;
-    void syncAndroidBackgroundAudio(
-      isPlaying
-        ? {
-            playing: true,
-            title: backgroundMediaMeta.title,
-            subtitle: backgroundMediaMeta.subtitle,
-          }
-        : { playing: false },
-    );
-  }, [isPlaying, backgroundMediaMeta.title, backgroundMediaMeta.subtitle]);
+    if (activeSlots.length === 0) {
+      bannerDismissedRef.current = false;
+      if (hasSyncedAndroidRef.current) {
+        hasSyncedAndroidRef.current = false;
+        void syncAndroidBackgroundAudio({
+          source: "streamer",
+          playing: false,
+          keepServiceAlive: false,
+          showTrackControls: false,
+        });
+      }
+      return;
+    }
+
+    if (isPlaying) {
+      bannerDismissedRef.current = false;
+      hasSyncedAndroidRef.current = true;
+    }
+
+    if (isPlaying || (hasSyncedAndroidRef.current && !bannerDismissedRef.current)) {
+      void syncAndroidBackgroundAudio({
+        source: "streamer",
+        playing: isPlaying,
+        title: backgroundMediaMeta.title,
+        subtitle: isPlaying ? backgroundMediaMeta.subtitle : "Paused",
+        keepServiceAlive: true,
+        showTrackControls: false,
+      });
+    }
+  }, [
+    activeSlots.length,
+    isPlaying,
+    backgroundMediaMeta.title,
+    backgroundMediaMeta.subtitle,
+  ]);
 
   useEffect(() => {
     return () => {
-      if (isAndroidCapacitor()) {
-        void syncAndroidBackgroundAudio({ playing: false });
+      if (isAndroidCapacitor() && hasSyncedAndroidRef.current) {
+        hasSyncedAndroidRef.current = false;
+        void syncAndroidBackgroundAudio({
+          source: "streamer",
+          playing: false,
+          keepServiceAlive: false,
+        });
       }
     };
   }, []);
@@ -903,17 +954,27 @@ export const StreamerView = forwardRef<
     ],
   );
 
-  // Explicit Pause All helper (used by UI Pause All, Android notification Pause/Stop, and Audio Focus loss)
+  // Explicit Pause All helper (used by UI Pause All, Android notification Pause/Stop/Dismiss)
   const pauseAllStreams = useCallback(
-    (silentToast = false, stopSleepTimer = false) => {
+    (silentToast = false, stopSleepTimer = false, suppressBanner = false) => {
       const slots = activeSlotsRef.current;
+      if (suppressBanner) {
+        bannerDismissedRef.current = true;
+        hasSyncedAndroidRef.current = false;
+      }
       if (slots.length === 0) {
         if (isAndroidCapacitor()) {
-          void syncAndroidBackgroundAudio({ playing: false });
+          void syncAndroidBackgroundAudio({
+            source: "streamer",
+            playing: false,
+            keepServiceAlive: false,
+            showTrackControls: false,
+          });
         }
         return;
       }
       markIntentionalPause();
+      preBackgroundPlayingRef.current.clear();
       const currentlyPlayingIds = slots
         .filter((sl) => {
           const st = playerStatesRef.current[sl.slotId];
@@ -931,6 +992,7 @@ export const StreamerView = forwardRef<
           sl.slotId,
         );
       }
+      allPausedRef.current = true;
       setAllPaused(true);
       if (stopSleepTimer) {
         setSleepRemainingSeconds(null);
@@ -944,21 +1006,66 @@ export const StreamerView = forwardRef<
         }
         return next;
       });
-      if (isAndroidCapacitor()) {
-        void syncAndroidBackgroundAudio({ playing: false });
+      if (suppressBanner && isAndroidCapacitor()) {
+        void syncAndroidBackgroundAudio({
+          source: "streamer",
+          playing: false,
+          keepServiceAlive: false,
+          showTrackControls: false,
+        });
       }
       if (!silentToast) pushToast("Paused all stacked streams");
     },
     [markIntentionalPause, pushToast],
   );
 
-  // Handle Android media notification Pause / Stop buttons & OS audio focus loss
+  // Explicit Resume All helper (used by Play All button & Android notification Play)
+  const resumeAllStreams = useCallback(
+    (silentToast = false) => {
+      const slots = activeSlotsRef.current;
+      if (slots.length === 0) return;
+
+      bannerDismissedRef.current = false;
+      const slotIdsSet = new Set(slots.map((sl) => sl.slotId));
+      const savedTargets = pausedSlotIdsRef.current.filter((id) =>
+        slotIdsSet.has(id),
+      );
+      const targets =
+        savedTargets.length > 0 ? savedTargets : slots.map((sl) => sl.slotId);
+
+      allPausedRef.current = false;
+      for (const slotId of targets) {
+        playingIntentsRef.current.add(slotId);
+        const slot = slots.find((sl) => sl.slotId === slotId);
+        const iframe = iframeRefs.current[slotId] || null;
+        sendYouTubeCommand(iframe, "playVideo", [], slotId);
+        if (slot) applySlotAudio(slot, iframe, sleepFadeRef.current);
+      }
+      setAllPaused(false);
+      setPlayerStates((prev) => {
+        const next = { ...prev };
+        for (const id of targets) next[id] = 1;
+        return next;
+      });
+      if (!silentToast) pushToast("Playing all stacked streams");
+    },
+    [applySlotAudio, pushToast],
+  );
+
+  // Handle Android media notification Play / Pause / Stop / Dismiss buttons
   useEffect(() => {
     if (!isAndroidCapacitor()) return;
-    return subscribeAndroidMediaControls((action) => {
-      pauseAllStreams(true, action === "stop");
+    return subscribeAndroidMediaControls((action, source) => {
+      if (source && source !== "streamer") return;
+      if (action === "play") {
+        resumeAllStreams(true);
+      } else if (action === "pause") {
+        pauseAllStreams(true, false, false);
+      } else if (action === "stop" || action === "dismiss") {
+        pauseAllStreams(true, action === "stop", true);
+      }
     });
-  }, [pauseAllStreams]);
+  }, [pauseAllStreams, resumeAllStreams]);
 
   // Combined Play All / Pause All toggle
   const handleTogglePauseAll = useCallback(
@@ -977,38 +1084,9 @@ export const StreamerView = forwardRef<
         return;
       }
 
-      const savedTargets = pausedSlotIdsRef.current.filter((id) =>
-        activeSlotIdSet.has(id),
-      );
-      const targets =
-        savedTargets.length > 0
-          ? savedTargets
-          : activeSlots.map((sl) => sl.slotId);
-
-      for (const slotId of targets) {
-        playingIntentsRef.current.add(slotId);
-        const slot = activeSlots.find((sl) => sl.slotId === slotId);
-        const iframe = iframeRefs.current[slotId] || null;
-        sendYouTubeCommand(iframe, "playVideo", [], slotId);
-        if (slot) applySlotAudio(slot, iframe, sleepFadeRef.current);
-      }
-      setAllPaused(false);
-      setPlayerStates((prev) => {
-        const next = { ...prev };
-        for (const id of targets) next[id] = 1;
-        return next;
-      });
-      if (!silentToast) pushToast("Playing all stacked streams");
+      resumeAllStreams(silentToast);
     },
-    [
-      activeSlots,
-      activeSlotIdSet,
-      isAllPaused,
-      playerStates,
-      pauseAllStreams,
-      applySlotAudio,
-      pushToast,
-    ],
+    [activeSlots, isAllPaused, playerStates, pauseAllStreams, resumeAllStreams],
   );
 
   // Sync All: seeks every active slot to 0:00 and starts synchronized playback

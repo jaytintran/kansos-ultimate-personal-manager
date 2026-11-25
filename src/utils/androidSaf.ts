@@ -22,7 +22,10 @@ export type AndroidMediaControlAction =
   | "pause"
   | "next"
   | "previous"
-  | "stop";
+  | "stop"
+  | "dismiss";
+
+export type AndroidMediaSource = "streamer" | "audio";
 
 interface KansoSafPluginInterface {
   pickDocuments(options?: {
@@ -68,6 +71,7 @@ interface KansoSafPluginInterface {
   setSystemChrome(options: { color: string; isDark: boolean }): Promise<void>;
   setBackgroundMediaState(options: {
     playing: boolean;
+    source?: AndroidMediaSource;
     title?: string;
     subtitle?: string;
     keepServiceAlive?: boolean;
@@ -75,7 +79,10 @@ interface KansoSafPluginInterface {
   }): Promise<void>;
   addListener(
     eventName: "mediaControlAction",
-    listenerFunc: (event: { action: AndroidMediaControlAction }) => void,
+    listenerFunc: (event: {
+      action: AndroidMediaControlAction;
+      source?: AndroidMediaSource;
+    }) => void,
   ): Promise<{ remove: () => Promise<void> }>;
 }
 
@@ -350,6 +357,7 @@ export async function applyAndroidSystemChrome(
 
 export async function syncAndroidBackgroundAudio(state: {
   playing: boolean;
+  source?: AndroidMediaSource;
   title?: string;
   subtitle?: string;
   keepServiceAlive?: boolean;
@@ -359,6 +367,7 @@ export async function syncAndroidBackgroundAudio(state: {
   try {
     await KansoSaf.setBackgroundMediaState({
       playing: state.playing,
+      source: state.source,
       title: state.title,
       subtitle: state.subtitle,
       keepServiceAlive: state.keepServiceAlive,
@@ -370,7 +379,10 @@ export async function syncAndroidBackgroundAudio(state: {
 }
 
 export function subscribeAndroidMediaControls(
-  handler: (action: AndroidMediaControlAction) => void,
+  handler: (
+    action: AndroidMediaControlAction,
+    source?: AndroidMediaSource,
+  ) => void,
 ): () => void {
   if (!isAndroidCapacitor()) {
     return () => {};
@@ -385,9 +397,10 @@ export function subscribeAndroidMediaControls(
       act === "pause" ||
       act === "next" ||
       act === "previous" ||
-      act === "stop"
+      act === "stop" ||
+      act === "dismiss"
     ) {
-      handler(act);
+      handler(act, event?.source);
     }
   })
     .then((handle) => {
