@@ -599,7 +599,7 @@ interface WorkspaceContextValue {
     extra?: Partial<Entry>,
   ) => Entry | null;
   createEntry: (draft: Partial<Entry>) => Entry;
-  addAchievementEntry: (rawText: string) => Entry | null;
+  addAchievementEntry: (rawText: string, defaultType?: EntryType) => Entry | null;
   updateEntry: (id: string, patch: Partial<Entry>) => void;
   toggleEntryCompleted: (id: string) => void;
   toggleEntryAchievement: (id: string) => void;
@@ -1655,7 +1655,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const addAchievementEntry = useCallback(
-    (rawText: string): Entry | null => {
+    (rawText: string, defaultType: EntryType = "log"): Entry | null => {
       const trimmed = rawText.trim();
       if (!trimmed) return null;
       const nowIso = new Date().toISOString();
@@ -1665,12 +1665,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         latestWorkspaceRef.current.settings.timeFormat,
       );
       const finishedIso = parsed.scheduledAt || nowIso;
+      const resolvedType: EntryType =
+        parsed.detectedType && parsed.detectedType !== "note"
+          ? parsed.detectedType
+          : defaultType !== "note"
+            ? defaultType
+            : "log";
       const entry: Entry = {
         id: uid("ent"),
-        type:
-          parsed.detectedType && parsed.detectedType !== "note"
-            ? parsed.detectedType
-            : "log",
+        type: resolvedType,
         title: parsed.cleanTitle,
         content: "",
         createdAt: finishedIso,
@@ -1682,6 +1685,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         focusBucket: null,
         source: "achievement",
         isAchievement: true,
+        eventCategory: resolvedType === "event" ? "personal" : undefined,
+        attendance: resolvedType === "event" ? "attended" : undefined,
         tags: parsed.tags,
         listIds: [],
       };

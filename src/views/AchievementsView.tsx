@@ -2,19 +2,22 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
   CheckCircle2,
+  CheckSquare,
   Flame,
   Info,
   MoreVertical,
+  Timer,
   Trophy,
   X,
   Zap,
 } from "lucide-react";
-import { NlpInputBar } from "../components/NlpInputBar";
+import { NlpInputBar, NlpTypeOption } from "../components/NlpInputBar";
 import { useWorkspace } from "../context/WorkspaceContext";
 import {
   ContextMenuRecord,
   DetailSheetTarget,
   Entry,
+  EntryType,
   ListItem,
 } from "../types";
 import {
@@ -45,6 +48,42 @@ interface AchievementsViewProps {
   onOpenContextMenu: (record: ContextMenuRecord, e: React.MouseEvent) => void;
 }
 
+const ACHIEVEMENT_TYPE_OPTIONS: NlpTypeOption[] = [
+  {
+    id: "log",
+    command: "/log",
+    label: "Log",
+    hint: "Standalone win or milestone",
+    icon: Flame,
+    colorVar: "var(--warning)",
+  },
+  {
+    id: "task",
+    command: "/task",
+    label: "Task",
+    hint: "Completed focus task",
+    icon: CheckSquare,
+    colorVar: "var(--color-entity-blue)",
+  },
+  {
+    id: "event",
+    command: "/event",
+    label: "Event",
+    hint: "Completed event or gathering",
+    icon: Calendar,
+    colorVar: "var(--success)",
+  },
+  {
+    id: "timeblock",
+    command: "/timeblock",
+    aliases: ["block"],
+    label: "Block",
+    hint: "Completed deep work session",
+    icon: Timer,
+    colorVar: "var(--accent)",
+  },
+];
+
 export const AchievementsView: React.FC<AchievementsViewProps> = ({
   onOpenDetail,
   onOpenContextMenu,
@@ -52,6 +91,7 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
   const { workspace, addAchievementEntry } = useWorkspace();
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [composerType, setComposerType] = useState<EntryType>("log");
   const [infoOpen, setInfoOpen] = useState(false);
   const infoPopoverRef = useRef<HTMLDivElement | null>(null);
 
@@ -82,6 +122,17 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
 
   const todayKey = getTodayKey();
   const timeFormat = workspace.settings.timeFormat;
+
+  const availableTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    for (const entry of workspace.entries) {
+      for (const tag of entry.tags || []) tagSet.add(tag);
+    }
+    for (const item of workspace.listItems) {
+      for (const tag of item.tags || []) tagSet.add(tag);
+    }
+    return Array.from(tagSet).sort();
+  }, [workspace.entries, workspace.listItems]);
 
   const listMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -123,9 +174,9 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
         source = "events";
         sourceLabel = "EVENT";
         mode = "event";
-      } else if (entry.type === "task") {
+      } else if (entry.type === "task" || entry.type === "timeblock") {
         source = "focus";
-        sourceLabel = "FOCUS";
+        sourceLabel = entry.type === "timeblock" ? "TIME BLOCK" : "FOCUS";
         mode = "task";
       } else {
         source = "logs";
@@ -498,13 +549,20 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
       <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-canvas)] px-3 py-2 lg:border-t-0 lg:bg-transparent lg:fixed lg:bottom-4 lg:left-60 lg:right-0 lg:z-20 lg:px-6 lg:py-0 lg:pointer-events-none">
         <div className="max-w-6xl mx-auto lg:pointer-events-auto">
           <NlpInputBar
-            placeholder='Record an achievement (e.g., "Shipped Kanso v3 #milestone")...'
-            onSubmit={(raw) => Boolean(addAchievementEntry(raw))}
+            placeholder='Record an achievement (type "/" for /log, /task, /event, /timeblock)...'
+            onSubmit={(raw) => Boolean(addAchievementEntry(raw, composerType))}
             baseDateKey={todayKey}
+            availableTags={availableTags}
             submitLabel="Record"
             previewPosition="top"
             elevated
             showTimeblockTip={false}
+            typeSwitcher={{
+              value: composerType,
+              onChange: setComposerType,
+              options: ACHIEVEMENT_TYPE_OPTIONS,
+              menuHeading: "Record achievement",
+            }}
           />
         </div>
       </div>

@@ -230,6 +230,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     return map;
   }, [workspace.habits]);
 
+  const availableTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of workspace.entries) {
+      for (const t of e.tags) set.add(t);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [workspace.entries]);
+
   const visibleEntries = useMemo(
     () =>
       workspace.entries.filter((e) => {
@@ -847,9 +855,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         style={{ borderColor: "var(--border-subtle)" }}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          {/* Left: Single-Day Scrubber OR All-Dates Title */}
+          {/* Left: Single-Day Scrubber OR All-Dates Title (order-2 below mobile Search Bar, sm:order-1 on desktop) */}
           {subview === "day" ? (
-            <div className="relative flex items-center gap-1.5 shrink-0 min-w-0">
+            <div className="order-2 sm:order-1 relative flex items-center gap-1.5 shrink-0 min-w-0">
               <div className="flex items-center gap-0.5 min-w-0">
                 <button
                   type="button"
@@ -1004,7 +1012,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               )}
             </div>
           ) : (
-            <div className="flex items-baseline gap-2.5 min-w-0">
+            <div className="order-2 sm:order-1 flex items-baseline gap-2.5 min-w-0">
               <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight whitespace-nowrap">
                 All Dates
               </h1>
@@ -1020,11 +1028,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             </div>
           )}
 
-          {/* Right: Subview Toggle + Search Bar */}
-          <div className="flex items-center gap-2 flex-1 sm:flex-initial justify-end min-w-0">
+          {/* Right controls on desktop; on mobile uses contents so Search sits order-1 at very top of canvas */}
+          <div className="contents sm:flex sm:items-center sm:gap-2 sm:order-2">
             {/* Day / All Dates Subview Toggle */}
             <div
-              className="inline-flex items-center h-8 p-0.5 rounded-lg border shrink-0"
+              className="order-3 sm:order-1 inline-flex items-center h-8 p-0.5 rounded-lg border shrink-0"
               style={{
                 backgroundColor: "var(--bg-surface)",
                 borderColor: "var(--border-subtle)",
@@ -1073,9 +1081,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               </button>
             </div>
 
-            {/* Search Bar (Cmd+K / / to focus, Esc to clear) */}
+            {/* Search Bar: top full-width on mobile (order-1 basis-full), inline right on desktop */}
             <div
-              className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border flex-1 min-w-[120px] sm:flex-none sm:w-52 transition-colors"
+              className="order-1 basis-full sm:order-2 sm:basis-auto flex items-center gap-1.5 h-9 sm:h-8 px-2.5 rounded-xl sm:rounded-lg border sm:w-52 transition-colors"
               style={{
                 backgroundColor: "var(--bg-surface)",
                 borderColor: searchQuery
@@ -1092,7 +1100,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search... (⌘K)"
+                placeholder="Search timeline... (⌘K)"
                 className="flex-1 min-w-0 bg-transparent text-xs outline-none"
                 style={{ color: "var(--text-primary)" }}
               />
@@ -1100,7 +1108,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setSearchQuery("")}
-                  className="opacity-70 hover:opacity-100 shrink-0"
+                  className="opacity-70 hover:opacity-100 shrink-0 cursor-pointer"
                   aria-label="Clear search"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -1448,7 +1456,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
       <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-canvas)] px-3 py-2 lg:border-t-0 lg:bg-transparent lg:fixed lg:bottom-4 lg:left-60 lg:right-0 lg:z-20 lg:px-6 lg:py-0 lg:pointer-events-none">
         <div className="max-w-6xl mx-auto lg:pointer-events-auto">
           <NlpInputBar
-            placeholder='Add to timeline ("Deep Work from 1pm to 3pm", "/note Architecture ideas #sys")...'
+            placeholder='Add to timeline (type "/" for /task, /log, /note, /event, /timeblock)...'
             onSubmit={(raw) => {
               const created = addTimelineEntry(
                 composerType,
@@ -1458,6 +1466,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               return Boolean(created);
             }}
             baseDateKey={selectedDateKey}
+            availableTags={availableTags}
             previewPosition="top"
             elevated
             typeSwitcher={{
