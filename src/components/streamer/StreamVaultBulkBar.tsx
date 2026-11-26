@@ -45,7 +45,7 @@ export const StreamVaultBulkBar: React.FC<StreamVaultBulkBarProps> = ({
     <div
       role="region"
       aria-label="Bulk selection actions"
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-1.5rem)] sm:max-w-4xl w-full flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 rounded-2xl border shadow-2xl backdrop-blur-md overflow-x-auto scrollbar-none"
+      className="fixed bottom-3 md:bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-1.5rem)] sm:max-w-4xl w-full flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 rounded-2xl border shadow-2xl backdrop-blur-md overflow-x-auto scrollbar-none"
       style={{
         backgroundColor: 'var(--bg-elevated)',
         borderColor: 'var(--border-strong)',

@@ -1,24 +1,35 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  ArrowUpDown,
   Check,
   CheckSquare,
+  ChevronDown,
+  ChevronLeft,
   Columns2,
   Folder,
+  FolderOpen,
+  FolderPlus,
   GalleryHorizontal,
   GripVertical,
+  Hash,
   Headphones,
+  Layers,
   LayoutGrid,
   List,
   Menu,
   MonitorPlay,
+  MoreHorizontal,
   Palette,
   Pause,
   Pencil,
   Pin,
   Play,
   Plus,
+  RotateCcw,
   Search,
+  SlidersHorizontal,
+  Smile,
   Star,
   Tag,
   Trash2,
@@ -47,24 +58,34 @@ import {
   StreamChannelsOverview,
 } from './StreamChannelsOverview';
 import { StreamEditorDrawer } from './StreamEditorDrawer';
+import { StreamFolderAddStreamsModal } from './StreamFolderAddStreamsModal';
 import {
   PendingStreamFolderDrop,
   StreamFolderDropActionModal,
   StreamFolderPickerModal,
 } from './StreamFolderDropModal';
 import { StreamFolderEditModal } from './StreamFolderEditModal';
+import { StreamTopicIconModal } from './StreamTopicIconModal';
 import { StreamVaultBulkBar } from './StreamVaultBulkBar';
 import { BulkModalType, StreamVaultBulkModal } from './StreamVaultBulkModal';
+import {
+  StreamVaultControlsSheet,
+  StreamVaultScopeActionsSheet,
+  VaultCardDensity,
+  VaultGridStatusFilter,
+  VaultGroupByMode,
+  VaultMinRatingFilter,
+  VaultSortMode,
+  VaultViewMode,
+} from './StreamVaultControlsSheet';
 import {
   getDescendantFolderIds,
   StreamVaultSidebar,
   VaultScope,
 } from './StreamVaultSidebar';
 
-type VaultViewMode = 'grid' | 'table';
-type VaultSortMode = 'custom' | 'recent' | 'listens' | 'rating' | 'title' | 'channel';
-
 const VAULT_SORT_PREFS_KEY = 'kanso_streamer_vault_sort_v1';
+const VAULT_DENSITY_PREFS_KEY = 'kanso_streamer_vault_density_v1';
 const CHANNELS_PREFS_KEY = 'kanso_streamer_channels_prefs_v1';
 
 const VALID_CHANNELS_VIEWS: ChannelsViewMode[] = ['carousels', 'directory', 'split'];
@@ -114,6 +135,7 @@ interface StreamVaultViewProps {
   allActiveMuted: boolean;
   onTogglePauseAll: () => void;
   onToggleViewMute: () => void;
+  onClearStack?: () => void;
   onBackToGrid: () => void;
   onAddStream: (stream: Omit<StreamItem, 'id' | 'addedAt'>, addToGrid: boolean) => void;
   onUpdateStream: (id: string, patch: Partial<StreamItem>) => void;
@@ -129,6 +151,7 @@ interface StreamVaultViewProps {
   onDeleteFolder: (id: string) => void;
   topicIcons?: Record<string, string>;
   onSetTopicIcon?: (topic: string, icon: string | undefined) => void;
+  onRenameTopic?: (fromTopic: string, targetTopic: string) => number;
   channelConfigs?: Record<string, StreamChannelMeta>;
   onUpdateChannelMeta?: (channelName: string, patch: Partial<StreamChannelMeta>) => void;
   onReorderChannels?: (orderedChannelNames: string[]) => void;
@@ -152,6 +175,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   allActiveMuted,
   onTogglePauseAll,
   onToggleViewMute,
+  onClearStack,
   onBackToGrid,
   onAddStream,
   onUpdateStream,
@@ -167,6 +191,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   onDeleteFolder,
   topicIcons = {},
   onSetTopicIcon,
+  onRenameTopic,
   channelConfigs = {},
   onUpdateChannelMeta,
   onReorderChannels,
@@ -179,6 +204,21 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<VaultViewMode>('grid');
+  const [cardDensity, setCardDensity] = useState<VaultCardDensity>(() => {
+    try {
+      const saved = localStorage.getItem(VAULT_DENSITY_PREFS_KEY);
+      if (saved === 'compact' || saved === 'standard') return saved;
+    } catch {
+      // Ignore storage errors
+    }
+    return 'standard';
+  });
+  const [groupBy, setGroupBy] = useState<VaultGroupByMode>('none');
+  const [minRating, setMinRating] = useState<VaultMinRatingFilter>(0);
+  const [gridStatusFilter, setGridStatusFilter] = useState<VaultGridStatusFilter>('all');
+  const [untaggedOnly, setUntaggedOnly] = useState(false);
+  const [pinnedOnlyChannels, setPinnedOnlyChannels] = useState(false);
+  const [collapseUnpinnedChannels, setCollapseUnpinnedChannels] = useState(false);
   const [channelsViewMode, setChannelsViewMode] = useState<ChannelsViewMode>(
     () => loadChannelsPrefs().viewMode,
   );
@@ -204,6 +244,13 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     return 'recent';
   });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
+  const [mobileScopeActionsOpen, setMobileScopeActionsOpen] = useState(false);
+  const [openToolbarPopover, setOpenToolbarPopover] = useState<
+    'sort' | 'filters' | 'group' | null
+  >(null);
+  const toolbarPopoverRef = useRef<HTMLDivElement | null>(null);
+  const [confirmClearStackDesktop, setConfirmClearStackDesktop] = useState(false);
   const [brokenThumbs, setBrokenThumbs] = useState<Record<string, boolean>>({});
 
   // Bulk edit state (streams & channels)
@@ -223,6 +270,16 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   >(null);
   const [renamingSingleChannel, setRenamingSingleChannel] = useState(false);
   const [singleChannelRenameDraft, setSingleChannelRenameDraft] = useState('');
+
+  // Folder canvas inline subfolder + add streams state
+  const [creatingSubfolder, setCreatingSubfolder] = useState(false);
+  const [subfolderDraft, setSubfolderDraft] = useState('');
+  const [addingStreamsToFolderId, setAddingStreamsToFolderId] = useState<string | null>(null);
+
+  // Topic canvas inline rename & icon picker state
+  const [renamingTopic, setRenamingTopic] = useState(false);
+  const [topicRenameDraft, setTopicRenameDraft] = useState('');
+  const [topicIconModalTarget, setTopicIconModalTarget] = useState<string | null>(null);
 
   const toggleSelectStream = (streamId: string) => {
     setSelectedStreamIds((prev) => {
@@ -257,11 +314,40 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   useEffect(() => {
     setRenamingSingleChannel(false);
     setSingleChannelRenameDraft('');
+    setRenamingTopic(false);
+    setTopicRenameDraft('');
+    setCreatingSubfolder(false);
+    setSubfolderDraft('');
+    setConfirmClearStackDesktop(false);
+    setOpenToolbarPopover(null);
     if (scope.kind !== 'channels') {
       setChannelBulkMode(false);
       setSelectedChannelNames(new Set());
     }
   }, [scope]);
+
+  useEffect(() => {
+    if (!openToolbarPopover) return;
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      if (
+        toolbarPopoverRef.current &&
+        !toolbarPopoverRef.current.contains(e.target as Node)
+      ) {
+        setOpenToolbarPopover(null);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenToolbarPopover(null);
+    };
+    window.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('touchstart', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', onPointerDown);
+      window.removeEventListener('touchstart', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [openToolbarPopover]);
 
   useEffect(() => {
     try {
@@ -270,6 +356,14 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       // Ignore storage errors
     }
   }, [sortBy]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VAULT_DENSITY_PREFS_KEY, cardDensity);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [cardDensity]);
 
   useEffect(() => {
     try {
@@ -443,7 +537,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     return b.addedAt.localeCompare(a.addedAt) || a.id.localeCompare(b.id);
   }, []);
 
-  const isCustomSort = sortBy === 'custom';
+  const isCustomSort = sortBy === 'custom' && !(scope.kind === 'all' && groupBy !== 'none');
   const isCustomChannelSort = channelSortBy === 'custom';
 
   const compareChannelEntries = useCallback(
@@ -548,9 +642,14 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     const result: ChannelSummaryEntry[] = [];
 
     for (const entry of allChannelsDirectory) {
+      if (pinnedOnlyChannels && !entry.meta.pinned) continue;
       const channelMatchesQuery = q && entry.name.toLowerCase().includes(q);
 
       const filtered = entry.allStreams.filter((s) => {
+        if (minRating > 0 && (s.rating ?? 0) < minRating) return false;
+        if (gridStatusFilter === 'stacked' && !activeIdSet.has(s.id)) return false;
+        if (gridStatusFilter === 'unstacked' && activeIdSet.has(s.id)) return false;
+        if (untaggedOnly && s.tags.some((t) => t.trim().length > 0)) return false;
         if (selectedTags.length > 0) {
           const streamTags = new Set(s.tags.map((t) => t.trim().toLowerCase()));
           for (const req of selectedTags) {
@@ -647,6 +746,11 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     allChannelsDirectory,
     searchQuery,
     selectedTags,
+    minRating,
+    gridStatusFilter,
+    untaggedOnly,
+    pinnedOnlyChannels,
+    activeIdSet,
     sortBy,
     customStreamOrderCompare,
     compareChannelEntries,
@@ -677,6 +781,13 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         const ch = s.channel.trim() || 'Unknown Channel';
         if (ch !== scope.channel) return false;
       }
+
+      if (minRating > 0 && (s.rating ?? 0) < minRating) return false;
+      if (scope.kind !== 'in-grid') {
+        if (gridStatusFilter === 'stacked' && !activeIdSet.has(s.id)) return false;
+        if (gridStatusFilter === 'unstacked' && activeIdSet.has(s.id)) return false;
+      }
+      if (untaggedOnly && s.tags.some((t) => t.trim().length > 0)) return false;
 
       if (selectedTags.length > 0) {
         const streamTags = new Set(s.tags.map((t) => t.trim().toLowerCase()));
@@ -722,7 +833,129 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       }
     });
     return sorted;
-  }, [streams, scope, folders, activeIdSet, selectedTags, searchQuery, sortBy, customStreamOrderCompare, channelsOverviewData]);
+  }, [
+    streams,
+    scope,
+    folders,
+    activeIdSet,
+    selectedTags,
+    minRating,
+    gridStatusFilter,
+    untaggedOnly,
+    searchQuery,
+    sortBy,
+    customStreamOrderCompare,
+    channelsOverviewData,
+  ]);
+
+  const currentFolder = useMemo(
+    () => (scope.kind === 'folder' ? folderById.get(scope.folderId) ?? null : null),
+    [scope, folderById],
+  );
+
+  const childFoldersInScope = useMemo(() => {
+    if (scope.kind !== 'folder') return [];
+    return folders
+      .filter((f) => f.parentId === scope.folderId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [scope, folders]);
+
+  const folderStreamCountsMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const f of folders) {
+      const subtree = getDescendantFolderIds(f.id, folders);
+      let count = 0;
+      for (const s of streams) {
+        if (s.folderIds?.some((fid) => subtree.has(fid))) count++;
+      }
+      map.set(f.id, count);
+    }
+    return map;
+  }, [folders, streams]);
+
+  const groupedVisibleStreams = useMemo(() => {
+    if (scope.kind !== 'all' || groupBy === 'none') return null;
+    const map = new Map<string, StreamItem[]>();
+    for (const s of visibleStreams) {
+      const key =
+        groupBy === 'topic'
+          ? s.category.trim() || 'Uncategorized'
+          : s.channel.trim() || 'Unknown Channel';
+      const list = map.get(key) || [];
+      list.push(s);
+      map.set(key, list);
+    }
+    return Array.from(map.entries())
+      .map(([name, items]) => ({ name, items }))
+      .sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name));
+  }, [scope.kind, groupBy, visibleStreams]);
+
+  const activeSecondaryFilterCount =
+    selectedTags.length +
+    (minRating > 0 ? 1 : 0) +
+    (scope.kind !== 'in-grid' && gridStatusFilter !== 'all' ? 1 : 0) +
+    (untaggedOnly ? 1 : 0) +
+    (scope.kind === 'channels' && pinnedOnlyChannels ? 1 : 0);
+
+  const resetSecondaryFilters = useCallback(() => {
+    setSelectedTags([]);
+    setMinRating(0);
+    setGridStatusFilter('all');
+    setUntaggedOnly(false);
+    setPinnedOnlyChannels(false);
+  }, []);
+
+  const handleCommitTopicRename = useCallback(
+    (fromTopic: string, rawTarget: string) => {
+      const target = rawTarget.trim() || 'Uncategorized';
+      setRenamingTopic(false);
+      if (target === fromTopic) return;
+      if (onRenameTopic) {
+        const count = onRenameTopic(fromTopic, target);
+        setScope({ kind: 'topic', topic: target });
+        onNotify(
+          `Renamed topic to “${target}” (${count} ${count === 1 ? 'stream' : 'streams'})`,
+          'success',
+        );
+      }
+    },
+    [onRenameTopic, onNotify],
+  );
+
+  const handleCreateSubfolderInline = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      if (scope.kind !== 'folder') return;
+      const trimmed = subfolderDraft.trim();
+      if (!trimmed) {
+        setCreatingSubfolder(false);
+        return;
+      }
+      const created = onAddFolder(trimmed, scope.folderId);
+      setSubfolderDraft('');
+      setCreatingSubfolder(false);
+      onNotify(`Created subfolder “${created.name}”`, 'success');
+    },
+    [scope, subfolderDraft, onAddFolder, onNotify],
+  );
+
+  const handleAddExistingStreamsToFolder = useCallback(
+    (folderId: string, streamIds: string[]) => {
+      if (streamIds.length === 0) return;
+      const targetSet = new Set(streamIds);
+      for (const s of streams) {
+        if (!targetSet.has(s.id)) continue;
+        const nextFolders = Array.from(new Set([...(s.folderIds ?? []), folderId]));
+        onUpdateStream(s.id, { folderIds: nextFolders });
+      }
+      const folderName = folderById.get(folderId)?.name || 'folder';
+      onNotify(
+        `Added ${streamIds.length} ${streamIds.length === 1 ? 'stream' : 'streams'} to “${folderName}”`,
+        'success',
+      );
+    },
+    [streams, onUpdateStream, folderById, onNotify],
+  );
 
   const handleReorderStreams = useCallback(
     (draggedIds: string[], targetId: string, position: 'before' | 'after') => {
@@ -1005,6 +1238,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       !pendingFolderDrop &&
       !folderPickerStreamIds &&
       !editingFolderId &&
+      !addingStreamsToFolderId &&
+      !topicIconModalTarget &&
+      !mobileControlsOpen &&
+      !mobileScopeActionsOpen &&
       !anyChannelModalOpen,
     scrollContainerRef: mainScrollRef,
     secondaryScrollRef: splitListScrollRef,
@@ -1027,6 +1264,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       !pendingFolderDrop &&
       !folderPickerStreamIds &&
       !editingFolderId &&
+      !addingStreamsToFolderId &&
+      !topicIconModalTarget &&
+      !mobileControlsOpen &&
+      !mobileScopeActionsOpen &&
       !anyChannelModalOpen,
     streams,
     selectedIds: selectedStreamIds,
@@ -1279,6 +1520,921 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     return `${activeStreams.length} stacked in studio`;
   }, [allActiveMuted, isAllPaused, playingCount, activeStreams.length]);
 
+  const isAnyBulkBarOpen =
+    (scope.kind !== 'channels' &&
+      bulkMode &&
+      selectedStreamIds.size > 0 &&
+      !isDraggingStreams) ||
+    (scope.kind === 'channels' &&
+      channelBulkMode &&
+      selectedChannelNames.size > 0);
+
+  const isCompactDensity = cardDensity === 'compact';
+
+  const renderStreamCard = (item: StreamItem) => {
+    const inGrid = activeIdSet.has(item.id);
+    const rating = item.rating ?? 0;
+    const listens = item.listenCount ?? 0;
+    const itemFolders = (item.folderIds ?? [])
+      .map((fid) => folderById.get(fid)?.name)
+      .filter((n): n is string => Boolean(n));
+    const isBeingDragged = activeDragStreamIds.has(item.id);
+    const reorderTarget =
+      activeDropTarget?.kind === 'stream-reorder' &&
+      activeDropTarget.streamId === item.id
+        ? activeDropTarget
+        : null;
+    const isDropTarget = reorderTarget !== null;
+    const singleCol = isSingleColumnGrid();
+
+    return (
+      <article
+        key={item.id}
+        data-vault-reorder-id={item.id}
+        data-vault-reorder-axis={singleCol ? 'y' : 'x'}
+        onPointerDown={(e) => handleStreamPointerDown(item.id, e)}
+        className={`relative rounded-xl border flex flex-col transition-all duration-150 ${
+          isBeingDragged ? 'opacity-45 scale-[0.98]' : ''
+        } ${selectedStreamIds.has(item.id) ? 'ring-2 ring-[var(--accent)]' : ''} ${
+          isDropTarget
+            ? 'ring-1 ring-[var(--accent)]/60 ring-offset-1 ring-offset-[var(--bg-canvas)]'
+            : ''
+        }`}
+        style={{
+          backgroundColor: 'var(--bg-surface)',
+          borderColor: isDropTarget
+            ? 'var(--accent)'
+            : selectedStreamIds.has(item.id)
+              ? 'var(--accent)'
+              : inGrid
+                ? 'var(--accent)'
+                : 'var(--border-subtle)',
+        }}
+      >
+        {reorderTarget && (
+          <div
+            aria-hidden="true"
+            className={
+              singleCol
+                ? `pointer-events-none absolute inset-x-2 h-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
+                    reorderTarget.position === 'before' ? '-top-1.5' : '-bottom-1.5'
+                  }`
+                : `pointer-events-none absolute top-1.5 bottom-1.5 w-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
+                    reorderTarget.position === 'before' ? '-left-1.5' : '-right-1.5'
+                  }`
+            }
+          />
+        )}
+
+        <div className="rounded-[11px] overflow-hidden flex-1 flex flex-col">
+          {/* Thumbnail */}
+          <button
+            type="button"
+            draggable={false}
+            onDragStart={(e) => e.preventDefault()}
+            onClick={() => {
+              if (shouldSuppressClick()) return;
+              if (bulkMode) {
+                toggleSelectStream(item.id);
+                return;
+              }
+              setDrawerState({ open: true, mode: 'edit', streamId: item.id });
+            }}
+            className="relative aspect-video w-full overflow-hidden text-left group select-none"
+            style={{ backgroundColor: 'var(--bg-surface-subtle)' }}
+          >
+            {!brokenThumbs[item.id] ? (
+              <img
+                src={item.thumbnailUrl}
+                alt={item.customLabel || item.title}
+                draggable={false}
+                referrerPolicy="no-referrer"
+                onError={() =>
+                  setBrokenThumbs((prev) => ({ ...prev, [item.id]: true }))
+                }
+                className="w-full h-full object-cover pointer-events-none select-none"
+              />
+            ) : (
+              <div
+                className="w-full h-full flex items-center justify-center pointer-events-none"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <MonitorPlay className="w-7 h-7" />
+              </div>
+            )}
+            {(bulkMode || selectedStreamIds.has(item.id)) && (
+              <div
+                role="checkbox"
+                data-no-stream-drag="true"
+                aria-checked={selectedStreamIds.has(item.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleSelectStream(item.id);
+                }}
+                className="absolute top-2 left-2 w-5 h-5 rounded-md border flex items-center justify-center z-20 shadow-md cursor-pointer transition-transform active:scale-90"
+                style={{
+                  backgroundColor: selectedStreamIds.has(item.id)
+                    ? 'var(--accent)'
+                    : 'var(--bg-surface)',
+                  borderColor: selectedStreamIds.has(item.id)
+                    ? 'var(--accent)'
+                    : 'var(--border-strong)',
+                  color: 'var(--accent-fg)',
+                }}
+                aria-label="Select stream"
+              >
+                {selectedStreamIds.has(item.id) && (
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                )}
+              </div>
+            )}
+            {inGrid && !bulkMode && !selectedStreamIds.has(item.id) && (
+              <span
+                className="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-tight pointer-events-none"
+                style={{
+                  backgroundColor: 'var(--accent)',
+                  color: 'var(--accent-fg)',
+                }}
+              >
+                Stacked
+              </span>
+            )}
+          </button>
+
+          {/* Body */}
+          <div
+            className={
+              isCompactDensity
+                ? 'p-2.5 flex-1 flex flex-col gap-1.5'
+                : 'p-3.5 flex-1 flex flex-col gap-2'
+            }
+          >
+            <div className="flex items-start justify-between gap-1.5">
+              <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                {isCustomSort && (
+                  <div
+                    aria-hidden="true"
+                    title="Drag to reorder"
+                    className="w-5 h-5 -ml-1 -mt-0.5 flex items-center justify-center rounded-md text-[var(--text-muted)] cursor-grab active:cursor-grabbing shrink-0"
+                  >
+                    <GripVertical className="w-3.5 h-3.5" />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (shouldSuppressClick()) return;
+                    if (bulkMode) {
+                      toggleSelectStream(item.id);
+                      return;
+                    }
+                    setDrawerState({ open: true, mode: 'edit', streamId: item.id });
+                  }}
+                  className="text-left min-w-0 flex-1"
+                >
+                  <h3
+                    className={
+                      isCompactDensity
+                        ? 'text-xs font-medium leading-snug line-clamp-2'
+                        : 'text-sm font-medium leading-snug line-clamp-2'
+                    }
+                  >
+                    {item.customLabel || item.title}
+                  </h3>
+                </button>
+              </div>
+              <button
+                type="button"
+                data-no-stream-drag="true"
+                onClick={() => onUpdateStream(item.id, { favorite: !item.favorite })}
+                className="h-6 w-6 -mr-1 -mt-0.5 rounded-md flex items-center justify-center shrink-0"
+                style={{
+                  color: item.favorite ? 'var(--warning)' : 'var(--text-muted)',
+                }}
+                aria-label={item.favorite ? 'Unfavorite' : 'Favorite'}
+              >
+                <Star className={`w-3.5 h-3.5 ${item.favorite ? 'fill-current' : ''}`} />
+              </button>
+            </div>
+
+            <div
+              className="text-[11px] leading-relaxed line-clamp-1"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              {[
+                item.channel || 'YouTube',
+                item.category || 'General',
+                !isCompactDensity && item.tags.length > 0
+                  ? item.tags.slice(0, 3).map((t) => `#${t}`).join(' ')
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </div>
+
+            {!isCompactDensity && itemFolders.length > 0 && (
+              <div
+                className="text-[11px] flex items-center gap-1 truncate"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <Folder className="w-3 h-3 shrink-0 opacity-75" />
+                <span className="truncate">{itemFolders.join(', ')}</span>
+              </div>
+            )}
+
+            {!isCompactDensity && (item.affirmations || item.notes) && (
+              <p
+                className="text-[11px] leading-relaxed line-clamp-2"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                {item.affirmations || item.notes}
+              </p>
+            )}
+
+            {/* Rating + Listen Count Strip */}
+            <div className="flex items-center justify-between gap-1.5 pt-0.5 mt-auto">
+              <div className="flex items-center gap-0.5" aria-label={`Rating ${rating} of 5`}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    data-no-stream-drag="true"
+                    onClick={() =>
+                      onUpdateStream(item.id, { rating: rating === star ? 0 : star })
+                    }
+                    className="p-0.5 transition-colors"
+                    style={{
+                      color: star <= rating ? 'var(--warning)' : 'var(--border-strong)',
+                    }}
+                    aria-label={`Set rating to ${star}`}
+                  >
+                    <Star
+                      className={`${isCompactDensity ? 'w-2.5 h-2.5' : 'w-3 h-3'} ${
+                        star <= rating ? 'fill-current' : ''
+                      }`}
+                    />
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                data-no-stream-drag="true"
+                onClick={() => onIncrementListen(item.id)}
+                className="text-[11px] font-mono tabular-nums inline-flex items-center gap-1 px-1 py-0.5 rounded hover:opacity-80"
+                style={{ color: 'var(--text-muted)' }}
+                title="Log +1 listen"
+              >
+                <Headphones className="w-3 h-3" />
+                <span>{listens}</span>
+                {!isCompactDensity && <span className="opacity-70">+1</span>}
+              </button>
+            </div>
+
+            {/* Card Actions */}
+            <div
+              className={`flex items-center gap-1.5 border-t ${
+                isCompactDensity ? 'pt-2' : 'pt-2.5'
+              }`}
+              style={{ borderColor: 'var(--border-subtle)' }}
+            >
+              {inGrid ? (
+                <>
+                  {!isCompactDensity && (
+                    <button
+                      type="button"
+                      data-no-stream-drag="true"
+                      onClick={() => onToggleStreamInGrid(item.id)}
+                      className="h-8 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
+                      style={{
+                        backgroundColor: 'var(--bg-surface-subtle)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-secondary)',
+                      }}
+                      title="Remove from Live Stack"
+                    >
+                      <Check className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
+                      <span>Stacked</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    data-no-stream-drag="true"
+                    onClick={() => onStackStream(item.id)}
+                    className={`flex-1 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
+                      isCompactDensity ? 'h-7 px-2' : 'h-8 px-2.5'
+                    }`}
+                    style={{
+                      backgroundColor: 'var(--accent-soft)',
+                      borderColor: 'var(--accent)',
+                      color: 'var(--accent)',
+                    }}
+                    title="Add another independent layer to stack"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Layer</span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  data-no-stream-drag="true"
+                  onClick={() => onStackStream(item.id)}
+                  className={`flex-1 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)] ${
+                    isCompactDensity ? 'h-7 px-2' : 'h-8 px-2.5'
+                  }`}
+                  style={{
+                    backgroundColor: 'var(--bg-surface-subtle)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Stack</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                data-no-stream-drag="true"
+                onClick={() =>
+                  setDrawerState({ open: true, mode: 'edit', streamId: item.id })
+                }
+                className={`rounded-lg border text-[11px] font-medium inline-flex items-center justify-center gap-1 whitespace-nowrap hover:bg-[var(--bg-surface-hover)] ${
+                  isCompactDensity ? 'h-7 w-7 shrink-0' : 'h-8 px-2.5'
+                }`}
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-secondary)',
+                }}
+                aria-label="Edit details"
+              >
+                <Pencil className="w-3 h-3" />
+                {!isCompactDensity && <span>Details</span>}
+              </button>
+            </div>
+          </div>
+        </div>
+      </article>
+    );
+  };
+
+  const renderMobileCompactRow = (item: StreamItem) => {
+    const inGrid = activeIdSet.has(item.id);
+    const rating = item.rating ?? 0;
+    const isBeingDragged = activeDragStreamIds.has(item.id);
+    const reorderTarget =
+      activeDropTarget?.kind === 'stream-reorder' &&
+      activeDropTarget.streamId === item.id
+        ? activeDropTarget
+        : null;
+
+    return (
+      <div
+        key={item.id}
+        data-vault-reorder-id={item.id}
+        data-vault-reorder-axis="y"
+        onPointerDown={(e) => handleStreamPointerDown(item.id, e)}
+        className={`relative px-3 py-2.5 flex items-center gap-2.5 transition-colors ${
+          isBeingDragged ? 'opacity-45' : ''
+        }`}
+        style={{
+          backgroundColor: selectedStreamIds.has(item.id)
+            ? 'var(--accent-soft)'
+            : undefined,
+          boxShadow: reorderTarget
+            ? reorderTarget.position === 'before'
+              ? 'inset 0 2.5px 0 var(--accent)'
+              : 'inset 0 -2.5px 0 var(--accent)'
+            : undefined,
+        }}
+      >
+        {(bulkMode || selectedStreamIds.has(item.id)) && (
+          <button
+            type="button"
+            data-no-stream-drag="true"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleSelectStream(item.id);
+            }}
+            className="w-4 h-4 rounded border flex items-center justify-center shrink-0 cursor-pointer"
+            style={{
+              backgroundColor: selectedStreamIds.has(item.id)
+                ? 'var(--accent)'
+                : 'var(--bg-surface)',
+              borderColor: selectedStreamIds.has(item.id)
+                ? 'var(--accent)'
+                : 'var(--border-strong)',
+              color: 'var(--accent-fg)',
+            }}
+            aria-label="Select stream"
+          >
+            {selectedStreamIds.has(item.id) && (
+              <Check className="w-3 h-3 stroke-[3]" />
+            )}
+          </button>
+        )}
+
+        {isCustomSort && (
+          <div
+            aria-hidden="true"
+            className="w-5 h-7 -ml-1 flex items-center justify-center text-[var(--text-muted)] shrink-0"
+          >
+            <GripVertical className="w-3.5 h-3.5" />
+          </div>
+        )}
+
+        <button
+          type="button"
+          draggable={false}
+          onDragStart={(e) => e.preventDefault()}
+          onClick={() => {
+            if (shouldSuppressClick()) return;
+            if (bulkMode) {
+              toggleSelectStream(item.id);
+              return;
+            }
+            setDrawerState({ open: true, mode: 'edit', streamId: item.id });
+          }}
+          className="relative w-14 h-9 rounded-md overflow-hidden shrink-0 border select-none"
+          style={{
+            backgroundColor: 'var(--bg-surface-subtle)',
+            borderColor: inGrid ? 'var(--accent)' : 'var(--border-subtle)',
+          }}
+        >
+          {!brokenThumbs[item.id] ? (
+            <img
+              src={item.thumbnailUrl}
+              alt={item.customLabel || item.title}
+              draggable={false}
+              referrerPolicy="no-referrer"
+              onError={() =>
+                setBrokenThumbs((prev) => ({ ...prev, [item.id]: true }))
+              }
+              className="w-full h-full object-cover pointer-events-none select-none"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center pointer-events-none">
+              <MonitorPlay
+                className="w-3.5 h-3.5"
+                style={{ color: 'var(--text-muted)' }}
+              />
+            </div>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (shouldSuppressClick()) return;
+            if (bulkMode) {
+              toggleSelectStream(item.id);
+              return;
+            }
+            setDrawerState({ open: true, mode: 'edit', streamId: item.id });
+          }}
+          className="min-w-0 flex-1 text-left"
+        >
+          <div className="flex items-center gap-1">
+            {item.favorite && (
+              <Star
+                className="w-3 h-3 fill-current shrink-0"
+                style={{ color: 'var(--warning)' }}
+              />
+            )}
+            <span className="text-xs font-semibold truncate">
+              {item.customLabel || item.title}
+            </span>
+          </div>
+          <div
+            className="text-[11px] truncate flex items-center gap-1"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <span className="truncate">
+              {[item.channel || 'YouTube', item.category || 'General']
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+            {rating > 0 && (
+              <span className="shrink-0 font-mono" style={{ color: 'var(--warning)' }}>
+                · {rating}★
+              </span>
+            )}
+          </div>
+        </button>
+
+        <div className="inline-flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            data-no-stream-drag="true"
+            onClick={() => onStackStream(item.id)}
+            className="h-7 px-2 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1"
+            style={{
+              backgroundColor: inGrid
+                ? 'var(--accent-soft)'
+                : 'var(--bg-surface-subtle)',
+              borderColor: inGrid ? 'var(--accent)' : 'var(--border-subtle)',
+              color: inGrid ? 'var(--accent)' : 'var(--text-primary)',
+            }}
+          >
+            <Plus className="w-3 h-3" />
+            <span>{inGrid ? 'Layer' : 'Stack'}</span>
+          </button>
+          <button
+            type="button"
+            data-no-stream-drag="true"
+            onClick={() =>
+              setDrawerState({ open: true, mode: 'edit', streamId: item.id })
+            }
+            className="h-7 w-7 rounded-md border inline-flex items-center justify-center"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-secondary)',
+            }}
+            aria-label="Edit stream details"
+          >
+            <Pencil className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderDesktopTableRow = (item: StreamItem) => {
+    const inGrid = activeIdSet.has(item.id);
+    const rating = item.rating ?? 0;
+    const listens = item.listenCount ?? 0;
+    const itemFolders = (item.folderIds ?? [])
+      .map((fid) => folderById.get(fid)?.name)
+      .filter((n): n is string => Boolean(n));
+    const isBeingDragged = activeDragStreamIds.has(item.id);
+    const reorderTarget =
+      activeDropTarget?.kind === 'stream-reorder' &&
+      activeDropTarget.streamId === item.id
+        ? activeDropTarget
+        : null;
+    const rowDropShadow = reorderTarget
+      ? reorderTarget.position === 'before'
+        ? 'inset 0 2.5px 0 var(--accent)'
+        : 'inset 0 -2.5px 0 var(--accent)'
+      : undefined;
+
+    return (
+      <tr
+        key={item.id}
+        data-vault-reorder-id={item.id}
+        data-vault-reorder-axis="y"
+        onPointerDown={(e) => handleStreamPointerDown(item.id, e)}
+        className={`transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02] ${
+          isBeingDragged ? 'opacity-45' : ''
+        }`}
+        style={{
+          borderColor: 'var(--border-subtle)',
+          backgroundColor: selectedStreamIds.has(item.id)
+            ? 'var(--accent-soft)'
+            : undefined,
+        }}
+      >
+        <td className="py-2 pl-3.5 pr-3 max-w-[300px]" style={{ boxShadow: rowDropShadow }}>
+          <div className="flex items-center gap-2 min-w-0">
+            {(bulkMode || selectedStreamIds.has(item.id)) && (
+              <button
+                type="button"
+                data-no-stream-drag="true"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleSelectStream(item.id);
+                }}
+                className="w-4 h-4 rounded border flex items-center justify-center shrink-0 cursor-pointer shadow-sm transition-transform active:scale-90"
+                style={{
+                  backgroundColor: selectedStreamIds.has(item.id)
+                    ? 'var(--accent)'
+                    : 'var(--bg-surface)',
+                  borderColor: selectedStreamIds.has(item.id)
+                    ? 'var(--accent)'
+                    : 'var(--border-strong)',
+                  color: 'var(--accent-fg)',
+                }}
+                aria-label="Select stream"
+              >
+                {selectedStreamIds.has(item.id) && <Check className="w-3 h-3 stroke-[3]" />}
+              </button>
+            )}
+            {isCustomSort && (
+              <div
+                aria-hidden="true"
+                title="Drag to reorder"
+                className="w-6 h-6 -ml-1 flex items-center justify-center rounded-md text-[var(--text-muted)] cursor-grab active:cursor-grabbing shrink-0"
+              >
+                <GripVertical className="w-3.5 h-3.5" />
+              </div>
+            )}
+            <button
+              type="button"
+              draggable={false}
+              onDragStart={(e) => e.preventDefault()}
+              onClick={() => {
+                if (shouldSuppressClick()) return;
+                if (bulkMode) {
+                  toggleSelectStream(item.id);
+                  return;
+                }
+                setDrawerState({
+                  open: true,
+                  mode: 'edit',
+                  streamId: item.id,
+                });
+              }}
+              className="w-14 h-8 rounded overflow-hidden shrink-0 border select-none"
+              style={{
+                backgroundColor: 'var(--bg-surface-subtle)',
+                borderColor: 'var(--border-subtle)',
+              }}
+            >
+              {!brokenThumbs[item.id] ? (
+                <img
+                  src={item.thumbnailUrl}
+                  alt={item.customLabel || item.title}
+                  draggable={false}
+                  referrerPolicy="no-referrer"
+                  onError={() =>
+                    setBrokenThumbs((prev) => ({
+                      ...prev,
+                      [item.id]: true,
+                    }))
+                  }
+                  className="w-full h-full object-cover pointer-events-none select-none"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center pointer-events-none">
+                  <MonitorPlay
+                    className="w-3.5 h-3.5"
+                    style={{ color: 'var(--text-muted)' }}
+                  />
+                </div>
+              )}
+            </button>
+            <div className="min-w-0">
+              <button
+                type="button"
+                onClick={() => {
+                  if (shouldSuppressClick()) return;
+                  if (bulkMode) {
+                    toggleSelectStream(item.id);
+                    return;
+                  }
+                  setDrawerState({
+                    open: true,
+                    mode: 'edit',
+                    streamId: item.id,
+                  });
+                }}
+                className="text-xs font-semibold truncate block max-w-full text-left"
+              >
+                {item.customLabel || item.title}
+              </button>
+              {(item.affirmations || item.notes) && (
+                <div
+                  className="text-[11px] truncate max-w-[240px]"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  {item.affirmations || item.notes}
+                </div>
+              )}
+            </div>
+          </div>
+        </td>
+
+        <td className="py-2 px-3 text-xs whitespace-nowrap" style={{ boxShadow: rowDropShadow }}>
+          <button
+            type="button"
+            data-no-stream-drag="true"
+            onClick={() =>
+              setScope({
+                kind: 'channel',
+                channel: item.channel.trim() || 'Unknown Channel',
+              })
+            }
+            className="hover:underline max-w-[140px] truncate block"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            {item.channel || 'YouTube'}
+          </button>
+        </td>
+
+        <td className="py-2 px-3 text-xs max-w-[200px]" style={{ boxShadow: rowDropShadow }}>
+          <div className="truncate" style={{ color: 'var(--text-secondary)' }}>
+            {item.category || 'General'}
+            {item.tags.length > 0 && (
+              <span style={{ color: 'var(--text-muted)' }}>
+                {' · '}
+                {item.tags.slice(0, 3).map((t) => `#${t}`).join(' ')}
+              </span>
+            )}
+          </div>
+        </td>
+
+        <td
+          className="py-2 px-3 text-xs hidden xl:table-cell max-w-[160px]"
+          style={{ boxShadow: rowDropShadow }}
+        >
+          <div className="truncate" style={{ color: 'var(--text-muted)' }}>
+            {itemFolders.length > 0 ? itemFolders.join(', ') : '—'}
+          </div>
+        </td>
+
+        <td className="py-2 px-3 whitespace-nowrap" style={{ boxShadow: rowDropShadow }}>
+          <div className="inline-flex items-center gap-0.5">
+            {[1, 2, 3, 4, 5].map((star) => (
+              <button
+                key={star}
+                type="button"
+                data-no-stream-drag="true"
+                onClick={() =>
+                  onUpdateStream(item.id, { rating: rating === star ? 0 : star })
+                }
+                style={{
+                  color: star <= rating ? 'var(--warning)' : 'var(--border-strong)',
+                }}
+                aria-label={`Rate ${star}`}
+              >
+                <Star className={`w-3 h-3 ${star <= rating ? 'fill-current' : ''}`} />
+              </button>
+            ))}
+          </div>
+        </td>
+
+        <td
+          className="py-2 px-3 text-right whitespace-nowrap"
+          style={{ boxShadow: rowDropShadow }}
+        >
+          <button
+            type="button"
+            data-no-stream-drag="true"
+            onClick={() => onIncrementListen(item.id)}
+            className="text-xs font-mono tabular-nums inline-flex items-center gap-1 hover:opacity-80"
+            style={{ color: 'var(--text-secondary)' }}
+            title="Log +1 listen"
+          >
+            <span>{listens}</span>
+            <Plus className="w-3 h-3 opacity-60" />
+          </button>
+        </td>
+
+        <td
+          className="py-2 pl-3 pr-3.5 text-right whitespace-nowrap"
+          style={{ boxShadow: rowDropShadow }}
+        >
+          <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              data-no-stream-drag="true"
+              onClick={() => onStackStream(item.id)}
+              className="h-7 px-2.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 transition-colors"
+              style={{
+                backgroundColor: inGrid
+                  ? 'var(--accent-soft)'
+                  : 'var(--bg-surface-subtle)',
+                borderColor: inGrid ? 'var(--accent)' : 'var(--border-subtle)',
+                color: inGrid ? 'var(--accent)' : 'var(--text-primary)',
+              }}
+              title={inGrid ? 'Add another layer to stack' : 'Add stream to stack'}
+            >
+              <Plus className="w-3 h-3" />
+              <span>{inGrid ? 'Layer' : 'Stack'}</span>
+            </button>
+            <button
+              type="button"
+              data-no-stream-drag="true"
+              onClick={() =>
+                setDrawerState({ open: true, mode: 'edit', streamId: item.id })
+              }
+              className="h-7 w-7 rounded-md border inline-flex items-center justify-center"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-secondary)',
+              }}
+              aria-label="Edit details"
+            >
+              <Pencil className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              data-no-stream-drag="true"
+              onClick={() => onDeleteStream(item.id)}
+              className="h-7 w-7 rounded-md border inline-flex items-center justify-center"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--danger)',
+              }}
+              aria-label="Delete stream"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
+  const renderDesktopTableContainer = (items: StreamItem[]) => (
+    <div
+      className="hidden md:block rounded-xl border overflow-hidden"
+      style={{
+        backgroundColor: 'var(--bg-surface)',
+        borderColor: 'var(--border-subtle)',
+      }}
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr
+              className="border-b text-[11px] font-semibold"
+              style={{
+                backgroundColor: 'var(--bg-surface-subtle)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              <th className="py-2.5 pl-3.5 pr-3">Stream</th>
+              <th className="py-2.5 px-3">Channel</th>
+              <th className="py-2.5 px-3">Topic & Tags</th>
+              <th className="py-2.5 px-3 hidden xl:table-cell">Folders</th>
+              <th className="py-2.5 px-3">Rating</th>
+              <th className="py-2.5 px-3 text-right">Listens</th>
+              <th className="py-2.5 pl-3 pr-3.5 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
+            {items.map(renderDesktopTableRow)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderMobileListContainer = (items: StreamItem[]) => (
+    <div
+      className="md:hidden rounded-xl border divide-y overflow-hidden"
+      style={{
+        backgroundColor: 'var(--bg-surface)',
+        borderColor: 'var(--border-subtle)',
+      }}
+    >
+      {items.map(renderMobileCompactRow)}
+    </div>
+  );
+
+  const renderGroupHeader = (group: { name: string; items: StreamItem[] }) => (
+    <div className="flex items-center justify-between gap-2 pb-1">
+      <div className="flex items-center gap-2 min-w-0">
+        {groupBy === 'topic' ? (
+          <DynamicIcon
+            name={topicIcons[group.name.trim().toLowerCase()] || 'Tag'}
+            className="w-4 h-4 shrink-0"
+            style={{ color: 'var(--accent)' }}
+          />
+        ) : (
+          <DynamicIcon
+            name={channelConfigs[group.name]?.icon || 'Tv'}
+            className="w-4 h-4 shrink-0"
+            style={{ color: channelConfigs[group.name]?.color || 'var(--accent)' }}
+          />
+        )}
+        <h3 className="font-display text-sm font-semibold truncate">{group.name}</h3>
+        <span
+          className="text-xs font-mono tabular-nums"
+          style={{ color: 'var(--text-muted)' }}
+        >
+          {group.items.length}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={() =>
+          onLoadStreamsToGrid(
+            group.items.map((s) => s.id),
+            'replace',
+            group.name,
+          )
+        }
+        className="h-7 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] shrink-0 cursor-pointer"
+        style={{
+          backgroundColor: 'var(--bg-surface)',
+          borderColor: 'var(--border-subtle)',
+          color: 'var(--text-primary)',
+        }}
+      >
+        <Play className="w-3 h-3 fill-current" style={{ color: 'var(--accent)' }} />
+        <span>Load Group</span>
+      </button>
+    </div>
+  );
+
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden relative">
       {/* Desktop Vault Sidebar (256px) */}
@@ -1374,166 +2530,423 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Vault Context Header & Controls */}
         <div
-          className="px-4 sm:px-6 pt-4 pb-3.5 border-b space-y-3 shrink-0"
+          className="px-3 sm:px-6 pt-3 sm:pt-4 pb-2.5 sm:pb-3.5 border-b space-y-2.5 sm:space-y-3 shrink-0"
           style={{
             backgroundColor: 'var(--bg-canvas)',
             borderColor: 'var(--border-subtle)',
           }}
         >
           {/* Row 1: Breadcrumb + Title + Contextual Stack Actions */}
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex items-start gap-2.5 min-w-0">
+          <div className="flex items-start justify-between gap-2 sm:gap-3">
+            <div className="flex items-start gap-2 sm:gap-2.5 min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={() => setMobileSidebarOpen(true)}
+                className="lg:hidden mt-0.5 h-8 w-8 rounded-lg border flex items-center justify-center shrink-0"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                }}
+                aria-label="Open folders and channels sidebar"
+              >
+                <Menu className="w-4 h-4" />
+              </button>
+
+              <div className="min-w-0 flex-1">
+                <div
+                  className="text-[11px] font-medium truncate hidden sm:block"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  {scopeMeta.breadcrumb}
+                </div>
+                <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5 flex-wrap">
+                  {scopeMeta.icon ? (
+                    <DynamicIcon
+                      name={scopeMeta.icon}
+                      className="w-4 h-4 shrink-0"
+                      style={{
+                        color:
+                          scope.kind === 'channel'
+                            ? channelConfigs[scope.channel]?.color || 'var(--accent)'
+                            : 'var(--accent)',
+                      }}
+                    />
+                  ) : scope.kind === 'channel' ? (
+                    <Tv
+                      className="w-4 h-4 shrink-0"
+                      style={{
+                        color: channelConfigs[scope.channel]?.color || 'var(--accent)',
+                      }}
+                    />
+                  ) : null}
+
+                  {scope.kind === 'channel' && renamingSingleChannel ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const target = singleChannelRenameDraft;
+                        setRenamingSingleChannel(false);
+                        handleRequestRenameChannel(scope.channel, target);
+                      }}
+                      className="flex items-center gap-1.5 min-w-[180px] max-w-sm flex-1"
+                    >
+                      <input
+                        type="text"
+                        autoFocus
+                        value={singleChannelRenameDraft}
+                        onChange={(e) => setSingleChannelRenameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            e.stopPropagation();
+                            setRenamingSingleChannel(false);
+                          }
+                        }}
+                        placeholder="Channel name (empty = Unknown Channel)"
+                        className="flex-1 min-w-0 h-7 px-2.5 rounded-lg border text-xs font-medium outline-none focus:border-[var(--accent)]"
+                        style={{
+                          backgroundColor: 'var(--bg-surface)',
+                          borderColor: 'var(--accent)',
+                          color: 'var(--text-primary)',
+                        }}
+                      />
+                      <button
+                        type="submit"
+                        className="h-7 w-7 rounded-lg flex items-center justify-center shrink-0 cursor-pointer"
+                        style={{
+                          backgroundColor: 'var(--accent)',
+                          color: 'var(--accent-fg)',
+                        }}
+                        aria-label="Save channel rename"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRenamingSingleChannel(false)}
+                        className="h-7 w-7 rounded-lg border flex items-center justify-center shrink-0 cursor-pointer"
+                        style={{
+                          backgroundColor: 'var(--bg-surface)',
+                          borderColor: 'var(--border-subtle)',
+                          color: 'var(--text-muted)',
+                        }}
+                        aria-label="Cancel channel rename"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </form>
+                  ) : scope.kind === 'topic' && renamingTopic ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleCommitTopicRename(scope.topic, topicRenameDraft);
+                      }}
+                      className="flex items-center gap-1.5 min-w-[180px] max-w-sm flex-1"
+                    >
+                      <input
+                        type="text"
+                        autoFocus
+                        value={topicRenameDraft}
+                        onChange={(e) => setTopicRenameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            e.stopPropagation();
+                            setRenamingTopic(false);
+                          }
+                        }}
+                        placeholder="Topic name (empty = Uncategorized)"
+                        className="flex-1 min-w-0 h-7 px-2.5 rounded-lg border text-xs font-medium outline-none focus:border-[var(--accent)]"
+                        style={{
+                          backgroundColor: 'var(--bg-surface)',
+                          borderColor: 'var(--accent)',
+                          color: 'var(--text-primary)',
+                        }}
+                      />
+                      <button
+                        type="submit"
+                        className="h-7 w-7 rounded-lg flex items-center justify-center shrink-0 cursor-pointer"
+                        style={{
+                          backgroundColor: 'var(--accent)',
+                          color: 'var(--accent-fg)',
+                        }}
+                        aria-label="Save topic rename"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRenamingTopic(false)}
+                        className="h-7 w-7 rounded-lg border flex items-center justify-center shrink-0 cursor-pointer"
+                        style={{
+                          backgroundColor: 'var(--bg-surface)',
+                          borderColor: 'var(--border-subtle)',
+                          color: 'var(--text-muted)',
+                        }}
+                        aria-label="Cancel topic rename"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </form>
+                  ) : (
+                    <>
+                      <h2 className="font-display text-sm sm:text-base font-semibold tracking-tight truncate">
+                        {scopeMeta.title}
+                      </h2>
+                      {scope.kind === 'folder' && currentFolder && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingFolderId(scope.folderId)}
+                          title="Edit folder name & icon"
+                          aria-label={`Edit ${scopeMeta.title}`}
+                          className="hidden md:inline-flex h-6 w-6 rounded-md items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {scope.kind === 'channel' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSingleChannelRenameDraft(
+                              scope.channel === 'Unknown Channel' ? '' : scope.channel,
+                            );
+                            setRenamingSingleChannel(true);
+                          }}
+                          title="Rename or merge channel"
+                          aria-label={`Rename ${scope.channel}`}
+                          className="hidden md:inline-flex h-6 w-6 rounded-md items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {scope.kind === 'topic' && (
+                        <div className="hidden md:inline-flex items-center gap-0.5 shrink-0">
+                          {onRenameTopic && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTopicRenameDraft(
+                                  scope.topic === 'Uncategorized' ? '' : scope.topic,
+                                );
+                                setRenamingTopic(true);
+                              }}
+                              title="Rename topic"
+                              aria-label={`Rename ${scope.topic}`}
+                              className="h-6 w-6 rounded-md inline-flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                              style={{ color: 'var(--text-muted)' }}
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {onSetTopicIcon && (
+                            <button
+                              type="button"
+                              onClick={() => setTopicIconModalTarget(scope.topic)}
+                              title="Change topic icon"
+                              aria-label={`Change icon for ${scope.topic}`}
+                              className="h-6 w-6 rounded-md inline-flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                              style={{ color: 'var(--text-muted)' }}
+                            >
+                              <Smile className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <span
+                    className="text-[11px] sm:text-xs font-mono tabular-nums"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    {scope.kind === 'channels'
+                      ? `${channelsOverviewData.length} ch · ${visibleStreams.length}`
+                      : `${visibleStreams.length} ${visibleStreams.length === 1 ? 'stream' : 'streams'}${
+                          scope.kind === 'channel' &&
+                          channelConfigs[scope.channel]?.defaultTopic
+                            ? ` · ${channelConfigs[scope.channel]?.defaultTopic}`
+                            : ''
+                        }`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Mobile Row 1 Right Actions: Load + More Sheet + Add URL */}
+            <div className="flex md:hidden items-center gap-1.5 shrink-0">
+              {scopeMeta.canBatchLoad && visibleStreams.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setMobileSidebarOpen(true)}
-                  className="lg:hidden mt-0.5 h-8 w-8 rounded-lg border flex items-center justify-center shrink-0"
+                  onClick={() =>
+                    onLoadStreamsToGrid(
+                      visibleStreams.map((s) => s.id),
+                      'replace',
+                      scopeMeta.title,
+                    )
+                  }
+                  className="h-8 px-2.5 rounded-lg border text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
                   style={{
                     backgroundColor: 'var(--bg-surface)',
                     borderColor: 'var(--border-subtle)',
                     color: 'var(--text-primary)',
                   }}
-                  aria-label="Open folders and channels sidebar"
                 >
-                  <Menu className="w-4 h-4" />
+                  <Play className="w-3 h-3 fill-current" style={{ color: 'var(--accent)' }} />
+                  <span>Load</span>
                 </button>
+              )}
 
-                <div className="min-w-0">
-                  <div
-                    className="text-[11px] font-medium truncate"
-                    style={{ color: 'var(--text-muted)' }}
+              {(scopeMeta.canBatchLoad ||
+                scope.kind === 'in-grid' ||
+                scope.kind === 'folder' ||
+                scope.kind === 'topic' ||
+                scope.kind === 'channel') && (
+                <button
+                  type="button"
+                  onClick={() => setMobileScopeActionsOpen(true)}
+                  className="h-8 w-8 rounded-lg border inline-flex items-center justify-center cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-secondary)',
+                  }}
+                  aria-label="More scope actions"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setDrawerState({ open: true, mode: 'create' })}
+                className="h-8 px-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--accent)',
+                  color: 'var(--accent-fg)',
+                }}
+                aria-label="Add stream URL"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add</span>
+              </button>
+            </div>
+
+            {/* Desktop Row 1 Right Actions */}
+            <div className="hidden md:flex items-center gap-2 shrink-0 flex-wrap">
+              {scope.kind === 'in-grid' && activeStreams.length > 0 && (
+                <div className="inline-flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={onTogglePauseAll}
+                    className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{
+                      backgroundColor: isAllPaused ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                      borderColor: isAllPaused ? 'var(--accent)' : 'var(--border-subtle)',
+                      color: isAllPaused ? 'var(--accent)' : 'var(--text-secondary)',
+                    }}
                   >
-                    {scopeMeta.breadcrumb}
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    {scopeMeta.icon ? (
-                      <DynamicIcon
-                        name={scopeMeta.icon}
-                        className="w-4 h-4 shrink-0"
-                        style={{
-                          color:
-                            scope.kind === 'channel'
-                              ? channelConfigs[scope.channel]?.color || 'var(--accent)'
-                              : 'var(--accent)',
-                        }}
-                      />
-                    ) : scope.kind === 'channel' ? (
-                      <Tv
-                        className="w-4 h-4 shrink-0"
-                        style={{
-                          color: channelConfigs[scope.channel]?.color || 'var(--accent)',
-                        }}
-                      />
-                    ) : null}
+                    {isAllPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+                    <span>{isAllPaused ? 'Resume All' : 'Pause All'}</span>
+                  </button>
 
-                    {scope.kind === 'channel' && renamingSingleChannel ? (
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          const target = singleChannelRenameDraft;
-                          setRenamingSingleChannel(false);
-                          handleRequestRenameChannel(scope.channel, target);
+                  <button
+                    type="button"
+                    onClick={onToggleViewMute}
+                    className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{
+                      backgroundColor: allActiveMuted ? 'var(--bg-surface-subtle)' : 'var(--bg-surface)',
+                      borderColor: allActiveMuted ? 'var(--danger)' : 'var(--border-subtle)',
+                      color: allActiveMuted ? 'var(--danger)' : 'var(--text-secondary)',
+                    }}
+                  >
+                    {allActiveMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                    <span>{allActiveMuted ? 'Unmute' : 'Mute'}</span>
+                  </button>
+
+                  {onClearStack && (
+                    confirmClearStackDesktop ? (
+                      <div
+                        className="inline-flex items-center gap-1 rounded-lg border px-1.5 h-8"
+                        style={{
+                          backgroundColor: 'var(--bg-surface)',
+                          borderColor: 'var(--danger)',
                         }}
-                        className="flex items-center gap-1.5 min-w-[200px] max-w-sm"
                       >
-                        <input
-                          type="text"
-                          autoFocus
-                          value={singleChannelRenameDraft}
-                          onChange={(e) => setSingleChannelRenameDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Escape') {
-                              e.stopPropagation();
-                              setRenamingSingleChannel(false);
-                            }
-                          }}
-                          placeholder="Channel name (empty = Unknown Channel)"
-                          className="flex-1 min-w-0 h-7 px-2.5 rounded-lg border text-xs font-medium outline-none focus:border-[var(--accent)]"
-                          style={{
-                            backgroundColor: 'var(--bg-surface)',
-                            borderColor: 'var(--accent)',
-                            color: 'var(--text-primary)',
-                          }}
-                        />
                         <button
-                          type="submit"
-                          className="h-7 w-7 rounded-lg flex items-center justify-center shrink-0 cursor-pointer"
-                          style={{
-                            backgroundColor: 'var(--accent)',
-                            color: 'var(--accent-fg)',
+                          type="button"
+                          onClick={() => {
+                            onClearStack();
+                            setConfirmClearStackDesktop(false);
                           }}
-                          aria-label="Save channel rename"
+                          className="h-6 px-2 rounded text-[11px] font-semibold text-white cursor-pointer"
+                          style={{ backgroundColor: 'var(--danger)' }}
                         >
-                          <Check className="w-3.5 h-3.5" />
+                          Clear Stack?
                         </button>
                         <button
                           type="button"
-                          onClick={() => setRenamingSingleChannel(false)}
-                          className="h-7 w-7 rounded-lg border flex items-center justify-center shrink-0 cursor-pointer"
-                          style={{
-                            backgroundColor: 'var(--bg-surface)',
-                            borderColor: 'var(--border-subtle)',
-                            color: 'var(--text-muted)',
-                          }}
-                          aria-label="Cancel channel rename"
+                          onClick={() => setConfirmClearStackDesktop(false)}
+                          className="h-6 px-1.5 rounded text-[11px] font-medium cursor-pointer"
+                          style={{ color: 'var(--text-muted)' }}
                         >
-                          <X className="w-3.5 h-3.5" />
+                          Cancel
                         </button>
-                      </form>
+                      </div>
                     ) : (
-                      <>
-                        <h2 className="font-display text-base font-semibold tracking-tight truncate">
-                          {scopeMeta.title}
-                        </h2>
-                        {scope.kind === 'folder' && folderById.has(scope.folderId) && (
-                          <button
-                            type="button"
-                            onClick={() => setEditingFolderId(scope.folderId)}
-                            title="Edit folder name & icon"
-                            aria-label={`Edit ${scopeMeta.title}`}
-                            className="h-6 w-6 rounded-md inline-flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
-                            style={{ color: 'var(--text-muted)' }}
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {scope.kind === 'channel' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSingleChannelRenameDraft(
-                                scope.channel === 'Unknown Channel' ? '' : scope.channel,
-                              );
-                              setRenamingSingleChannel(true);
-                            }}
-                            title="Rename or merge channel"
-                            aria-label={`Rename ${scope.channel}`}
-                            className="h-6 w-6 rounded-md inline-flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
-                            style={{ color: 'var(--text-muted)' }}
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </>
-                    )}
-
-                    <span
-                      className="text-xs font-mono tabular-nums"
-                      style={{ color: 'var(--text-muted)' }}
-                    >
-                      {scope.kind === 'channels'
-                        ? `${channelsOverviewData.length} ${channelsOverviewData.length === 1 ? 'channel' : 'channels'} · ${visibleStreams.length} ${visibleStreams.length === 1 ? 'stream' : 'streams'}`
-                        : `${visibleStreams.length} ${visibleStreams.length === 1 ? 'stream' : 'streams'}${
-                            scope.kind === 'channel' &&
-                            channelConfigs[scope.channel]?.defaultTopic
-                              ? ` · Default: ${channelConfigs[scope.channel]?.defaultTopic}`
-                              : ''
-                          }`}
-                    </span>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmClearStackDesktop(true)}
+                        className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                        style={{
+                          backgroundColor: 'var(--bg-surface)',
+                          borderColor: 'var(--border-subtle)',
+                          color: 'var(--danger)',
+                        }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Clear Stack</span>
+                      </button>
+                    )
+                  )}
                 </div>
-              </div>
+              )}
 
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              {scope.kind === 'folder' && currentFolder && (
+                <div className="inline-flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setAddingStreamsToFolderId(currentFolder.id)}
+                    className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    <Plus className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
+                    <span>Add Streams</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreatingSubfolder((v) => !v);
+                      setSubfolderDraft('');
+                    }}
+                    className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{
+                      backgroundColor: creatingSubfolder ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                      borderColor: creatingSubfolder ? 'var(--accent)' : 'var(--border-subtle)',
+                      color: creatingSubfolder ? 'var(--accent)' : 'var(--text-secondary)',
+                    }}
+                  >
+                    <FolderPlus className="w-3.5 h-3.5" />
+                    <span>Subfolder</span>
+                  </button>
+                </div>
+              )}
+
               {scope.kind === 'channel' && (
                 <div className="inline-flex items-center gap-1 shrink-0">
                   <button
@@ -1633,10 +3046,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                       onLoadStreamsToGrid(
                         visibleStreams.map((s) => s.id),
                         'replace',
-                        scopeMeta.title
+                        scopeMeta.title,
                       )
                     }
-                    className="h-8 px-3 text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)]"
+                    className="h-8 px-3 text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)] cursor-pointer"
                     style={{ color: 'var(--text-primary)' }}
                     title={`Replace Live Stack with these ${visibleStreams.length} streams`}
                   >
@@ -1649,10 +3062,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                       onLoadStreamsToGrid(
                         visibleStreams.map((s) => s.id),
                         'append',
-                        scopeMeta.title
+                        scopeMeta.title,
                       )
                     }
-                    className="h-8 px-2.5 border-l text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)]"
+                    className="h-8 px-2.5 border-l text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)] cursor-pointer"
                     style={{
                       borderColor: 'var(--border-subtle)',
                       color: 'var(--text-secondary)',
@@ -1660,7 +3073,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     title={`Layer these ${visibleStreams.length} streams onto current Live Stack`}
                   >
                     <Plus className="w-3 h-3" />
-                    <span className="hidden sm:inline">Layer</span>
+                    <span>Layer</span>
                   </button>
                   {scope.kind === 'channel' && singleChannelFavTopIds.length > 0 && (
                     <button
@@ -1672,7 +3085,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                           `${scope.channel} · Favorites & Top`,
                         )
                       }
-                      className="h-8 px-2.5 border-l text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)]"
+                      className="h-8 px-2.5 border-l text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)] cursor-pointer"
                       style={{
                         borderColor: 'var(--border-subtle)',
                         color: 'var(--warning)',
@@ -1680,9 +3093,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                       title={`Load ${singleChannelFavTopIds.length} favorite or top-rated (4–5★) streams from ${scope.channel}`}
                     >
                       <Star className="w-3 h-3 fill-current" />
-                      <span className="hidden sm:inline">
-                        Favs ({singleChannelFavTopIds.length})
-                      </span>
+                      <span>Favs ({singleChannelFavTopIds.length})</span>
                     </button>
                   )}
                 </div>
@@ -1691,7 +3102,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               <button
                 type="button"
                 onClick={() => setDrawerState({ open: true, mode: 'create' })}
-                className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                 style={{
                   backgroundColor: 'var(--accent)',
                   color: 'var(--accent-fg)',
@@ -1703,9 +3114,121 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
             </div>
           </div>
 
-          {/* Row 2: Unified 32px Search + Sort + Selection + View Toggle */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative flex-1 min-w-[200px]">
+          {/* Folder Canvas Subfolder Chips & Inline New Subfolder Form */}
+          {scope.kind === 'folder' &&
+            currentFolder &&
+            (currentFolder.parentId ||
+              childFoldersInScope.length > 0 ||
+              creatingSubfolder) && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {currentFolder.parentId && folderById.has(currentFolder.parentId) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setScope({ kind: 'folder', folderId: currentFolder.parentId! })
+                    }
+                    className="h-7 px-2.5 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    <ChevronLeft className="w-3 h-3" />
+                    <span>{folderById.get(currentFolder.parentId)?.name}</span>
+                  </button>
+                )}
+
+                {childFoldersInScope.map((child) => (
+                  <button
+                    key={child.id}
+                    type="button"
+                    onClick={() => setScope({ kind: 'folder', folderId: child.id })}
+                    className="h-7 px-2.5 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    {child.icon ? (
+                      <DynamicIcon
+                        name={child.icon}
+                        className="w-3 h-3 shrink-0"
+                        style={{ color: 'var(--accent)' }}
+                      />
+                    ) : (
+                      <FolderOpen
+                        className="w-3 h-3 shrink-0"
+                        style={{ color: 'var(--accent)' }}
+                      />
+                    )}
+                    <span className="truncate max-w-[140px]">{child.name}</span>
+                    <span
+                      className="font-mono text-[10px] tabular-nums"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      {folderStreamCountsMap.get(child.id) ?? 0}
+                    </span>
+                  </button>
+                ))}
+
+                {creatingSubfolder && (
+                  <form
+                    onSubmit={handleCreateSubfolderInline}
+                    className="inline-flex items-center gap-1"
+                  >
+                    <input
+                      type="text"
+                      autoFocus
+                      value={subfolderDraft}
+                      onChange={(e) => setSubfolderDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.stopPropagation();
+                          setCreatingSubfolder(false);
+                        }
+                      }}
+                      placeholder="New subfolder name..."
+                      className="h-7 w-44 px-2.5 rounded-lg border text-xs outline-none"
+                      style={{
+                        backgroundColor: 'var(--bg-surface)',
+                        borderColor: 'var(--accent)',
+                        color: 'var(--text-primary)',
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      className="h-7 w-7 rounded-lg flex items-center justify-center cursor-pointer"
+                      style={{
+                        backgroundColor: 'var(--accent)',
+                        color: 'var(--accent-fg)',
+                      }}
+                      aria-label="Create subfolder"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCreatingSubfolder(false)}
+                      className="h-7 w-7 rounded-lg border flex items-center justify-center cursor-pointer"
+                      style={{
+                        backgroundColor: 'var(--bg-surface)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-muted)',
+                      }}
+                      aria-label="Cancel subfolder"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+
+          {/* Row 2: Search + Mobile Controls / Desktop Popover Toolbar */}
+          <div ref={toolbarPopoverRef} className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-[140px]">
               <Search
                 className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
                 style={{ color: 'var(--text-muted)' }}
@@ -1714,7 +3237,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search titles, channels, topics, tags, or notes..."
+                placeholder="Search titles, channels, topics, tags..."
                 className="w-full h-8 pl-8 pr-7 rounded-lg border text-xs outline-none"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
@@ -1735,112 +3258,701 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               )}
             </div>
 
-            {scope.kind === 'channels' ? (
-              <>
-                {/* Dedicated Channel Sort + Custom Drag Order Toggle */}
-                <div className="inline-flex items-center gap-1 shrink-0">
-                  <select
-                    value={channelSortBy}
-                    onChange={(e) => setChannelSortBy(e.target.value as ChannelsSortMode)}
-                    className="h-8 px-2.5 rounded-lg border text-xs font-medium outline-none cursor-pointer"
+            {/* Mobile Row 2: Select + Controls Bottom Sheet Trigger */}
+            <div className="flex md:hidden items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  if (scope.kind === 'channels') {
+                    setChannelBulkMode((prev) => {
+                      const next = !prev;
+                      if (!next) setSelectedChannelNames(new Set());
+                      else {
+                        setBulkMode(false);
+                        setSelectedStreamIds(new Set());
+                      }
+                      return next;
+                    });
+                  } else {
+                    setBulkMode((prev) => {
+                      if (prev) setSelectedStreamIds(new Set());
+                      return !prev;
+                    });
+                  }
+                }}
+                className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 shrink-0 cursor-pointer"
+                style={{
+                  backgroundColor: (
+                    scope.kind === 'channels' ? channelBulkMode : bulkMode
+                  )
+                    ? 'var(--accent-soft)'
+                    : 'var(--bg-surface)',
+                  borderColor: (
+                    scope.kind === 'channels' ? channelBulkMode : bulkMode
+                  )
+                    ? 'var(--accent)'
+                    : 'var(--border-subtle)',
+                  color: (scope.kind === 'channels' ? channelBulkMode : bulkMode)
+                    ? 'var(--accent)'
+                    : 'var(--text-secondary)',
+                }}
+                aria-pressed={scope.kind === 'channels' ? channelBulkMode : bulkMode}
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                <span>Select</span>
+                {(scope.kind === 'channels'
+                  ? selectedChannelNames.size
+                  : selectedStreamIds.size) > 0 && (
+                  <span
+                    className="font-mono text-[10px] font-semibold px-1 rounded"
                     style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      borderColor: 'var(--border-subtle)',
-                      color: 'var(--text-secondary)',
+                      backgroundColor: 'var(--accent)',
+                      color: 'var(--accent-fg)',
                     }}
-                    aria-label="Sort channels"
                   >
-                    <option value="custom">Channels: Custom Order</option>
-                    <option value="count-desc">Channels: Most Streams</option>
-                    <option value="count-asc">Channels: Fewest Streams</option>
-                    <option value="listens">Channels: Total Listens</option>
-                    <option value="recent">Channels: Latest Added</option>
-                    <option value="title-asc">Channels: A–Z</option>
-                    <option value="title-desc">Channels: Z–A</option>
-                  </select>
+                    {scope.kind === 'channels'
+                      ? selectedChannelNames.size
+                      : selectedStreamIds.size}
+                  </span>
+                )}
+              </button>
 
+              <button
+                type="button"
+                onClick={() => setMobileControlsOpen(true)}
+                className="relative h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+                style={{
+                  backgroundColor:
+                    activeSecondaryFilterCount > 0 ||
+                    isCustomSort ||
+                    (scope.kind === 'channels' && isCustomChannelSort) ||
+                    (scope.kind === 'all' && groupBy !== 'none')
+                      ? 'var(--accent-soft)'
+                      : 'var(--bg-surface)',
+                  borderColor:
+                    activeSecondaryFilterCount > 0 ||
+                    isCustomSort ||
+                    (scope.kind === 'channels' && isCustomChannelSort) ||
+                    (scope.kind === 'all' && groupBy !== 'none')
+                      ? 'var(--accent)'
+                      : 'var(--border-subtle)',
+                  color:
+                    activeSecondaryFilterCount > 0 ||
+                    isCustomSort ||
+                    (scope.kind === 'channels' && isCustomChannelSort) ||
+                    (scope.kind === 'all' && groupBy !== 'none')
+                      ? 'var(--accent)'
+                      : 'var(--text-secondary)',
+                }}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Controls</span>
+                {activeSecondaryFilterCount > 0 && (
+                  <span
+                    className="font-mono text-[10px] font-semibold px-1 rounded"
+                    style={{
+                      backgroundColor: 'var(--accent)',
+                      color: 'var(--accent-fg)',
+                    }}
+                  >
+                    {activeSecondaryFilterCount}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Desktop Row 2: Unified Sort/Reorder Popover + Filters Popover + Group + Select + Density + View Switch */}
+            <div className="hidden md:flex items-center gap-2 shrink-0 flex-wrap">
+              {/* Merged Sort & Reorder Popover */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenToolbarPopover((prev) => (prev === 'sort' ? null : 'sort'))
+                  }
+                  className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+                  style={{
+                    backgroundColor:
+                      openToolbarPopover === 'sort' ||
+                      isCustomSort ||
+                      (scope.kind === 'channels' && isCustomChannelSort)
+                        ? 'var(--accent-soft)'
+                        : 'var(--bg-surface)',
+                    borderColor:
+                      openToolbarPopover === 'sort' ||
+                      isCustomSort ||
+                      (scope.kind === 'channels' && isCustomChannelSort)
+                        ? 'var(--accent)'
+                        : 'var(--border-subtle)',
+                    color:
+                      openToolbarPopover === 'sort' ||
+                      isCustomSort ||
+                      (scope.kind === 'channels' && isCustomChannelSort)
+                        ? 'var(--accent)'
+                        : 'var(--text-secondary)',
+                  }}
+                >
+                  {isCustomSort || (scope.kind === 'channels' && isCustomChannelSort) ? (
+                    <GripVertical className="w-3.5 h-3.5" />
+                  ) : (
+                    <ArrowUpDown className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {scope.kind === 'channels'
+                      ? isCustomChannelSort || isCustomSort
+                        ? 'Sort: Custom Drag'
+                        : `Sort: ${
+                            channelSortBy === 'count-desc'
+                              ? 'Most Streams'
+                              : channelSortBy === 'count-asc'
+                                ? 'Fewest'
+                                : channelSortBy === 'listens'
+                                  ? 'Listens'
+                                  : channelSortBy === 'recent'
+                                    ? 'Latest'
+                                    : channelSortBy === 'title-asc'
+                                      ? 'A–Z'
+                                      : 'Z–A'
+                          }`
+                      : sortBy === 'custom'
+                        ? 'Sort: Custom Drag'
+                        : sortBy === 'recent'
+                          ? 'Sort: Recent'
+                          : sortBy === 'listens'
+                            ? 'Sort: Listens'
+                            : sortBy === 'rating'
+                              ? 'Sort: Rating'
+                              : sortBy === 'title'
+                                ? 'Sort: Title'
+                                : 'Sort: Channel'}
+                  </span>
+                  <ChevronDown className="w-3 h-3 opacity-70" />
+                </button>
+
+                {openToolbarPopover === 'sort' && (
+                  <div
+                    className="absolute right-0 top-full mt-1.5 z-40 w-72 rounded-xl border p-3 shadow-xl space-y-3"
+                    style={{
+                      backgroundColor: 'var(--bg-elevated)',
+                      borderColor: 'var(--border-strong)',
+                      boxShadow: 'var(--shadow-popover)',
+                    }}
+                  >
+                    {scope.kind === 'channels' ? (
+                      <>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className="text-[11px] font-semibold uppercase tracking-wider"
+                              style={{ color: 'var(--text-muted)' }}
+                            >
+                              Channels Order
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setChannelSortBy((p) =>
+                                  p === 'custom' ? 'count-desc' : 'custom',
+                                )
+                              }
+                              className="h-6 px-2 rounded-md border text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                              style={{
+                                backgroundColor: isCustomChannelSort
+                                  ? 'var(--accent-soft)'
+                                  : 'var(--bg-surface)',
+                                borderColor: isCustomChannelSort
+                                  ? 'var(--accent)'
+                                  : 'var(--border-subtle)',
+                                color: isCustomChannelSort
+                                  ? 'var(--accent)'
+                                  : 'var(--text-secondary)',
+                              }}
+                            >
+                              <GripVertical className="w-3 h-3" />
+                              <span>{isCustomChannelSort ? 'Drag On' : 'Drag Order'}</span>
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1">
+                            {(
+                              [
+                                ['count-desc', 'Most Streams'],
+                                ['count-asc', 'Fewest Streams'],
+                                ['listens', 'Total Listens'],
+                                ['recent', 'Latest Added'],
+                                ['title-asc', 'Title A–Z'],
+                                ['title-desc', 'Title Z–A'],
+                                ['custom', 'Custom Drag'],
+                              ] as const
+                            ).map(([id, label]) => (
+                              <button
+                                key={id}
+                                type="button"
+                                onClick={() => setChannelSortBy(id)}
+                                className="h-7 px-2 rounded-lg text-xs font-medium text-left flex items-center justify-between hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                                style={{
+                                  backgroundColor:
+                                    channelSortBy === id ? 'var(--accent-soft)' : 'transparent',
+                                  color:
+                                    channelSortBy === id
+                                      ? 'var(--accent)'
+                                      : 'var(--text-secondary)',
+                                }}
+                              >
+                                <span className="truncate">{label}</span>
+                                {channelSortBy === id && <Check className="w-3 h-3 shrink-0" />}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div
+                          className="pt-2.5 border-t space-y-1.5"
+                          style={{ borderColor: 'var(--border-subtle)' }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span
+                              className="text-[11px] font-semibold uppercase tracking-wider"
+                              style={{ color: 'var(--text-muted)' }}
+                            >
+                              In-Channel Streams
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSortBy((p) => (p === 'custom' ? 'recent' : 'custom'))
+                              }
+                              className="h-6 px-2 rounded-md border text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                              style={{
+                                backgroundColor: isCustomSort
+                                  ? 'var(--accent-soft)'
+                                  : 'var(--bg-surface)',
+                                borderColor: isCustomSort
+                                  ? 'var(--accent)'
+                                  : 'var(--border-subtle)',
+                                color: isCustomSort
+                                  ? 'var(--accent)'
+                                  : 'var(--text-secondary)',
+                              }}
+                            >
+                              <GripVertical className="w-3 h-3" />
+                              <span>{isCustomSort ? 'Drag On' : 'Drag Order'}</span>
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1">
+                            {(
+                              [
+                                ['recent', 'Recently Added'],
+                                ['listens', 'Most Listened'],
+                                ['rating', 'Highest Rated'],
+                                ['title', 'Title (A–Z)'],
+                                ['custom', 'Custom Drag'],
+                              ] as const
+                            ).map(([id, label]) => (
+                              <button
+                                key={id}
+                                type="button"
+                                onClick={() => setSortBy(id)}
+                                className="h-7 px-2 rounded-lg text-xs font-medium text-left flex items-center justify-between hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                                style={{
+                                  backgroundColor:
+                                    sortBy === id ? 'var(--accent-soft)' : 'transparent',
+                                  color:
+                                    sortBy === id
+                                      ? 'var(--accent)'
+                                      : 'var(--text-secondary)',
+                                }}
+                              >
+                                <span className="truncate">{label}</span>
+                                {sortBy === id && <Check className="w-3 h-3 shrink-0" />}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span
+                            className="text-[11px] font-semibold uppercase tracking-wider"
+                            style={{ color: 'var(--text-muted)' }}
+                          >
+                            Sort Streams
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSortBy((p) => (p === 'custom' ? 'recent' : 'custom'))
+                            }
+                            className="h-6 px-2 rounded-md border text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                            style={{
+                              backgroundColor: isCustomSort
+                                ? 'var(--accent-soft)'
+                                : 'var(--bg-surface)',
+                              borderColor: isCustomSort
+                                ? 'var(--accent)'
+                                : 'var(--border-subtle)',
+                              color: isCustomSort
+                                ? 'var(--accent)'
+                                : 'var(--text-secondary)',
+                            }}
+                          >
+                            <GripVertical className="w-3 h-3" />
+                            <span>{isCustomSort ? 'Drag On' : 'Enable Drag'}</span>
+                          </button>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          {(
+                            [
+                              ['recent', 'Recently Added'],
+                              ['listens', 'Most Listened'],
+                              ['rating', 'Highest Rated'],
+                              ['title', 'Title (A–Z)'],
+                              ['channel', 'Channel (A–Z)'],
+                              ['custom', 'Custom Drag Order'],
+                            ] as const
+                          ).map(([id, label]) => (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => {
+                                setSortBy(id);
+                                setOpenToolbarPopover(null);
+                              }}
+                              className="w-full h-8 px-2.5 rounded-lg text-xs font-medium text-left flex items-center justify-between hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                              style={{
+                                backgroundColor:
+                                  sortBy === id ? 'var(--accent-soft)' : 'transparent',
+                                color:
+                                  sortBy === id
+                                    ? 'var(--accent)'
+                                    : 'var(--text-secondary)',
+                              }}
+                            >
+                              <span>{label}</span>
+                              {sortBy === id && <Check className="w-3.5 h-3.5" />}
+                            </button>
+                          ))}
+                        </div>
+                        {scope.kind === 'all' && groupBy !== 'none' && sortBy === 'custom' && (
+                          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                            Set Group By to None to drag-reorder cards.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Filters Popover (Tags + Rating + Grid Status + Untagged + Pinned Channels) */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenToolbarPopover((prev) => (prev === 'filters' ? null : 'filters'))
+                  }
+                  className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+                  style={{
+                    backgroundColor:
+                      openToolbarPopover === 'filters' || activeSecondaryFilterCount > 0
+                        ? 'var(--accent-soft)'
+                        : 'var(--bg-surface)',
+                    borderColor:
+                      openToolbarPopover === 'filters' || activeSecondaryFilterCount > 0
+                        ? 'var(--accent)'
+                        : 'var(--border-subtle)',
+                    color:
+                      openToolbarPopover === 'filters' || activeSecondaryFilterCount > 0
+                        ? 'var(--accent)'
+                        : 'var(--text-secondary)',
+                  }}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span>Filters</span>
+                  {activeSecondaryFilterCount > 0 && (
+                    <span
+                      className="font-mono text-[10px] font-semibold px-1 rounded"
+                      style={{
+                        backgroundColor: 'var(--accent)',
+                        color: 'var(--accent-fg)',
+                      }}
+                    >
+                      {activeSecondaryFilterCount}
+                    </span>
+                  )}
+                </button>
+
+                {openToolbarPopover === 'filters' && (
+                  <div
+                    className="absolute right-0 top-full mt-1.5 z-40 w-80 rounded-xl border p-3.5 shadow-xl space-y-3"
+                    style={{
+                      backgroundColor: 'var(--bg-elevated)',
+                      borderColor: 'var(--border-strong)',
+                      boxShadow: 'var(--shadow-popover)',
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span
+                        className="text-[11px] font-semibold uppercase tracking-wider"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        Quick Filters
+                      </span>
+                      {activeSecondaryFilterCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={resetSecondaryFilters}
+                          className="text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                          style={{ color: 'var(--accent)' }}
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>Reset</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {([0, 4, 5] as const).map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => setMinRating(r)}
+                          className="h-7 px-2 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 cursor-pointer"
+                          style={{
+                            backgroundColor:
+                              minRating === r ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                            borderColor:
+                              minRating === r ? 'var(--accent)' : 'var(--border-subtle)',
+                            color:
+                              minRating === r ? 'var(--accent)' : 'var(--text-secondary)',
+                          }}
+                        >
+                          {r > 0 && <Star className="w-3 h-3 fill-current" />}
+                          <span>{r === 0 ? 'Any Stars' : `${r}+ ★`}</span>
+                        </button>
+                      ))}
+
+                      {scope.kind !== 'in-grid' && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setGridStatusFilter((prev) =>
+                              prev === 'all'
+                                ? 'stacked'
+                                : prev === 'stacked'
+                                  ? 'unstacked'
+                                  : 'all',
+                            )
+                          }
+                          className="h-7 px-2 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 cursor-pointer"
+                          style={{
+                            backgroundColor:
+                              gridStatusFilter !== 'all'
+                                ? 'var(--accent-soft)'
+                                : 'var(--bg-surface)',
+                            borderColor:
+                              gridStatusFilter !== 'all'
+                                ? 'var(--accent)'
+                                : 'var(--border-subtle)',
+                            color:
+                              gridStatusFilter !== 'all'
+                                ? 'var(--accent)'
+                                : 'var(--text-secondary)',
+                          }}
+                        >
+                          <span>
+                            {gridStatusFilter === 'all'
+                              ? 'Grid: All'
+                              : gridStatusFilter === 'stacked'
+                                ? 'In Live Grid'
+                                : 'Not In Grid'}
+                          </span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setUntaggedOnly((v) => !v)}
+                        className="h-7 px-2 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 cursor-pointer"
+                        style={{
+                          backgroundColor: untaggedOnly
+                            ? 'var(--accent-soft)'
+                            : 'var(--bg-surface)',
+                          borderColor: untaggedOnly
+                            ? 'var(--accent)'
+                            : 'var(--border-subtle)',
+                          color: untaggedOnly ? 'var(--accent)' : 'var(--text-secondary)',
+                        }}
+                      >
+                        <Hash className="w-3 h-3" />
+                        <span>Untagged</span>
+                      </button>
+
+                      {scope.kind === 'channels' && (
+                        <button
+                          type="button"
+                          onClick={() => setPinnedOnlyChannels((v) => !v)}
+                          className="h-7 px-2 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 cursor-pointer"
+                          style={{
+                            backgroundColor: pinnedOnlyChannels
+                              ? 'var(--accent-soft)'
+                              : 'var(--bg-surface)',
+                            borderColor: pinnedOnlyChannels
+                              ? 'var(--accent)'
+                              : 'var(--border-subtle)',
+                            color: pinnedOnlyChannels
+                              ? 'var(--accent)'
+                              : 'var(--text-secondary)',
+                          }}
+                        >
+                          <Pin className={`w-3 h-3 ${pinnedOnlyChannels ? 'fill-current' : ''}`} />
+                          <span>Pinned Only</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {existingTags.length > 0 && (
+                      <div
+                        className="pt-2.5 border-t space-y-2"
+                        style={{ borderColor: 'var(--border-subtle)' }}
+                      >
+                        <span
+                          className="text-[11px] font-semibold uppercase tracking-wider block"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          Tags ({existingTags.length})
+                        </span>
+                        <div className="flex flex-wrap gap-1 max-h-40 overflow-y-auto pr-0.5">
+                          {existingTags.map((tag) => {
+                            const active = selectedTags.includes(tag);
+                            return (
+                              <button
+                                key={tag}
+                                type="button"
+                                onClick={() => handleToggleTag(tag)}
+                                className="h-6 px-2 rounded-md border text-[11px] font-medium inline-flex items-center gap-1 cursor-pointer"
+                                style={{
+                                  backgroundColor: active
+                                    ? 'var(--accent-soft)'
+                                    : 'var(--bg-surface)',
+                                  borderColor: active
+                                    ? 'var(--accent)'
+                                    : 'var(--border-subtle)',
+                                  color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                                }}
+                              >
+                                <Hash className="w-2.5 h-2.5 opacity-70" />
+                                <span>{tag}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Group By Popover (All Saved only) */}
+              {scope.kind === 'all' && (
+                <div className="relative">
                   <button
                     type="button"
                     onClick={() =>
-                      setChannelSortBy((prev) =>
-                        prev === 'custom' ? 'count-desc' : 'custom',
-                      )
+                      setOpenToolbarPopover((prev) => (prev === 'group' ? null : 'group'))
                     }
-                    title={
-                      isCustomChannelSort
-                        ? 'Custom channel order active — drag handles to rearrange channels'
-                        : 'Enable Custom Channel Order (drag & drop)'
-                    }
-                    aria-label="Toggle custom channel drag order"
-                    aria-pressed={isCustomChannelSort}
-                    className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
+                    className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
                     style={{
-                      backgroundColor: isCustomChannelSort
+                      backgroundColor:
+                        groupBy !== 'none' ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                      borderColor:
+                        groupBy !== 'none' ? 'var(--accent)' : 'var(--border-subtle)',
+                      color: groupBy !== 'none' ? 'var(--accent)' : 'var(--text-secondary)',
+                    }}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>
+                      {groupBy === 'none'
+                        ? 'Group'
+                        : groupBy === 'topic'
+                          ? 'Group: Topic'
+                          : 'Group: Channel'}
+                    </span>
+                    <ChevronDown className="w-3 h-3 opacity-70" />
+                  </button>
+
+                  {openToolbarPopover === 'group' && (
+                    <div
+                      className="absolute right-0 top-full mt-1.5 z-40 w-44 rounded-xl border p-1.5 shadow-xl space-y-0.5"
+                      style={{
+                        backgroundColor: 'var(--bg-elevated)',
+                        borderColor: 'var(--border-strong)',
+                        boxShadow: 'var(--shadow-popover)',
+                      }}
+                    >
+                      {(
+                        [
+                          ['none', 'None (Flat List)'],
+                          ['topic', 'By Topic / Theme'],
+                          ['channel', 'By Channel'],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => {
+                            setGroupBy(id);
+                            setOpenToolbarPopover(null);
+                          }}
+                          className="w-full h-8 px-2.5 rounded-lg text-xs font-medium text-left flex items-center justify-between hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                          style={{
+                            backgroundColor:
+                              groupBy === id ? 'var(--accent-soft)' : 'transparent',
+                            color:
+                              groupBy === id ? 'var(--accent)' : 'var(--text-secondary)',
+                          }}
+                        >
+                          <span>{label}</span>
+                          {groupBy === id && <Check className="w-3.5 h-3.5" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Channels Collapse Unpinned quick button */}
+              {scope.kind === 'channels' &&
+                channelsOverviewData.some((c) => c.meta.pinned) &&
+                channelsOverviewData.some((c) => !c.meta.pinned) && (
+                  <button
+                    type="button"
+                    onClick={() => setCollapseUnpinnedChannels((v) => !v)}
+                    className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                    style={{
+                      backgroundColor: collapseUnpinnedChannels
                         ? 'var(--accent-soft)'
                         : 'var(--bg-surface)',
-                      borderColor: isCustomChannelSort
+                      borderColor: collapseUnpinnedChannels
                         ? 'var(--accent)'
                         : 'var(--border-subtle)',
-                      color: isCustomChannelSort
+                      color: collapseUnpinnedChannels
                         ? 'var(--accent)'
                         : 'var(--text-secondary)',
                     }}
+                    title="Collapse or expand unpinned channels"
                   >
-                    <GripVertical className="w-3.5 h-3.5" />
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>{collapseUnpinnedChannels ? 'Unpinned Hidden' : 'Collapse Unpinned'}</span>
                   </button>
-                </div>
+                )}
 
-                {/* Separate Stream Sort inside channels */}
-                <div className="inline-flex items-center gap-1 shrink-0">
-                  <select
-                    value={sortBy === 'channel' ? 'recent' : sortBy}
-                    onChange={(e) => setSortBy(e.target.value as VaultSortMode)}
-                    className="h-8 px-2.5 rounded-lg border text-xs font-medium outline-none cursor-pointer"
-                    style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      borderColor: 'var(--border-subtle)',
-                      color: 'var(--text-secondary)',
-                    }}
-                    aria-label="Sort streams inside channels"
-                  >
-                    <option value="custom">Streams: Custom Order</option>
-                    <option value="recent">Streams: Recently Added</option>
-                    <option value="listens">Streams: Most Listened</option>
-                    <option value="rating">Streams: Highest Rated</option>
-                    <option value="title">Streams: Title (A–Z)</option>
-                  </select>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSortBy((prev) => (prev === 'custom' ? 'recent' : 'custom'))
-                    }
-                    title={
-                      isCustomSort
-                        ? 'In-channel stream drag order active'
-                        : 'Enable Custom Order for streams inside each channel'
-                    }
-                    aria-label="Toggle custom in-channel stream order"
-                    aria-pressed={isCustomSort}
-                    className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
-                    style={{
-                      backgroundColor: isCustomSort
-                        ? 'var(--accent-soft)'
-                        : 'var(--bg-surface)',
-                      borderColor: isCustomSort
-                        ? 'var(--accent)'
-                        : 'var(--border-subtle)',
-                      color: isCustomSort ? 'var(--accent)' : 'var(--text-secondary)',
-                    }}
-                  >
-                    <GripVertical className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                {/* Select Channels Bulk Toggle */}
-                <button
-                  type="button"
-                  onClick={() => {
+              {/* Select Toggle for Bulk Edit */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (scope.kind === 'channels') {
                     setChannelBulkMode((prev) => {
                       const next = !prev;
                       if (!next) {
@@ -1851,36 +3963,78 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                       }
                       return next;
                     });
-                  }}
-                  className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors shrink-0 whitespace-nowrap cursor-pointer"
-                  style={{
-                    backgroundColor: channelBulkMode
-                      ? 'var(--accent-soft)'
-                      : 'var(--bg-surface)',
-                    borderColor: channelBulkMode
-                      ? 'var(--accent)'
-                      : 'var(--border-subtle)',
-                    color: channelBulkMode ? 'var(--accent)' : 'var(--text-secondary)',
-                  }}
-                  title="Select multiple channels to merge, batch edit, pin, load, or delete"
-                  aria-pressed={channelBulkMode}
-                >
-                  <CheckSquare className="w-3.5 h-3.5" />
-                  <span>Select</span>
-                  {selectedChannelNames.size > 0 && (
-                    <span
-                      className="font-mono text-[11px] font-semibold px-1 rounded"
-                      style={{
-                        backgroundColor: 'var(--accent)',
-                        color: 'var(--accent-fg)',
-                      }}
-                    >
-                      {selectedChannelNames.size}
-                    </span>
-                  )}
-                </button>
+                  } else {
+                    setBulkMode((prev) => {
+                      if (prev) setSelectedStreamIds(new Set());
+                      return !prev;
+                    });
+                  }
+                }}
+                className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors shrink-0 whitespace-nowrap cursor-pointer"
+                style={{
+                  backgroundColor: (
+                    scope.kind === 'channels' ? channelBulkMode : bulkMode
+                  )
+                    ? 'var(--accent-soft)'
+                    : 'var(--bg-surface)',
+                  borderColor: (
+                    scope.kind === 'channels' ? channelBulkMode : bulkMode
+                  )
+                    ? 'var(--accent)'
+                    : 'var(--border-subtle)',
+                  color: (scope.kind === 'channels' ? channelBulkMode : bulkMode)
+                    ? 'var(--accent)'
+                    : 'var(--text-secondary)',
+                }}
+                aria-pressed={scope.kind === 'channels' ? channelBulkMode : bulkMode}
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                <span>Select</span>
+                {(scope.kind === 'channels'
+                  ? selectedChannelNames.size
+                  : selectedStreamIds.size) > 0 && (
+                  <span
+                    className="font-mono text-[11px] font-semibold px-1 rounded"
+                    style={{
+                      backgroundColor: 'var(--accent)',
+                      color: 'var(--accent-fg)',
+                    }}
+                  >
+                    {scope.kind === 'channels'
+                      ? selectedChannelNames.size
+                      : selectedStreamIds.size}
+                  </span>
+                )}
+              </button>
 
-                {/* Channels 3-Mode View Switcher */}
+              {/* Standard / Compact Card Density Toggle */}
+              {(scope.kind === 'channels'
+                ? channelsViewMode !== 'split'
+                : viewMode === 'grid') && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCardDensity((prev) =>
+                      prev === 'standard' ? 'compact' : 'standard',
+                    )
+                  }
+                  className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
+                  style={{
+                    backgroundColor:
+                      cardDensity === 'compact' ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                    borderColor:
+                      cardDensity === 'compact' ? 'var(--accent)' : 'var(--border-subtle)',
+                    color:
+                      cardDensity === 'compact' ? 'var(--accent)' : 'var(--text-secondary)',
+                  }}
+                  title="Toggle Standard vs Compact card density"
+                >
+                  <span>{cardDensity === 'compact' ? 'Compact' : 'Standard'}</span>
+                </button>
+              )}
+
+              {/* View Mode Switcher */}
+              {scope.kind === 'channels' ? (
                 <div
                   className="inline-flex items-center h-8 gap-0.5 p-0.5 rounded-lg border shrink-0"
                   style={{
@@ -1907,7 +4061,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     aria-label="Horizontal carousels view"
                   >
                     <GalleryHorizontal className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Carousels</span>
+                    <span className="hidden lg:inline">Carousels</span>
                   </button>
                   <button
                     type="button"
@@ -1926,7 +4080,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     aria-label="Directory cards grid view"
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Directory</span>
+                    <span className="hidden lg:inline">Directory</span>
                   </button>
                   <button
                     type="button"
@@ -1945,97 +4099,10 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     aria-label="Split master-detail list view"
                   >
                     <Columns2 className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Split</span>
+                    <span className="hidden lg:inline">Split</span>
                   </button>
                 </div>
-              </>
-            ) : (
-              <>
-                {/* Sort Selector + Custom Order GripVertical Toggle */}
-                <div className="inline-flex items-center gap-1 shrink-0">
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as VaultSortMode)}
-                    className="h-8 px-2.5 rounded-lg border text-xs font-medium outline-none cursor-pointer"
-                    style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      borderColor: 'var(--border-subtle)',
-                      color: 'var(--text-secondary)',
-                    }}
-                    aria-label="Sort streams"
-                  >
-                    <option value="custom">Sort: Custom Order</option>
-                    <option value="recent">Sort: Recently Added</option>
-                    <option value="listens">Sort: Most Listened</option>
-                    <option value="rating">Sort: Highest Rated</option>
-                    <option value="title">Sort: Title (A–Z)</option>
-                    <option value="channel">Sort: Channel (A–Z)</option>
-                  </select>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSortBy((prev) => (prev === 'custom' ? 'recent' : 'custom'))
-                    }
-                    title={
-                      isCustomSort
-                        ? 'Custom order active — drag cards or rows to rearrange (click to switch back)'
-                        : 'Enable Custom Order (drag & drop)'
-                    }
-                    aria-label={
-                      isCustomSort
-                        ? 'Custom drag order active'
-                        : 'Switch to Custom Order'
-                    }
-                    aria-pressed={isCustomSort}
-                    className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
-                    style={{
-                      backgroundColor: isCustomSort
-                        ? 'var(--accent-soft)'
-                        : 'var(--bg-surface)',
-                      borderColor: isCustomSort
-                        ? 'var(--accent)'
-                        : 'var(--border-subtle)',
-                      color: isCustomSort ? 'var(--accent)' : 'var(--text-secondary)',
-                    }}
-                  >
-                    <GripVertical className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                {/* Select Toggle for Bulk Edit */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBulkMode((prev) => {
-                      if (prev) {
-                        setSelectedStreamIds(new Set());
-                      }
-                      return !prev;
-                    });
-                  }}
-                  className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors shrink-0"
-                  style={{
-                    backgroundColor: bulkMode ? 'var(--accent-soft)' : 'var(--bg-surface)',
-                    borderColor: bulkMode ? 'var(--accent)' : 'var(--border-subtle)',
-                    color: bulkMode ? 'var(--accent)' : 'var(--text-secondary)',
-                  }}
-                  title={bulkMode ? 'Exit Select mode' : 'Select multiple streams for bulk edit'}
-                  aria-pressed={bulkMode}
-                >
-                  <CheckSquare className="w-3.5 h-3.5" />
-                  <span>Select</span>
-                  {selectedStreamIds.size > 0 && (
-                    <span
-                      className="font-mono text-[11px] font-semibold px-1 rounded"
-                      style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-fg)' }}
-                    >
-                      {selectedStreamIds.size}
-                    </span>
-                  )}
-                </button>
-
-                {/* Grid / Table Segmented View Switch */}
+              ) : (
                 <div
                   className="inline-flex items-center h-8 gap-0.5 p-0.5 rounded-lg border shrink-0"
                   style={{
@@ -2048,7 +4115,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setViewMode('grid')}
-                    className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
                     style={{
                       backgroundColor: viewMode === 'grid' ? 'var(--accent-soft)' : 'transparent',
                       color: viewMode === 'grid' ? 'var(--accent)' : 'var(--text-muted)',
@@ -2056,12 +4123,12 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     aria-label="Grid cards view"
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Cards</span>
+                    <span>Cards</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setViewMode('table')}
-                    className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
                     style={{
                       backgroundColor: viewMode === 'table' ? 'var(--accent-soft)' : 'transparent',
                       color: viewMode === 'table' ? 'var(--accent)' : 'var(--text-muted)',
@@ -2069,19 +4136,79 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     aria-label="Dense table view"
                   >
                     <List className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Table</span>
+                    <span>Table</span>
                   </button>
                 </div>
-              </>
-            )}
+              )}
+            </div>
           </div>
 
-          {/* Active Multi-Tag Filter Indicator */}
-          {selectedTags.length > 0 && (
+          {/* Active Filter & Tag Indicator Strip */}
+          {activeSecondaryFilterCount > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                Filtered by tags:
+                Filtered:
               </span>
+              {minRating > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setMinRating(0)}
+                  className="h-6 px-2 rounded-md border text-[11px] font-medium inline-flex items-center gap-1"
+                  style={{
+                    backgroundColor: 'var(--accent-soft)',
+                    borderColor: 'var(--accent)',
+                    color: 'var(--accent)',
+                  }}
+                >
+                  <span>{minRating}+ ★</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {scope.kind !== 'in-grid' && gridStatusFilter !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setGridStatusFilter('all')}
+                  className="h-6 px-2 rounded-md border text-[11px] font-medium inline-flex items-center gap-1"
+                  style={{
+                    backgroundColor: 'var(--accent-soft)',
+                    borderColor: 'var(--accent)',
+                    color: 'var(--accent)',
+                  }}
+                >
+                  <span>{gridStatusFilter === 'stacked' ? 'In Live Grid' : 'Not In Grid'}</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {untaggedOnly && (
+                <button
+                  type="button"
+                  onClick={() => setUntaggedOnly(false)}
+                  className="h-6 px-2 rounded-md border text-[11px] font-medium inline-flex items-center gap-1"
+                  style={{
+                    backgroundColor: 'var(--accent-soft)',
+                    borderColor: 'var(--accent)',
+                    color: 'var(--accent)',
+                  }}
+                >
+                  <span>Untagged</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {scope.kind === 'channels' && pinnedOnlyChannels && (
+                <button
+                  type="button"
+                  onClick={() => setPinnedOnlyChannels(false)}
+                  className="h-6 px-2 rounded-md border text-[11px] font-medium inline-flex items-center gap-1"
+                  style={{
+                    backgroundColor: 'var(--accent-soft)',
+                    borderColor: 'var(--accent)',
+                    color: 'var(--accent)',
+                  }}
+                >
+                  <span>Pinned Only</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
               {selectedTags.map((tag) => (
                 <button
                   key={tag}
@@ -2100,11 +4227,11 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               ))}
               <button
                 type="button"
-                onClick={() => setSelectedTags([])}
+                onClick={resetSecondaryFilters}
                 className="text-[11px] font-medium px-1.5"
                 style={{ color: 'var(--text-muted)' }}
               >
-                Clear tags
+                Clear all
               </button>
             </div>
           )}
@@ -2114,7 +4241,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden">
         <div
           ref={mainScrollRef}
-          className={`flex-1 overflow-y-auto px-4 sm:px-6 py-4 ${
+          className={`flex-1 overflow-y-auto px-3 sm:px-6 py-4 ${
             isDraggingStreams ? 'pb-40' : ''
           }`}
         >
@@ -2122,6 +4249,9 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
             <StreamChannelsOverview
               channels={channelsOverviewData}
               viewMode={channelsViewMode}
+              cardDensity={cardDensity}
+              collapseUnpinned={collapseUnpinnedChannels}
+              onToggleCollapseUnpinned={() => setCollapseUnpinnedChannels((v) => !v)}
               isCustomChannelSort={isCustomChannelSort}
               isCustomStreamSort={isCustomSort}
               searchQuery={searchQuery}
@@ -2263,15 +4393,19 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                {(searchQuery || selectedTags.length > 0 || scope.kind !== 'all') && (
+                {(searchQuery ||
+                  activeSecondaryFilterCount > 0 ||
+                  groupBy !== 'none' ||
+                  scope.kind !== 'all') && (
                   <button
                     type="button"
                     onClick={() => {
                       setSearchQuery('');
-                      setSelectedTags([]);
+                      resetSecondaryFilters();
+                      setGroupBy('none');
                       setScope({ kind: 'all' });
                     }}
-                    className="h-9 px-3.5 rounded-lg border text-xs font-medium"
+                    className="h-9 px-3.5 rounded-lg border text-xs font-medium cursor-pointer"
                     style={{
                       backgroundColor: 'var(--bg-surface)',
                       borderColor: 'var(--border-subtle)',
@@ -2284,7 +4418,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setDrawerState({ open: true, mode: 'create' })}
-                  className="h-9 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5"
+                  className="h-9 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
                   style={{
                     backgroundColor: 'var(--accent)',
                     color: 'var(--accent-fg)',
@@ -2296,676 +4430,55 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               </div>
             </div>
           ) : viewMode === 'grid' ? (
-            /* GRID CARDS VIEW */
-            <div
-              ref={gridRef}
-              className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 max-w-[1800px]"
-            >
-              {visibleStreams.map((item) => {
-                const inGrid = activeIdSet.has(item.id);
-                const rating = item.rating ?? 0;
-                const listens = item.listenCount ?? 0;
-                const itemFolders = (item.folderIds ?? [])
-                  .map((fid) => folderById.get(fid)?.name)
-                  .filter((n): n is string => Boolean(n));
-                const isBeingDragged = activeDragStreamIds.has(item.id);
-                const reorderTarget =
-                  activeDropTarget?.kind === 'stream-reorder' &&
-                  activeDropTarget.streamId === item.id
-                    ? activeDropTarget
-                    : null;
-                const isDropTarget = reorderTarget !== null;
-                const singleCol = isSingleColumnGrid();
-
-                return (
-                  <article
-                    key={item.id}
-                    data-vault-reorder-id={item.id}
-                    data-vault-reorder-axis={singleCol ? 'y' : 'x'}
-                    onPointerDown={(e) => handleStreamPointerDown(item.id, e)}
-                    className={`relative rounded-xl border flex flex-col transition-all duration-150 ${
-                      isBeingDragged ? 'opacity-45 scale-[0.98]' : ''
-                    } ${
-                      selectedStreamIds.has(item.id) ? 'ring-2 ring-[var(--accent)]' : ''
-                    } ${
-                      isDropTarget
-                        ? 'ring-1 ring-[var(--accent)]/60 ring-offset-1 ring-offset-[var(--bg-canvas)]'
-                        : ''
-                    }`}
-                    style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      borderColor: isDropTarget
-                        ? 'var(--accent)'
-                        : selectedStreamIds.has(item.id)
-                        ? 'var(--accent)'
-                        : inGrid
-                        ? 'var(--accent)'
-                        : 'var(--border-subtle)',
-                    }}
-                  >
-                    {reorderTarget && (
-                      <div
-                        aria-hidden="true"
-                        className={
-                          singleCol
-                            ? `pointer-events-none absolute inset-x-2 h-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
-                                reorderTarget.position === 'before'
-                                  ? '-top-1.5'
-                                  : '-bottom-1.5'
-                              }`
-                            : `pointer-events-none absolute top-1.5 bottom-1.5 w-[3px] rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent)] z-20 ${
-                                reorderTarget.position === 'before'
-                                  ? '-left-1.5'
-                                  : '-right-1.5'
-                              }`
-                        }
-                      />
-                    )}
-
-                    <div className="rounded-[11px] overflow-hidden flex-1 flex flex-col">
-                    {/* Thumbnail */}
-                    <button
-                      type="button"
-                      draggable={false}
-                      onDragStart={(e) => e.preventDefault()}
-                      onClick={() => {
-                        if (shouldSuppressClick()) return;
-                        if (bulkMode) {
-                          toggleSelectStream(item.id);
-                          return;
-                        }
-                        setDrawerState({ open: true, mode: 'edit', streamId: item.id });
-                      }}
-                      className="relative aspect-video w-full overflow-hidden text-left group select-none"
-                      style={{ backgroundColor: 'var(--bg-surface-subtle)' }}
+            /* GRID CARDS VIEW (Flat or Grouped, Standard or Compact Density) */
+            groupedVisibleStreams ? (
+              <div className="space-y-6 max-w-[1800px]">
+                {groupedVisibleStreams.map((group, idx) => (
+                  <section key={group.name} className="space-y-2.5">
+                    {renderGroupHeader(group)}
+                    <div
+                      ref={idx === 0 ? gridRef : undefined}
+                      className={
+                        isCompactDensity
+                          ? 'grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5'
+                          : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4'
+                      }
                     >
-                      {!brokenThumbs[item.id] ? (
-                        <img
-                          src={item.thumbnailUrl}
-                          alt={item.customLabel || item.title}
-                          draggable={false}
-                          referrerPolicy="no-referrer"
-                          onError={() =>
-                            setBrokenThumbs((prev) => ({ ...prev, [item.id]: true }))
-                          }
-                          className="w-full h-full object-cover pointer-events-none select-none"
-                        />
-                      ) : (
-                        <div
-                          className="w-full h-full flex items-center justify-center pointer-events-none"
-                          style={{ color: 'var(--text-muted)' }}
-                        >
-                          <MonitorPlay className="w-7 h-7" />
-                        </div>
-                      )}
-                      {/* Checkbox for bulk edit */}
-                      {(bulkMode || selectedStreamIds.has(item.id)) && (
-                        <div
-                          role="checkbox"
-                          data-no-stream-drag="true"
-                          aria-checked={selectedStreamIds.has(item.id)}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleSelectStream(item.id);
-                          }}
-                          className="absolute top-2 left-2 w-5 h-5 rounded-md border flex items-center justify-center z-20 shadow-md cursor-pointer transition-transform active:scale-90"
-                          style={{
-                            backgroundColor: selectedStreamIds.has(item.id)
-                              ? 'var(--accent)'
-                              : 'var(--bg-surface)',
-                            borderColor: selectedStreamIds.has(item.id)
-                              ? 'var(--accent)'
-                              : 'var(--border-strong)',
-                            color: 'var(--accent-fg)',
-                          }}
-                          aria-label="Select stream"
-                        >
-                          {selectedStreamIds.has(item.id) && (
-                            <Check className="w-3.5 h-3.5 stroke-[3]" />
-                          )}
-                        </div>
-                      )}
-                      {inGrid && !bulkMode && !selectedStreamIds.has(item.id) && (
-                        <span
-                          className="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-tight pointer-events-none"
-                          style={{
-                            backgroundColor: 'var(--accent)',
-                            color: 'var(--accent-fg)',
-                          }}
-                        >
-                          Stacked
-                        </span>
-                      )}
-                    </button>
-
-                    {/* Body */}
-                    <div className="p-3.5 flex-1 flex flex-col gap-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-start gap-1.5 min-w-0 flex-1">
-                          {isCustomSort && (
-                            <div
-                              aria-hidden="true"
-                              title="Drag to reorder"
-                              className="w-6 h-6 -ml-1 -mt-0.5 flex items-center justify-center rounded-md text-[var(--text-muted)] cursor-grab active:cursor-grabbing shrink-0"
-                            >
-                              <GripVertical className="w-3.5 h-3.5" />
-                            </div>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (shouldSuppressClick()) return;
-                              if (bulkMode) {
-                                toggleSelectStream(item.id);
-                                return;
-                              }
-                              setDrawerState({ open: true, mode: 'edit', streamId: item.id });
-                            }}
-                            className="text-left min-w-0 flex-1"
-                          >
-                            <h3 className="text-sm font-medium leading-snug line-clamp-2">
-                              {item.customLabel || item.title}
-                            </h3>
-                          </button>
-                        </div>
-                        <button
-                          type="button"
-                          data-no-stream-drag="true"
-                          onClick={() => onUpdateStream(item.id, { favorite: !item.favorite })}
-                          className="h-7 w-7 -mr-1 -mt-1 rounded-md flex items-center justify-center shrink-0"
-                          style={{
-                            color: item.favorite ? 'var(--warning)' : 'var(--text-muted)',
-                          }}
-                          aria-label={item.favorite ? 'Unfavorite' : 'Favorite'}
-                        >
-                          <Star className={`w-3.5 h-3.5 ${item.favorite ? 'fill-current' : ''}`} />
-                        </button>
-                      </div>
-
-                      {/* Clean unboxed inline metadata (Zero-Pill discipline) */}
-                      <div
-                        className="text-[11px] leading-relaxed line-clamp-1"
-                        style={{ color: 'var(--text-muted)' }}
-                      >
-                        {[
-                          item.channel || 'YouTube',
-                          item.category || 'General',
-                          item.tags.length > 0
-                            ? item.tags.slice(0, 3).map((t) => `#${t}`).join(' ')
-                            : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </div>
-
-                      {itemFolders.length > 0 && (
-                        <div
-                          className="text-[11px] flex items-center gap-1 truncate"
-                          style={{ color: 'var(--text-muted)' }}
-                        >
-                          <Folder className="w-3 h-3 shrink-0 opacity-75" />
-                          <span className="truncate">{itemFolders.join(', ')}</span>
-                        </div>
-                      )}
-
-                      {/* Affirmations / Listening Notes Preview */}
-                      {(item.affirmations || item.notes) && (
-                        <p
-                          className="text-[11px] leading-relaxed line-clamp-2"
-                          style={{ color: 'var(--text-secondary)' }}
-                        >
-                          {item.affirmations || item.notes}
-                        </p>
-                      )}
-
-                      {/* Rating + Listen Count Strip */}
-                      <div className="flex items-center justify-between gap-2 pt-1 mt-auto">
-                        <div className="flex items-center gap-0.5" aria-label={`Rating ${rating} of 5`}>
-                          {[1, 2, 3, 4, 5].map((star) => (
-                            <button
-                              key={star}
-                              type="button"
-                              data-no-stream-drag="true"
-                              onClick={() =>
-                                onUpdateStream(item.id, { rating: rating === star ? 0 : star })
-                              }
-                              className="p-0.5 transition-colors"
-                              style={{
-                                color: star <= rating ? 'var(--warning)' : 'var(--border-strong)',
-                              }}
-                              aria-label={`Set rating to ${star}`}
-                            >
-                              <Star className={`w-3 h-3 ${star <= rating ? 'fill-current' : ''}`} />
-                            </button>
-                          ))}
-                        </div>
-
-                        <button
-                          type="button"
-                          data-no-stream-drag="true"
-                          onClick={() => onIncrementListen(item.id)}
-                          className="text-[11px] font-mono tabular-nums inline-flex items-center gap-1 px-1.5 py-0.5 rounded hover:opacity-80"
-                          style={{ color: 'var(--text-muted)' }}
-                          title="Log +1 listen"
-                        >
-                          <Headphones className="w-3 h-3" />
-                          <span>{listens}</span>
-                          <span className="opacity-70">+1</span>
-                        </button>
-                      </div>
-
-                      {/* Card Actions */}
-                      <div
-                        className="flex items-center gap-1.5 pt-2.5 border-t"
-                        style={{ borderColor: 'var(--border-subtle)' }}
-                      >
-                        {inGrid ? (
-                          <>
-                            <button
-                              type="button"
-                              data-no-stream-drag="true"
-                              onClick={() => onToggleStreamInGrid(item.id)}
-                              className="h-8 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
-                              style={{
-                                backgroundColor: 'var(--bg-surface-subtle)',
-                                borderColor: 'var(--border-subtle)',
-                                color: 'var(--text-secondary)',
-                              }}
-                              title="Remove from Live Stack"
-                            >
-                              <Check className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
-                              <span>Stacked</span>
-                            </button>
-                            <button
-                              type="button"
-                              data-no-stream-drag="true"
-                              onClick={() => onStackStream(item.id)}
-                              className="flex-1 h-8 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
-                              style={{
-                                backgroundColor: 'var(--accent-soft)',
-                                borderColor: 'var(--accent)',
-                                color: 'var(--accent)',
-                              }}
-                              title="Add another independent layer to stack"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>Layer</span>
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            data-no-stream-drag="true"
-                            onClick={() => onStackStream(item.id)}
-                            className="flex-1 h-8 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)]"
-                            style={{
-                              backgroundColor: 'var(--bg-surface-subtle)',
-                              borderColor: 'var(--border-subtle)',
-                              color: 'var(--text-primary)',
-                            }}
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>Stack</span>
-                          </button>
-                        )}
-
-                        <button
-                          type="button"
-                          data-no-stream-drag="true"
-                          onClick={() =>
-                            setDrawerState({ open: true, mode: 'edit', streamId: item.id })
-                          }
-                          className="h-8 px-2.5 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap hover:bg-[var(--bg-surface-hover)]"
-                          style={{
-                            backgroundColor: 'var(--bg-surface)',
-                            borderColor: 'var(--border-subtle)',
-                            color: 'var(--text-secondary)',
-                          }}
-                        >
-                          <Pencil className="w-3 h-3" />
-                          <span>Details</span>
-                        </button>
-                      </div>
+                      {group.items.map(renderStreamCard)}
                     </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            /* DENSE TABLE VIEW */
-            <div
-              className="rounded-xl border overflow-hidden"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                borderColor: 'var(--border-subtle)',
-              }}
-            >
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr
-                      className="border-b text-[11px] font-semibold"
-                      style={{
-                        backgroundColor: 'var(--bg-surface-subtle)',
-                        borderColor: 'var(--border-subtle)',
-                        color: 'var(--text-muted)',
-                      }}
-                    >
-                      <th className="py-2.5 pl-3.5 pr-3">Stream</th>
-                      <th className="py-2.5 px-3">Channel</th>
-                      <th className="py-2.5 px-3">Topic & Tags</th>
-                      <th className="py-2.5 px-3 hidden xl:table-cell">Folders</th>
-                      <th className="py-2.5 px-3">Rating</th>
-                      <th className="py-2.5 px-3 text-right">Listens</th>
-                      <th className="py-2.5 pl-3 pr-3.5 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
-                    {visibleStreams.map((item) => {
-                      const inGrid = activeIdSet.has(item.id);
-                      const rating = item.rating ?? 0;
-                      const listens = item.listenCount ?? 0;
-                      const itemFolders = (item.folderIds ?? [])
-                        .map((fid) => folderById.get(fid)?.name)
-                        .filter((n): n is string => Boolean(n));
-                      const isBeingDragged = activeDragStreamIds.has(item.id);
-                      const reorderTarget =
-                        activeDropTarget?.kind === 'stream-reorder' &&
-                        activeDropTarget.streamId === item.id
-                          ? activeDropTarget
-                          : null;
-                      const rowDropShadow = reorderTarget
-                        ? reorderTarget.position === 'before'
-                          ? 'inset 0 2.5px 0 var(--accent)'
-                          : 'inset 0 -2.5px 0 var(--accent)'
-                        : undefined;
-
-                      return (
-                        <tr
-                          key={item.id}
-                          data-vault-reorder-id={item.id}
-                          data-vault-reorder-axis="y"
-                          onPointerDown={(e) => handleStreamPointerDown(item.id, e)}
-                          className={`transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02] ${
-                            isBeingDragged ? 'opacity-45' : ''
-                          }`}
-                          style={{
-                            borderColor: 'var(--border-subtle)',
-                            backgroundColor: selectedStreamIds.has(item.id)
-                              ? 'var(--accent-soft)'
-                              : undefined,
-                          }}
-                        >
-                          <td
-                            className="py-2 pl-3.5 pr-3 max-w-[300px]"
-                            style={{ boxShadow: rowDropShadow }}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              {/* Checkbox for bulk edit */}
-                              {(bulkMode || selectedStreamIds.has(item.id)) && (
-                                <button
-                                  type="button"
-                                  data-no-stream-drag="true"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleSelectStream(item.id);
-                                  }}
-                                  className="w-4 h-4 rounded border flex items-center justify-center shrink-0 cursor-pointer shadow-sm transition-transform active:scale-90"
-                                  style={{
-                                    backgroundColor: selectedStreamIds.has(item.id)
-                                      ? 'var(--accent)'
-                                      : 'var(--bg-surface)',
-                                    borderColor: selectedStreamIds.has(item.id)
-                                      ? 'var(--accent)'
-                                      : 'var(--border-strong)',
-                                    color: 'var(--accent-fg)',
-                                  }}
-                                  aria-label="Select stream"
-                                >
-                                  {selectedStreamIds.has(item.id) && (
-                                    <Check className="w-3 h-3 stroke-[3]" />
-                                  )}
-                                </button>
-                              )}
-                              {isCustomSort && (
-                                <div
-                                  aria-hidden="true"
-                                  title="Drag to reorder"
-                                  className="w-6 h-6 -ml-1 flex items-center justify-center rounded-md text-[var(--text-muted)] cursor-grab active:cursor-grabbing shrink-0"
-                                >
-                                  <GripVertical className="w-3.5 h-3.5" />
-                                </div>
-                              )}
-                              <button
-                                type="button"
-                                draggable={false}
-                                onDragStart={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  if (shouldSuppressClick()) return;
-                                  if (bulkMode) {
-                                    toggleSelectStream(item.id);
-                                    return;
-                                  }
-                                  setDrawerState({
-                                    open: true,
-                                    mode: 'edit',
-                                    streamId: item.id,
-                                  });
-                                }}
-                                className="w-14 h-8 rounded overflow-hidden shrink-0 border select-none"
-                                style={{
-                                  backgroundColor: 'var(--bg-surface-subtle)',
-                                  borderColor: 'var(--border-subtle)',
-                                }}
-                              >
-                                {!brokenThumbs[item.id] ? (
-                                  <img
-                                    src={item.thumbnailUrl}
-                                    alt={item.customLabel || item.title}
-                                    draggable={false}
-                                    referrerPolicy="no-referrer"
-                                    onError={() =>
-                                      setBrokenThumbs((prev) => ({
-                                        ...prev,
-                                        [item.id]: true,
-                                      }))
-                                    }
-                                    className="w-full h-full object-cover pointer-events-none select-none"
-                                  />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center pointer-events-none">
-                                    <MonitorPlay
-                                      className="w-3.5 h-3.5"
-                                      style={{ color: 'var(--text-muted)' }}
-                                    />
-                                  </div>
-                                )}
-                              </button>
-                              <div className="min-w-0">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (shouldSuppressClick()) return;
-                                    if (bulkMode) {
-                                      toggleSelectStream(item.id);
-                                      return;
-                                    }
-                                    setDrawerState({
-                                      open: true,
-                                      mode: 'edit',
-                                      streamId: item.id,
-                                    });
-                                  }}
-                                  className="text-xs font-semibold truncate block max-w-full text-left"
-                                >
-                                  {item.customLabel || item.title}
-                                </button>
-                                {(item.affirmations || item.notes) && (
-                                  <div
-                                    className="text-[11px] truncate max-w-[240px]"
-                                    style={{ color: 'var(--text-muted)' }}
-                                  >
-                                    {item.affirmations || item.notes}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-
-                          <td
-                            className="py-2 px-3 text-xs whitespace-nowrap"
-                            style={{ boxShadow: rowDropShadow }}
-                          >
-                            <button
-                              type="button"
-                              data-no-stream-drag="true"
-                              onClick={() =>
-                                setScope({
-                                  kind: 'channel',
-                                  channel: item.channel.trim() || 'Unknown Channel',
-                                })
-                              }
-                              className="hover:underline max-w-[140px] truncate block"
-                              style={{ color: 'var(--text-secondary)' }}
-                            >
-                              {item.channel || 'YouTube'}
-                            </button>
-                          </td>
-
-                          <td
-                            className="py-2 px-3 text-xs max-w-[200px]"
-                            style={{ boxShadow: rowDropShadow }}
-                          >
-                            <div className="truncate" style={{ color: 'var(--text-secondary)' }}>
-                              {item.category || 'General'}
-                              {item.tags.length > 0 && (
-                                <span style={{ color: 'var(--text-muted)' }}>
-                                  {' · '}
-                                  {item.tags.slice(0, 3).map((t) => `#${t}`).join(' ')}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-
-                          <td
-                            className="py-2 px-3 text-xs hidden xl:table-cell max-w-[160px]"
-                            style={{ boxShadow: rowDropShadow }}
-                          >
-                            <div className="truncate" style={{ color: 'var(--text-muted)' }}>
-                              {itemFolders.length > 0 ? itemFolders.join(', ') : '—'}
-                            </div>
-                          </td>
-
-                          <td
-                            className="py-2 px-3 whitespace-nowrap"
-                            style={{ boxShadow: rowDropShadow }}
-                          >
-                            <div className="inline-flex items-center gap-0.5">
-                              {[1, 2, 3, 4, 5].map((star) => (
-                                <button
-                                  key={star}
-                                  type="button"
-                                  data-no-stream-drag="true"
-                                  onClick={() =>
-                                    onUpdateStream(item.id, { rating: rating === star ? 0 : star })
-                                  }
-                                  style={{
-                                    color:
-                                      star <= rating ? 'var(--warning)' : 'var(--border-strong)',
-                                  }}
-                                  aria-label={`Rate ${star}`}
-                                >
-                                  <Star
-                                    className={`w-3 h-3 ${star <= rating ? 'fill-current' : ''}`}
-                                  />
-                                </button>
-                              ))}
-                            </div>
-                          </td>
-
-                          <td
-                            className="py-2 px-3 text-right whitespace-nowrap"
-                            style={{ boxShadow: rowDropShadow }}
-                          >
-                            <button
-                              type="button"
-                              data-no-stream-drag="true"
-                              onClick={() => onIncrementListen(item.id)}
-                              className="text-xs font-mono tabular-nums inline-flex items-center gap-1 hover:opacity-80"
-                              style={{ color: 'var(--text-secondary)' }}
-                              title="Log +1 listen"
-                            >
-                              <span>{listens}</span>
-                              <Plus className="w-3 h-3 opacity-60" />
-                            </button>
-                          </td>
-
-                          <td
-                            className="py-2 pl-3 pr-3.5 text-right whitespace-nowrap"
-                            style={{ boxShadow: rowDropShadow }}
-                          >
-                            <div className="inline-flex items-center gap-1">
-                              <button
-                                type="button"
-                                data-no-stream-drag="true"
-                                onClick={() => onStackStream(item.id)}
-                                className="h-7 px-2.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 transition-colors"
-                                style={{
-                                  backgroundColor: inGrid
-                                    ? 'var(--accent-soft)'
-                                    : 'var(--bg-surface-subtle)',
-                                  borderColor: inGrid ? 'var(--accent)' : 'var(--border-subtle)',
-                                  color: inGrid ? 'var(--accent)' : 'var(--text-primary)',
-                                }}
-                                title={
-                                  inGrid
-                                    ? 'Add another layer to stack'
-                                    : 'Add stream to stack'
-                                }
-                              >
-                                <Plus className="w-3 h-3" />
-                                <span>{inGrid ? 'Layer' : 'Stack'}</span>
-                              </button>
-                              <button
-                                type="button"
-                                data-no-stream-drag="true"
-                                onClick={() =>
-                                  setDrawerState({ open: true, mode: 'edit', streamId: item.id })
-                                }
-                                className="h-7 w-7 rounded-md border inline-flex items-center justify-center"
-                                style={{
-                                  backgroundColor: 'var(--bg-surface)',
-                                  borderColor: 'var(--border-subtle)',
-                                  color: 'var(--text-secondary)',
-                                }}
-                                aria-label="Edit details"
-                              >
-                                <Pencil className="w-3 h-3" />
-                              </button>
-                              <button
-                                type="button"
-                                data-no-stream-drag="true"
-                                onClick={() => onDeleteStream(item.id)}
-                                className="h-7 w-7 rounded-md border inline-flex items-center justify-center"
-                                style={{
-                                  backgroundColor: 'var(--bg-surface)',
-                                  borderColor: 'var(--border-subtle)',
-                                  color: 'var(--danger)',
-                                }}
-                                aria-label="Delete stream"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                  </section>
+                ))}
               </div>
-            </div>
+            ) : (
+              <div
+                ref={gridRef}
+                className={
+                  isCompactDensity
+                    ? 'grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 max-w-[1800px]'
+                    : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 max-w-[1800px]'
+                }
+              >
+                {visibleStreams.map(renderStreamCard)}
+              </div>
+            )
+          ) : (
+            /* MOBILE COMPACT LIST + DESKTOP DENSE TABLE VIEW */
+            groupedVisibleStreams ? (
+              <div className="space-y-6 max-w-[1800px]">
+                {groupedVisibleStreams.map((group) => (
+                  <section key={group.name} className="space-y-2">
+                    {renderGroupHeader(group)}
+                    {renderMobileListContainer(group.items)}
+                    {renderDesktopTableContainer(group.items)}
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <>
+                {renderMobileListContainer(visibleStreams)}
+                {renderDesktopTableContainer(visibleStreams)}
+              </>
+            )
           )}
         </div>
 
@@ -2979,16 +4492,18 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         />
         </div>
 
-        {/* Compact Persistent Live Audio Bar (stays docked while streams play uninterrupted in background) */}
+        {/* Persistent Live Audio Bar (ultra-compact on mobile; yields to bulk bar on mobile) */}
         {activeStreams.length > 0 && (
           <div
-            className="px-4 sm:px-6 py-2.5 border-t flex items-center justify-between gap-3 shrink-0"
+            className={`px-3 md:px-6 py-2 md:py-2.5 border-t items-center justify-between gap-2 md:gap-3 shrink-0 ${
+              isAnyBulkBarOpen ? 'hidden md:flex' : 'flex'
+            }`}
             style={{
               backgroundColor: 'var(--bg-surface)',
               borderColor: 'var(--border-subtle)',
             }}
           >
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center gap-2 md:gap-2.5 min-w-0">
               <div
                 className="h-7 w-7 rounded-lg flex items-center justify-center shrink-0"
                 style={{
@@ -3009,7 +4524,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                   {activeTitlesSummary}
                 </div>
                 <div
-                  className="text-[11px] font-mono tabular-nums truncate"
+                  className="hidden md:block text-[11px] font-mono tabular-nums truncate"
                   style={{ color: 'var(--text-muted)' }}
                 >
                   {audioStatusText}
@@ -3021,22 +4536,23 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               <button
                 type="button"
                 onClick={onTogglePauseAll}
-                className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap"
+                className="h-8 w-8 md:w-auto md:px-2.5 rounded-lg border text-xs font-medium inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
                 style={{
                   backgroundColor: isAllPaused ? 'var(--accent-soft)' : 'var(--bg-surface)',
                   borderColor: isAllPaused ? 'var(--accent)' : 'var(--border-subtle)',
                   color: isAllPaused ? 'var(--accent)' : 'var(--text-secondary)',
                 }}
+                aria-label={isAllPaused ? 'Resume all streams' : 'Pause all streams'}
               >
                 {isAllPaused ? (
                   <>
                     <Play className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Resume</span>
+                    <span className="hidden md:inline">Resume</span>
                   </>
                 ) : (
                   <>
                     <Pause className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Pause</span>
+                    <span className="hidden md:inline">Pause</span>
                   </>
                 )}
               </button>
@@ -3044,7 +4560,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               <button
                 type="button"
                 onClick={onToggleViewMute}
-                className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap"
+                className="h-8 w-8 md:w-auto md:px-2.5 rounded-lg border text-xs font-medium inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
                 style={{
                   backgroundColor: allActiveMuted
                     ? 'var(--bg-surface-subtle)'
@@ -3052,16 +4568,17 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                   borderColor: allActiveMuted ? 'var(--danger)' : 'var(--border-subtle)',
                   color: allActiveMuted ? 'var(--danger)' : 'var(--text-secondary)',
                 }}
+                aria-label={allActiveMuted ? 'Unmute all streams' : 'Mute all streams'}
               >
                 {allActiveMuted ? (
                   <>
                     <VolumeX className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Unmute</span>
+                    <span className="hidden md:inline">Unmute</span>
                   </>
                 ) : (
                   <>
                     <Volume2 className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Mute</span>
+                    <span className="hidden md:inline">Mute</span>
                   </>
                 )}
               </button>
@@ -3069,14 +4586,15 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               <button
                 type="button"
                 onClick={onBackToGrid}
-                className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap"
+                className="h-8 px-2.5 md:px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
                 style={{
                   backgroundColor: 'var(--accent)',
                   color: 'var(--accent-fg)',
                 }}
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Back to Live Grid</span>
+                <span className="md:hidden">Grid</span>
+                <span className="hidden md:inline">Back to Live Grid</span>
               </button>
             </div>
           </div>
@@ -3222,6 +4740,184 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         targets={channelDeleteTargets}
         onClose={() => setChannelDeleteTargets(null)}
         onConfirm={handleDeleteChannelsConfirm}
+      />
+
+      {/* Mobile Controls & Scope Actions Bottom Sheets */}
+      <StreamVaultControlsSheet
+        open={mobileControlsOpen}
+        onClose={() => setMobileControlsOpen(false)}
+        scope={scope}
+        viewMode={viewMode}
+        onChangeViewMode={setViewMode}
+        cardDensity={cardDensity}
+        onChangeCardDensity={setCardDensity}
+        sortBy={sortBy}
+        onChangeSortBy={setSortBy}
+        groupBy={groupBy}
+        onChangeGroupBy={setGroupBy}
+        channelsViewMode={channelsViewMode}
+        onChangeChannelsViewMode={setChannelsViewMode}
+        channelSortBy={channelSortBy}
+        onChangeChannelSortBy={setChannelSortBy}
+        pinnedOnlyChannels={pinnedOnlyChannels}
+        onTogglePinnedOnlyChannels={() => setPinnedOnlyChannels((v) => !v)}
+        collapseUnpinnedChannels={collapseUnpinnedChannels}
+        onToggleCollapseUnpinnedChannels={() => setCollapseUnpinnedChannels((v) => !v)}
+        existingTags={existingTags}
+        selectedTags={selectedTags}
+        onToggleTag={handleToggleTag}
+        minRating={minRating}
+        onChangeMinRating={setMinRating}
+        gridStatusFilter={gridStatusFilter}
+        onChangeGridStatusFilter={setGridStatusFilter}
+        untaggedOnly={untaggedOnly}
+        onToggleUntaggedOnly={() => setUntaggedOnly((v) => !v)}
+        onResetFilters={resetSecondaryFilters}
+      />
+
+      <StreamVaultScopeActionsSheet
+        open={mobileScopeActionsOpen}
+        onClose={() => setMobileScopeActionsOpen(false)}
+        scope={scope}
+        scopeTitle={scopeMeta.title}
+        visibleCount={visibleStreams.length}
+        canBatchLoad={scopeMeta.canBatchLoad}
+        onLoadStack={() =>
+          onLoadStreamsToGrid(
+            visibleStreams.map((s) => s.id),
+            'replace',
+            scopeMeta.title,
+          )
+        }
+        onLayerStack={() =>
+          onLoadStreamsToGrid(
+            visibleStreams.map((s) => s.id),
+            'append',
+            scopeMeta.title,
+          )
+        }
+        activeStreamsCount={activeStreams.length}
+        isAllPaused={isAllPaused}
+        allActiveMuted={allActiveMuted}
+        onTogglePauseAll={onTogglePauseAll}
+        onToggleViewMute={onToggleViewMute}
+        onClearStack={onClearStack}
+        onEditFolder={
+          scope.kind === 'folder' && currentFolder
+            ? () => setEditingFolderId(currentFolder.id)
+            : undefined
+        }
+        onStartNewSubfolder={
+          scope.kind === 'folder' && currentFolder
+            ? () => {
+                setCreatingSubfolder(true);
+                setSubfolderDraft('');
+              }
+            : undefined
+        }
+        onOpenAddStreamsToFolder={
+          scope.kind === 'folder' && currentFolder
+            ? () => setAddingStreamsToFolderId(currentFolder.id)
+            : undefined
+        }
+        onStartRenameTopic={
+          scope.kind === 'topic' && onRenameTopic
+            ? () => {
+                setTopicRenameDraft(
+                  scope.topic === 'Uncategorized' ? '' : scope.topic,
+                );
+                setRenamingTopic(true);
+              }
+            : undefined
+        }
+        onOpenTopicIconModal={
+          scope.kind === 'topic' && onSetTopicIcon
+            ? () => setTopicIconModalTarget(scope.topic)
+            : undefined
+        }
+        channelPinned={
+          scope.kind === 'channel'
+            ? Boolean(channelConfigs[scope.channel]?.pinned)
+            : false
+        }
+        channelFavTopCount={singleChannelFavTopIds.length}
+        onLoadChannelFavTop={
+          scope.kind === 'channel' && singleChannelFavTopIds.length > 0
+            ? () =>
+                onLoadStreamsToGrid(
+                  singleChannelFavTopIds,
+                  'replace',
+                  `${scope.channel} · Favorites & Top`,
+                )
+            : undefined
+        }
+        onTogglePinChannel={
+          scope.kind === 'channel'
+            ? () => handleTogglePinChannel(scope.channel)
+            : undefined
+        }
+        onStartRenameChannel={
+          scope.kind === 'channel'
+            ? () => {
+                setSingleChannelRenameDraft(
+                  scope.channel === 'Unknown Channel' ? '' : scope.channel,
+                );
+                setRenamingSingleChannel(true);
+              }
+            : undefined
+        }
+        onBatchEditChannel={
+          scope.kind === 'channel'
+            ? () => setChannelBatchTargets([scope.channel])
+            : undefined
+        }
+        onOpenChannelSettings={
+          scope.kind === 'channel'
+            ? () => setChannelSettingsTarget(scope.channel)
+            : undefined
+        }
+        onDeleteChannel={
+          scope.kind === 'channel'
+            ? () => {
+                const entry = allChannelsDirectory.find(
+                  (c) => c.name === scope.channel,
+                );
+                setChannelDeleteTargets([
+                  {
+                    name: scope.channel,
+                    count: entry?.count ?? visibleStreams.length,
+                  },
+                ]);
+              }
+            : undefined
+        }
+        onOpenCreateDrawer={() => setDrawerState({ open: true, mode: 'create' })}
+      />
+
+      {/* Folder Add Existing Streams Modal */}
+      <StreamFolderAddStreamsModal
+        folder={
+          addingStreamsToFolderId
+            ? folderById.get(addingStreamsToFolderId) ?? null
+            : null
+        }
+        streams={streams}
+        onClose={() => setAddingStreamsToFolderId(null)}
+        onAddStreams={handleAddExistingStreamsToFolder}
+      />
+
+      {/* Topic Icon Picker Modal */}
+      <StreamTopicIconModal
+        topicName={topicIconModalTarget}
+        currentIcon={
+          topicIconModalTarget
+            ? topicIcons[topicIconModalTarget.trim().toLowerCase()]
+            : undefined
+        }
+        onClose={() => setTopicIconModalTarget(null)}
+        onSelectIcon={(topic, icon) => {
+          if (onSetTopicIcon) onSetTopicIcon(topic, icon);
+        }}
       />
 
       {renderDragPreview()}

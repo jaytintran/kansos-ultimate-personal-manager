@@ -938,6 +938,7 @@ interface WorkspaceContextValue {
   updateStreamFolder: (id: string, patch: Partial<StreamFolder>) => void;
   deleteStreamFolder: (id: string) => void;
   setStreamTopicIcon: (topic: string, icon: string | undefined) => void;
+  renameStreamTopic: (fromTopic: string, targetTopic: string) => number;
   updateStreamChannelMeta: (
     channelName: string,
     patch: Partial<StreamChannelMeta>,
@@ -4786,6 +4787,60 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace],
   );
 
+  const renameStreamTopic = useCallback(
+    (fromTopic: string, targetTopic: string): number => {
+      const sourceLabel = fromTopic.trim() || "Uncategorized";
+      const resolvedTarget = targetTopic.trim() || "Uncategorized";
+      if (sourceLabel === resolvedTarget) return 0;
+
+      const storedCategory =
+        resolvedTarget === "Uncategorized" ? "" : resolvedTarget;
+      let affectedCount = 0;
+
+      mutateWorkspace((prev) => {
+        const nextStreams = prev.streams.map((s) => {
+          const cat = s.category.trim() || "Uncategorized";
+          if (cat !== sourceLabel) return s;
+          affectedCount++;
+          if (s.category === storedCategory) return s;
+          return { ...s, category: storedCategory };
+        });
+
+        const nextIcons = { ...(prev.streamTopicIcons ?? {}) };
+        const fromKey = sourceLabel.toLowerCase();
+        const toKey = resolvedTarget.toLowerCase();
+        if (nextIcons[fromKey]) {
+          if (!nextIcons[toKey]) {
+            nextIcons[toKey] = nextIcons[fromKey];
+          }
+          delete nextIcons[fromKey];
+        }
+
+        const nextChannels = { ...(prev.streamChannels ?? {}) };
+        let channelsChanged = false;
+        for (const [chName, meta] of Object.entries(nextChannels)) {
+          if (meta.defaultTopic?.trim() === sourceLabel) {
+            const updated = { ...meta };
+            if (storedCategory) updated.defaultTopic = storedCategory;
+            else delete updated.defaultTopic;
+            nextChannels[chName] = updated;
+            channelsChanged = true;
+          }
+        }
+
+        return {
+          ...prev,
+          streams: nextStreams,
+          streamTopicIcons: nextIcons,
+          streamChannels: channelsChanged ? nextChannels : prev.streamChannels,
+        };
+      });
+
+      return affectedCount;
+    },
+    [mutateWorkspace],
+  );
+
   const updateStreamChannelMeta = useCallback(
     (channelName: string, patch: Partial<StreamChannelMeta>) => {
       const key = channelName.trim() || "Unknown Channel";
@@ -7380,6 +7435,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       updateStreamFolder,
       deleteStreamFolder,
       setStreamTopicIcon,
+      renameStreamTopic,
       updateStreamChannelMeta,
       reorderStreamChannels,
       renameOrMergeStreamChannels,
@@ -7544,6 +7600,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       updateStreamFolder,
       deleteStreamFolder,
       setStreamTopicIcon,
+      renameStreamTopic,
       updateStreamChannelMeta,
       reorderStreamChannels,
       renameOrMergeStreamChannels,

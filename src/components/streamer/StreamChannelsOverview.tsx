@@ -2,16 +2,20 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   CheckSquare,
+  ChevronDown,
   ChevronRight,
+  ChevronsUpDown,
   GitMerge,
   GripVertical,
   Headphones,
   MonitorPlay,
+  MoreHorizontal,
   Palette,
   Pencil,
   Pin,
   Play,
   Plus,
+  Search,
   Star,
   Tag,
   Trash2,
@@ -22,6 +26,7 @@ import type { ChannelPointerDropTarget } from '../../hooks/useVaultChannelDrag';
 import type { VaultPointerDropTarget } from '../../hooks/useVaultStreamDrag';
 import type { StreamChannelMeta, StreamItem } from '../../types';
 import { DynamicIcon } from '../IconLibrary';
+import { BottomSheet } from '../ui/BottomSheet';
 
 export type ChannelsViewMode = 'carousels' | 'directory' | 'split';
 export type ChannelsSortMode =
@@ -46,6 +51,9 @@ export interface ChannelSummaryEntry {
 interface StreamChannelsOverviewProps {
   channels: ChannelSummaryEntry[];
   viewMode: ChannelsViewMode;
+  cardDensity?: 'standard' | 'compact';
+  collapseUnpinned?: boolean;
+  onToggleCollapseUnpinned?: () => void;
   isCustomChannelSort: boolean;
   isCustomStreamSort: boolean;
   searchQuery: string;
@@ -102,6 +110,9 @@ interface StreamChannelsOverviewProps {
 export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
   channels,
   viewMode,
+  cardDensity = 'standard',
+  collapseUnpinned = false,
+  onToggleCollapseUnpinned,
   isCustomChannelSort,
   isCustomStreamSort,
   searchQuery,
@@ -150,6 +161,13 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
   const [selectedSplitChannel, setSelectedSplitChannel] = useState<string | null>(
     () => channels[0]?.name ?? null,
   );
+  const [mobileActionsChannel, setMobileActionsChannel] = useState<{
+    name: string;
+    showOpenFull?: boolean;
+    showAddUrl?: boolean;
+  } | null>(null);
+  const [splitPickerOpen, setSplitPickerOpen] = useState(false);
+  const [splitPickerQuery, setSplitPickerQuery] = useState('');
   const directoryGridRef = useRef<HTMLDivElement | null>(null);
 
   // Keep split selection valid when channels list changes (search, rename, delete)
@@ -250,13 +268,11 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
   ) => {
     const isPinned = Boolean(ch.meta.pinned);
     return (
-      <div className="flex items-center gap-1.5 shrink-0 flex-wrap" data-no-channel-drag="true">
+      <>
+        {/* Mobile compact Load + More sheet trigger */}
         <div
-          className="inline-flex items-center rounded-lg border overflow-hidden"
-          style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
-          }}
+          className="flex md:hidden items-center gap-1 shrink-0"
+          data-no-channel-drag="true"
         >
           <button
             type="button"
@@ -267,147 +283,202 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
                 ch.name,
               )
             }
-            className="h-7 px-2.5 text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] whitespace-nowrap cursor-pointer"
-            style={{ color: 'var(--text-primary)' }}
+            className="h-7 px-2 rounded-lg border text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] whitespace-nowrap cursor-pointer"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
             title={`Replace Live Grid with ${ch.name}`}
           >
             <Play className="w-3 h-3 fill-current" style={{ color: 'var(--accent)' }} />
-            <span>Load Stack</span>
+            <span>Load</span>
           </button>
+
           <button
             type="button"
             onClick={() =>
-              onLoadStreamsToGrid(
-                ch.streams.map((s) => s.id),
-                'append',
-                ch.name,
-              )
+              setMobileActionsChannel({
+                name: ch.name,
+                showOpenFull: options?.showOpenFull,
+                showAddUrl: options?.showAddUrl,
+              })
             }
-            className="h-7 px-2 border-l text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] whitespace-nowrap cursor-pointer"
+            className="h-7 w-7 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
             style={{
-              borderColor: 'var(--border-subtle)',
-              color: 'var(--text-secondary)',
+              backgroundColor: isPinned ? 'var(--accent-soft)' : 'var(--bg-surface)',
+              borderColor: isPinned ? 'var(--accent)' : 'var(--border-subtle)',
+              color: isPinned ? 'var(--accent)' : 'var(--text-secondary)',
             }}
-            title={`Layer ${ch.name} onto Live Grid`}
+            aria-label={`More actions for ${ch.name}`}
           >
-            <Plus className="w-3 h-3" />
-            <span>Layer</span>
+            <MoreHorizontal className="w-3.5 h-3.5" />
           </button>
-          {ch.favTopIds.length > 0 && (
+        </div>
+
+        {/* Desktop full inline management buttons */}
+        <div
+          className="hidden md:flex items-center gap-1.5 shrink-0 flex-wrap"
+          data-no-channel-drag="true"
+        >
+          <div
+            className="inline-flex items-center rounded-lg border overflow-hidden"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
             <button
               type="button"
               onClick={() =>
                 onLoadStreamsToGrid(
-                  ch.favTopIds,
+                  ch.streams.map((s) => s.id),
                   'replace',
-                  `${ch.name} · Favorites & Top`,
+                  ch.name,
+                )
+              }
+              className="h-7 px-2.5 text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] whitespace-nowrap cursor-pointer"
+              style={{ color: 'var(--text-primary)' }}
+              title={`Replace Live Grid with ${ch.name}`}
+            >
+              <Play className="w-3 h-3 fill-current" style={{ color: 'var(--accent)' }} />
+              <span>Load Stack</span>
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                onLoadStreamsToGrid(
+                  ch.streams.map((s) => s.id),
+                  'append',
+                  ch.name,
                 )
               }
               className="h-7 px-2 border-l text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] whitespace-nowrap cursor-pointer"
               style={{
                 borderColor: 'var(--border-subtle)',
-                color: 'var(--warning)',
+                color: 'var(--text-secondary)',
               }}
-              title={`Load ${ch.favTopIds.length} favorite or top-rated (4–5★) streams from ${ch.name}`}
+              title={`Layer ${ch.name} onto Live Grid`}
             >
-              <Star className="w-3 h-3 fill-current" />
-              <span>Favs ({ch.favTopIds.length})</span>
+              <Plus className="w-3 h-3" />
+              <span>Layer</span>
             </button>
-          )}
-        </div>
+            {ch.favTopIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  onLoadStreamsToGrid(
+                    ch.favTopIds,
+                    'replace',
+                    `${ch.name} · Favorites & Top`,
+                  )
+                }
+                className="h-7 px-2 border-l text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] whitespace-nowrap cursor-pointer"
+                style={{
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--warning)',
+                }}
+                title={`Load ${ch.favTopIds.length} favorite or top-rated (4–5★) streams from ${ch.name}`}
+              >
+                <Star className="w-3 h-3 fill-current" />
+                <span>Favs ({ch.favTopIds.length})</span>
+              </button>
+            )}
+          </div>
 
-        <button
-          type="button"
-          onClick={() => onTogglePinChannel(ch.name)}
-          className="h-7 w-7 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-          style={{
-            backgroundColor: isPinned ? 'var(--accent-soft)' : 'var(--bg-surface)',
-            borderColor: isPinned ? 'var(--accent)' : 'var(--border-subtle)',
-            color: isPinned ? 'var(--accent)' : 'var(--text-muted)',
-          }}
-          title={isPinned ? 'Unpin channel' : 'Pin channel to top'}
-          aria-label={isPinned ? `Unpin ${ch.name}` : `Pin ${ch.name}`}
-        >
-          <Pin className={`w-3.5 h-3.5 ${isPinned ? 'fill-current' : ''}`} />
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onOpenChannelBatchEdit(ch.name)}
-          className="h-7 w-7 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-          style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
-            color: 'var(--text-secondary)',
-          }}
-          title={`Batch edit topic & tags for ${ch.name}`}
-          aria-label={`Batch edit topic and tags for ${ch.name}`}
-        >
-          <Tag className="w-3.5 h-3.5" />
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onOpenChannelSettings(ch.name)}
-          className="h-7 w-7 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-          style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
-            color: 'var(--text-secondary)',
-          }}
-          title={`Customize icon, color & default topic for ${ch.name}`}
-          aria-label={`Customize ${ch.name}`}
-        >
-          <Palette className="w-3.5 h-3.5" />
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onOpenChannelDelete(ch.name)}
-          className="h-7 w-7 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-          style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
-            color: 'var(--danger)',
-          }}
-          title={`Delete ${ch.name} and its streams`}
-          aria-label={`Delete ${ch.name}`}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-
-        {options?.showAddUrl && (
           <button
             type="button"
-            onClick={() => onAddStreamInChannel(ch.name, ch.meta.defaultTopic)}
-            className="h-7 px-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
+            onClick={() => onTogglePinChannel(ch.name)}
+            className="h-7 w-7 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
             style={{
-              backgroundColor: 'var(--accent)',
-              color: 'var(--accent-fg)',
+              backgroundColor: isPinned ? 'var(--accent-soft)' : 'var(--bg-surface)',
+              borderColor: isPinned ? 'var(--accent)' : 'var(--border-subtle)',
+              color: isPinned ? 'var(--accent)' : 'var(--text-muted)',
             }}
+            title={isPinned ? 'Unpin channel' : 'Pin channel to top'}
+            aria-label={isPinned ? `Unpin ${ch.name}` : `Pin ${ch.name}`}
           >
-            <Plus className="w-3 h-3" />
-            <span>Add URL</span>
+            <Pin className={`w-3.5 h-3.5 ${isPinned ? 'fill-current' : ''}`} />
           </button>
-        )}
 
-        {options?.showOpenFull && (
           <button
             type="button"
-            onClick={() => onOpenChannel(ch.name)}
-            className="h-7 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] whitespace-nowrap cursor-pointer"
+            onClick={() => onOpenChannelBatchEdit(ch.name)}
+            className="h-7 w-7 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
             style={{
               backgroundColor: 'var(--bg-surface)',
               borderColor: 'var(--border-subtle)',
               color: 'var(--text-secondary)',
             }}
-            title={`Open dedicated ${ch.name} Vault view`}
+            title={`Batch edit topic & tags for ${ch.name}`}
+            aria-label={`Batch edit topic and tags for ${ch.name}`}
           >
-            <span>View All</span>
-            <ChevronRight className="w-3 h-3" />
+            <Tag className="w-3.5 h-3.5" />
           </button>
-        )}
-      </div>
+
+          <button
+            type="button"
+            onClick={() => onOpenChannelSettings(ch.name)}
+            className="h-7 w-7 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-secondary)',
+            }}
+            title={`Customize icon, color & default topic for ${ch.name}`}
+            aria-label={`Customize ${ch.name}`}
+          >
+            <Palette className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onOpenChannelDelete(ch.name)}
+            className="h-7 w-7 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--danger)',
+            }}
+            title={`Delete ${ch.name} and its streams`}
+            aria-label={`Delete ${ch.name}`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+
+          {options?.showAddUrl && (
+            <button
+              type="button"
+              onClick={() => onAddStreamInChannel(ch.name, ch.meta.defaultTopic)}
+              className="h-7 px-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
+              style={{
+                backgroundColor: 'var(--accent)',
+                color: 'var(--accent-fg)',
+              }}
+            >
+              <Plus className="w-3 h-3" />
+              <span>Add URL</span>
+            </button>
+          )}
+
+          {options?.showOpenFull && (
+            <button
+              type="button"
+              onClick={() => onOpenChannel(ch.name)}
+              className="h-7 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] whitespace-nowrap cursor-pointer"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-secondary)',
+              }}
+              title={`Open dedicated ${ch.name} Vault view`}
+            >
+              <span>View All</span>
+              <ChevronRight className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </>
     );
   };
 
@@ -592,7 +663,7 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
                 data-vault-reorder-id={item.id}
                 data-vault-reorder-axis="x"
                 onPointerDown={(e) => onStreamPointerDown(item.id, e)}
-                className={`relative w-64 shrink-0 rounded-xl border flex flex-col transition-all duration-150 ${
+                className={`relative ${cardDensity === 'compact' ? 'w-52' : 'w-64'} shrink-0 rounded-xl border flex flex-col transition-all duration-150 ${
                   isBeingDragged ? 'opacity-45 scale-[0.98]' : ''
                 } ${isSelected ? 'ring-2 ring-[var(--accent)]' : ''} ${
                   reorderTarget ? 'ring-1 ring-[var(--accent)]/60' : ''
@@ -682,7 +753,7 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
                   </div>
 
                   {/* Card Content */}
-                  <div className="p-3 flex-1 flex flex-col justify-between gap-2">
+                  <div className={`${cardDensity === 'compact' ? 'p-2.5' : 'p-3'} flex-1 flex flex-col justify-between gap-2`}>
                     <div className="flex items-start gap-1.5 min-w-0">
                       {isCustomStreamSort && (
                         <div
@@ -1278,63 +1349,220 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
       );
     };
 
+    const pickerMatches = splitPickerQuery.trim()
+      ? channels.filter((c) =>
+          c.name.toLowerCase().includes(splitPickerQuery.trim().toLowerCase()),
+        )
+      : channels;
+
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-[310px_minmax(0,1fr)] gap-4 max-w-[1800px] pb-16">
-        {/* Left Master Channel List */}
+      <>
+        {/* Mobile / Tablet (< lg) Channel Switcher Bar replacing stacked list */}
         <div
-          className="rounded-xl border flex flex-col overflow-hidden lg:max-h-[calc(100vh-230px)]"
-          style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
-          }}
+          className="lg:hidden mb-3 flex items-center gap-2"
+          data-no-channel-drag="true"
         >
-          <div
-            className="px-3 py-2 border-b flex items-center justify-between text-[11px] font-semibold"
+          <button
+            type="button"
+            onClick={() => {
+              setSplitPickerQuery('');
+              setSplitPickerOpen(true);
+            }}
+            className="flex-1 min-w-0 h-10 px-3 rounded-xl border flex items-center justify-between gap-2 text-left transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
             style={{
+              backgroundColor: 'var(--bg-surface)',
               borderColor: 'var(--border-subtle)',
-              color: 'var(--text-muted)',
             }}
           >
-            <span>Channels ({channels.length})</span>
-            {isCustomChannelSort && (
-              <span className="font-normal">Drag handles to reorder</span>
-            )}
-          </div>
+            <div className="flex items-center gap-2 min-w-0">
+              {renderChannelIcon(activeChannel, 'w-4 h-4')}
+              <div className="min-w-0">
+                <div
+                  className="text-[10px] font-medium leading-none"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  Channel ({channels.length})
+                </div>
+                <div
+                  className="text-xs font-semibold truncate mt-0.5"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  {activeChannel.name} · {activeChannel.streams.length}
+                </div>
+              </div>
+            </div>
+            <ChevronsUpDown
+              className="w-4 h-4 shrink-0"
+              style={{ color: 'var(--text-muted)' }}
+            />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[310px_minmax(0,1fr)] gap-4 max-w-[1800px] pb-16">
+          {/* Desktop Left Master Channel List */}
           <div
-            ref={splitListScrollRef}
-            className="p-1.5 space-y-0.5 overflow-y-auto flex-1 max-h-[300px] lg:max-h-none"
+            className="hidden lg:flex rounded-xl border flex-col overflow-hidden lg:max-h-[calc(100vh-230px)]"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+            }}
           >
-            {pinnedChannels.length > 0 && (
-              <>
-                {hasPinnedSplit && (
-                  <div
-                    className="px-2 pt-1 pb-0.5 text-[10px] font-semibold tracking-wide"
+            <div
+              className="px-3 py-2 border-b flex items-center justify-between text-[11px] font-semibold"
+              style={{
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              <span>Channels ({channels.length})</span>
+              {isCustomChannelSort && (
+                <span className="font-normal">Drag handles to reorder</span>
+              )}
+            </div>
+            <div
+              ref={splitListScrollRef}
+              className="p-1.5 space-y-0.5 overflow-y-auto flex-1"
+            >
+              {pinnedChannels.length > 0 && (
+                <>
+                  {hasPinnedSplit && (
+                    <div
+                      className="px-2 pt-1 pb-0.5 text-[10px] font-semibold tracking-wide"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      Pinned
+                    </div>
+                  )}
+                  {pinnedChannels.map(renderSplitChannelRow)}
+                </>
+              )}
+              {unpinnedChannels.length > 0 && (
+                <>
+                  {hasPinnedSplit && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleCollapseUnpinned?.()}
+                      className="w-full px-2 pt-2 pb-0.5 text-[10px] font-semibold tracking-wide border-t mt-1 flex items-center justify-between hover:opacity-80 cursor-pointer"
+                      style={{
+                        color: 'var(--text-muted)',
+                        borderColor: 'var(--border-subtle)',
+                      }}
+                    >
+                      <span>Channels ({unpinnedChannels.length})</span>
+                      {collapseUnpinned ? (
+                        <ChevronRight className="w-3 h-3" />
+                      ) : (
+                        <ChevronDown className="w-3 h-3" />
+                      )}
+                    </button>
+                  )}
+                  {(!hasPinnedSplit || !collapseUnpinned) &&
+                    unpinnedChannels.map(renderSplitChannelRow)}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Mobile Split Channel Picker BottomSheet */}
+          <BottomSheet
+            isOpen={splitPickerOpen}
+            onClose={() => setSplitPickerOpen(false)}
+            title={`Switch Channel (${channels.length})`}
+            ariaLabel="Switch channel"
+          >
+            <div className="p-4 space-y-2.5">
+              {channels.length > 5 && (
+                <div className="relative">
+                  <Search
+                    className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                    style={{ color: 'var(--text-muted)' }}
+                  />
+                  <input
+                    type="text"
+                    value={splitPickerQuery}
+                    onChange={(e) => setSplitPickerQuery(e.target.value)}
+                    placeholder="Filter channels..."
+                    className="w-full h-8 pl-8 pr-7 rounded-lg border text-xs outline-none"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                  {splitPickerQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSplitPickerQuery('')}
+                      className="h-6 w-6 rounded flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2"
+                      style={{ color: 'var(--text-muted)' }}
+                      aria-label="Clear channel filter"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-1 max-h-[55dvh] overflow-y-auto">
+                {pickerMatches.map((ch) => {
+                  const selected = ch.name === activeChannel.name;
+                  return (
+                    <button
+                      key={ch.name}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSplitChannel(ch.name);
+                        setSplitPickerOpen(false);
+                      }}
+                      className="w-full px-3 py-2 rounded-xl border flex items-center justify-between gap-2 text-left transition-colors cursor-pointer"
+                      style={{
+                        backgroundColor: selected
+                          ? 'var(--accent-soft)'
+                          : 'var(--bg-surface)',
+                        borderColor: selected
+                          ? 'var(--accent)'
+                          : 'var(--border-subtle)',
+                      }}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {renderChannelIcon(ch, 'w-4 h-4')}
+                        <span
+                          className="text-xs font-semibold truncate"
+                          style={{
+                            color: selected
+                              ? 'var(--accent)'
+                              : 'var(--text-primary)',
+                          }}
+                        >
+                          {ch.name}
+                        </span>
+                        {ch.meta.pinned && (
+                          <Pin
+                            className="w-3 h-3 fill-current shrink-0"
+                            style={{ color: 'var(--accent)' }}
+                          />
+                        )}
+                      </div>
+                      <span
+                        className="text-[11px] font-mono tabular-nums shrink-0"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {ch.streams.length}
+                      </span>
+                    </button>
+                  );
+                })}
+                {pickerMatches.length === 0 && (
+                  <p
+                    className="py-6 text-center text-xs"
                     style={{ color: 'var(--text-muted)' }}
                   >
-                    Pinned
-                  </div>
+                    No matching channels.
+                  </p>
                 )}
-                {pinnedChannels.map(renderSplitChannelRow)}
-              </>
-            )}
-            {unpinnedChannels.length > 0 && (
-              <>
-                {hasPinnedSplit && (
-                  <div
-                    className="px-2 pt-2 pb-0.5 text-[10px] font-semibold tracking-wide border-t mt-1"
-                    style={{
-                      color: 'var(--text-muted)',
-                      borderColor: 'var(--border-subtle)',
-                    }}
-                  >
-                    Channels
-                  </div>
-                )}
-                {unpinnedChannels.map(renderSplitChannelRow)}
-              </>
-            )}
-          </div>
-        </div>
+              </div>
+            </div>
+          </BottomSheet>
 
         {/* Right Detail Stream Panel */}
         <div
@@ -1664,7 +1892,8 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
             })}
           </div>
         </div>
-      </div>
+        </div>
+      </>
     );
   };
 
@@ -1679,7 +1908,7 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
       <div
         role="region"
         aria-label="Channel bulk selection actions"
-        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-1.5rem)] sm:max-w-4xl w-full flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 rounded-2xl border shadow-2xl backdrop-blur-md overflow-x-auto scrollbar-none"
+        className="fixed bottom-3 md:bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-1.5rem)] sm:max-w-4xl w-full flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 rounded-2xl border shadow-2xl backdrop-blur-md overflow-x-auto scrollbar-none"
         style={{
           backgroundColor: 'var(--bg-elevated)',
           borderColor: 'var(--border-strong)',
@@ -1808,6 +2037,245 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
     );
   };
 
+  const renderMobileChannelActionsSheet = () => {
+    const ch = mobileActionsChannel
+      ? channels.find((c) => c.name === mobileActionsChannel.name) ?? null
+      : null;
+    if (!ch || !mobileActionsChannel) return null;
+    const isPinned = Boolean(ch.meta.pinned);
+    const rowCls =
+      'w-full h-10 px-3 rounded-xl border text-xs font-medium flex items-center justify-between gap-2 hover:bg-[var(--bg-surface-hover)] cursor-pointer';
+
+    return (
+      <BottomSheet
+        isOpen={Boolean(mobileActionsChannel)}
+        onClose={() => setMobileActionsChannel(null)}
+        title={ch.name}
+        ariaLabel={`${ch.name} channel actions`}
+      >
+        <div className="p-4 space-y-2">
+          <button
+            type="button"
+            onClick={() => {
+              onLoadStreamsToGrid(
+                ch.streams.map((s) => s.id),
+                'replace',
+                ch.name,
+              );
+              setMobileActionsChannel(null);
+            }}
+            className={rowCls}
+            style={{
+              backgroundColor: 'var(--accent-soft)',
+              borderColor: 'var(--accent)',
+              color: 'var(--accent)',
+            }}
+          >
+            <span className="inline-flex items-center gap-2 font-semibold">
+              <Play className="w-4 h-4 fill-current" />
+              <span>Load Stack ({ch.streams.length})</span>
+            </span>
+            <ChevronRight className="w-4 h-4 opacity-70" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onLoadStreamsToGrid(
+                ch.streams.map((s) => s.id),
+                'append',
+                ch.name,
+              );
+              setMobileActionsChannel(null);
+            }}
+            className={rowCls}
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <span className="inline-flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              <span>Layer onto Current Grid</span>
+            </span>
+            <ChevronRight className="w-4 h-4 opacity-50" />
+          </button>
+
+          {ch.favTopIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                onLoadStreamsToGrid(
+                  ch.favTopIds,
+                  'replace',
+                  `${ch.name} · Favorites & Top`,
+                );
+                setMobileActionsChannel(null);
+              }}
+              className={rowCls}
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--warning)',
+              }}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Star className="w-4 h-4 fill-current" />
+                <span>Load Favorites & Top ({ch.favTopIds.length})</span>
+              </span>
+              <ChevronRight className="w-4 h-4 opacity-50" />
+            </button>
+          )}
+
+          {mobileActionsChannel.showOpenFull && (
+            <button
+              type="button"
+              onClick={() => {
+                setMobileActionsChannel(null);
+                onOpenChannel(ch.name);
+              }}
+              className={rowCls}
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Tv className="w-4 h-4" />
+                <span>Open Full Channel View</span>
+              </span>
+              <ChevronRight className="w-4 h-4 opacity-50" />
+            </button>
+          )}
+
+          {mobileActionsChannel.showAddUrl && (
+            <button
+              type="button"
+              onClick={() => {
+                setMobileActionsChannel(null);
+                onAddStreamInChannel(ch.name, ch.meta.defaultTopic);
+              }}
+              className={rowCls}
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Plus className="w-4 h-4" style={{ color: 'var(--accent)' }} />
+                <span>Add URL to {ch.name}</span>
+              </span>
+              <ChevronRight className="w-4 h-4 opacity-50" />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              onTogglePinChannel(ch.name);
+              setMobileActionsChannel(null);
+            }}
+            className={rowCls}
+            style={{
+              backgroundColor: isPinned ? 'var(--accent-soft)' : 'var(--bg-surface)',
+              borderColor: isPinned ? 'var(--accent)' : 'var(--border-subtle)',
+              color: isPinned ? 'var(--accent)' : 'var(--text-primary)',
+            }}
+          >
+            <span className="inline-flex items-center gap-2">
+              <Pin className={`w-4 h-4 ${isPinned ? 'fill-current' : ''}`} />
+              <span>{isPinned ? 'Unpin Channel' : 'Pin Channel to Top'}</span>
+            </span>
+            <ChevronRight className="w-4 h-4 opacity-50" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMobileActionsChannel(null);
+              startInlineRename(ch.name);
+            }}
+            className={rowCls}
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <span className="inline-flex items-center gap-2">
+              <Pencil className="w-4 h-4" />
+              <span>Rename or Merge Channel</span>
+            </span>
+            <ChevronRight className="w-4 h-4 opacity-50" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMobileActionsChannel(null);
+              onOpenChannelBatchEdit(ch.name);
+            }}
+            className={rowCls}
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <span className="inline-flex items-center gap-2">
+              <Tag className="w-4 h-4" />
+              <span>Batch Edit Topic & Tags</span>
+            </span>
+            <ChevronRight className="w-4 h-4 opacity-50" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMobileActionsChannel(null);
+              onOpenChannelSettings(ch.name);
+            }}
+            className={rowCls}
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <span className="inline-flex items-center gap-2">
+              <Palette className="w-4 h-4" />
+              <span>Customize Icon, Color & Default Topic</span>
+            </span>
+            <ChevronRight className="w-4 h-4 opacity-50" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMobileActionsChannel(null);
+              onOpenChannelDelete(ch.name);
+            }}
+            className={rowCls}
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--danger)',
+            }}
+          >
+            <span className="inline-flex items-center gap-2">
+              <Trash2 className="w-4 h-4" />
+              <span>Delete Channel & Streams</span>
+            </span>
+            <ChevronRight className="w-4 h-4 opacity-50" />
+          </button>
+        </div>
+      </BottomSheet>
+    );
+  };
+
   /* --------------------------------------------------------------------------
      MAIN RENDER BY SELECTED VIEW MODE
      -------------------------------------------------------------------------- */
@@ -1816,6 +2284,7 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
       <>
         {renderSplitView()}
         {renderChannelBulkBar()}
+        {renderMobileChannelActionsSheet()}
       </>
     );
   }
@@ -1837,7 +2306,11 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
               )}
               <div
                 ref={directoryGridRef}
-                className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4"
+                className={
+                  cardDensity === 'compact'
+                    ? 'grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5'
+                    : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4'
+                }
               >
                 {pinnedChannels.map(renderDirectoryCard)}
               </div>
@@ -1847,26 +2320,40 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
           {unpinnedChannels.length > 0 && (
             <div className="space-y-2.5">
               {hasPinnedSplit && (
-                <div
-                  className="text-xs font-semibold px-0.5 pt-2 border-t"
+                <button
+                  type="button"
+                  onClick={() => onToggleCollapseUnpinned?.()}
+                  className="w-full text-xs font-semibold px-0.5 pt-2 border-t flex items-center justify-between hover:opacity-80 cursor-pointer"
                   style={{
                     color: 'var(--text-muted)',
                     borderColor: 'var(--border-subtle)',
                   }}
                 >
-                  All Channels
+                  <span>All Channels ({unpinnedChannels.length})</span>
+                  {collapseUnpinned ? (
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              )}
+              {(!hasPinnedSplit || !collapseUnpinned) && (
+                <div
+                  ref={pinnedChannels.length === 0 ? directoryGridRef : undefined}
+                  className={
+                    cardDensity === 'compact'
+                      ? 'grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5'
+                      : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4'
+                  }
+                >
+                  {unpinnedChannels.map(renderDirectoryCard)}
                 </div>
               )}
-              <div
-                ref={pinnedChannels.length === 0 ? directoryGridRef : undefined}
-                className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4"
-              >
-                {unpinnedChannels.map(renderDirectoryCard)}
-              </div>
             </div>
           )}
         </div>
         {renderChannelBulkBar()}
+        {renderMobileChannelActionsSheet()}
       </>
     );
   }
@@ -1892,21 +2379,30 @@ export const StreamChannelsOverview: React.FC<StreamChannelsOverviewProps> = ({
         {unpinnedChannels.length > 0 && (
           <div className="space-y-7">
             {hasPinnedSplit && (
-              <div
-                className="text-xs font-semibold px-1 pt-3 border-t"
+              <button
+                type="button"
+                onClick={() => onToggleCollapseUnpinned?.()}
+                className="w-full text-xs font-semibold px-1 pt-3 border-t flex items-center justify-between hover:opacity-80 cursor-pointer"
                 style={{
                   color: 'var(--text-muted)',
                   borderColor: 'var(--border-subtle)',
                 }}
               >
-                All Channels
-              </div>
+                <span>All Channels ({unpinnedChannels.length})</span>
+                {collapseUnpinned ? (
+                  <ChevronRight className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5" />
+                )}
+              </button>
             )}
-            {unpinnedChannels.map(renderCarouselSection)}
+            {(!hasPinnedSplit || !collapseUnpinned) &&
+              unpinnedChannels.map(renderCarouselSection)}
           </div>
         )}
       </div>
       {renderChannelBulkBar()}
+      {renderMobileChannelActionsSheet()}
     </>
   );
 };

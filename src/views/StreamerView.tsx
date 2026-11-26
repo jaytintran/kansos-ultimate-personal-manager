@@ -127,6 +127,7 @@ export const StreamerView = forwardRef<
     updateStreamFolder,
     deleteStreamFolder,
     setStreamTopicIcon,
+    renameStreamTopic,
     updateStreamChannelMeta,
     reorderStreamChannels,
     renameOrMergeStreamChannels,
@@ -2120,6 +2121,7 @@ export const StreamerView = forwardRef<
             allActiveMuted={allActiveMuted}
             onTogglePauseAll={() => handleTogglePauseAll(false)}
             onToggleViewMute={() => handleToggleViewMute(false)}
+            onClearStack={clearStreamSlots}
             onBackToGrid={() => setSubView("grid")}
             onAddStream={(stream, addToGrid) => addStream(stream, addToGrid)}
             onUpdateStream={updateStream}
@@ -2137,6 +2139,7 @@ export const StreamerView = forwardRef<
             onDeleteFolder={deleteStreamFolder}
             topicIcons={streamTopicIcons}
             onSetTopicIcon={(topic, icon) => setStreamTopicIcon(topic, icon)}
+            onRenameTopic={renameStreamTopic}
             channelConfigs={streamChannels}
             onUpdateChannelMeta={updateStreamChannelMeta}
             onReorderChannels={reorderStreamChannels}
