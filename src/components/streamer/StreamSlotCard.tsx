@@ -142,6 +142,7 @@ export const StreamSlotCard: React.FC<StreamSlotCardProps> = ({
 
   // Seekable progress bar hover + pointer scrub state
   const trackRef = useRef<HTMLDivElement | null>(null);
+  const didDragRef = useRef(false);
   const [hoverFraction, setHoverFraction] = useState<number | null>(null);
   const [scrubFraction, setScrubFraction] = useState<number | null>(null);
   const activeScrubPointerIdRef = useRef<number | null>(null);
@@ -188,6 +189,7 @@ export const StreamSlotCard: React.FC<StreamSlotCardProps> = ({
           e.preventDefault();
           return;
         }
+        didDragRef.current = true;
         onDragStart(e);
       }}
       onDragOver={onDragOver}
@@ -195,6 +197,9 @@ export const StreamSlotCard: React.FC<StreamSlotCardProps> = ({
       onDrop={onDrop}
       onDragEnd={(e) => {
         e.currentTarget.draggable = canReorder;
+        window.setTimeout(() => {
+          didDragRef.current = false;
+        }, 0);
         onDragEnd();
       }}
       className={`group relative rounded-xl border transition-all duration-150 ${
@@ -252,9 +257,44 @@ export const StreamSlotCard: React.FC<StreamSlotCardProps> = ({
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowFullScreen
             />
-            {/* Clean-player & drag shield: shows only the video with zero hover overlays */}
+            {/* Clean-player & drag shield: locks YouTube hover/click and toggles play/pause on click/tap */}
             {(cleanPlayer || isAnyDragging) && (
-              <div aria-hidden="true" className="absolute inset-0 z-10" />
+              <div
+                role={cleanPlayer ? 'button' : undefined}
+                tabIndex={cleanPlayer ? 0 : undefined}
+                aria-hidden={cleanPlayer ? undefined : true}
+                aria-label={
+                  cleanPlayer
+                    ? isPlaying
+                      ? `Pause ${displayTitle}`
+                      : `Play ${displayTitle}`
+                    : undefined
+                }
+                aria-pressed={cleanPlayer ? isPlaying : undefined}
+                onMouseDown={() => {
+                  didDragRef.current = false;
+                }}
+                onClick={(e) => {
+                  if (!cleanPlayer || isAnyDragging || didDragRef.current) return;
+                  e.stopPropagation();
+                  onTogglePlayPause();
+                }}
+                onKeyDown={(e) => {
+                  if (!cleanPlayer) return;
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onTogglePlayPause();
+                  }
+                }}
+                className={`absolute inset-0 z-10 select-none focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)] ${
+                  cleanPlayer
+                    ? isAnyDragging
+                      ? 'cursor-grabbing'
+                      : 'cursor-pointer'
+                    : ''
+                }`}
+              />
             )}
           </div>
 
