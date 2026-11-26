@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   Maximize2,
   Minimize2,
+  MonitorPlay,
   PanelRightClose,
   PanelRightOpen,
   Pause,
@@ -16,6 +17,7 @@ import {
   Rows3,
   SlidersHorizontal,
   Trash2,
+  Tv,
   Volume1,
   Volume2,
   VolumeX,
@@ -36,6 +38,8 @@ interface StreamerTransportBarProps {
   sleepRemainingSeconds: number | null;
   viewMode: StreamViewMode;
   onChangeViewMode: (mode: StreamViewMode) => void;
+  playerMode: "clean" | "native";
+  onChangePlayerMode: (mode: "clean" | "native") => void;
   layoutMode: StreamLayoutMode;
   onChangeLayoutMode: (mode: StreamLayoutMode) => void;
   sizingMode: StreamSizingMode;
@@ -93,6 +97,8 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
   sleepRemainingSeconds,
   viewMode,
   onChangeViewMode,
+  playerMode,
+  onChangePlayerMode,
   layoutMode,
   onChangeLayoutMode,
   sizingMode,
@@ -425,6 +431,61 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
               >
                 <Icon className="w-3.5 h-3.5" />
                 <span className="hidden xl:inline">{opt.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Clean vs Native YouTube Player Toggle */}
+        <div
+          className="inline-flex items-center h-8 gap-0.5 p-0.5 rounded-lg border shrink-0"
+          style={{
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
+          }}
+          role="group"
+          aria-label="YouTube player mode"
+        >
+          {(
+            [
+              {
+                id: "clean",
+                icon: MonitorPlay,
+                label: "Clean",
+                title: "Clean video embed with slim progress bar and no YouTube controller bar",
+              },
+              {
+                id: "native",
+                icon: Tv,
+                label: "Native",
+                title: "Standard YouTube player with built-in controls",
+              },
+            ] as {
+              id: "clean" | "native";
+              icon: React.ComponentType<{ className?: string }>;
+              label: string;
+              title: string;
+            }[]
+          ).map((opt) => {
+            const Icon = opt.icon;
+            const active = playerMode === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => onChangePlayerMode(opt.id)}
+                title={opt.title}
+                aria-pressed={active}
+                className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap"
+                style={{
+                  backgroundColor: active
+                    ? "var(--accent-soft)"
+                    : "transparent",
+                  color: active ? "var(--accent)" : "var(--text-muted)",
+                }}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">{opt.label}</span>
               </button>
             );
           })}

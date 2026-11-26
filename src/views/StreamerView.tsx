@@ -61,6 +61,7 @@ export interface StreamerViewProps {
 
 const STUDIO_SIDEBAR_WIDTH_KEY = "kanso_streamer_sidebar_width_v1";
 const STUDIO_MANAGER_OPEN_KEY = "kanso_streamer_manager_open_v1";
+const STUDIO_PLAYER_MODE_KEY = "kanso_streamer_player_mode_v1";
 const DEFAULT_STUDIO_SIDEBAR_WIDTH = 320;
 const MIN_STUDIO_SIDEBAR_WIDTH = 260;
 const MAX_STUDIO_SIDEBAR_WIDTH = 640;
@@ -197,10 +198,25 @@ export const StreamerView = forwardRef<
         : true,
   );
 
+  // Device-local Clean vs Native YouTube player toggle
+  const [playerMode, setPlayerMode] = useState<"clean" | "native">(() => {
+    if (typeof window === "undefined") return "clean";
+    try {
+      const saved = localStorage.getItem(STUDIO_PLAYER_MODE_KEY);
+      if (saved === "native" || saved === "clean") return saved;
+    } catch {
+      // ignore storage errors
+    }
+    return "clean";
+  });
+
   // Runtime audio & loop tracking keyed by slotId
   const [viewMuted, setViewMuted] = useState(false);
   const [allPaused, setAllPaused] = useState(false);
   const [playerStates, setPlayerStates] = useState<Record<string, number>>({});
+  const [playbackProgress, setPlaybackProgress] = useState<
+    Record<string, { currentTime: number; duration: number }>
+  >({});
   const [completedLoops, setCompletedLoops] = useState<Record<string, number>>(
     {},
   );
@@ -537,6 +553,17 @@ export const StreamerView = forwardRef<
       return changed ? next : prev;
     });
 
+    setPlaybackProgress((prev) => {
+      let changed = false;
+      const next: Record<string, { currentTime: number; duration: number }> =
+        {};
+      for (const key of Object.keys(prev)) {
+        if (activeSlotIdSet.has(key)) next[key] = prev[key];
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+
     setCompletedLoops((prev) => {
       let changed = false;
       const next: Record<string, number> = {};
@@ -811,6 +838,25 @@ export const StreamerView = forwardRef<
             ? prev
             : { ...prev, [matchedSlotId!]: nextState },
         );
+      }
+
+      if (parsed.currentTime !== undefined || parsed.duration !== undefined) {
+        setPlaybackProgress((prev) => {
+          const cur = prev[matchedSlotId!] ?? { currentTime: 0, duration: 0 };
+          const nextTime =
+            parsed.currentTime !== undefined ? parsed.currentTime : cur.currentTime;
+          const nextDur =
+            parsed.duration !== undefined && parsed.duration > 0
+              ? parsed.duration
+              : cur.duration;
+          if (cur.currentTime === nextTime && cur.duration === nextDur) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [matchedSlotId!]: { currentTime: nextTime, duration: nextDur },
+          };
+        });
       }
     };
 
@@ -1218,6 +1264,14 @@ export const StreamerView = forwardRef<
       for (const sl of activeSlots) next[sl.slotId] = 1;
       return next;
     });
+    setPlaybackProgress((prev) => {
+      const next = { ...prev };
+      for (const sl of activeSlots) {
+        const cur = next[sl.slotId] ?? { currentTime: 0, duration: 0 };
+        next[sl.slotId] = { ...cur, currentTime: 0 };
+      }
+      return next;
+    });
     pushToast("Synced all streams to 0:00", "success");
   }, [activeSlots, applySlotAudio, pushToast]);
 
@@ -1246,6 +1300,14 @@ export const StreamerView = forwardRef<
         const next = { ...prev };
         for (const sl of slots) {
           next[sl.slotId] = 2;
+        }
+        return next;
+      });
+      setPlaybackProgress((prev) => {
+        const next = { ...prev };
+        for (const sl of slots) {
+          const cur = next[sl.slotId] ?? { currentTime: 0, duration: 0 };
+          next[sl.slotId] = { ...cur, currentTime: 0 };
         }
         return next;
       });
@@ -1323,6 +1385,64 @@ export const StreamerView = forwardRef<
     },
     [streams, addStreamSlot, addStream, pushToast],
   );
+
+  // Clean vs Native YouTube player mode toggle (device-local)
+  const handleChangePlayerMode = useCallback((nextMode: "clean" | "native") => {
+    setPlayerMode(nextMode);
+    setPlayerStates({});
+    try {
+      localStorage.setItem(STUDIO_PLAYER_MODE_KEY, nextMode);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
+  // Per-card Play/Pause toggle (clean player strip)
+  const handleToggleCardPlayPause = useCallback(
+    (slot: StackSlot) => {
+      const iframe = iframeRefs.current[slot.slotId] || null;
+      const st = playerStatesRef.current[slot.slotId];
+      const currentlyPlaying = st === 1 || st === 3;
+      if (currentlyPlaying) {
+        intentionalPauseUntilRef.current = Date.now() + 1200;
+        playingIntentsRef.current.delete(slot.slotId);
+        preBackgroundPlayingRef.current.delete(slot.slotId);
+        sendYouTubeCommand(iframe, "pauseVideo", [], slot.slotId);
+        setPlayerStates((prev) => ({ ...prev, [slot.slotId]: 2 }));
+      } else {
+        bannerDismissedRef.current = false;
+        allPausedRef.current = false;
+        setAllPaused(false);
+        setLoopDoneMap((prev) =>
+          prev[slot.slotId] ? { ...prev, [slot.slotId]: false } : prev,
+        );
+        playingIntentsRef.current.add(slot.slotId);
+        sendYouTubeCommand(iframe, "playVideo", [], slot.slotId);
+        applySlotAudio(slot, iframe, sleepFadeRef.current);
+        setPlayerStates((prev) => ({ ...prev, [slot.slotId]: 1 }));
+      }
+    },
+    [applySlotAudio],
+  );
+
+  // Per-card Seek handler
+  const handleSeekSlot = useCallback((slot: StackSlot, targetSeconds: number) => {
+    const iframe = iframeRefs.current[slot.slotId] || null;
+    const safeSeconds = Math.max(0, targetSeconds);
+    setLoopDoneMap((prev) =>
+      prev[slot.slotId] ? { ...prev, [slot.slotId]: false } : prev,
+    );
+    setPlaybackProgress((prev) => {
+      const cur = prev[slot.slotId] ?? { currentTime: 0, duration: 0 };
+      const clamped =
+        cur.duration > 0 ? Math.min(cur.duration, safeSeconds) : safeSeconds;
+      return {
+        ...prev,
+        [slot.slotId]: { ...cur, currentTime: clamped },
+      };
+    });
+    sendYouTubeCommand(iframe, "seekTo", [safeSeconds, true], slot.slotId);
+  }, []);
 
   // Per-card mute toggle
   const handleToggleCardMute = useCallback(
@@ -1580,6 +1700,8 @@ export const StreamerView = forwardRef<
           sleepRemainingSeconds={sleepRemainingSeconds}
           viewMode={viewMode}
           onChangeViewMode={(mode) => updateStreamerState({ viewMode: mode })}
+          playerMode={playerMode}
+          onChangePlayerMode={handleChangePlayerMode}
           layoutMode={streamerState.layoutMode}
           onChangeLayoutMode={(mode) => updateStreamerState({ layoutMode: mode })}
           sizingMode={sizingMode}
@@ -1701,6 +1823,10 @@ export const StreamerView = forwardRef<
                       ? slotDropTarget.position
                       : null;
 
+                  const slotPlayback = playbackProgress[slot.slotId];
+                  const slotState = playerStates[slot.slotId];
+                  const isSlotPlaying = slotState === 1 || slotState === 3;
+
                   return (
                     <StreamSlotCard
                       key={slot.slotId}
@@ -1708,6 +1834,10 @@ export const StreamerView = forwardRef<
                       stream={stream}
                       index={visualIndex}
                       viewMode={viewMode}
+                      cleanPlayer={playerMode === "clean"}
+                      isPlaying={isSlotPlaying}
+                      currentTime={slotPlayback?.currentTime ?? 0}
+                      duration={slotPlayback?.duration ?? 0}
                       isGloballyMuted={viewMuted}
                       completedLoops={completedLoops[slot.slotId] || 0}
                       loopTargetReached={Boolean(loopDoneMap[slot.slotId])}
@@ -1859,6 +1989,8 @@ export const StreamerView = forwardRef<
                         }
                       }}
                       onGripPointerCancel={clearSlotDragState}
+                      onTogglePlayPause={() => handleToggleCardPlayPause(slot)}
+                      onSeek={(secs) => handleSeekSlot(slot, secs)}
                       onToggleMute={() => handleToggleCardMute(slot)}
                       onChangeVolume={(vol) =>
                         handleChangeCardVolume(slot, vol)

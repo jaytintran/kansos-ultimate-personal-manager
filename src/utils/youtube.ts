@@ -118,13 +118,19 @@ export async function fetchYouTubeMetadata(rawUrl: string): Promise<FetchedYouTu
 /**
  * Embed URL starting UNMUTED by default with YouTube JS API enabled for per-card, global mute, and pause/resume control.
  */
-export function buildYouTubeEmbedUrl(videoId: string): string {
+export function buildYouTubeEmbedUrl(videoId: string, cleanControls = false): string {
   const params = new URLSearchParams({
     enablejsapi: '1',
     rel: '0',
     modestbranding: '1',
     playsinline: '1',
+    iv_load_policy: '3',
   });
+  if (cleanControls) {
+    params.set('controls', '0');
+    params.set('disablekb', '1');
+    params.set('fs', '0');
+  }
   if (typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null') {
     params.set('origin', window.location.origin);
   }
@@ -189,6 +195,8 @@ export interface ParsedYouTubeMessage {
   event: string;
   playerState?: number;
   muted?: boolean;
+  currentTime?: number;
+  duration?: number;
 }
 
 const YOUTUBE_ORIGINS = new Set([
@@ -229,10 +237,41 @@ export function parseYouTubeMessage(event: MessageEvent): ParsedYouTubeMessage |
     typeof record.info === 'object'
   ) {
     const info = record.info as Record<string, unknown>;
+    const progressState =
+      info.progressState && typeof info.progressState === 'object'
+        ? (info.progressState as Record<string, unknown>)
+        : null;
     const playerState = typeof info.playerState === 'number' ? info.playerState : undefined;
     const muted = typeof info.muted === 'boolean' ? info.muted : undefined;
-    if (playerState !== undefined || muted !== undefined) {
-      return { event: eventName, playerState, muted };
+    const rawCurrent =
+      typeof info.currentTime === 'number' && Number.isFinite(info.currentTime)
+        ? info.currentTime
+        : progressState &&
+            typeof progressState.current === 'number' &&
+            Number.isFinite(progressState.current)
+          ? progressState.current
+          : undefined;
+    const rawDuration =
+      typeof info.duration === 'number' && Number.isFinite(info.duration)
+        ? info.duration
+        : progressState &&
+            typeof progressState.duration === 'number' &&
+            Number.isFinite(progressState.duration)
+          ? progressState.duration
+          : undefined;
+    if (
+      playerState !== undefined ||
+      muted !== undefined ||
+      rawCurrent !== undefined ||
+      rawDuration !== undefined
+    ) {
+      return {
+        event: eventName,
+        playerState,
+        muted,
+        currentTime: rawCurrent,
+        duration: rawDuration,
+      };
     }
   }
 
