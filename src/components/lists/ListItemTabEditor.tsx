@@ -42,6 +42,12 @@ import { TiptapEditor, TiptapThumbToolbar } from "../TiptapEditor";
 import { DeleteListItemsConfirmModal } from "./DeleteListItemsConfirmModal";
 import { ListItemLinkedNotesSection } from "./ListItemLinkedNotesSection";
 import { BookLinkPicker, buildBookNoteLink } from "../library/BookLinkPicker";
+import {
+  buildListTreeIndex,
+  flattenListTree,
+  formatIndentedListOptionLabel,
+  getListAncestors,
+} from "../../lib/listTree";
 
 const STATUS_OPTIONS: { id: ListItemStatus; label: string }[] = [
   { id: "inbox", label: "Inbox" },
@@ -366,9 +372,19 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
     };
   }, [flushSave]);
 
+  const listTreeIndex = useMemo(() => buildListTreeIndex(lists), [lists]);
+  const flattenedLists = useMemo(() => flattenListTree(lists), [lists]);
+
   const currentListCollection = useMemo(
     () => lists.find((l) => l.id === listId) || null,
     [lists, listId],
+  );
+  const ancestorChain = useMemo(
+    () =>
+      currentListCollection
+        ? getListAncestors(currentListCollection.id, listTreeIndex.byId)
+        : [],
+    [currentListCollection, listTreeIndex.byId],
   );
   const itemMeta = ITEM_META[currentListCollection?.listType || "custom"];
   const todayKey = getTodayKey();
@@ -464,28 +480,28 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
             className="flex items-center gap-1.5 text-xs min-w-0 overflow-hidden"
             style={{ color: "var(--text-muted)" }}
           >
-            {currentListCollection && (
-              <>
+            {ancestorChain.map((anc) => (
+              <React.Fragment key={anc.id}>
                 <button
                   type="button"
                   onClick={() => {
                     flushSave();
-                    onSelectParentListHome(currentListCollection.id);
+                    onSelectParentListHome(anc.id);
                   }}
-                  className="inline-flex items-center gap-1.5 max-w-[150px] hover:underline cursor-pointer shrink-0"
+                  className="inline-flex items-center gap-1.5 max-w-[140px] hover:underline cursor-pointer shrink-0"
                   style={{ color: "var(--text-secondary)" }}
-                  title={`Go to ${currentListCollection.title}`}
+                  title={`Go to ${anc.title}`}
                 >
                   <CollectionIcon
-                    name={currentListCollection.icon}
+                    name={anc.icon}
                     className="w-3.5 h-3.5 shrink-0"
-                    style={{ color: currentListCollection.color || "#4f46e5" }}
+                    style={{ color: anc.color || "#4f46e5" }}
                   />
-                  <span className="truncate">{currentListCollection.title}</span>
+                  <span className="truncate">{anc.title}</span>
                 </button>
                 <ChevronRight className="w-3 h-3 shrink-0 opacity-60" />
-              </>
-            )}
+              </React.Fragment>
+            ))}
             <span
               className="truncate font-medium"
               style={{ color: "var(--text-primary)" }}
@@ -644,16 +660,16 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
                 className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
                 style={{ color: "var(--text-primary)" }}
               >
-                {lists.map((l) => (
+                {flattenedLists.map((node) => (
                   <option
-                    key={l.id}
-                    value={l.id}
+                    key={node.list.id}
+                    value={node.list.id}
                     style={{
                       backgroundColor: "var(--bg-elevated)",
                       color: "var(--text-primary)",
                     }}
                   >
-                    {l.title}
+                    {formatIndentedListOptionLabel(node)}
                   </option>
                 ))}
               </select>

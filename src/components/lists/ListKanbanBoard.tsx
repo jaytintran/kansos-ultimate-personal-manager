@@ -396,3 +396,44 @@ export function buildKanbanColumnsForSmartTab(
     items: items.filter((i) => i.listId === l.id),
   }));
 }
+
+export function buildKanbanColumnsForSublists(
+  items: ListItem[],
+  parentList: ListCollection,
+  sublists: ListCollection[],
+  resolveBranch: (itemListId: string, baseListId: string) => string | "__direct__" | null,
+): KanbanColumnDef[] {
+  const buckets = new Map<string, ListItem[]>();
+  const directItems: ListItem[] = [];
+
+  for (const item of items) {
+    const branch = resolveBranch(item.listId, parentList.id);
+    if (branch === "__direct__") {
+      directItems.push(item);
+    } else if (branch) {
+      const bucket = buckets.get(branch) || [];
+      bucket.push(item);
+      buckets.set(branch, bucket);
+    }
+  }
+
+  const cols: KanbanColumnDef[] = sublists.map((sub) => ({
+    id: `sublist:${sub.id}`,
+    label: sub.title,
+    color: sub.color || parentList.color || "#4f46e5",
+    listId: sub.id,
+    items: buckets.get(sub.id) || [],
+  }));
+
+  if (directItems.length > 0) {
+    cols.unshift({
+      id: `sublist:__direct__:${parentList.id}`,
+      label: `Direct (${parentList.title})`,
+      color: parentList.color || "#64748b",
+      listId: parentList.id,
+      items: directItems,
+    });
+  }
+
+  return cols;
+}

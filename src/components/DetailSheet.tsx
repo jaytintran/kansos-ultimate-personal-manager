@@ -52,6 +52,7 @@ import {
   NoteBranchActionPrompt,
   NoteDeleteBranchModal,
 } from "./notes/NoteDeleteBranchModal";
+import { flattenListTree, formatIndentedListOptionLabel } from "../lib/listTree";
 import {
   BookNoteLink,
   DetailSheetTarget,
@@ -274,6 +275,10 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
   }, []);
 
   const activeLists = useMemo(() => workspace.lists, [workspace.lists]);
+  const flattenedLists = useMemo(
+    () => flattenListTree(activeLists),
+    [activeLists],
+  );
   const sessionDraftDocIdRef = useRef(
     `draft-${target?.mode ?? "item"}-${Date.now().toString(36)}`,
   );
@@ -1706,12 +1711,14 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                 alignTop
               >
                 <div className="flex flex-wrap items-center gap-1 -mx-1 px-1 py-0.5">
-                  {activeLists.map((l) => {
+                  {flattenedLists.map((node) => {
+                    const l = node.list;
                     const linked = listIds.includes(l.id);
                     return (
                       <button
                         key={l.id}
                         type="button"
+                        title={node.pathLabel}
                         onClick={() =>
                           setListIds((prev) =>
                             linked
@@ -1727,7 +1734,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                           color: linked ? "var(--accent)" : "var(--text-muted)",
                         }}
                       >
-                        <span>{l.title}</span>
+                        <span>{node.depth > 0 ? node.pathLabel : l.title}</span>
                         {linked && <Check className="w-3 h-3" />}
                       </button>
                     );
@@ -1992,16 +1999,16 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
             className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
             style={{ color: "var(--text-primary)" }}
           >
-            {activeLists.map((l) => (
+            {flattenedLists.map((node) => (
               <option
-                key={l.id}
-                value={l.id}
+                key={node.list.id}
+                value={node.list.id}
                 style={{
                   backgroundColor: "var(--bg-elevated)",
                   color: "var(--text-primary)",
                 }}
               >
-                {l.title}
+                {formatIndentedListOptionLabel(node)}
               </option>
             ))}
           </select>

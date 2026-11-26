@@ -16,17 +16,19 @@ import type {
 import { formatCompactDayHeading, getEntryDayKey, toLocalDateKey } from "../../utils/date";
 
 export type ListsViewMode = "stacked" | "grid" | "compact" | "board";
-export type ListsGroupBy = "tag" | "status" | "none";
+export type ListsGroupBy = "tag" | "status" | "sublist" | "none";
 export type ListsSortMode = "custom" | "newest" | "oldest" | "title";
 
 /* ================= 1. SAFE DELETE LIST MODAL ================= */
 interface DeleteListConfirmModalProps {
   list: ListCollection | null;
   itemCount: number;
+  descendantCount?: number;
   linkedNotesCount?: number;
   exclusivelyLinkedNotesCount?: number;
   sharedNotesCount?: number;
   otherLists: ListCollection[];
+  getOptionLabel?: (list: ListCollection) => string;
   onCancel: () => void;
   onDelete: (
     moveItemsToListId?: string,
@@ -37,10 +39,12 @@ interface DeleteListConfirmModalProps {
 export const DeleteListConfirmModal: React.FC<DeleteListConfirmModalProps> = ({
   list,
   itemCount,
+  descendantCount = 0,
   linkedNotesCount = 0,
   exclusivelyLinkedNotesCount = 0,
   sharedNotesCount = 0,
   otherLists,
+  getOptionLabel,
   onCancel,
   onDelete,
 }) => {
@@ -91,11 +95,17 @@ export const DeleteListConfirmModal: React.FC<DeleteListConfirmModalProps> = ({
                 Delete &ldquo;{list.title}&rdquo;?
               </h3>
               <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                {itemCount === 0
-                  ? "This list is empty."
-                  : `This list contains ${itemCount} ${
+                {descendantCount > 0
+                  ? `Includes ${descendantCount} nested ${
+                      descendantCount === 1 ? "sublist" : "sublists"
+                    } and ${itemCount} total ${
                       itemCount === 1 ? "item" : "items"
-                    }.`}
+                    }.`
+                  : itemCount === 0
+                    ? "This list is empty."
+                    : `This list contains ${itemCount} ${
+                        itemCount === 1 ? "item" : "items"
+                      }.`}
               </p>
             </div>
           </div>
@@ -167,7 +177,7 @@ export const DeleteListConfirmModal: React.FC<DeleteListConfirmModalProps> = ({
               >
                 {otherLists.map((ol) => (
                   <option key={ol.id} value={ol.id}>
-                    {ol.title}
+                    {getOptionLabel ? getOptionLabel(ol) : ol.title}
                   </option>
                 ))}
               </select>
@@ -445,6 +455,7 @@ interface MobileListsFilterSheetProps {
   open: boolean;
   onClose: () => void;
   isSmartScope: boolean;
+  hasSublists?: boolean;
   viewMode: ListsViewMode;
   groupBy: ListsGroupBy;
   thenBy: ListsGroupBy;
@@ -466,6 +477,7 @@ export const MobileListsFilterSheet: React.FC<MobileListsFilterSheetProps> = ({
   open,
   onClose,
   isSmartScope,
+  hasSublists = false,
   viewMode,
   groupBy,
   thenBy,
@@ -667,6 +679,7 @@ export const MobileListsFilterSheet: React.FC<MobileListsFilterSheetProps> = ({
                 color: "var(--text-primary)",
               }}
             >
+              {hasSublists && <option value="sublist">Sublist</option>}
               <option value="status">Status</option>
               <option value="tag">Tag</option>
               <option value="none">None</option>
@@ -692,6 +705,9 @@ export const MobileListsFilterSheet: React.FC<MobileListsFilterSheetProps> = ({
               }}
             >
               <option value="none">None</option>
+              {hasSublists && groupBy !== "sublist" && (
+                <option value="sublist">Sublist</option>
+              )}
               {groupBy !== "tag" && <option value="tag">Tag</option>}
               {groupBy !== "status" && <option value="status">Status</option>}
             </select>

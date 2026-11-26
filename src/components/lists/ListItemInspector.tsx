@@ -34,6 +34,7 @@ import { TiptapEditor } from "../TiptapEditor";
 import { DeleteListItemsConfirmModal } from "./DeleteListItemsConfirmModal";
 import { ListItemLinkedNotesSection } from "./ListItemLinkedNotesSection";
 import { BookLinkPicker, buildBookNoteLink } from "../library/BookLinkPicker";
+import { flattenListTree, formatIndentedListOptionLabel } from "../../lib/listTree";
 
 const STATUS_OPTIONS: { id: ListItemStatus; label: string }[] = [
   { id: "inbox", label: "Inbox" },
@@ -335,6 +336,8 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
     };
   }, [flushSave]);
 
+  const flattenedLists = useMemo(() => flattenListTree(lists), [lists]);
+
   const currentListCollection = useMemo(
     () => lists.find((l) => l.id === listId) || null,
     [lists, listId],
@@ -508,16 +511,16 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
               className="w-full bg-transparent rounded-md px-2 py-1 -mx-1 text-xs font-medium outline-none cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
               style={{ color: "var(--text-primary)" }}
             >
-              {lists.map((l) => (
+              {flattenedLists.map((node) => (
                 <option
-                  key={l.id}
-                  value={l.id}
+                  key={node.list.id}
+                  value={node.list.id}
                   style={{
                     backgroundColor: "var(--bg-elevated)",
                     color: "var(--text-primary)",
                   }}
                 >
-                  {l.title}
+                  {formatIndentedListOptionLabel(node)}
                 </option>
               ))}
             </select>

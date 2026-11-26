@@ -190,6 +190,7 @@ export interface ListCollection {
   icon: string;
   color?: string;
   listType?: ListCollectionType;
+  parentId?: string | null;
   createdAt: string;
   updatedAt?: string;
 }

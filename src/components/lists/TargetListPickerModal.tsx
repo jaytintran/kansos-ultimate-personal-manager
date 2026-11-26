@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Plus, Search, X } from "lucide-react";
 import type { ListCollection } from "../../types";
+import { flattenListTree } from "../../lib/listTree";
 import { ListIcon as CollectionIcon } from "../IconLibrary";
 import { BottomSheet } from "../ui/BottomSheet";
 
@@ -51,25 +52,27 @@ export const TargetListPickerModal: React.FC<TargetListPickerModalProps> = ({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, isDesktop, onClose]);
 
-  const orderedLists = useMemo(() => {
+  const flattenedNodes = useMemo(() => flattenListTree(lists), [lists]);
+
+  const orderedNodes = useMemo(() => {
     const q = filterQuery.trim().toLowerCase();
-    const base = q
-      ? lists.filter((l) => l.title.toLowerCase().includes(q))
-      : lists;
-    if (!defaultListId) return base;
-    return [...base].sort((a, b) => {
-      if (a.id === defaultListId) return -1;
-      if (b.id === defaultListId) return 1;
-      return 0;
-    });
-  }, [lists, filterQuery, defaultListId]);
+    if (!q) return flattenedNodes;
+    return flattenedNodes.filter(
+      (n) =>
+        n.list.title.toLowerCase().includes(q) ||
+        n.pathLabel.toLowerCase().includes(q),
+    );
+  }, [flattenedNodes, filterQuery]);
 
   const fallbackTargetListId = useMemo(() => {
-    if (defaultListId && orderedLists.some((l) => l.id === defaultListId)) {
+    if (
+      defaultListId &&
+      orderedNodes.some((n) => n.list.id === defaultListId)
+    ) {
       return defaultListId;
     }
-    return orderedLists[0]?.id || lists[0]?.id || null;
-  }, [defaultListId, orderedLists, lists]);
+    return orderedNodes[0]?.list.id || lists[0]?.id || null;
+  }, [defaultListId, orderedNodes, lists]);
 
   const handleConfirmWithList = (listId: string) => {
     const cleanTitle = titleDraft.trim();
@@ -180,7 +183,7 @@ export const TargetListPickerModal: React.FC<TargetListPickerModalProps> = ({
               Choose target list
             </div>
             <div className="max-h-[46dvh] lg:max-h-[300px] overflow-y-auto overscroll-none space-y-1 pr-0.5">
-              {orderedLists.length === 0 ? (
+              {orderedNodes.length === 0 ? (
                 <p
                   className="py-6 text-center text-xs"
                   style={{ color: "var(--text-muted)" }}
@@ -188,7 +191,8 @@ export const TargetListPickerModal: React.FC<TargetListPickerModalProps> = ({
                   No lists match &ldquo;{filterQuery}&rdquo;
                 </p>
               ) : (
-                orderedLists.map((list) => {
+                orderedNodes.map((node) => {
+                  const list = node.list;
                   const isDefault = list.id === defaultListId;
                   const count = listItemCounts.get(list.id) || 0;
                   const color = list.color || "#4f46e5";
@@ -198,8 +202,9 @@ export const TargetListPickerModal: React.FC<TargetListPickerModalProps> = ({
                       key={list.id}
                       type="button"
                       onClick={() => handleConfirmWithList(list.id)}
-                      className="w-full min-h-[44px] lg:min-h-[38px] px-3 py-2 rounded-xl border text-left flex items-center justify-between gap-2.5 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                      className="w-full min-h-[44px] lg:min-h-[38px] pr-3 py-2 rounded-xl border text-left flex items-center justify-between gap-2.5 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
                       style={{
+                        paddingLeft: `${12 + Math.min(node.depth, 5) * 16}px`,
                         backgroundColor: isDefault
                           ? "var(--accent-soft)"
                           : "var(--bg-surface)",
@@ -228,12 +233,20 @@ export const TargetListPickerModal: React.FC<TargetListPickerModalProps> = ({
                           >
                             {list.title}
                           </span>
-                          {isDefault && (
+                          {(node.depth > 0 || isDefault) && (
                             <span
-                              className="block text-[11px]"
-                              style={{ color: "var(--accent)" }}
+                              className="block text-[11px] truncate"
+                              style={{
+                                color: isDefault
+                                  ? "var(--accent)"
+                                  : "var(--text-muted)",
+                              }}
                             >
-                              Current list
+                              {isDefault && node.depth > 0
+                                ? `Current · ${node.pathLabel}`
+                                : isDefault
+                                  ? "Current list"
+                                  : node.pathLabel}
                             </span>
                           )}
                         </span>

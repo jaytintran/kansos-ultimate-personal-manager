@@ -77,6 +77,11 @@ import { compressCoverDataUrl } from "../lib/formatters";
 import { applySm2Review, createInitialSrsState } from "../lib/languageUtils";
 import { applyWorkspaceFonts, normalizeFontSettings } from "../lib/fonts";
 import { normalizeLibraryWorkspaceData } from "../lib/migrateLibrary";
+import {
+  buildListTreeIndex,
+  getDescendantListIds,
+  wouldCreateListCycle,
+} from "../lib/listTree";
 import { sanitizeNavigationSettings } from "../lib/viewNavigation";
 import {
   buildDateAtTime,
@@ -762,6 +767,7 @@ interface WorkspaceContextValue {
     icon: string,
     color?: string,
     listType?: ListCollectionType,
+    parentId?: string | null,
   ) => ListCollection;
   updateList: (id: string, patch: Partial<ListCollection>) => void;
   renameList: (id: string, title: string, icon?: string) => void;
@@ -773,7 +779,7 @@ interface WorkspaceContextValue {
   reorderLists: (
     draggedId: string,
     targetId: string,
-    position: "before" | "after",
+    position: "before" | "after" | "inside",
   ) => void;
   addListItem: (
     listId: string,
@@ -3171,14 +3177,20 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       icon: string,
       color = "#6366f1",
       listType: ListCollectionType = "custom",
+      parentId: string | null = null,
     ): ListCollection => {
       const nowIso = new Date().toISOString();
+      const validParentId =
+        parentId && latestWorkspaceRef.current.lists.some((l) => l.id === parentId)
+          ? parentId
+          : null;
       const created: ListCollection = {
         id: uid("list"),
         title: title.trim() || "Untitled List",
         icon,
         color,
         listType,
+        parentId: validParentId,
         createdAt: nowIso,
         updatedAt: nowIso,
       };
@@ -3186,7 +3198,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         ...prev,
         lists: [...prev.lists, created],
       }));
-      pushToast(`Created list "${created.title}"`, "success");
+      pushToast(
+        validParentId
+          ? `Created sublist "${created.title}"`
+          : `Created list "${created.title}"`,
+        "success",
+      );
       return created;
     },
     [mutateWorkspace, pushToast],
@@ -3195,12 +3212,28 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   const updateList = useCallback(
     (id: string, patch: Partial<ListCollection>) => {
       const nowIso = new Date().toISOString();
-      mutateWorkspace((prev) => ({
-        ...prev,
-        lists: prev.lists.map((l) =>
-          l.id === id ? { ...l, ...patch, updatedAt: nowIso } : l,
-        ),
-      }));
+      mutateWorkspace((prev) => {
+        const { byId } = buildListTreeIndex(prev.lists);
+        const sanitizedPatch = { ...patch };
+        if (sanitizedPatch.parentId !== undefined) {
+          const nextParent = sanitizedPatch.parentId || null;
+          if (
+            nextParent &&
+            (!byId.has(nextParent) ||
+              wouldCreateListCycle(id, nextParent, byId))
+          ) {
+            delete sanitizedPatch.parentId;
+          } else {
+            sanitizedPatch.parentId = nextParent;
+          }
+        }
+        return {
+          ...prev,
+          lists: prev.lists.map((l) =>
+            l.id === id ? { ...l, ...sanitizedPatch, updatedAt: nowIso } : l,
+          ),
+        };
+      });
     },
     [mutateWorkspace],
   );
@@ -3304,21 +3337,35 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       linkedNotesBehavior: "keep" | "delete" = "keep",
     ) => {
       const nowIso = new Date().toISOString();
-      const targetMoveId =
-        moveItemsToListId && moveItemsToListId !== id ? moveItemsToListId : null;
       let deletedIds: string[] = [];
+      let movedItems = false;
+      let deletedSublistCount = 0;
+
       mutateWorkspace((prev) => {
+        const { childrenMap } = buildListTreeIndex(prev.lists);
+        const subtreeIds = getDescendantListIds(id, childrenMap);
+        const subtreeSet = new Set(subtreeIds);
+        deletedSublistCount = Math.max(0, subtreeIds.length - 1);
+
+        const targetMoveId =
+          moveItemsToListId &&
+          !subtreeSet.has(moveItemsToListId) &&
+          prev.lists.some((l) => l.id === moveItemsToListId)
+            ? moveItemsToListId
+            : null;
+        movedItems = Boolean(targetMoveId);
+
         if (!targetMoveId) {
           deletedIds = prev.listItems
-            .filter((item) => item.listId === id)
+            .filter((item) => subtreeSet.has(item.listId))
             .map((item) => item.id);
         }
         const deleteSet = new Set(deletedIds);
         const entriesWithoutListId = prev.entries.map((entry) =>
-          entry.listIds && entry.listIds.includes(id)
+          entry.listIds && entry.listIds.some((lid) => subtreeSet.has(lid))
             ? {
                 ...entry,
-                listIds: entry.listIds.filter((lid) => lid !== id),
+                listIds: entry.listIds.filter((lid) => !subtreeSet.has(lid)),
                 updatedAt: nowIso,
               }
             : entry,
@@ -3334,14 +3381,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
         return {
           ...prev,
-          lists: prev.lists.filter((l) => l.id !== id),
+          lists: prev.lists.filter((l) => !subtreeSet.has(l.id)),
           listItems: targetMoveId
             ? prev.listItems.map((item) =>
-                item.listId === id
+                subtreeSet.has(item.listId)
                   ? { ...item, listId: targetMoveId, updatedAt: nowIso }
                   : item,
               )
-            : prev.listItems.filter((item) => item.listId !== id),
+            : prev.listItems.filter((item) => !subtreeSet.has(item.listId)),
           entries: finalEntries,
         };
       });
@@ -3349,7 +3396,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         queueMicrotask(() => removeListItemBookLinks(deletedIds));
       }
       pushToast(
-        targetMoveId ? "Items moved and list deleted" : "List deleted",
+        movedItems
+          ? "Items moved and list deleted"
+          : deletedSublistCount > 0
+            ? "List and sublists deleted"
+            : "List deleted",
       );
     },
     [mutateWorkspace, pushToast, applyListItemDeletionToEntries],
@@ -3419,22 +3470,58 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const reorderLists = useCallback(
-    (draggedId: string, targetId: string, position: "before" | "after") => {
+    (
+      draggedId: string,
+      targetId: string,
+      position: "before" | "after" | "inside",
+    ) => {
       if (!draggedId || !targetId || draggedId === targetId) return;
+      const nowIso = new Date().toISOString();
       mutateWorkspace((prev) => {
         const current = prev.lists ?? [];
-        const dragged = current.find((l) => l.id === draggedId);
-        if (!dragged || !current.some((l) => l.id === targetId)) return prev;
+        const { byId } = buildListTreeIndex(current);
+        const dragged = byId.get(draggedId);
+        const target = byId.get(targetId);
+        if (!dragged || !target) return prev;
+
+        const nextParentId =
+          position === "inside" ? target.id : (target.parentId ?? null);
+
+        if (
+          nextParentId &&
+          wouldCreateListCycle(draggedId, nextParentId, byId)
+        ) {
+          return prev;
+        }
+
+        const updatedDragged: ListCollection =
+          (dragged.parentId ?? null) === nextParentId
+            ? dragged
+            : { ...dragged, parentId: nextParentId, updatedAt: nowIso };
+
+        if (position === "inside") {
+          const nextLists = current.map((l) =>
+            l.id === draggedId ? updatedDragged : l,
+          );
+          return {
+            ...prev,
+            lists: nextLists,
+          };
+        }
+
         const remaining = current.filter((l) => l.id !== draggedId);
         const targetIdx = remaining.findIndex((l) => l.id === targetId);
         if (targetIdx === -1) return prev;
         const insertIdx = position === "before" ? targetIdx : targetIdx + 1;
         const nextLists = [
           ...remaining.slice(0, insertIdx),
-          dragged,
+          updatedDragged,
           ...remaining.slice(insertIdx),
         ];
-        if (nextLists.every((l, idx) => l.id === current[idx]?.id)) {
+        if (
+          (dragged.parentId ?? null) === nextParentId &&
+          nextLists.every((l, idx) => l.id === current[idx]?.id)
+        ) {
           return prev;
         }
         return {

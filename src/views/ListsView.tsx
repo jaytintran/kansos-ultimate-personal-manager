@@ -12,6 +12,7 @@ import {
   Columns3,
   ExternalLink,
   FileText,
+  FolderPlus,
   Globe,
   GripVertical,
   Inbox,
@@ -47,9 +48,23 @@ import { DeleteListItemsConfirmModal } from "../components/lists/DeleteListItems
 import {
   buildKanbanColumnsForList,
   buildKanbanColumnsForSmartTab,
+  buildKanbanColumnsForSublists,
   KanbanColumnDef,
   ListKanbanBoard,
 } from "../components/lists/ListKanbanBoard";
+import {
+  SublistFilterValue,
+  SublistTabStrip,
+} from "../components/lists/SublistTabStrip";
+import {
+  buildListTreeIndex,
+  computeRecursiveListCounts,
+  flattenListTree,
+  formatIndentedListOptionLabel,
+  getDescendantListIds,
+  getDirectChildBranchId,
+  getListAncestors,
+} from "../lib/listTree";
 import {
   DEFAULT_LISTS_SIDEBAR_WIDTH,
   ListsLeftSidebar,
@@ -124,6 +139,9 @@ interface ListsWorkspaceState {
   sidebarWidth: number;
   sidebarCollapsedDesktop: boolean;
   sidebarSectionsCollapsed: { smart: boolean; lists: boolean };
+  expandedListIds: Record<string, boolean>;
+  sublistFilterByScope: Record<string, SublistFilterValue>;
+  boardByByScope: Record<string, "status" | "sublist">;
 }
 
 const PREFS_KEY = "kanso_lists_prefs_v1";
@@ -251,6 +269,9 @@ function loadLocalWorkspaceState(
     sidebarWidth: DEFAULT_LISTS_SIDEBAR_WIDTH,
     sidebarCollapsedDesktop: false,
     sidebarSectionsCollapsed: { smart: false, lists: false },
+    expandedListIds: {},
+    sublistFilterByScope: {},
+    boardByByScope: {},
   };
 
   if (typeof localStorage === "undefined") return defaults;
@@ -313,6 +334,19 @@ function loadLocalWorkspaceState(
       perListLayout:
         parsed.perListLayout && typeof parsed.perListLayout === "object"
           ? parsed.perListLayout
+          : {},
+      expandedListIds:
+        parsed.expandedListIds && typeof parsed.expandedListIds === "object"
+          ? parsed.expandedListIds
+          : {},
+      sublistFilterByScope:
+        parsed.sublistFilterByScope &&
+        typeof parsed.sublistFilterByScope === "object"
+          ? parsed.sublistFilterByScope
+          : {},
+      boardByByScope:
+        parsed.boardByByScope && typeof parsed.boardByByScope === "object"
+          ? parsed.boardByByScope
           : {},
     };
   } catch {
@@ -411,6 +445,10 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const [attachModalKind, setAttachModalKind] = useState<
     "notes" | "events" | null
   >(null);
+  const [listAddTargetByScope, setListAddTargetByScope] = useState<
+    Record<string, string>
+  >({});
+
   const [listModal, setListModal] = useState<{
     mode: "create" | "edit";
     list?: ListCollection;
@@ -418,6 +456,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
     icon: string;
     color: string;
     listType: ListCollectionType;
+    parentId: string | null;
   } | null>(null);
 
   const [isDesktop, setIsDesktop] = useState<boolean>(() =>
@@ -574,6 +613,19 @@ export const ListsView: React.FC<ListsViewProps> = ({
     [activeTabItem, listById],
   );
 
+  const listTreeIndex = useMemo(
+    () => buildListTreeIndex(activeLists),
+    [activeLists],
+  );
+  const flattenedLists = useMemo(
+    () => flattenListTree(activeLists),
+    [activeLists],
+  );
+  const listCounts = useMemo(
+    () => computeRecursiveListCounts(activeLists, workspace.listItems),
+    [activeLists, workspace.listItems],
+  );
+
   const scope = localState.scope;
   const isSmartScope = scope.kind === "smart";
   const currentList =
@@ -583,9 +635,54 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const linkedContextList = activeTabItem ? activeTabItemList : currentList;
   const scopeKey = getScopeStorageKey(scope);
 
+  const currentAncestors = useMemo(
+    () =>
+      currentList
+        ? getListAncestors(currentList.id, listTreeIndex.byId)
+        : [],
+    [currentList, listTreeIndex.byId],
+  );
+
+  const directSublists = useMemo(
+    () =>
+      currentList ? listTreeIndex.childrenMap.get(currentList.id) || [] : [],
+    [currentList, listTreeIndex.childrenMap],
+  );
+  const hasSublists = directSublists.length > 0;
+
+  const activeSublistFilter: SublistFilterValue = useMemo(() => {
+    if (!currentList || directSublists.length === 0) return "all";
+    const saved = localState.sublistFilterByScope[scopeKey];
+    if (!saved || saved === "all" || saved === "direct") return saved || "all";
+    return directSublists.some((s) => s.id === saved) ? saved : "all";
+  }, [currentList, directSublists, localState.sublistFilterByScope, scopeKey]);
+
+  const focusedSublist = useMemo(
+    () =>
+      activeSublistFilter !== "all" && activeSublistFilter !== "direct"
+        ? directSublists.find((s) => s.id === activeSublistFilter) || null
+        : null,
+    [activeSublistFilter, directSublists],
+  );
+
+  const effectiveBaseList = focusedSublist || currentList;
+  const effectiveBaseDirectSublists = useMemo(
+    () =>
+      effectiveBaseList
+        ? listTreeIndex.childrenMap.get(effectiveBaseList.id) || []
+        : [],
+    [effectiveBaseList, listTreeIndex.childrenMap],
+  );
+  const effectiveHasSublists =
+    effectiveBaseDirectSublists.length > 0 && activeSublistFilter !== "direct";
+
   const activeLayout: LayoutConfig = useMemo(() => {
     const saved = localState.perListLayout[scopeKey];
-    const defaultGroup: ListsGroupBy = isSmartScope ? "none" : prefs.groupBy;
+    const defaultGroup: ListsGroupBy = isSmartScope
+      ? "none"
+      : hasSublists
+        ? "sublist"
+        : prefs.groupBy;
     if (!saved) {
       return {
         viewMode: prefs.viewMode,
@@ -600,14 +697,36 @@ export const ListsView: React.FC<ListsViewProps> = ({
       thenBy: saved.thenBy || "none",
       sortBy: saved.sortBy || "custom",
     };
-  }, [localState.perListLayout, scopeKey, isSmartScope, prefs]);
+  }, [localState.perListLayout, scopeKey, isSmartScope, hasSublists, prefs]);
+
+  const effectiveGroupBy: ListsGroupBy =
+    activeLayout.groupBy === "sublist" && !effectiveHasSublists
+      ? "status"
+      : activeLayout.groupBy;
+  const effectiveThenBy: ListsGroupBy =
+    activeLayout.thenBy === "sublist" && !effectiveHasSublists
+      ? "none"
+      : activeLayout.thenBy !== "none" &&
+          activeLayout.thenBy !== effectiveGroupBy
+        ? activeLayout.thenBy
+        : "none";
+
+  const effectiveBoardBy: "status" | "sublist" =
+    currentList && effectiveHasSublists
+      ? localState.boardByByScope[scopeKey] || "sublist"
+      : "status";
 
   const updateActiveLayout = useCallback(
     (patch: Partial<LayoutConfig>) => {
       setLocalState((prev) => {
+        const defaultGroup: ListsGroupBy = isSmartScope
+          ? "none"
+          : hasSublists
+            ? "sublist"
+            : prefs.groupBy;
         const current = prev.perListLayout[scopeKey] || {
           viewMode: prefs.viewMode,
-          groupBy: isSmartScope ? "none" : prefs.groupBy,
+          groupBy: defaultGroup,
           thenBy: isSmartScope ? "none" : prefs.thenBy,
           sortBy: prefs.sortBy,
         };
@@ -620,7 +739,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
         };
       });
     },
-    [scopeKey, isSmartScope, prefs],
+    [scopeKey, isSmartScope, hasSublists, prefs],
   );
 
   // Drag & drop state
@@ -637,12 +756,15 @@ export const ListsView: React.FC<ListsViewProps> = ({
   } | null>(null);
   const [statusGroupDropTarget, setStatusGroupDropTarget] =
     useState<ListItemStatus | null>(null);
+  const [sublistGroupDropTarget, setSublistGroupDropTarget] =
+    useState<string | null>(null);
 
   const clearAllDragStates = useCallback(() => {
     activeDragItemIdRef.current = null;
     setDraggingItemId(null);
     setItemDropTarget(null);
     setStatusGroupDropTarget(null);
+    setSublistGroupDropTarget(null);
   }, []);
 
   useEffect(() => {
@@ -678,13 +800,8 @@ export const ListsView: React.FC<ListsViewProps> = ({
       ? "inspector"
       : localState.rightPaneMode;
 
-  const listItemCountsByCollection = useMemo(() => {
-    const map = new Map<string, number>();
-    workspace.listItems.forEach((item) => {
-      map.set(item.listId, (map.get(item.listId) || 0) + 1);
-    });
-    return map;
-  }, [workspace.listItems]);
+  const listItemCountsByCollection = listCounts.totalCounts;
+  const directListItemCountsByCollection = listCounts.directCounts;
 
   const globalStatusCounts = useMemo(() => {
     const counts: Record<ListItemStatus, number> = {
@@ -700,12 +817,22 @@ export const ListsView: React.FC<ListsViewProps> = ({
     return counts;
   }, [workspace.listItems]);
 
+  const scopedListIdSet = useMemo(() => {
+    if (scope.kind !== "list") return null;
+    if (activeSublistFilter === "direct") {
+      return new Set([scope.listId]);
+    }
+    const baseId = focusedSublist ? focusedSublist.id : scope.listId;
+    return new Set(getDescendantListIds(baseId, listTreeIndex.childrenMap));
+  }, [scope, activeSublistFilter, focusedSublist, listTreeIndex.childrenMap]);
+
   const scopeItemsAll = useMemo(() => {
     if (scope.kind === "smart") {
       return workspace.listItems.filter((i) => i.status === scope.status);
     }
-    return workspace.listItems.filter((i) => i.listId === scope.listId);
-  }, [workspace.listItems, scope]);
+    if (!scopedListIdSet) return [];
+    return workspace.listItems.filter((i) => scopedListIdSet.has(i.listId));
+  }, [workspace.listItems, scope, scopedListIdSet]);
 
   const scopeStatusCounts = useMemo(() => {
     const counts: Record<ListItemStatus, number> = {
@@ -847,49 +974,111 @@ export const ListsView: React.FC<ListsViewProps> = ({
   );
 
   // Two-level grouping helper
-  const groupItems = (
-    items: ListItem[],
-    by: ListsGroupBy,
-  ): { key: string; label: string; items: ListItem[] }[] => {
-    if (by === "none") {
-      return [{ key: "all", label: "", items }];
-    }
-    if (by === "status") {
-      return STATUS_ORDER.map((st) => ({
-        key: st,
-        label: STATUS_META[st].label,
-        items: items.filter((i) => i.status === st),
-      })).filter((g) => g.items.length > 0);
-    }
-    // by === 'tag'
-    const map = new Map<string, ListItem[]>();
-    for (const item of items) {
-      const primary =
-        item.tags && item.tags.length > 0 ? `#${item.tags[0]}` : "Untagged";
-      const arr = map.get(primary) || [];
-      arr.push(item);
-      map.set(primary, arr);
-    }
-    return Array.from(map.entries())
-      .sort(([a], [b]) =>
-        a === "Untagged" ? 1 : b === "Untagged" ? -1 : a.localeCompare(b),
-      )
-      .map(([label, arr]) => ({ key: label, label, items: arr }));
-  };
+  const groupItems = useCallback(
+    (
+      items: ListItem[],
+      by: ListsGroupBy,
+    ): {
+      key: string;
+      label: string;
+      listId?: string;
+      color?: string;
+      icon?: string;
+      isDirect?: boolean;
+      items: ListItem[];
+    }[] => {
+      if (by === "none") {
+        return [{ key: "all", label: "", items }];
+      }
+      if (by === "status") {
+        return STATUS_ORDER.map((st) => ({
+          key: st,
+          label: STATUS_META[st].label,
+          items: items.filter((i) => i.status === st),
+        })).filter((g) => g.items.length > 0);
+      }
+      if (by === "sublist" && effectiveBaseList) {
+        const directBucket: ListItem[] = [];
+        const childBuckets = new Map<string, ListItem[]>();
+
+        for (const item of items) {
+          const branch = getDirectChildBranchId(
+            item.listId,
+            effectiveBaseList.id,
+            listTreeIndex.byId,
+          );
+          if (branch === "__direct__") {
+            directBucket.push(item);
+          } else if (branch) {
+            const arr = childBuckets.get(branch) || [];
+            arr.push(item);
+            childBuckets.set(branch, arr);
+          }
+        }
+
+        const groups: {
+          key: string;
+          label: string;
+          listId?: string;
+          color?: string;
+          icon?: string;
+          isDirect?: boolean;
+          items: ListItem[];
+        }[] = [];
+
+        if (directBucket.length > 0) {
+          groups.push({
+            key: `sublist:__direct__:${effectiveBaseList.id}`,
+            label: `Direct · ${effectiveBaseList.title}`,
+            listId: effectiveBaseList.id,
+            color: effectiveBaseList.color || "#4f46e5",
+            icon: effectiveBaseList.icon,
+            isDirect: true,
+            items: directBucket,
+          });
+        }
+
+        for (const sub of effectiveBaseDirectSublists) {
+          const arr = childBuckets.get(sub.id) || [];
+          if (arr.length > 0) {
+            groups.push({
+              key: `sublist:${sub.id}`,
+              label: sub.title,
+              listId: sub.id,
+              color: sub.color || effectiveBaseList.color || "#4f46e5",
+              icon: sub.icon,
+              items: arr,
+            });
+          }
+        }
+        return groups;
+      }
+      // by === 'tag'
+      const map = new Map<string, ListItem[]>();
+      for (const item of items) {
+        const primary =
+          item.tags && item.tags.length > 0 ? `#${item.tags[0]}` : "Untagged";
+        const arr = map.get(primary) || [];
+        arr.push(item);
+        map.set(primary, arr);
+      }
+      return Array.from(map.entries())
+        .sort(([a], [b]) =>
+          a === "Untagged" ? 1 : b === "Untagged" ? -1 : a.localeCompare(b),
+        )
+        .map(([label, arr]) => ({ key: label, label, items: arr }));
+    },
+    [effectiveBaseList, effectiveBaseDirectSublists, listTreeIndex.byId],
+  );
 
   const groupedTree = useMemo(() => {
-    const primary = groupItems(filteredItems, activeLayout.groupBy);
-    const effectiveThenBy: ListsGroupBy =
-      activeLayout.thenBy !== "none" &&
-      activeLayout.thenBy !== activeLayout.groupBy
-        ? activeLayout.thenBy
-        : "none";
+    const primary = groupItems(filteredItems, effectiveGroupBy);
     return primary.map((g) => ({
       ...g,
       subGroups: groupItems(g.items, effectiveThenBy),
       hasSubGroups: effectiveThenBy !== "none",
     }));
-  }, [filteredItems, activeLayout.groupBy, activeLayout.thenBy]);
+  }, [filteredItems, effectiveGroupBy, effectiveThenBy, groupItems]);
 
   const renderedItemOrder = useMemo(() => {
     const out: ListItem[] = [];
@@ -910,7 +1099,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
       !draggingItemId ||
       isSmartScope ||
       activeLayout.viewMode === "board" ||
-      activeLayout.groupBy !== "status" ||
+      effectiveGroupBy !== "status" ||
       localState.statusFilter !== "all"
     ) {
       return [];
@@ -921,9 +1110,33 @@ export const ListsView: React.FC<ListsViewProps> = ({
     draggingItemId,
     isSmartScope,
     activeLayout.viewMode,
-    activeLayout.groupBy,
+    effectiveGroupBy,
     localState.statusFilter,
     groupedTree,
+  ]);
+
+  const emptySublistsForDrag = useMemo(() => {
+    if (
+      !draggingItemId ||
+      isSmartScope ||
+      activeLayout.viewMode === "board" ||
+      effectiveGroupBy !== "sublist" ||
+      !effectiveBaseList
+    ) {
+      return [];
+    }
+    const presentListIds = new Set(
+      groupedTree.map((g) => g.listId).filter((id): id is string => Boolean(id)),
+    );
+    return effectiveBaseDirectSublists.filter((s) => !presentListIds.has(s.id));
+  }, [
+    draggingItemId,
+    isSmartScope,
+    activeLayout.viewMode,
+    effectiveGroupBy,
+    effectiveBaseList,
+    groupedTree,
+    effectiveBaseDirectSublists,
   ]);
 
   const isSingleColumnForElement = useCallback(
@@ -971,16 +1184,24 @@ export const ListsView: React.FC<ListsViewProps> = ({
       const targetItem = scopeItemsAll.find((i) => i.id === targetItemId);
       if (!draggedItem || !targetItem) return;
 
-      // Cross-list drop on Kanban Smart Tab
-      if (isSmartScope && draggedItem.listId !== targetItem.listId) {
+      // Cross-list drop on Kanban Smart Tab or Sublists Board/Grouping
+      const isSublistCrossMove =
+        !isSmartScope &&
+        ((activeLayout.viewMode === "board" && effectiveBoardBy === "sublist") ||
+          (activeLayout.viewMode !== "board" && effectiveGroupBy === "sublist")) &&
+        draggedItem.listId !== targetItem.listId;
+      if (
+        (isSmartScope && draggedItem.listId !== targetItem.listId) ||
+        isSublistCrossMove
+      ) {
         handleMoveItemToList(draggedId, targetItem.listId);
         return;
       }
 
       const shouldChangeStatus =
         !isSmartScope &&
-        (activeLayout.groupBy === "status" ||
-          activeLayout.viewMode === "board") &&
+        ((activeLayout.viewMode === "board" && effectiveBoardBy === "status") ||
+          (activeLayout.viewMode !== "board" && effectiveGroupBy === "status")) &&
         draggedItem.status !== targetItem.status;
 
       if (!isCustomSort) {
@@ -1056,7 +1277,8 @@ export const ListsView: React.FC<ListsViewProps> = ({
       scopeItemsAll,
       isSmartScope,
       handleMoveItemToList,
-      activeLayout.groupBy,
+      effectiveGroupBy,
+      effectiveBoardBy,
       activeLayout.viewMode,
       isCustomSort,
       renderedItemOrder,
@@ -1102,7 +1324,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
         }
       }
 
-      if (!isSmartScope && activeLayout.groupBy === "status") {
+      if (!isSmartScope && effectiveGroupBy === "status") {
         for (const [st, el] of statusDropZoneRefs.current.entries()) {
           const rect = el.getBoundingClientRect();
           if (
@@ -1121,7 +1343,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
 
       return { itemTarget: null, statusTarget: null };
     },
-    [renderedItemOrder, isSingleColumnForElement, isSmartScope, activeLayout.groupBy],
+    [renderedItemOrder, isSingleColumnForElement, isSmartScope, effectiveGroupBy],
   );
 
   // Tab management handlers
@@ -1371,27 +1593,70 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const handleSaveListModal = (e: React.FormEvent) => {
     e.preventDefault();
     if (!listModal || !listModal.title.trim()) return;
+    const targetParentId = listModal.parentId ?? null;
     if (listModal.mode === "create") {
       const created = addList(
         listModal.title.trim(),
         listModal.icon,
         listModal.color,
         listModal.listType,
+        targetParentId,
       );
-      setLocalState((prev) => ({
-        ...prev,
-        scope: { kind: "list", listId: created.id },
-        statusFilter: "all",
-        tagFilter: "all",
-        activeTabId: null,
-      }));
+      setLocalState((prev) => {
+        const nextExpanded = { ...prev.expandedListIds };
+        let ancCursor = targetParentId;
+        const seen = new Set<string>();
+        while (ancCursor && !seen.has(ancCursor)) {
+          seen.add(ancCursor);
+          nextExpanded[ancCursor] = true;
+          ancCursor = listTreeIndex.byId.get(ancCursor)?.parentId ?? null;
+        }
+        const stayingInParent =
+          targetParentId &&
+          prev.scope.kind === "list" &&
+          prev.scope.listId === targetParentId;
+        if (stayingInParent) {
+          const parentScopeKey = `list:${targetParentId}`;
+          return {
+            ...prev,
+            expandedListIds: nextExpanded,
+            sublistFilterByScope: {
+              ...prev.sublistFilterByScope,
+              [parentScopeKey]: created.id,
+            },
+            activeTabId: null,
+          };
+        }
+        return {
+          ...prev,
+          expandedListIds: nextExpanded,
+          scope: { kind: "list", listId: created.id },
+          statusFilter: "all",
+          tagFilter: "all",
+          activeTabId: null,
+        };
+      });
     } else if (listModal.list) {
       updateList(listModal.list.id, {
         title: listModal.title.trim(),
         icon: listModal.icon,
         color: listModal.color,
         listType: listModal.listType,
+        parentId: targetParentId,
       });
+      if (targetParentId) {
+        setLocalState((prev) => {
+          const nextExpanded = { ...prev.expandedListIds };
+          let ancCursor: string | null | undefined = targetParentId;
+          const seen = new Set<string>();
+          while (ancCursor && !seen.has(ancCursor)) {
+            seen.add(ancCursor);
+            nextExpanded[ancCursor] = true;
+            ancCursor = listTreeIndex.byId.get(ancCursor)?.parentId ?? null;
+          }
+          return { ...prev, expandedListIds: nextExpanded };
+        });
+      }
     }
     setListModal(null);
   };
@@ -1403,6 +1668,17 @@ export const ListsView: React.FC<ListsViewProps> = ({
       icon: "ListChecks",
       color: LIST_COLORS[activeLists.length % LIST_COLORS.length],
       listType: "custom",
+      parentId: null,
+    });
+
+  const openCreateSublistModal = (parentList: ListCollection) =>
+    setListModal({
+      mode: "create",
+      title: "",
+      icon: parentList.icon || "FolderKanban",
+      color: parentList.color || LIST_COLORS[activeLists.length % LIST_COLORS.length],
+      listType: parentList.listType || "custom",
+      parentId: parentList.id,
     });
 
   const handleSelectContextTab = (tab: ContextPaneTab) => {
@@ -1420,10 +1696,35 @@ export const ListsView: React.FC<ListsViewProps> = ({
   // Kanban columns & callbacks
   const kanbanColumns = useMemo<KanbanColumnDef[]>(() => {
     if (scope.kind === "smart") {
-      return buildKanbanColumnsForSmartTab(filteredItems, activeLists);
+      return buildKanbanColumnsForSmartTab(
+        filteredItems,
+        flattenedLists.map((n) => n.list),
+      );
+    }
+    if (
+      effectiveBoardBy === "sublist" &&
+      effectiveBaseList &&
+      effectiveHasSublists
+    ) {
+      return buildKanbanColumnsForSublists(
+        filteredItems,
+        effectiveBaseList,
+        effectiveBaseDirectSublists,
+        (itemListId, baseId) =>
+          getDirectChildBranchId(itemListId, baseId, listTreeIndex.byId),
+      );
     }
     return buildKanbanColumnsForList(filteredItems, STATUS_META, STATUS_ORDER);
-  }, [scope.kind, filteredItems, activeLists]);
+  }, [
+    scope.kind,
+    filteredItems,
+    flattenedLists,
+    effectiveBoardBy,
+    effectiveBaseList,
+    effectiveHasSublists,
+    effectiveBaseDirectSublists,
+    listTreeIndex.byId,
+  ]);
 
   const handleDropOnKanbanColumn = useCallback(
     (itemId: string, col: KanbanColumnDef) => {
@@ -1439,14 +1740,27 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const handleInlineAddInKanbanColumn = useCallback(
     (col: KanbanColumnDef, rawText: string) => {
       if (scope.kind === "smart") {
-        const targetListId = col.listId || smartAddTargetListId || activeLists[0]?.id;
+        const targetListId =
+          col.listId || smartAddTargetListId || activeLists[0]?.id;
         if (!targetListId) return;
         addListItem(targetListId, rawText, scope.status);
       } else {
-        addListItem(scope.listId, rawText, col.status || "inbox");
+        const targetListId =
+          col.listId || focusedSublist?.id || scope.listId;
+        const targetStatus: ListItemStatus =
+          col.status ||
+          (localState.statusFilter === "all" ? "inbox" : localState.statusFilter);
+        addListItem(targetListId, rawText, targetStatus);
       }
     },
-    [scope, smartAddTargetListId, activeLists, addListItem],
+    [
+      scope,
+      smartAddTargetListId,
+      activeLists,
+      addListItem,
+      focusedSublist,
+      localState.statusFilter,
+    ],
   );
 
   const selectedInspectorItem = useMemo(
@@ -1462,10 +1776,22 @@ export const ListsView: React.FC<ListsViewProps> = ({
     let count = 0;
     if (!isSmartScope && localState.statusFilter !== "all") count++;
     if (localState.tagFilter !== "all") count++;
-    if (activeLayout.groupBy !== (isSmartScope ? "none" : "status")) count++;
+    const defaultGb: ListsGroupBy = isSmartScope
+      ? "none"
+      : hasSublists
+        ? "sublist"
+        : "status";
+    if (effectiveGroupBy !== defaultGb) count++;
     if (activeLayout.sortBy !== "custom") count++;
     return count;
-  }, [isSmartScope, localState.statusFilter, localState.tagFilter, activeLayout]);
+  }, [
+    isSmartScope,
+    hasSublists,
+    localState.statusFilter,
+    localState.tagFilter,
+    effectiveGroupBy,
+    activeLayout.sortBy,
+  ]);
 
   const todayKey = getTodayKey();
 
@@ -1674,23 +2000,59 @@ export const ListsView: React.FC<ListsViewProps> = ({
   };
 
   const renderSourceListBadge = (item: ListItem) => {
-    if (!isSmartScope) return null;
     const srcList = listById.get(item.listId);
     if (!srcList) return null;
-    const badgeColor = srcList.color || "#4f46e5";
-    return (
-      <span
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-medium max-w-[130px] truncate shrink-0"
-        style={{
-          backgroundColor: `${badgeColor}18`,
-          color: badgeColor,
-        }}
-        title={`From list: ${srcList.title}`}
-      >
-        <CollectionIcon name={srcList.icon} className="w-2.5 h-2.5 shrink-0" />
-        <span className="truncate">{srcList.title}</span>
-      </span>
-    );
+
+    if (isSmartScope) {
+      const badgeColor = srcList.color || "#4f46e5";
+      return (
+        <span
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-medium max-w-[140px] truncate shrink-0"
+          style={{
+            backgroundColor: `${badgeColor}18`,
+            color: badgeColor,
+          }}
+          title={`From list: ${srcList.title}`}
+        >
+          <CollectionIcon name={srcList.icon} className="w-2.5 h-2.5 shrink-0" />
+          <span className="truncate">{srcList.title}</span>
+        </span>
+      );
+    }
+
+    if (
+      currentList &&
+      effectiveHasSublists &&
+      effectiveGroupBy !== "sublist" &&
+      activeLayout.viewMode !== "board"
+    ) {
+      if (item.listId === effectiveBaseList?.id) {
+        return (
+          <span
+            className="inline-flex items-center text-[11px] font-medium shrink-0"
+            style={{ color: "var(--text-muted)" }}
+            title={`Directly in ${effectiveBaseList.title}`}
+          >
+            Direct
+          </span>
+        );
+      }
+      const badgeColor = srcList.color || "#4f46e5";
+      return (
+        <span
+          className="inline-flex items-center gap-1 text-[11px] font-medium max-w-[130px] truncate shrink-0"
+          style={{ color: badgeColor }}
+          title={`In sublist: ${srcList.title}`}
+        >
+          <CollectionIcon name={srcList.icon} className="w-2.5 h-2.5 shrink-0" />
+          <span className="truncate" style={{ color: "var(--text-secondary)" }}>
+            {srcList.title}
+          </span>
+        </span>
+      );
+    }
+
+    return null;
   };
 
   const makeCommonDragHandlers = (item: ListItem, isInlineEditing: boolean) => ({
@@ -1719,15 +2081,19 @@ export const ListsView: React.FC<ListsViewProps> = ({
       const draggedItem = scopeItemsAll.find((i) => i.id === draggedId);
       const crossStatus =
         !isSmartScope &&
-        (activeLayout.groupBy === "status" ||
-          activeLayout.viewMode === "board") &&
+        ((activeLayout.viewMode === "board" && effectiveBoardBy === "status") ||
+          (activeLayout.viewMode !== "board" && effectiveGroupBy === "status")) &&
         draggedItem &&
         draggedItem.status !== item.status;
       const crossList =
-        isSmartScope &&
-        activeLayout.viewMode === "board" &&
         draggedItem &&
-        draggedItem.listId !== item.listId;
+        draggedItem.listId !== item.listId &&
+        ((isSmartScope && activeLayout.viewMode === "board") ||
+          (!isSmartScope &&
+            ((activeLayout.viewMode === "board" &&
+              effectiveBoardBy === "sublist") ||
+              (activeLayout.viewMode !== "board" &&
+                effectiveGroupBy === "sublist"))));
       if (!isCustomSort && !crossStatus && !crossList) return;
 
       e.preventDefault();
@@ -1848,11 +2214,22 @@ export const ListsView: React.FC<ListsViewProps> = ({
       </div>
     );
 
+    const showsSublistSourceBadge =
+      Boolean(
+        currentList &&
+          effectiveHasSublists &&
+          effectiveGroupBy !== "sublist" &&
+          !inBoard,
+      );
     const hasFooterLeft =
-      Boolean(item.scheduledAt) || isSmartScope || !inBoard;
+      Boolean(item.scheduledAt) ||
+      isSmartScope ||
+      showsSublistSourceBadge ||
+      !inBoard;
     const showFooter =
       Boolean(item.scheduledAt) ||
       isSmartScope ||
+      showsSublistSourceBadge ||
       itemTags.length > 0 ||
       !isInlineEditing;
 
@@ -2401,7 +2778,11 @@ export const ListsView: React.FC<ListsViewProps> = ({
           )}
 
           {/* Mobile metadata inline row */}
-          {(hasDue || itemTags.length > 0 || isSmartScope || Boolean(validUrl)) && (
+          {(hasDue ||
+            itemTags.length > 0 ||
+            isSmartScope ||
+            (currentList && effectiveHasSublists && effectiveGroupBy !== "sublist") ||
+            Boolean(validUrl)) && (
             <div
               className="flex sm:hidden flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-[11px]"
               style={{ color: "var(--text-muted)" }}
@@ -2685,27 +3066,49 @@ export const ListsView: React.FC<ListsViewProps> = ({
 
   const quickJumpLists = useMemo(() => {
     const q = quickJumpQuery.trim().toLowerCase();
-    return activeLists.filter((l) =>
-      !q ? true : l.title.toLowerCase().includes(q),
+    return flattenedLists.filter((node) =>
+      !q
+        ? true
+        : node.list.title.toLowerCase().includes(q) ||
+          node.pathLabel.toLowerCase().includes(q),
     );
-  }, [activeLists, quickJumpQuery]);
+  }, [flattenedLists, quickJumpQuery]);
 
   const activeSmartMeta =
     scope.kind === "smart" ? STATUS_META[scope.status] : null;
   const SmartHeaderIcon = activeSmartMeta?.icon;
 
-  const handleSelectScope = useCallback((nextScope: ListsScope) => {
-    setLocalState((prev) => ({
-      ...prev,
-      scope: nextScope,
-      activeTabId: null,
-      statusFilter: nextScope.kind === "list" ? "all" : prev.statusFilter,
-      tagFilter: "all",
-      subTab: nextScope.kind === "smart" ? "items" : prev.subTab,
-    }));
-    setSelectedIds(new Set());
-    setSelectionMode(false);
-  }, []);
+  const handleSelectScope = useCallback(
+    (nextScope: ListsScope) => {
+      setLocalState((prev) => {
+        let nextExpanded = prev.expandedListIds;
+        if (nextScope.kind === "list") {
+          const ancestors = getListAncestors(
+            nextScope.listId,
+            listTreeIndex.byId,
+          );
+          if (ancestors.length > 1) {
+            nextExpanded = { ...prev.expandedListIds };
+            for (let i = 0; i < ancestors.length - 1; i++) {
+              nextExpanded[ancestors[i].id] = true;
+            }
+          }
+        }
+        return {
+          ...prev,
+          expandedListIds: nextExpanded,
+          scope: nextScope,
+          activeTabId: null,
+          statusFilter: nextScope.kind === "list" ? "all" : prev.statusFilter,
+          tagFilter: "all",
+          subTab: nextScope.kind === "smart" ? "items" : prev.subTab,
+        };
+      });
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+    },
+    [listTreeIndex.byId],
+  );
 
   const renderQuickJumpButton = () => (
     <div className="relative shrink-0">
@@ -2822,7 +3225,8 @@ export const ListsView: React.FC<ListsViewProps> = ({
                   >
                     Lists
                   </div>
-                  {quickJumpLists.map((list) => {
+                  {quickJumpLists.map((node) => {
+                    const list = node.list;
                     const active =
                       scope.kind === "list" && scope.listId === list.id;
                     const color = list.color || "#4f46e5";
@@ -2834,8 +3238,10 @@ export const ListsView: React.FC<ListsViewProps> = ({
                           handleSelectScope({ kind: "list", listId: list.id });
                           setQuickJumpOpen(false);
                         }}
-                        className="w-full px-2 py-1.5 rounded-lg flex items-center justify-between gap-2 text-xs font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                        title={node.pathLabel}
+                        className="w-full pr-2 py-1.5 rounded-lg flex items-center justify-between gap-2 text-xs font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
                         style={{
+                          paddingLeft: `${8 + Math.min(node.depth, 4) * 12}px`,
                           backgroundColor: active
                             ? "var(--accent-soft)"
                             : "transparent",
@@ -2853,7 +3259,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
                           <span className="truncate">{list.title}</span>
                         </span>
                         <span
-                          className="font-mono text-[11px]"
+                          className="font-mono tabular-nums text-[11px]"
                           style={{ color: "var(--text-muted)" }}
                         >
                           {listItemCountsByCollection.get(list.id) || 0}
@@ -2879,6 +3285,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
       <ListsLeftSidebar
         lists={activeLists}
         listItemCounts={listItemCountsByCollection}
+        directListItemCounts={directListItemCountsByCollection}
         globalStatusCounts={globalStatusCounts}
         statusOrder={STATUS_ORDER}
         statusMeta={STATUS_META}
@@ -2886,6 +3293,16 @@ export const ListsView: React.FC<ListsViewProps> = ({
         sidebarWidth={localState.sidebarWidth}
         isCollapsedDesktop={localState.sidebarCollapsedDesktop}
         sectionsCollapsed={localState.sidebarSectionsCollapsed}
+        expandedListIds={localState.expandedListIds}
+        onToggleExpandList={(listId) =>
+          setLocalState((prev) => ({
+            ...prev,
+            expandedListIds: {
+              ...prev.expandedListIds,
+              [listId]: !prev.expandedListIds[listId],
+            },
+          }))
+        }
         onToggleSection={(section) =>
           setLocalState((prev) => ({
             ...prev,
@@ -2908,6 +3325,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
         }
         onSelectScope={handleSelectScope}
         onCreateList={openCreateListModal}
+        onCreateSublist={openCreateSublistModal}
         onEditList={(list) =>
           setListModal({
             mode: "edit",
@@ -2916,6 +3334,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
             icon: list.icon,
             color: list.color || LIST_COLORS[0],
             listType: list.listType || "custom",
+            parentId: list.parentId ?? null,
           })
         }
         onDeleteList={(list) => setDeleteTargetList(list)}
@@ -3023,22 +3442,64 @@ export const ListsView: React.FC<ListsViewProps> = ({
                     className="w-3.5 h-3.5"
                   />
                 </span>
-                <div className="flex items-baseline gap-2.5 min-w-0">
-                  <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight truncate">
-                    {currentList.title}
-                  </h1>
-                  <span
-                    className="text-xs font-mono tabular-nums shrink-0 hidden sm:inline"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {scopeItemsAll.length}{" "}
-                    {scopeItemsAll.length === 1 ? "item" : "items"}
-                  </span>
+                <div className="min-w-0">
+                  {currentAncestors.length > 1 && (
+                    <nav
+                      aria-label="List hierarchy breadcrumb"
+                      className="flex items-center gap-1 text-[11px] min-w-0 mb-0.5"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {currentAncestors.slice(0, -1).map((anc, idx) => (
+                        <React.Fragment key={anc.id}>
+                          {idx > 0 && (
+                            <ChevronRight className="w-3 h-3 shrink-0 opacity-60" />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSelectScope({ kind: "list", listId: anc.id })
+                            }
+                            className="hover:underline truncate max-w-[140px] cursor-pointer"
+                            style={{ color: "var(--text-secondary)" }}
+                            title={`Open ${anc.title}`}
+                          >
+                            {anc.title}
+                          </button>
+                        </React.Fragment>
+                      ))}
+                    </nav>
+                  )}
+                  <div className="flex items-baseline gap-2.5 min-w-0">
+                    <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight truncate">
+                      {currentList.title}
+                    </h1>
+                    <span
+                      className="text-xs font-mono tabular-nums shrink-0 hidden sm:inline"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {scopeItemsAll.length}{" "}
+                      {scopeItemsAll.length === 1 ? "item" : "items"}
+                    </span>
+                  </div>
                 </div>
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
                 {renderQuickJumpButton()}
+                <button
+                  type="button"
+                  onClick={() => openCreateSublistModal(currentList)}
+                  className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-secondary)",
+                  }}
+                  title={`New sublist inside ${currentList.title}`}
+                >
+                  <FolderPlus className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline">Sublist</span>
+                </button>
                 <button
                   type="button"
                   onClick={() =>
@@ -3049,6 +3510,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
                       icon: currentList.icon,
                       color: currentList.color || LIST_COLORS[0],
                       listType: currentList.listType || "custom",
+                      parentId: currentList.parentId ?? null,
                     })
                   }
                   className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
@@ -3402,6 +3864,35 @@ export const ListsView: React.FC<ListsViewProps> = ({
             </div>
           </div>
         )}
+
+        {/* Row 4: Sublist Tab Strip (shown for parent lists with sublists; >10 groups 7th+ into dropdown) */}
+        {currentList && directSublists.length > 0 && (
+          <SublistTabStrip
+            parentList={currentList}
+            sublists={directSublists}
+            activeFilter={activeSublistFilter}
+            allCount={listCounts.totalCounts.get(currentList.id) || 0}
+            directCount={listCounts.directCounts.get(currentList.id) || 0}
+            sublistCounts={listCounts.totalCounts}
+            onSelectFilter={(next) =>
+              setLocalState((prev) => ({
+                ...prev,
+                subTab: "items",
+                sublistFilterByScope: {
+                  ...prev.sublistFilterByScope,
+                  [scopeKey]: next,
+                },
+              }))
+            }
+            onFocusSublist={(sublistId) =>
+              handleSelectScope({ kind: "list", listId: sublistId })
+            }
+            onCreateSublist={() => openCreateSublistModal(currentList)}
+            onDropItemOnList={handleMoveItemToList}
+            activeDragItemIdRef={activeDragItemIdRef}
+            onClearAllDragStates={clearAllDragStates}
+          />
+        )}
       </div>
       )}
 
@@ -3614,63 +4105,120 @@ export const ListsView: React.FC<ListsViewProps> = ({
             {(splitVisible || localState.subTab === "items") && (
               <>
                 {/* Smart Quick-Add Bar (URL auto-attach + natural date + #tags) */}
-                {(currentList || (isSmartScope && activeLists.length > 0)) && (
-                  <NlpInputBar
-                    placeholder={
-                      currentList
-                        ? `Add to ${currentList.title} (paste URL, due tomorrow, #tag)...`
-                        : `Add to ${STATUS_META[scope.kind === "smart" ? scope.status : "inbox"].label} (paste URL, due tomorrow, #tag)...`
-                    }
-                    onSubmit={(raw) => {
-                      if (scope.kind === "smart") {
-                        const targetId =
-                          smartAddTargetListId || activeLists[0]?.id;
-                        if (!targetId) return false;
-                        return Boolean(
-                          addListItem(targetId, raw, scope.status),
-                        );
-                      }
-                      return Boolean(
-                        addListItem(
-                          scope.listId,
-                          raw,
-                          localState.statusFilter === "all"
-                            ? "inbox"
-                            : localState.statusFilter,
+                {(currentList || (isSmartScope && activeLists.length > 0)) && (() => {
+                  const subtreeIdSet = currentList
+                    ? new Set(
+                        getDescendantListIds(
+                          currentList.id,
+                          listTreeIndex.childrenMap,
                         ),
-                      );
-                    }}
-                    leadingSlot={
-                      isSmartScope && activeLists.length > 0 ? (
-                        <select
-                          value={smartAddTargetListId}
-                          onChange={(e) =>
-                            setSmartAddTargetListId(e.target.value)
-                          }
-                          aria-label="Target list"
-                          className="h-7 px-2 rounded-lg border text-xs font-medium outline-none max-w-[140px] cursor-pointer"
-                          style={{
-                            backgroundColor: "var(--bg-surface-subtle)",
-                            borderColor: "var(--border-subtle)",
-                            color: "var(--text-secondary)",
-                          }}
-                        >
-                          {activeLists.map((l) => (
-                            <option key={l.id} value={l.id}>
-                              {l.title}
-                            </option>
-                          ))}
-                        </select>
-                      ) : undefined
-                    }
-                    parseUrls
-                    availableTags={scopeUniqueTags}
-                    submitLabel="Add"
-                    compact
-                    previewPosition="bottom"
-                    showTimeblockTip={false}
-                  />
-                )}
+                      )
+                    : null;
+                  const subtreeOptions = subtreeIdSet
+                    ? flattenedLists.filter((n) => subtreeIdSet.has(n.list.id))
+                    : [];
+                  const savedListAddTarget = listAddTargetByScope[scopeKey];
+                  const effectiveListAddTarget = currentList
+                    ? activeSublistFilter === "direct"
+                      ? currentList.id
+                      : focusedSublist
+                        ? focusedSublist.id
+                        : savedListAddTarget &&
+                            subtreeIdSet?.has(savedListAddTarget)
+                          ? savedListAddTarget
+                          : currentList.id
+                    : "";
+                  const effectiveListAddTargetTitle =
+                    listById.get(effectiveListAddTarget)?.title ||
+                    currentList?.title ||
+                    "list";
+
+                  return (
+                    <NlpInputBar
+                      placeholder={
+                        currentList
+                          ? `Add to ${effectiveListAddTargetTitle} (paste URL, due tomorrow, #tag)...`
+                          : `Add to ${STATUS_META[scope.kind === "smart" ? scope.status : "inbox"].label} (paste URL, due tomorrow, #tag)...`
+                      }
+                      onSubmit={(raw) => {
+                        if (scope.kind === "smart") {
+                          const targetId =
+                            smartAddTargetListId || activeLists[0]?.id;
+                          if (!targetId) return false;
+                          return Boolean(
+                            addListItem(targetId, raw, scope.status),
+                          );
+                        }
+                        return Boolean(
+                          addListItem(
+                            effectiveListAddTarget || scope.listId,
+                            raw,
+                            localState.statusFilter === "all"
+                              ? "inbox"
+                              : localState.statusFilter,
+                          ),
+                        );
+                      }}
+                      leadingSlot={
+                        isSmartScope && activeLists.length > 0 ? (
+                          <select
+                            value={smartAddTargetListId}
+                            onChange={(e) =>
+                              setSmartAddTargetListId(e.target.value)
+                            }
+                            aria-label="Target list"
+                            className="h-7 px-2 rounded-lg border text-xs font-medium outline-none max-w-[160px] cursor-pointer"
+                            style={{
+                              backgroundColor: "var(--bg-surface-subtle)",
+                              borderColor: "var(--border-subtle)",
+                              color: "var(--text-secondary)",
+                            }}
+                          >
+                            {flattenedLists.map((node) => (
+                              <option key={node.list.id} value={node.list.id}>
+                                {formatIndentedListOptionLabel(node)}
+                              </option>
+                            ))}
+                          </select>
+                        ) : currentList &&
+                          hasSublists &&
+                          activeSublistFilter === "all" &&
+                          subtreeOptions.length > 1 ? (
+                          <select
+                            value={effectiveListAddTarget}
+                            onChange={(e) =>
+                              setListAddTargetByScope((prev) => ({
+                                ...prev,
+                                [scopeKey]: e.target.value,
+                              }))
+                            }
+                            aria-label="Target list or sublist"
+                            className="h-7 px-2 rounded-lg border text-xs font-medium outline-none max-w-[160px] cursor-pointer"
+                            style={{
+                              backgroundColor: "var(--bg-surface-subtle)",
+                              borderColor: "var(--border-subtle)",
+                              color: "var(--text-secondary)",
+                            }}
+                          >
+                            {subtreeOptions.map((node) => (
+                              <option key={node.list.id} value={node.list.id}>
+                                {node.list.id === currentList.id
+                                  ? `${node.list.title} (Direct)`
+                                  : formatIndentedListOptionLabel(node)}
+                              </option>
+                            ))}
+                          </select>
+                        ) : undefined
+                      }
+                      parseUrls
+                      availableTags={scopeUniqueTags}
+                      submitLabel="Add"
+                      compact
+                      previewPosition="bottom"
+                      showTimeblockTip={false}
+                    />
+                  );
+                })()}
 
                 {/* Desktop Filter / ViewMode / Multi-Select Bar */}
                 <div className="flex flex-wrap items-center gap-2">
@@ -3781,11 +4329,39 @@ export const ListsView: React.FC<ListsViewProps> = ({
                     })}
                   </div>
 
+                  {/* Desktop Board Column Axis Switch (when viewing parent list in Kanban mode) */}
+                  {activeLayout.viewMode === "board" &&
+                    currentList &&
+                    effectiveHasSublists && (
+                      <select
+                        value={effectiveBoardBy}
+                        onChange={(e) =>
+                          setLocalState((prev) => ({
+                            ...prev,
+                            boardByByScope: {
+                              ...prev.boardByByScope,
+                              [scopeKey]: e.target.value as "status" | "sublist",
+                            },
+                          }))
+                        }
+                        aria-label="Board columns"
+                        className="hidden lg:block h-8 px-2.5 rounded-lg border text-xs outline-none cursor-pointer"
+                        style={{
+                          backgroundColor: "var(--bg-surface)",
+                          borderColor: "var(--border-subtle)",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        <option value="sublist">Columns: Sublists</option>
+                        <option value="status">Columns: Status</option>
+                      </select>
+                    )}
+
                   {/* Desktop Group By & Then By (hidden in Kanban board mode since columns define grouping) */}
                   {activeLayout.viewMode !== "board" && (
                     <>
                       <select
-                        value={activeLayout.groupBy}
+                        value={effectiveGroupBy}
                         onChange={(e) =>
                           updateActiveLayout({
                             groupBy: e.target.value as ListsGroupBy,
@@ -3799,14 +4375,17 @@ export const ListsView: React.FC<ListsViewProps> = ({
                           color: "var(--text-secondary)",
                         }}
                       >
+                        {effectiveHasSublists && (
+                          <option value="sublist">Group: Sublist</option>
+                        )}
                         <option value="status">Group: Status</option>
                         <option value="tag">Group: Tag</option>
                         <option value="none">Group: None</option>
                       </select>
 
-                      {activeLayout.groupBy !== "none" && (
+                      {effectiveGroupBy !== "none" && (
                         <select
-                          value={activeLayout.thenBy}
+                          value={effectiveThenBy}
                           onChange={(e) =>
                             updateActiveLayout({
                               thenBy: e.target.value as ListsGroupBy,
@@ -3821,10 +4400,14 @@ export const ListsView: React.FC<ListsViewProps> = ({
                           }}
                         >
                           <option value="none">Then: None</option>
-                          {activeLayout.groupBy !== "tag" && (
+                          {effectiveHasSublists &&
+                            effectiveGroupBy !== "sublist" && (
+                              <option value="sublist">Then: Sublist</option>
+                            )}
+                          {effectiveGroupBy !== "tag" && (
                             <option value="tag">Then: Tag</option>
                           )}
-                          {activeLayout.groupBy !== "status" && (
+                          {effectiveGroupBy !== "status" && (
                             <option value="status">Then: Status</option>
                           )}
                         </select>
@@ -4009,9 +4592,9 @@ export const ListsView: React.FC<ListsViewProps> = ({
                           }}
                         >
                           <option value="">Move to list…</option>
-                          {activeLists.map((l) => (
-                            <option key={l.id} value={l.id}>
-                              {l.title}
+                          {flattenedLists.map((node) => (
+                            <option key={node.list.id} value={node.list.id}>
+                              {formatIndentedListOptionLabel(node)}
                             </option>
                           ))}
                         </select>
@@ -4186,7 +4769,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
                         localState.collapsedGroups[groupKey],
                       );
                       const isStatusGroup =
-                        !isSmartScope && activeLayout.groupBy === "status";
+                        !isSmartScope && effectiveGroupBy === "status";
                       const statusKey = isStatusGroup
                         ? (group.key as ListItemStatus)
                         : null;
@@ -4194,6 +4777,20 @@ export const ListsView: React.FC<ListsViewProps> = ({
                         isStatusGroup &&
                         statusKey !== null &&
                         statusGroupDropTarget === statusKey;
+
+                      const isSublistGroup =
+                        !isSmartScope &&
+                        effectiveGroupBy === "sublist" &&
+                        Boolean(group.listId);
+                      const sublistGroupId = isSublistGroup
+                        ? group.listId || null
+                        : null;
+                      const isSublistDropHover =
+                        isSublistGroup &&
+                        sublistGroupId !== null &&
+                        sublistGroupDropTarget === sublistGroupId;
+                      const isGroupDropHover =
+                        isStatusDropHover || isSublistDropHover;
 
                       const gridClassName = splitVisible
                         ? "grid grid-cols-1 md:grid-cols-2 gap-3"
@@ -4203,99 +4800,143 @@ export const ListsView: React.FC<ListsViewProps> = ({
                         <div
                           key={group.key}
                           className={`space-y-1.5 rounded-xl transition-colors ${
-                            isStatusDropHover
+                            isGroupDropHover
                               ? "ring-1 ring-[var(--accent)] bg-[var(--accent-soft)]/50 p-1.5 -m-1.5"
                               : ""
                           }`}
                         >
                           {group.label && (
-                            <button
-                              ref={(el) => {
-                                if (!statusKey) return;
-                                if (el)
-                                  statusDropZoneRefs.current.set(statusKey, el);
-                                else
-                                  statusDropZoneRefs.current.delete(statusKey);
-                              }}
-                              type="button"
-                              onDragOver={(e) => {
-                                if (!isStatusGroup || !statusKey) return;
-                                if (
-                                  !e.dataTransfer.types.includes(
-                                    "application/x-kanso-list-item-id",
-                                  )
-                                ) {
-                                  return;
+                            <div className="flex items-center justify-between gap-2">
+                              <button
+                                ref={(el) => {
+                                  if (!statusKey) return;
+                                  if (el)
+                                    statusDropZoneRefs.current.set(statusKey, el);
+                                  else
+                                    statusDropZoneRefs.current.delete(statusKey);
+                                }}
+                                type="button"
+                                onDragOver={(e) => {
+                                  if (
+                                    !e.dataTransfer.types.includes(
+                                      "application/x-kanso-list-item-id",
+                                    )
+                                  ) {
+                                    return;
+                                  }
+                                  if (isStatusGroup && statusKey) {
+                                    e.preventDefault();
+                                    e.dataTransfer.dropEffect = "move";
+                                    setItemDropTarget(null);
+                                    setStatusGroupDropTarget(statusKey);
+                                  } else if (isSublistGroup && sublistGroupId) {
+                                    e.preventDefault();
+                                    e.dataTransfer.dropEffect = "move";
+                                    setItemDropTarget(null);
+                                    setSublistGroupDropTarget(sublistGroupId);
+                                  }
+                                }}
+                                onDragLeave={(e) => {
+                                  if (
+                                    !e.currentTarget.contains(
+                                      e.relatedTarget as Node,
+                                    )
+                                  ) {
+                                    if (statusKey) {
+                                      setStatusGroupDropTarget((prev) =>
+                                        prev === statusKey ? null : prev,
+                                      );
+                                    }
+                                    if (sublistGroupId) {
+                                      setSublistGroupDropTarget((prev) =>
+                                        prev === sublistGroupId ? null : prev,
+                                      );
+                                    }
+                                  }
+                                }}
+                                onDrop={(e) => {
+                                  if (
+                                    !e.dataTransfer.types.includes(
+                                      "application/x-kanso-list-item-id",
+                                    )
+                                  ) {
+                                    return;
+                                  }
+                                  const itemId =
+                                    e.dataTransfer.getData(
+                                      "application/x-kanso-list-item-id",
+                                    ) || activeDragItemIdRef.current;
+                                  clearAllDragStates();
+                                  if (!itemId) return;
+                                  if (isStatusGroup && statusKey) {
+                                    e.preventDefault();
+                                    handleChangeItemStatus(itemId, statusKey);
+                                  } else if (isSublistGroup && sublistGroupId) {
+                                    e.preventDefault();
+                                    handleMoveItemToList(itemId, sublistGroupId);
+                                  }
+                                }}
+                                onClick={() =>
+                                  setLocalState((prev) => ({
+                                    ...prev,
+                                    collapsedGroups: {
+                                      ...prev.collapsedGroups,
+                                      [groupKey]:
+                                        !prev.collapsedGroups[groupKey],
+                                    },
+                                  }))
                                 }
-                                e.preventDefault();
-                                e.dataTransfer.dropEffect = "move";
-                                setItemDropTarget(null);
-                                setStatusGroupDropTarget(statusKey);
-                              }}
-                              onDragLeave={(e) => {
-                                if (
-                                  statusKey &&
-                                  !e.currentTarget.contains(
-                                    e.relatedTarget as Node,
-                                  )
-                                ) {
-                                  setStatusGroupDropTarget((prev) =>
-                                    prev === statusKey ? null : prev,
-                                  );
-                                }
-                              }}
-                              onDrop={(e) => {
-                                if (!isStatusGroup || !statusKey) return;
-                                if (
-                                  !e.dataTransfer.types.includes(
-                                    "application/x-kanso-list-item-id",
-                                  )
-                                ) {
-                                  return;
-                                }
-                                const itemId =
-                                  e.dataTransfer.getData(
-                                    "application/x-kanso-list-item-id",
-                                  ) || activeDragItemIdRef.current;
-                                clearAllDragStates();
-                                if (!itemId) return;
-                                e.preventDefault();
-                                handleChangeItemStatus(itemId, statusKey);
-                              }}
-                              onClick={() =>
-                                setLocalState((prev) => ({
-                                  ...prev,
-                                  collapsedGroups: {
-                                    ...prev.collapsedGroups,
-                                    [groupKey]:
-                                      !prev.collapsedGroups[groupKey],
-                                  },
-                                }))
-                              }
-                              className={`flex items-center gap-1.5 text-xs font-semibold py-1 px-1.5 -mx-1.5 rounded-lg transition-colors cursor-pointer ${
-                                isStatusDropHover
-                                  ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-                                  : ""
-                              }`}
-                              style={{
-                                color: isStatusDropHover
-                                  ? "var(--accent)"
-                                  : "var(--text-secondary)",
-                              }}
-                            >
-                              {collapsed ? (
-                                <ChevronRight className="w-3.5 h-3.5" />
-                              ) : (
-                                <ChevronDown className="w-3.5 h-3.5" />
-                              )}
-                              <span>{group.label}</span>
-                              <span
-                                className="font-mono tabular-nums text-[11px]"
-                                style={{ color: "var(--text-muted)" }}
+                                className={`flex items-center gap-1.5 text-xs font-semibold py-1 px-1.5 -mx-1.5 rounded-lg transition-colors cursor-pointer ${
+                                  isGroupDropHover
+                                    ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                                    : ""
+                                }`}
+                                style={{
+                                  color: isGroupDropHover
+                                    ? "var(--accent)"
+                                    : "var(--text-secondary)",
+                                }}
                               >
-                                {group.items.length}
-                              </span>
-                            </button>
+                                {collapsed ? (
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                ) : (
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                )}
+                                {isSublistGroup && group.icon && (
+                                  <CollectionIcon
+                                    name={group.icon}
+                                    className="w-3.5 h-3.5 shrink-0"
+                                    style={{ color: group.color || "#4f46e5" }}
+                                  />
+                                )}
+                                <span>{group.label}</span>
+                                <span
+                                  className="font-mono tabular-nums text-[11px]"
+                                  style={{ color: "var(--text-muted)" }}
+                                >
+                                  {group.items.length}
+                                </span>
+                              </button>
+
+                              {isSublistGroup &&
+                                sublistGroupId &&
+                                !group.isDirect && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleSelectScope({
+                                        kind: "list",
+                                        listId: sublistGroupId,
+                                      })
+                                    }
+                                    className="text-[11px] font-medium px-1.5 py-0.5 rounded hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
+                                    style={{ color: "var(--text-muted)" }}
+                                    title={`Open ${group.label}`}
+                                  >
+                                    Open
+                                  </button>
+                                )}
+                            </div>
                           )}
 
                           {!collapsed &&
@@ -4432,6 +5073,92 @@ export const ListsView: React.FC<ListsViewProps> = ({
                                   style={{ color: sm.color }}
                                 />
                                 <span>{sm.label}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quick Drop Targets for Empty Sublists While Dragging */}
+                    {emptySublistsForDrag.length > 0 && (
+                      <div className="pt-1 space-y-1.5">
+                        <div
+                          className="text-[11px] font-medium"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          Drop to move to sublist
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {emptySublistsForDrag.map((sub) => {
+                            const isHover = sublistGroupDropTarget === sub.id;
+                            const subColor =
+                              sub.color ||
+                              effectiveBaseList?.color ||
+                              "#4f46e5";
+                            return (
+                              <div
+                                key={sub.id}
+                                onDragOver={(e) => {
+                                  if (
+                                    !e.dataTransfer.types.includes(
+                                      "application/x-kanso-list-item-id",
+                                    )
+                                  ) {
+                                    return;
+                                  }
+                                  e.preventDefault();
+                                  e.dataTransfer.dropEffect = "move";
+                                  setItemDropTarget(null);
+                                  setSublistGroupDropTarget(sub.id);
+                                }}
+                                onDragLeave={(e) => {
+                                  if (
+                                    !e.currentTarget.contains(
+                                      e.relatedTarget as Node,
+                                    )
+                                  ) {
+                                    setSublistGroupDropTarget((prev) =>
+                                      prev === sub.id ? null : prev,
+                                    );
+                                  }
+                                }}
+                                onDrop={(e) => {
+                                  if (
+                                    !e.dataTransfer.types.includes(
+                                      "application/x-kanso-list-item-id",
+                                    )
+                                  ) {
+                                    return;
+                                  }
+                                  const itemId =
+                                    e.dataTransfer.getData(
+                                      "application/x-kanso-list-item-id",
+                                    ) || activeDragItemIdRef.current;
+                                  clearAllDragStates();
+                                  if (!itemId) return;
+                                  e.preventDefault();
+                                  handleMoveItemToList(itemId, sub.id);
+                                }}
+                                className="h-9 px-3 rounded-xl border border-dashed inline-flex items-center gap-1.5 text-xs font-medium transition-colors"
+                                style={{
+                                  borderColor: isHover
+                                    ? "var(--accent)"
+                                    : "var(--border-strong)",
+                                  backgroundColor: isHover
+                                    ? "var(--accent-soft)"
+                                    : "var(--bg-surface)",
+                                  color: isHover
+                                    ? "var(--accent)"
+                                    : "var(--text-secondary)",
+                                }}
+                              >
+                                <CollectionIcon
+                                  name={sub.icon}
+                                  className="w-3.5 h-3.5"
+                                  style={{ color: subColor }}
+                                />
+                                <span>{sub.title}</span>
                               </div>
                             );
                           })}
@@ -4791,33 +5518,41 @@ export const ListsView: React.FC<ListsViewProps> = ({
 
       {/* Safe List Delete Confirmation Modal */}
       {(() => {
+        const deleteBranchIds = deleteTargetList
+          ? getDescendantListIds(deleteTargetList.id, listTreeIndex.childrenMap)
+          : [];
+        const deleteBranchIdSet = new Set(deleteBranchIds);
         const deleteListItemIds = deleteTargetList
           ? workspace.listItems
-              .filter((it) => it.listId === deleteTargetList.id)
+              .filter((it) => deleteBranchIdSet.has(it.listId))
               .map((it) => it.id)
           : [];
         const listLinkedStats = countLinkedNotesForListItems(
           workspace.entries,
           deleteListItemIds,
         );
+        const otherFlatNodes = deleteTargetList
+          ? flattenListTree(activeLists, deleteTargetList.id)
+          : [];
+        const labelById = new Map(
+          otherFlatNodes.map((n) => [
+            n.list.id,
+            formatIndentedListOptionLabel(n),
+          ]),
+        );
+
         return (
           <DeleteListConfirmModal
             list={deleteTargetList}
-            itemCount={
-              deleteTargetList
-                ? listItemCountsByCollection.get(deleteTargetList.id) || 0
-                : 0
-            }
+            itemCount={deleteListItemIds.length}
+            descendantCount={Math.max(0, deleteBranchIds.length - 1)}
             linkedNotesCount={listLinkedStats.totalAffectedNotes}
             exclusivelyLinkedNotesCount={
               listLinkedStats.exclusivelyLinkedNotes
             }
             sharedNotesCount={listLinkedStats.sharedNotes}
-            otherLists={
-              deleteTargetList
-                ? activeLists.filter((l) => l.id !== deleteTargetList.id)
-                : []
-            }
+            otherLists={otherFlatNodes.map((n) => n.list)}
+            getOptionLabel={(ol) => labelById.get(ol.id) || ol.title}
             onCancel={() => setDeleteTargetList(null)}
             onDelete={(moveToId, linkedNotesBehavior) => {
               if (!deleteTargetList) return;
@@ -4865,7 +5600,9 @@ export const ListsView: React.FC<ListsViewProps> = ({
         isDesktop={isDesktop}
         lists={activeLists}
         listItemCounts={listItemCountsByCollection}
-        defaultListId={currentList?.id ?? activeTabItem?.listId ?? null}
+        defaultListId={
+          focusedSublist?.id ?? currentList?.id ?? activeTabItem?.listId ?? null
+        }
         onClose={() => setTargetListPickerOpen(false)}
         onSelectList={handleCreateItemTabInList}
         onCreateList={openCreateListModal}
@@ -4876,9 +5613,10 @@ export const ListsView: React.FC<ListsViewProps> = ({
         open={mobileFilterOpen}
         onClose={() => setMobileFilterOpen(false)}
         isSmartScope={isSmartScope}
+        hasSublists={effectiveHasSublists}
         viewMode={activeLayout.viewMode}
-        groupBy={activeLayout.groupBy}
-        thenBy={activeLayout.thenBy}
+        groupBy={effectiveGroupBy}
+        thenBy={effectiveThenBy}
         sortBy={activeLayout.sortBy}
         statusFilter={localState.statusFilter}
         tagFilter={localState.tagFilter}
@@ -4905,7 +5643,11 @@ export const ListsView: React.FC<ListsViewProps> = ({
             tagFilter: "all",
           }));
           updateActiveLayout({
-            groupBy: isSmartScope ? "none" : "status",
+            groupBy: isSmartScope
+              ? "none"
+              : hasSublists
+                ? "sublist"
+                : "status",
             thenBy: "none",
             sortBy: "custom",
           });
@@ -4925,7 +5667,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
           />
           <form
             onSubmit={handleSaveListModal}
-            className="relative z-10 w-full max-w-md rounded-2xl border p-5 space-y-4"
+            className="relative z-10 w-full max-w-md rounded-2xl border p-5 space-y-4 max-h-[90dvh] overflow-y-auto"
             style={{
               backgroundColor: "var(--bg-elevated)",
               borderColor: "var(--border-strong)",
@@ -4935,7 +5677,9 @@ export const ListsView: React.FC<ListsViewProps> = ({
             <div className="flex items-center justify-between">
               <h3 className="font-display text-sm font-bold">
                 {listModal.mode === "create"
-                  ? "New List Collection"
+                  ? listModal.parentId
+                    ? "New Sublist"
+                    : "New List Collection"
                   : "Edit List Collection"}
               </h3>
               <button
@@ -4961,7 +5705,11 @@ export const ListsView: React.FC<ListsViewProps> = ({
                 onChange={(e) =>
                   setListModal({ ...listModal, title: e.target.value })
                 }
-                placeholder="e.g. Books to Read, Ship Roadmap..."
+                placeholder={
+                  listModal.parentId
+                    ? "e.g. Philosophy, Systems, Fiction..."
+                    : "e.g. Books to Read, Ship Roadmap..."
+                }
                 autoFocus
                 className="w-full h-9 px-3 rounded-lg border text-sm outline-none"
                 style={{
@@ -4971,6 +5719,44 @@ export const ListsView: React.FC<ListsViewProps> = ({
                 }}
               />
             </div>
+
+            {activeLists.length > 0 && (
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="kanso-list-parent-select"
+                  className="text-xs font-medium"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  Parent List
+                </label>
+                <select
+                  id="kanso-list-parent-select"
+                  value={listModal.parentId || ""}
+                  onChange={(e) =>
+                    setListModal({
+                      ...listModal,
+                      parentId: e.target.value || null,
+                    })
+                  }
+                  className="w-full h-9 px-2.5 rounded-lg border text-xs font-medium outline-none cursor-pointer"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  <option value="">None (Top-level list)</option>
+                  {flattenListTree(
+                    activeLists,
+                    listModal.mode === "edit" ? listModal.list?.id : undefined,
+                  ).map((node) => (
+                    <option key={node.list.id} value={node.list.id}>
+                      {formatIndentedListOptionLabel(node)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <label
