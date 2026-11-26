@@ -2537,12 +2537,12 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
           }}
         >
           {/* Row 1: Breadcrumb + Title + Contextual Stack Actions */}
-          <div className="flex items-start justify-between gap-2 sm:gap-3">
-            <div className="flex items-start gap-2 sm:gap-2.5 min-w-0 flex-1">
+          <div className="flex items-center sm:items-start justify-between gap-2 sm:gap-3">
+            <div className="flex items-center sm:items-start gap-2 sm:gap-2.5 min-w-0 flex-1">
               <button
                 type="button"
                 onClick={() => setMobileSidebarOpen(true)}
-                className="lg:hidden mt-0.5 h-8 w-8 rounded-lg border flex items-center justify-center shrink-0"
+                className="lg:hidden h-8 w-8 rounded-lg border flex items-center justify-center shrink-0"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   borderColor: 'var(--border-subtle)',
@@ -2560,7 +2560,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                 >
                   {scopeMeta.breadcrumb}
                 </div>
-                <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5 flex-wrap">
+                <div className="flex items-center gap-1.5 sm:gap-2 sm:mt-0.5 flex-wrap">
                   {scopeMeta.icon ? (
                     <DynamicIcon
                       name={scopeMeta.icon}
@@ -2757,19 +2757,15 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     </>
                   )}
 
-                  <span
-                    className="text-[11px] sm:text-xs font-mono tabular-nums"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    {scope.kind === 'channels'
-                      ? `${channelsOverviewData.length} ch · ${visibleStreams.length}`
-                      : `${visibleStreams.length} ${visibleStreams.length === 1 ? 'stream' : 'streams'}${
-                          scope.kind === 'channel' &&
-                          channelConfigs[scope.channel]?.defaultTopic
-                            ? ` · ${channelConfigs[scope.channel]?.defaultTopic}`
-                            : ''
-                        }`}
-                  </span>
+                  {scope.kind === 'channel' &&
+                    channelConfigs[scope.channel]?.defaultTopic && (
+                      <span
+                        className="text-[11px] sm:text-xs truncate"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {channelConfigs[scope.channel]?.defaultTopic}
+                      </span>
+                    )}
                 </div>
               </div>
             </div>

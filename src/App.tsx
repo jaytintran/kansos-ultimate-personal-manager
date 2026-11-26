@@ -1651,7 +1651,7 @@ const KansoShell: React.FC = () => {
                   type="button"
                   disabled={gistSyncBusy !== null || !hasGistToken}
                   onClick={() => void quickPushGist()}
-                  className="h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-opacity disabled:opacity-40 cursor-pointer whitespace-nowrap"
+                  className="h-7 px-2.5 rounded-md text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-opacity disabled:opacity-40 cursor-pointer whitespace-nowrap"
                   style={{
                     backgroundColor:
                       showPushButtonIndicator &&
@@ -1689,7 +1689,7 @@ const KansoShell: React.FC = () => {
                   type="button"
                   disabled={gistSyncBusy !== null || !hasGistId}
                   onClick={() => void quickPullGist()}
-                  className="h-9 px-3 rounded-lg border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer whitespace-nowrap"
+                  className="h-7 px-2.5 rounded-md border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer whitespace-nowrap"
                   style={{
                     backgroundColor:
                       showPullButtonIndicator && isAutoPullConflict
@@ -1747,7 +1747,7 @@ const KansoShell: React.FC = () => {
               <button
                 type="button"
                 onClick={() => openModal("sync")}
-                className="h-9 px-3 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                className="h-7 px-2.5 rounded-md border text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                 style={{
                   backgroundColor: "var(--bg-surface-subtle)",
                   borderColor: "var(--border-subtle)",
