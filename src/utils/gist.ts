@@ -150,18 +150,22 @@ export async function fetchRemoteGistUpdatedAt(
   }
   const token = config.token.trim();
   const gistId = config.gistId.trim();
-  if (!token || !gistId) return null;
+  if (!gistId) return null;
+
+  const headers: HeadersInit = {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
 
   const response = await fetch(
     `https://api.github.com/gists/${encodeURIComponent(gistId)}`,
     {
       method: "GET",
       cache: "no-store",
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
+      headers,
     },
   );
 

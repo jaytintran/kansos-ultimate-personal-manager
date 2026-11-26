@@ -476,6 +476,17 @@ export type AutoPushIndicatorStyle =
   | "floating-card"
   | "toast";
 
+export type AutoPullIndicatorStyle =
+  | "pull-button"
+  | "sidebar-line"
+  | "floating-card"
+  | "toast";
+
+export type AutoPullCheckMode =
+  | "boot-only"
+  | "resume-cooldown"
+  | "resume-always";
+
 export interface GistSyncConfig {
   token: string;
   gistId: string;
@@ -487,6 +498,11 @@ export interface GistSyncConfig {
   autoPushDelaySeconds?: number;
   autoPushIndicatorEnabled?: boolean;
   autoPushIndicatorStyle?: AutoPushIndicatorStyle;
+  autoPullEnabled?: boolean;
+  autoPullCheckMode?: AutoPullCheckMode;
+  autoPullCooldownSeconds?: number;
+  autoPullIndicatorEnabled?: boolean;
+  autoPullIndicatorStyle?: AutoPullIndicatorStyle;
 }
 
 // ==========================================================================
