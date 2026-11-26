@@ -906,7 +906,7 @@ export const ChannelDeleteModal: React.FC<ChannelDeleteModalProps> = ({
               <span className="font-semibold text-[var(--text-primary)]">
                 {totalStreams} {totalStreams === 1 ? 'stream' : 'streams'}
               </span>{' '}
-              from your Vault, Live Grid slots, and saved presets.
+              from your Vault, Live Grid slots, and saved playlists.
             </p>
           </div>
         </div>

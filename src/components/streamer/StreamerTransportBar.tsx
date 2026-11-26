@@ -50,6 +50,7 @@ interface StreamerTransportBarProps {
   onBalanceAll: () => void;
   onStartSleepTimer: (minutes: number) => void;
   onCancelSleepTimer: () => void;
+  existingCategories?: string[];
   onSaveStack: (name: string, category: string) => void;
   onClearStack: () => void;
 }
@@ -69,7 +70,7 @@ const LAYOUT_PRESETS: { id: StreamLayoutMode; label: string }[] = [
 ];
 
 const SLEEP_PRESETS = [15, 30, 45, 60, 90];
-const ROUTINE_CATEGORIES = [
+const DEFAULT_PLAYLIST_CATEGORIES = [
   "Focus",
   "Overnight",
   "Study",
@@ -106,6 +107,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
   onBalanceAll,
   onStartSleepTimer,
   onCancelSleepTimer,
+  existingCategories = [],
   onSaveStack,
   onClearStack,
 }) => {
@@ -115,6 +117,16 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
   const [customSleepMins, setCustomSleepMins] = useState("25");
   const [presetName, setPresetName] = useState("");
   const [presetCategory, setPresetCategory] = useState("Focus");
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
+  const [customCategoryDraft, setCustomCategoryDraft] = useState("");
+
+  const categoryChoices = React.useMemo(() => {
+    const set = new Set<string>(DEFAULT_PLAYLIST_CATEGORIES);
+    for (const c of existingCategories) {
+      if (c.trim()) set.add(c.trim());
+    }
+    return Array.from(set);
+  }, [existingCategories]);
 
   const barRef = useRef<HTMLDivElement | null>(null);
 
@@ -133,8 +145,13 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
     e.preventDefault();
     const trimmed = presetName.trim();
     if (!trimmed) return;
-    onSaveStack(trimmed, presetCategory);
+    const resolvedCategory = isCustomCategory
+      ? customCategoryDraft.trim() || "General"
+      : presetCategory;
+    onSaveStack(trimmed, resolvedCategory);
     setPresetName("");
+    setCustomCategoryDraft("");
+    setIsCustomCategory(false);
     setOpenPopover(null);
   };
 
@@ -722,7 +739,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                   ? "var(--accent)"
                   : "var(--text-secondary)",
             }}
-            title="Save current stack as preset"
+            title="Save current stack as playlist"
           >
             <BookmarkPlus className="w-3.5 h-3.5" />
             <span className="hidden lg:inline">Save</span>
@@ -738,15 +755,13 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
               }}
             >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold">
-                  Save Routine Stack Preset
-                </span>
+                <span className="text-xs font-semibold">Save Playlist</span>
                 <button
                   type="button"
                   onClick={() => setOpenPopover(null)}
                   className="h-6 w-6 flex items-center justify-center rounded-md"
                   style={{ color: "var(--text-muted)" }}
-                  aria-label="Close save stack dialog"
+                  aria-label="Close save playlist dialog"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -757,7 +772,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                   type="text"
                   value={presetName}
                   onChange={(e) => setPresetName(e.target.value)}
-                  placeholder="Preset name (e.g. Deep Focus Mix)..."
+                  placeholder="Playlist name (e.g. Deep Focus Mix)..."
                   autoFocus
                   className="w-full h-8 px-2.5 rounded-lg border text-xs outline-none"
                   style={{
@@ -767,25 +782,67 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                   }}
                 />
 
-                <div className="flex items-center gap-2">
+                {isCustomCategory ? (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={customCategoryDraft}
+                      onChange={(e) => setCustomCategoryDraft(e.target.value)}
+                      placeholder="Custom category..."
+                      autoFocus
+                      className="flex-1 min-w-0 h-8 px-2.5 rounded-lg border text-xs outline-none"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomCategory(false);
+                        setCustomCategoryDraft("");
+                      }}
+                      className="h-8 w-8 rounded-lg border flex items-center justify-center shrink-0"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-muted)",
+                      }}
+                      title="Choose from saved categories"
+                      aria-label="Back to category list"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
                   <select
                     value={presetCategory}
-                    onChange={(e) => setPresetCategory(e.target.value)}
-                    className="flex-1 h-8 px-2 rounded-lg border text-xs outline-none"
+                    onChange={(e) => {
+                      if (e.target.value === "__custom__") {
+                        setIsCustomCategory(true);
+                      } else {
+                        setPresetCategory(e.target.value);
+                      }
+                    }}
+                    className="w-full h-8 px-2 rounded-lg border text-xs outline-none"
                     style={{
                       backgroundColor: "var(--bg-surface)",
                       borderColor: "var(--border-subtle)",
                       color: "var(--text-secondary)",
                     }}
-                    aria-label="Routine category"
+                    aria-label="Playlist category"
                   >
-                    {ROUTINE_CATEGORIES.map((cat) => (
+                    {categoryChoices.map((cat) => (
                       <option key={cat} value={cat}>
                         {cat}
                       </option>
                     ))}
+                    <option value="__custom__">+ Custom category...</option>
                   </select>
+                )}
 
+                <div className="flex justify-end">
                   <button
                     type="submit"
                     disabled={!presetName.trim()}
@@ -795,7 +852,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
                       color: "var(--accent-fg)",
                     }}
                   >
-                    Save Mix
+                    Save Playlist
                   </button>
                 </div>
               </form>
@@ -821,7 +878,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
           <span className="hidden xl:inline">Clear</span>
         </button>
 
-        {/* Studio Sidebar Toggle */}
+        {/* Manager Split Pane Toggle */}
         <button
           type="button"
           onClick={onToggleSidebar}
@@ -835,11 +892,11 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
           }}
           title={
             sidebarOpen
-              ? "Hide presets & library sidebar"
-              : "Show presets & library sidebar"
+              ? "Hide manager split pane"
+              : "Show manager split pane"
           }
           aria-label={
-            sidebarOpen ? "Hide studio sidebar" : "Show studio sidebar"
+            sidebarOpen ? "Hide manager split pane" : "Show manager split pane"
           }
         >
           {sidebarOpen ? (
@@ -847,7 +904,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
           ) : (
             <PanelRightOpen className="w-3.5 h-3.5" />
           )}
-          <span className="hidden lg:inline">Presets</span>
+          <span className="hidden lg:inline">Manager</span>
         </button>
       </div>
     </div>

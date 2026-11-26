@@ -908,7 +908,15 @@ interface WorkspaceContextValue {
   reorderVaultStreams: (sortOrderById: Record<string, number>) => void;
   updateStreamerState: (patch: Partial<StreamerState>) => void;
   saveStreamPreset: (name: string, category?: string) => StreamPreset;
-  loadStreamPreset: (presetId: string) => void;
+  loadStreamPreset: (presetId: string, mode?: "replace" | "append") => void;
+  updateStreamPreset: (
+    presetId: string,
+    patch: Partial<
+      Pick<StreamPreset, "name" | "category" | "pinned" | "sortOrder">
+    >,
+  ) => void;
+  updateStreamPresetMix: (presetId: string) => void;
+  reorderStreamPresets: (orderedPresetIds: string[]) => void;
   deleteStreamPreset: (presetId: string) => void;
 
   // Audio Studio actions (device-local files + multi-track mixer)
@@ -4090,7 +4098,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
               exists && prev.streamerState.spotlightStreamId === id
                 ? nextActive[0] || null
                 : prev.streamerState.spotlightStreamId || nextActive[0] || null,
-            activePresetId: null,
+            activePresetId:
+              nextSlots.length === 0 ? null : prev.streamerState.activePresetId,
           },
         };
       });
@@ -4155,7 +4164,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
             )
               ? prev.streamerState.spotlightStreamId
               : nextActive[0] || null,
-            activePresetId: null,
+            activePresetId:
+              mode === "append" ? prev.streamerState.activePresetId : null,
           },
         };
       });
@@ -4200,7 +4210,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
             activeSlots: nextSlots,
             activeStreamIds: nextSlots.map((sl) => sl.streamId),
             spotlightStreamId: prev.streamerState.spotlightStreamId || streamId,
-            activePresetId: null,
+            activePresetId: prev.streamerState.activePresetId,
           },
         };
       });
@@ -4262,7 +4272,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
             )
               ? prev.streamerState.spotlightStreamId
               : nextActive[0] || null,
-            activePresetId: null,
+            activePresetId:
+              nextSlots.length === 0 ? null : prev.streamerState.activePresetId,
           },
         };
       });
@@ -4696,7 +4707,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   const saveStreamPreset = useCallback(
     (name: string, category = "General"): StreamPreset => {
       const currentStreamer = latestWorkspaceRef.current.streamerState;
-      const trimmed = name.trim() || "Untitled Stack";
+      const trimmed = name.trim() || "Untitled Playlist";
       const trimmedCategory = category.trim() || "General";
       const currentSlots = currentStreamer.activeSlots ?? [];
       const created: StreamPreset = {
@@ -4719,14 +4730,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         streamPresets: [created, ...prev.streamPresets],
         streamerState: { ...prev.streamerState, activePresetId: created.id },
       }));
-      pushToast(`Saved stack "${trimmed}"`, "success");
+      pushToast(`Saved playlist "${trimmed}"`, "success");
       return created;
     },
     [mutateWorkspace, pushToast],
   );
 
   const loadStreamPreset = useCallback(
-    (presetId: string) => {
+    (presetId: string, mode: "replace" | "append" = "replace") => {
       const currentWs = latestWorkspaceRef.current;
       const preset = currentWs.streamPresets.find((p) => p.id === presetId);
       if (!preset) return;
@@ -4742,6 +4753,36 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           : preset.streamIds
               .filter((sid) => validIdsSet.has(sid))
               .map((sid) => createDefaultSlot(sid));
+
+      if (mode === "append") {
+        if (restoredSlots.length === 0) {
+          pushToast(`"${preset.name}" has no saved tracks to layer`, "error");
+          return;
+        }
+        mutateWorkspace((prev) => {
+          const existingSlots = prev.streamerState.activeSlots ?? [];
+          const combinedSlots = [...existingSlots, ...restoredSlots];
+          const combinedStreamIds = combinedSlots.map((sl) => sl.streamId);
+          return {
+            ...prev,
+            streamerState: {
+              ...prev.streamerState,
+              activeSlots: combinedSlots,
+              activeStreamIds: combinedStreamIds,
+              spotlightStreamId:
+                prev.streamerState.spotlightStreamId ||
+                combinedStreamIds[0] ||
+                null,
+              activePresetId: prev.streamerState.activePresetId || preset.id,
+            },
+          };
+        });
+        pushToast(
+          `Layered playlist "${preset.name}" (+${restoredSlots.length} ${restoredSlots.length === 1 ? "track" : "tracks"})`,
+          "success",
+        );
+        return;
+      }
 
       const restoredStreamIds = restoredSlots.map((sl) => sl.streamId);
       mutateWorkspace((prev) => ({
@@ -4765,9 +4806,99 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           activePresetId: preset.id,
         },
       }));
-      pushToast(`Loaded stack "${preset.name}"`, "success");
+      pushToast(`Loaded playlist "${preset.name}"`, "success");
     },
     [mutateWorkspace, pushToast],
+  );
+
+  const updateStreamPreset = useCallback(
+    (
+      presetId: string,
+      patch: Partial<
+        Pick<StreamPreset, "name" | "category" | "pinned" | "sortOrder">
+      >,
+    ) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        streamPresets: prev.streamPresets.map((p) => {
+          if (p.id !== presetId) return p;
+          return {
+            ...p,
+            ...patch,
+            name:
+              typeof patch.name === "string"
+                ? patch.name.trim() || p.name
+                : p.name,
+            category:
+              typeof patch.category === "string"
+                ? patch.category.trim() || "General"
+                : p.category,
+          };
+        }),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const updateStreamPresetMix = useCallback(
+    (presetId: string) => {
+      const targetName = latestWorkspaceRef.current.streamPresets.find(
+        (p) => p.id === presetId,
+      )?.name;
+      mutateWorkspace((prev) => {
+        const currentStreamer = prev.streamerState;
+        const currentSlots = currentStreamer.activeSlots ?? [];
+        return {
+          ...prev,
+          streamPresets: prev.streamPresets.map((p) =>
+            p.id === presetId
+              ? {
+                  ...p,
+                  layoutMode: currentStreamer.layoutMode,
+                  customRows: currentStreamer.customRows,
+                  customCols: currentStreamer.customCols,
+                  viewMode: currentStreamer.viewMode || "grid",
+                  sizingMode: currentStreamer.sizingMode || "fit",
+                  masterVolume: currentStreamer.masterVolume ?? 100,
+                  streamIds: currentSlots.map((sl) => sl.streamId),
+                  slots: currentSlots.map((sl) => ({ ...sl })),
+                  spotlightStreamId: currentStreamer.spotlightStreamId,
+                }
+              : p,
+          ),
+          streamerState: {
+            ...prev.streamerState,
+            activePresetId: presetId,
+          },
+        };
+      });
+      if (targetName) {
+        pushToast(`Updated mix for "${targetName}"`, "success");
+      }
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const reorderStreamPresets = useCallback(
+    (orderedPresetIds: string[]) => {
+      if (orderedPresetIds.length === 0) return;
+      const indexById = new Map<string, number>();
+      orderedPresetIds.forEach((id, idx) => indexById.set(id, idx));
+      mutateWorkspace((prev) => {
+        let nextOrder = orderedPresetIds.length;
+        return {
+          ...prev,
+          streamPresets: prev.streamPresets.map((p) => {
+            const idx = indexById.get(p.id);
+            return {
+              ...p,
+              sortOrder: idx !== undefined ? idx : nextOrder++,
+            };
+          }),
+        };
+      });
+    },
+    [mutateWorkspace],
   );
 
   const deleteStreamPreset = useCallback(
@@ -4783,7 +4914,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
               : prev.streamerState.activePresetId,
         },
       }));
-      pushToast("Preset deleted");
+      pushToast("Playlist deleted");
     },
     [mutateWorkspace, pushToast],
   );
@@ -6842,6 +6973,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       updateStreamerState,
       saveStreamPreset,
       loadStreamPreset,
+      updateStreamPreset,
+      updateStreamPresetMix,
+      reorderStreamPresets,
       deleteStreamPreset,
       addAudioTrack,
       updateAudioTrack,
@@ -7003,6 +7137,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       updateStreamerState,
       saveStreamPreset,
       loadStreamPreset,
+      updateStreamPreset,
+      updateStreamPresetMix,
+      reorderStreamPresets,
       deleteStreamPreset,
       addAudioTrack,
       updateAudioTrack,

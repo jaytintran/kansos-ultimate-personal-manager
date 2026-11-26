@@ -1271,7 +1271,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                 with the <span className="font-mono">gist</span> scope to push
                 and pull your workspace snapshot across devices (replace-only on
                 pull). Tasks, Focus, Habits, Lists, Events, Notes, Streamer Vault
-                &amp; presets, and all App &amp; View settings sync seamlessly.
+                &amp; playlists, and all App &amp; View settings sync seamlessly.
               </p>
 
               <div
@@ -2971,14 +2971,14 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                       />
                       <div className="min-w-0">
                         <div className="text-xs font-semibold">
-                          Streamer Vault &amp; Presets
+                          Streamer Vault &amp; Playlists
                         </div>
                         <div
                           className="text-[11px] font-mono tabular-nums mt-0.5"
                           style={{ color: "var(--text-muted)" }}
                         >
                           {workspace.streams.length} streams ·{" "}
-                          {workspace.streamPresets.length} presets ·{" "}
+                          {workspace.streamPresets.length} playlists ·{" "}
                           {formatFileSize(domainMetrics.streamerBytes)}
                         </div>
                       </div>
@@ -2986,7 +2986,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                     {domainMetrics.streamerCount > 0 &&
                       renderConfirmButton("purge-streamer", "Clear", () => {
                         purgeWorkspaceSection(
-                          "Cleared Streamer vault & presets",
+                          "Cleared Streamer vault & playlists",
                           (prev) => ({
                             ...prev,
                             streams: [],

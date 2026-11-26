@@ -60,6 +60,7 @@ export interface StreamerViewProps {
 }
 
 const STUDIO_SIDEBAR_WIDTH_KEY = "kanso_streamer_sidebar_width_v1";
+const STUDIO_MANAGER_OPEN_KEY = "kanso_streamer_manager_open_v1";
 const DEFAULT_STUDIO_SIDEBAR_WIDTH = 320;
 const MIN_STUDIO_SIDEBAR_WIDTH = 260;
 const MAX_STUDIO_SIDEBAR_WIDTH = 640;
@@ -133,6 +134,9 @@ export const StreamerView = forwardRef<
     updateStreamerState,
     saveStreamPreset,
     loadStreamPreset,
+    updateStreamPreset,
+    updateStreamPresetMix,
+    reorderStreamPresets,
     deleteStreamPreset,
     pushToast,
   } = useWorkspace();
@@ -145,7 +149,18 @@ export const StreamerView = forwardRef<
   const viewMode: StreamViewMode = streamerState.viewMode || "grid";
   const sizingMode: StreamSizingMode = streamerState.sizingMode || "fit";
   const masterVolume: number = streamerState.masterVolume ?? 100;
-  const desktopSidebarOpen: boolean = streamerState.sidebarOpen ?? true;
+
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const saved = localStorage.getItem(STUDIO_MANAGER_OPEN_KEY);
+      if (saved === "true") return true;
+      if (saved === "false") return false;
+    } catch {
+      // ignore storage errors
+    }
+    return true;
+  });
 
   const [subView, setSubView] = useState<StreamerSubView>("grid");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -367,6 +382,88 @@ export const StreamerView = forwardRef<
     () => new Set(activeSlots.map((sl) => sl.streamId)),
     [activeSlots],
   );
+
+  const existingPlaylistCategories = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of streamPresets) {
+      if (p.category && p.category.trim()) {
+        set.add(p.category.trim());
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [streamPresets]);
+
+  const firstSortedPlaylist = useMemo(() => {
+    if (streamPresets.length === 0) return null;
+    const pinned = streamPresets.find((p) => Boolean(p.pinned));
+    return pinned ?? streamPresets[0];
+  }, [streamPresets]);
+
+  const isActivePresetDirty = useMemo(() => {
+    if (!streamerState.activePresetId || activeSlots.length === 0) {
+      return false;
+    }
+    const activePreset = streamPresets.find(
+      (p) => p.id === streamerState.activePresetId,
+    );
+    if (!activePreset) return false;
+
+    const expectedSlots =
+      Array.isArray(activePreset.slots) && activePreset.slots.length > 0
+        ? activePreset.slots.filter((sl) => streamById.has(sl.streamId))
+        : activePreset.streamIds
+            .filter((sid) => streamById.has(sid))
+            .map((sid) => ({
+              streamId: sid,
+              volume: 100,
+              muted: false,
+              loopMode: "infinite" as const,
+              loopCount: 1,
+              playbackRate: 1,
+            }));
+
+    if (activeSlots.length !== expectedSlots.length) return true;
+
+    for (let i = 0; i < activeSlots.length; i++) {
+      const a = activeSlots[i];
+      const b = expectedSlots[i];
+      if (
+        a.streamId !== b.streamId ||
+        a.volume !== b.volume ||
+        a.muted !== b.muted ||
+        a.loopMode !== b.loopMode ||
+        (a.loopMode === "count" && a.loopCount !== b.loopCount) ||
+        (a.playbackRate ?? 1) !== (b.playbackRate ?? 1)
+      ) {
+        return true;
+      }
+    }
+
+    if ((viewMode || "grid") !== (activePreset.viewMode || "grid")) return true;
+    if (streamerState.layoutMode !== activePreset.layoutMode) return true;
+    if (
+      streamerState.layoutMode === "custom" &&
+      (streamerState.customRows !== activePreset.customRows ||
+        streamerState.customCols !== activePreset.customCols)
+    ) {
+      return true;
+    }
+    if ((sizingMode || "fit") !== (activePreset.sizingMode || "fit")) return true;
+    if ((masterVolume ?? 100) !== (activePreset.masterVolume ?? 100)) return true;
+
+    return false;
+  }, [
+    streamerState.activePresetId,
+    streamerState.layoutMode,
+    streamerState.customRows,
+    streamerState.customCols,
+    streamPresets,
+    activeSlots,
+    streamById,
+    viewMode,
+    sizingMode,
+    masterVolume,
+  ]);
 
   // Sleep Timer fade-out multiplier (smooth linear fade during final 15 seconds)
   const sleepFadeMultiplier = useMemo(() => {
@@ -1314,11 +1411,19 @@ export const StreamerView = forwardRef<
 
   const handleToggleSidebar = useCallback(() => {
     if (isLargeViewport) {
-      updateStreamerState({ sidebarOpen: !desktopSidebarOpen });
+      setDesktopSidebarOpen((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem(STUDIO_MANAGER_OPEN_KEY, String(next));
+        } catch {
+          // ignore storage errors
+        }
+        return next;
+      });
     } else {
       setMobileSidebarOpen((prev) => !prev);
     }
-  }, [isLargeViewport, desktopSidebarOpen, updateStreamerState]);
+  }, [isLargeViewport]);
 
   // Grid columns & Fit/Canvas style calculation
   const desktopColumns = useMemo(() => {
@@ -1474,17 +1579,11 @@ export const StreamerView = forwardRef<
           masterVolume={masterVolume}
           sleepRemainingSeconds={sleepRemainingSeconds}
           viewMode={viewMode}
-          onChangeViewMode={(mode) =>
-            updateStreamerState({ viewMode: mode, activePresetId: null })
-          }
+          onChangeViewMode={(mode) => updateStreamerState({ viewMode: mode })}
           layoutMode={streamerState.layoutMode}
-          onChangeLayoutMode={(mode) =>
-            updateStreamerState({ layoutMode: mode, activePresetId: null })
-          }
+          onChangeLayoutMode={(mode) => updateStreamerState({ layoutMode: mode })}
           sizingMode={sizingMode}
-          onChangeSizingMode={(mode) =>
-            updateStreamerState({ sizingMode: mode, activePresetId: null })
-          }
+          onChangeSizingMode={(mode) => updateStreamerState({ sizingMode: mode })}
           sidebarOpen={isLargeViewport ? desktopSidebarOpen : mobileSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
           onTogglePlayPauseAll={() => handleTogglePauseAll(false)}
@@ -1499,6 +1598,7 @@ export const StreamerView = forwardRef<
           onBalanceAll={handleBalanceAll}
           onStartSleepTimer={handleStartSleepTimer}
           onCancelSleepTimer={handleCancelSleepTimer}
+          existingCategories={existingPlaylistCategories}
           onSaveStack={(name, category) => saveStreamPreset(name, category)}
           onClearStack={clearStreamSlots}
         />
@@ -1543,8 +1643,7 @@ export const StreamerView = forwardRef<
                     style={{ color: "var(--text-secondary)" }}
                   >
                     Paste a YouTube URL or 11-character ID above, pick tracks
-                    from Quick-Add in the library sidebar, or load a saved
-                    Routine Stack Preset.
+                    from Vault in the Manager pane, or load a saved Playlist.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-2">
@@ -1560,10 +1659,10 @@ export const StreamerView = forwardRef<
                     <FolderKanban className="w-3.5 h-3.5" />
                     <span>Browse Vault</span>
                   </button>
-                  {streamPresets.length > 0 && (
+                  {firstSortedPlaylist && (
                     <button
                       type="button"
-                      onClick={() => loadStreamPreset(streamPresets[0].id)}
+                      onClick={() => loadStreamPreset(firstSortedPlaylist.id)}
                       className="h-9 px-3.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 hover:bg-[var(--bg-surface-hover)]"
                       style={{
                         backgroundColor: "var(--bg-surface)",
@@ -1572,7 +1671,7 @@ export const StreamerView = forwardRef<
                       }}
                     >
                       <Bookmark className="w-3.5 h-3.5" />
-                      <span>Load {streamPresets[0].name}</span>
+                      <span>Load {firstSortedPlaylist.name}</span>
                     </button>
                   )}
                 </div>
@@ -1785,7 +1884,7 @@ export const StreamerView = forwardRef<
                 backgroundColor: "var(--bg-surface)",
                 borderColor: "var(--border-subtle)",
               }}
-              aria-label="Routine Stack Presets and Quick-Add from Vault"
+              aria-label="Manager — Playlists and Vault"
             >
               {/* Left Resizing Drag Handle */}
               <div
@@ -1799,9 +1898,19 @@ export const StreamerView = forwardRef<
                 folders={streamFolders}
                 presets={streamPresets}
                 activePresetId={streamerState.activePresetId}
+                activeSlotsCount={activeSlots.length}
+                isActivePresetDirty={isActivePresetDirty}
                 activeStreamIdSet={activeStreamIdSet}
-                sidebarWidth={studioSidebarWidth}
-                onLoadPreset={(presetId) => loadStreamPreset(presetId)}
+                existingCategories={existingPlaylistCategories}
+                onLoadPreset={(presetId, mode) =>
+                  loadStreamPreset(presetId, mode)
+                }
+                onSavePreset={(name, category) =>
+                  saveStreamPreset(name, category)
+                }
+                onUpdatePreset={updateStreamPreset}
+                onUpdatePresetMix={updateStreamPresetMix}
+                onReorderPresets={reorderStreamPresets}
                 onDeletePreset={(presetId) => deleteStreamPreset(presetId)}
                 onStackStream={handleSidebarStackStream}
                 onEditStream={(streamId) => setEditingStreamId(streamId)}
@@ -1811,7 +1920,7 @@ export const StreamerView = forwardRef<
           )}
         </div>
 
-        {/* Mobile / Tablet Slide-Over Right Studio Sidebar Drawer */}
+        {/* Mobile / Tablet Slide-Over Right Manager Drawer */}
         {isActiveView &&
           subView === "grid" &&
           !isLargeViewport &&
@@ -1820,7 +1929,7 @@ export const StreamerView = forwardRef<
               className="lg:hidden fixed inset-0 z-50 flex justify-end"
               role="dialog"
               aria-modal="true"
-              aria-label="Studio Presets and Quick-Add Vault"
+              aria-label="Manager — Playlists and Vault"
             >
               <div
                 className="fixed inset-0 bg-black/45 backdrop-blur-[2px]"
@@ -1840,9 +1949,19 @@ export const StreamerView = forwardRef<
                   folders={streamFolders}
                   presets={streamPresets}
                   activePresetId={streamerState.activePresetId}
+                  activeSlotsCount={activeSlots.length}
+                  isActivePresetDirty={isActivePresetDirty}
                   activeStreamIdSet={activeStreamIdSet}
-                  sidebarWidth={320}
-                  onLoadPreset={(presetId) => loadStreamPreset(presetId)}
+                  existingCategories={existingPlaylistCategories}
+                  onLoadPreset={(presetId, mode) =>
+                    loadStreamPreset(presetId, mode)
+                  }
+                  onSavePreset={(name, category) =>
+                    saveStreamPreset(name, category)
+                  }
+                  onUpdatePreset={updateStreamPreset}
+                  onUpdatePresetMix={updateStreamPresetMix}
+                  onReorderPresets={reorderStreamPresets}
                   onDeletePreset={(presetId) => deleteStreamPreset(presetId)}
                   onStackStream={handleSidebarStackStream}
                   onCloseMobile={() => setMobileSidebarOpen(false)}

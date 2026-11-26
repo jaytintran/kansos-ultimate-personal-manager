@@ -377,6 +377,8 @@ export interface StreamPreset {
   streamIds: string[];
   slots?: StackSlot[];
   spotlightStreamId: string | null;
+  pinned?: boolean;
+  sortOrder?: number;
   createdAt: string;
 }
 
