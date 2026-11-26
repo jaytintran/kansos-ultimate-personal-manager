@@ -3,31 +3,49 @@ import {
   ArrowLeft,
   Check,
   CheckSquare,
-  ChevronRight,
+  Columns2,
   Folder,
+  GalleryHorizontal,
   GripVertical,
   Headphones,
   LayoutGrid,
   List,
   Menu,
   MonitorPlay,
+  Palette,
   Pause,
   Pencil,
+  Pin,
   Play,
   Plus,
   Search,
   Star,
+  Tag,
   Trash2,
   Tv,
   Volume2,
   VolumeX,
   X,
 } from 'lucide-react';
+import { useVaultChannelDrag } from '../../hooks/useVaultChannelDrag';
 import { useVaultStreamDrag } from '../../hooks/useVaultStreamDrag';
-import { StreamFolder, StreamItem } from '../../types';
+import { StreamChannelMeta, StreamFolder, StreamItem } from '../../types';
 import { VIEW_PREFERENCE_SYNC_EVENT } from '../../utils/viewPreferences';
 import { DynamicIcon } from '../IconLibrary';
 import { FloatingStreamFolderDropDock } from './FloatingStreamFolderDropDock';
+import {
+  ChannelBatchEditModal,
+  ChannelDeleteModal,
+  ChannelRenameMergeModal,
+  ChannelSettingsModal,
+  PendingChannelMerge,
+} from './StreamChannelsModals';
+import {
+  ChannelsSortMode,
+  ChannelsViewMode,
+  ChannelSummaryEntry,
+  StreamChannelsOverview,
+} from './StreamChannelsOverview';
 import { StreamEditorDrawer } from './StreamEditorDrawer';
 import {
   PendingStreamFolderDrop,
@@ -47,6 +65,43 @@ type VaultViewMode = 'grid' | 'table';
 type VaultSortMode = 'custom' | 'recent' | 'listens' | 'rating' | 'title' | 'channel';
 
 const VAULT_SORT_PREFS_KEY = 'kanso_streamer_vault_sort_v1';
+const CHANNELS_PREFS_KEY = 'kanso_streamer_channels_prefs_v1';
+
+const VALID_CHANNELS_VIEWS: ChannelsViewMode[] = ['carousels', 'directory', 'split'];
+const VALID_CHANNELS_SORTS: ChannelsSortMode[] = [
+  'custom',
+  'count-desc',
+  'count-asc',
+  'listens',
+  'recent',
+  'title-asc',
+  'title-desc',
+];
+
+function loadChannelsPrefs(): { viewMode: ChannelsViewMode; sortBy: ChannelsSortMode } {
+  try {
+    const raw = localStorage.getItem(CHANNELS_PREFS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<{
+        viewMode: ChannelsViewMode;
+        sortBy: ChannelsSortMode;
+      }>;
+      return {
+        viewMode:
+          parsed.viewMode && VALID_CHANNELS_VIEWS.includes(parsed.viewMode)
+            ? parsed.viewMode
+            : 'carousels',
+        sortBy:
+          parsed.sortBy && VALID_CHANNELS_SORTS.includes(parsed.sortBy)
+            ? parsed.sortBy
+            : 'count-desc',
+      };
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return { viewMode: 'carousels', sortBy: 'count-desc' };
+}
 
 interface StreamVaultViewProps {
   isActiveView?: boolean;
@@ -74,6 +129,15 @@ interface StreamVaultViewProps {
   onDeleteFolder: (id: string) => void;
   topicIcons?: Record<string, string>;
   onSetTopicIcon?: (topic: string, icon: string | undefined) => void;
+  channelConfigs?: Record<string, StreamChannelMeta>;
+  onUpdateChannelMeta?: (channelName: string, patch: Partial<StreamChannelMeta>) => void;
+  onReorderChannels?: (orderedChannelNames: string[]) => void;
+  onRenameOrMergeChannels?: (fromNames: string[], targetName: string) => number;
+  onBatchUpdateChannels?: (
+    channelNames: string[],
+    update: { topic?: string; tags?: string[]; tagsMode?: 'append' | 'replace' },
+  ) => number;
+  onDeleteChannels?: (channelNames: string[]) => number;
   onNotify: (text: string, tone?: 'neutral' | 'success' | 'error') => void;
 }
 
@@ -103,12 +167,24 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   onDeleteFolder,
   topicIcons = {},
   onSetTopicIcon,
+  channelConfigs = {},
+  onUpdateChannelMeta,
+  onReorderChannels,
+  onRenameOrMergeChannels,
+  onBatchUpdateChannels,
+  onDeleteChannels,
   onNotify,
 }) => {
   const [scope, setScope] = useState<VaultScope>({ kind: 'all' });
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<VaultViewMode>('grid');
+  const [channelsViewMode, setChannelsViewMode] = useState<ChannelsViewMode>(
+    () => loadChannelsPrefs().viewMode,
+  );
+  const [channelSortBy, setChannelSortBy] = useState<ChannelsSortMode>(
+    () => loadChannelsPrefs().sortBy,
+  );
   const [sortBy, setSortBy] = useState<VaultSortMode>(() => {
     try {
       const saved = localStorage.getItem(VAULT_SORT_PREFS_KEY);
@@ -130,10 +206,23 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [brokenThumbs, setBrokenThumbs] = useState<Record<string, boolean>>({});
 
-  // Bulk edit state
+  // Bulk edit state (streams & channels)
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedStreamIds, setSelectedStreamIds] = useState<Set<string>>(new Set());
   const [bulkModalType, setBulkModalType] = useState<BulkModalType>(null);
+  const [channelBulkMode, setChannelBulkMode] = useState(false);
+  const [selectedChannelNames, setSelectedChannelNames] = useState<Set<string>>(new Set());
+
+  // Channel management modals & inline single-channel rename state
+  const [channelSettingsTarget, setChannelSettingsTarget] = useState<string | null>(null);
+  const [pendingChannelMerge, setPendingChannelMerge] =
+    useState<PendingChannelMerge | null>(null);
+  const [channelBatchTargets, setChannelBatchTargets] = useState<string[] | null>(null);
+  const [channelDeleteTargets, setChannelDeleteTargets] = useState<
+    { name: string; count: number }[] | null
+  >(null);
+  const [renamingSingleChannel, setRenamingSingleChannel] = useState(false);
+  const [singleChannelRenameDraft, setSingleChannelRenameDraft] = useState('');
 
   const toggleSelectStream = (streamId: string) => {
     setSelectedStreamIds((prev) => {
@@ -144,9 +233,19 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     });
   };
 
+  const toggleSelectChannel = (channelName: string) => {
+    setSelectedChannelNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(channelName)) next.delete(channelName);
+      else next.add(channelName);
+      return next;
+    });
+  };
+
   // Drag-and-drop scroll containers & folder drop modals
   const gridRef = useRef<HTMLDivElement | null>(null);
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
+  const splitListScrollRef = useRef<HTMLDivElement | null>(null);
   const sidebarScrollRef = useRef<HTMLDivElement | null>(null);
   const dockScrollRef = useRef<HTMLDivElement | null>(null);
   const [pendingFolderDrop, setPendingFolderDrop] =
@@ -156,12 +255,32 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
 
   useEffect(() => {
+    setRenamingSingleChannel(false);
+    setSingleChannelRenameDraft('');
+    if (scope.kind !== 'channels') {
+      setChannelBulkMode(false);
+      setSelectedChannelNames(new Set());
+    }
+  }, [scope]);
+
+  useEffect(() => {
     try {
       localStorage.setItem(VAULT_SORT_PREFS_KEY, sortBy);
     } catch {
       // Ignore storage errors
     }
   }, [sortBy]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        CHANNELS_PREFS_KEY,
+        JSON.stringify({ viewMode: channelsViewMode, sortBy: channelSortBy }),
+      );
+    } catch {
+      // Ignore storage errors
+    }
+  }, [channelsViewMode, channelSortBy]);
 
   useEffect(() => {
     const onSynced = () => {
@@ -177,6 +296,9 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         ) {
           setSortBy(saved);
         }
+        const chPrefs = loadChannelsPrefs();
+        setChannelsViewMode(chPrefs.viewMode);
+        setChannelSortBy(chPrefs.sortBy);
       } catch {
         // Ignore
       }
@@ -189,7 +311,9 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
 
   // Editor drawer state
   const [drawerState, setDrawerState] = useState<
-    { open: false } | { open: true; mode: 'create' } | { open: true; mode: 'edit'; streamId: string }
+    | { open: false }
+    | { open: true; mode: 'create'; defaultChannel?: string; defaultTopic?: string }
+    | { open: true; mode: 'edit'; streamId: string }
   >({ open: false });
 
   const folderById = useMemo(() => {
@@ -283,18 +407,22 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         return {
           breadcrumb: 'Vault / Channels',
           title: 'Channels Overview',
-          description: 'Browse all creators and channels as horizontal carousels.',
+          description: 'Manage, sort, pin, and browse creator channels.',
           canBatchLoad: false,
         };
-      case 'channel':
+      case 'channel': {
+        const chMeta = channelConfigs[scope.channel];
         return {
           breadcrumb: `Vault / Channels / ${scope.channel}`,
           title: scope.channel,
+          icon: chMeta?.icon,
+          color: chMeta?.color,
           description: `Saved catalog from creator ${scope.channel}.`,
           canBatchLoad: true,
         };
+      }
     }
-  }, [scope, folderById, topicIcons]);
+  }, [scope, folderById, topicIcons, channelConfigs]);
 
   const customStreamOrderCompare = useCallback((a: StreamItem, b: StreamItem) => {
     const aOrder =
@@ -316,12 +444,73 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   }, []);
 
   const isCustomSort = sortBy === 'custom';
+  const isCustomChannelSort = channelSortBy === 'custom';
 
-  // Channels overview data when scope.kind === 'channels'
-  const channelsOverviewData = useMemo(() => {
-    if (scope.kind !== 'channels') return [];
-    const q = searchQuery.trim().toLowerCase();
+  const compareChannelEntries = useCallback(
+    (
+      a: {
+        name: string;
+        count: number;
+        totalListens: number;
+        latestAddedAt: string;
+        meta: StreamChannelMeta;
+      },
+      b: {
+        name: string;
+        count: number;
+        totalListens: number;
+        latestAddedAt: string;
+        meta: StreamChannelMeta;
+      },
+    ) => {
+      const aPinned = a.meta.pinned ? 1 : 0;
+      const bPinned = b.meta.pinned ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
 
+      switch (channelSortBy) {
+        case 'custom': {
+          const aOrder =
+            typeof a.meta.sortOrder === 'number' && Number.isFinite(a.meta.sortOrder)
+              ? a.meta.sortOrder
+              : null;
+          const bOrder =
+            typeof b.meta.sortOrder === 'number' && Number.isFinite(b.meta.sortOrder)
+              ? b.meta.sortOrder
+              : null;
+          if (aOrder !== null && bOrder !== null && aOrder !== bOrder) {
+            return aOrder - bOrder;
+          }
+          if (aOrder !== null && bOrder === null) return -1;
+          if (aOrder === null && bOrder !== null) return 1;
+          return b.count - a.count || a.name.localeCompare(b.name);
+        }
+        case 'count-asc':
+          return a.count - b.count || a.name.localeCompare(b.name);
+        case 'listens':
+          return (
+            b.totalListens - a.totalListens ||
+            b.count - a.count ||
+            a.name.localeCompare(b.name)
+          );
+        case 'recent':
+          return (
+            b.latestAddedAt.localeCompare(a.latestAddedAt) ||
+            a.name.localeCompare(b.name)
+          );
+        case 'title-asc':
+          return a.name.localeCompare(b.name);
+        case 'title-desc':
+          return b.name.localeCompare(a.name);
+        case 'count-desc':
+        default:
+          return b.count - a.count || a.name.localeCompare(b.name);
+      }
+    },
+    [channelSortBy],
+  );
+
+  // Canonical directory of all exact case-sensitive channels (unfiltered) for duplicate/merge & ordering
+  const allChannelsDirectory = useMemo(() => {
     const map = new Map<string, StreamItem[]>();
     for (const s of streams) {
       const ch = s.channel.trim() || 'Unknown Channel';
@@ -330,12 +519,38 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       map.set(ch, list);
     }
 
-    const result: { name: string; streams: StreamItem[] }[] = [];
+    const entries = Array.from(map.entries()).map(([name, chStreams]) => {
+      let totalListens = 0;
+      let latestAddedAt = '';
+      for (const s of chStreams) {
+        totalListens += s.listenCount ?? 0;
+        if (s.addedAt > latestAddedAt) latestAddedAt = s.addedAt;
+      }
+      return {
+        name,
+        allStreams: chStreams,
+        count: chStreams.length,
+        totalListens,
+        latestAddedAt,
+        meta: channelConfigs[name] ?? {},
+      };
+    });
 
-    for (const [chName, chStreams] of map.entries()) {
-      const channelMatchesQuery = q && chName.toLowerCase().includes(q);
+    entries.sort(compareChannelEntries);
+    return entries;
+  }, [streams, channelConfigs, compareChannelEntries]);
 
-      const filtered = chStreams.filter((s) => {
+  // Channels overview data when scope.kind === 'channels'
+  const channelsOverviewData = useMemo<ChannelSummaryEntry[]>(() => {
+    if (scope.kind !== 'channels') return [];
+    const q = searchQuery.trim().toLowerCase();
+
+    const result: ChannelSummaryEntry[] = [];
+
+    for (const entry of allChannelsDirectory) {
+      const channelMatchesQuery = q && entry.name.toLowerCase().includes(q);
+
+      const filtered = entry.allStreams.filter((s) => {
         if (selectedTags.length > 0) {
           const streamTags = new Set(s.tags.map((t) => t.trim().toLowerCase()));
           for (const req of selectedTags) {
@@ -364,9 +579,15 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
             case 'custom':
               return customStreamOrderCompare(a, b);
             case 'listens':
-              return (b.listenCount ?? 0) - (a.listenCount ?? 0) || b.addedAt.localeCompare(a.addedAt);
+              return (
+                (b.listenCount ?? 0) - (a.listenCount ?? 0) ||
+                b.addedAt.localeCompare(a.addedAt)
+              );
             case 'rating':
-              return (b.rating ?? 0) - (a.rating ?? 0) || (b.listenCount ?? 0) - (a.listenCount ?? 0);
+              return (
+                (b.rating ?? 0) - (a.rating ?? 0) ||
+                (b.listenCount ?? 0) - (a.listenCount ?? 0)
+              );
             case 'title':
               return (a.customLabel || a.title).localeCompare(b.customLabel || b.title);
             case 'channel':
@@ -376,13 +597,60 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               return b.addedAt.localeCompare(a.addedAt);
           }
         });
-        result.push({ name: chName, streams: sorted });
+
+        let totalListens = 0;
+        let latestAddedAt = '';
+        const favTopIds: string[] = [];
+        for (const s of sorted) {
+          totalListens += s.listenCount ?? 0;
+          if (s.addedAt > latestAddedAt) latestAddedAt = s.addedAt;
+          if (s.favorite || (s.rating ?? 0) >= 4) {
+            favTopIds.push(s.id);
+          }
+        }
+
+        result.push({
+          name: entry.name,
+          streams: sorted,
+          totalListens,
+          latestAddedAt,
+          favTopIds,
+          previewThumbnails: sorted
+            .slice(0, 4)
+            .map((s) => ({ id: s.id, url: s.thumbnailUrl })),
+          meta: entry.meta,
+        });
       }
     }
 
-    result.sort((a, b) => b.streams.length - a.streams.length || a.name.localeCompare(b.name));
+    result.sort((a, b) =>
+      compareChannelEntries(
+        {
+          name: a.name,
+          count: a.streams.length,
+          totalListens: a.totalListens,
+          latestAddedAt: a.latestAddedAt,
+          meta: a.meta,
+        },
+        {
+          name: b.name,
+          count: b.streams.length,
+          totalListens: b.totalListens,
+          latestAddedAt: b.latestAddedAt,
+          meta: b.meta,
+        },
+      ),
+    );
     return result;
-  }, [scope, streams, searchQuery, selectedTags, sortBy, customStreamOrderCompare]);
+  }, [
+    scope,
+    allChannelsDirectory,
+    searchQuery,
+    selectedTags,
+    sortBy,
+    customStreamOrderCompare,
+    compareChannelEntries,
+  ]);
 
   // Filter + sort visible streams
   const visibleStreams = useMemo(() => {
@@ -689,6 +957,60 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     [streams, onUpdateStream, onNotify]
   );
 
+  const anyChannelModalOpen = Boolean(
+    channelSettingsTarget ||
+      pendingChannelMerge ||
+      channelBatchTargets ||
+      channelDeleteTargets,
+  );
+
+  const handleReorderChannels = useCallback(
+    (draggedName: string, targetName: string, position: 'before' | 'after') => {
+      if (!onReorderChannels || !draggedName || !targetName || draggedName === targetName) {
+        return;
+      }
+      const orderedNames = allChannelsDirectory.map((c) => c.name);
+      if (!orderedNames.includes(draggedName) || !orderedNames.includes(targetName)) {
+        return;
+      }
+      const remaining = orderedNames.filter((n) => n !== draggedName);
+      const targetIdx = remaining.indexOf(targetName);
+      if (targetIdx === -1) return;
+      const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
+      const nextOrder = [
+        ...remaining.slice(0, insertIdx),
+        draggedName,
+        ...remaining.slice(insertIdx),
+      ];
+      if (nextOrder.every((n, i) => n === orderedNames[i])) return;
+      onReorderChannels(nextOrder);
+    },
+    [allChannelsDirectory, onReorderChannels],
+  );
+
+  const {
+    isDraggingChannel,
+    draggingChannelName,
+    activeChannelDropTarget,
+    handleChannelPointerDown,
+    shouldSuppressChannelClick,
+    renderChannelDragPreview,
+  } = useVaultChannelDrag({
+    enabled:
+      isActiveView &&
+      scope.kind === 'channels' &&
+      isCustomChannelSort &&
+      !drawerState.open &&
+      !bulkModalType &&
+      !pendingFolderDrop &&
+      !folderPickerStreamIds &&
+      !editingFolderId &&
+      !anyChannelModalOpen,
+    scrollContainerRef: mainScrollRef,
+    secondaryScrollRef: splitListScrollRef,
+    onReorderChannels: handleReorderChannels,
+  });
+
   const {
     isDraggingStreams,
     activeDropTarget,
@@ -699,11 +1021,13 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   } = useVaultStreamDrag({
     enabled:
       isActiveView &&
+      !isDraggingChannel &&
       !drawerState.open &&
       !bulkModalType &&
       !pendingFolderDrop &&
       !folderPickerStreamIds &&
-      !editingFolderId,
+      !editingFolderId &&
+      !anyChannelModalOpen,
     streams,
     selectedIds: selectedStreamIds,
     isCustomSort,
@@ -716,6 +1040,111 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     onDropToMoreFolders: (ids) => setFolderPickerStreamIds(ids),
     onReorderStreams: handleReorderStreams,
   });
+
+  const handleTogglePinChannel = useCallback(
+    (channelName: string) => {
+      if (!onUpdateChannelMeta) return;
+      const nextPinned = !channelConfigs[channelName]?.pinned;
+      onUpdateChannelMeta(channelName, { pinned: nextPinned });
+      onNotify(
+        nextPinned ? `Pinned “${channelName}” to top` : `Unpinned “${channelName}”`,
+        'success',
+      );
+    },
+    [channelConfigs, onUpdateChannelMeta, onNotify],
+  );
+
+  const executeRenameOrMergeChannels = useCallback(
+    (fromNames: string[], targetName: string) => {
+      if (!onRenameOrMergeChannels) return;
+      const resolvedTarget = targetName.trim() || 'Unknown Channel';
+      const updatedCount = onRenameOrMergeChannels(fromNames, resolvedTarget);
+      if (scope.kind === 'channel' && fromNames.includes(scope.channel)) {
+        setScope({ kind: 'channel', channel: resolvedTarget });
+      }
+      setSelectedChannelNames((prev) => {
+        if (prev.size === 0) return prev;
+        const next = new Set(prev);
+        for (const f of fromNames) next.delete(f);
+        return next;
+      });
+      setChannelBulkMode(false);
+      onNotify(
+        fromNames.length > 1
+          ? `Merged ${fromNames.length} channels (${updatedCount} ${updatedCount === 1 ? 'stream' : 'streams'}) into “${resolvedTarget}”`
+          : `Updated “${resolvedTarget}” (${updatedCount} ${updatedCount === 1 ? 'stream' : 'streams'})`,
+        'success',
+      );
+    },
+    [onRenameOrMergeChannels, scope, onNotify],
+  );
+
+  const handleRequestRenameChannel = useCallback(
+    (fromName: string, rawTargetName: string) => {
+      const targetName = rawTargetName.trim() || 'Unknown Channel';
+      if (targetName === fromName) return;
+      const sourceEntry = allChannelsDirectory.find((c) => c.name === fromName);
+      const existingTarget = allChannelsDirectory.find((c) => c.name === targetName);
+      if (existingTarget) {
+        setPendingChannelMerge({
+          mode: 'confirm-rename-merge',
+          sourceChannels: [{ name: fromName, count: sourceEntry?.count ?? 0 }],
+          suggestedTargetName: targetName,
+          targetExistingCount: existingTarget.count,
+        });
+        return;
+      }
+      executeRenameOrMergeChannels([fromName], targetName);
+    },
+    [allChannelsDirectory, executeRenameOrMergeChannels],
+  );
+
+  const handleBatchUpdateChannelsApply = useCallback(
+    (
+      channelNames: string[],
+      update: { topic?: string; tags?: string[]; tagsMode?: 'append' | 'replace' },
+    ) => {
+      if (!onBatchUpdateChannels) return;
+      const count = onBatchUpdateChannels(channelNames, update);
+      setSelectedChannelNames(new Set());
+      setChannelBulkMode(false);
+      onNotify(
+        `Updated ${count} ${count === 1 ? 'stream' : 'streams'} across ${channelNames.length} ${channelNames.length === 1 ? 'channel' : 'channels'}`,
+        'success',
+      );
+    },
+    [onBatchUpdateChannels, onNotify],
+  );
+
+  const handleDeleteChannelsConfirm = useCallback(
+    (channelNames: string[]) => {
+      if (!onDeleteChannels) return;
+      const removed = onDeleteChannels(channelNames);
+      if (scope.kind === 'channel' && channelNames.includes(scope.channel)) {
+        setScope({ kind: 'channels' });
+      }
+      setSelectedChannelNames(new Set());
+      setChannelBulkMode(false);
+      onNotify(
+        `Deleted ${channelNames.length} ${channelNames.length === 1 ? 'channel' : 'channels'} (${removed} ${removed === 1 ? 'stream' : 'streams'})`,
+        'success',
+      );
+    },
+    [onDeleteChannels, scope, onNotify],
+  );
+
+  const singleChannelFavTopIds = useMemo(() => {
+    if (scope.kind !== 'channel') return [];
+    return visibleStreams
+      .filter((s) => s.favorite || (s.rating ?? 0) >= 4)
+      .map((s) => s.id);
+  }, [scope.kind, visibleStreams]);
+
+  const channelBatchAffectedCount = useMemo(() => {
+    if (!channelBatchTargets || channelBatchTargets.length === 0) return 0;
+    const set = new Set(channelBatchTargets);
+    return streams.filter((s) => set.has(s.channel.trim() || 'Unknown Channel')).length;
+  }, [channelBatchTargets, streams]);
 
   const trayMemberFolderIds = useMemo(() => {
     if (bulkMode || activeDragStreamIds.size !== 1) {
@@ -976,39 +1405,220 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     {scopeMeta.breadcrumb}
                   </div>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    {scopeMeta.icon && (
+                    {scopeMeta.icon ? (
                       <DynamicIcon
                         name={scopeMeta.icon}
                         className="w-4 h-4 shrink-0"
-                        style={{ color: 'var(--accent)' }}
+                        style={{
+                          color:
+                            scope.kind === 'channel'
+                              ? channelConfigs[scope.channel]?.color || 'var(--accent)'
+                              : 'var(--accent)',
+                        }}
                       />
-                    )}
-                    <h2 className="font-display text-base font-semibold tracking-tight truncate">
-                      {scopeMeta.title}
-                    </h2>
-                    {scope.kind === 'folder' && folderById.has(scope.folderId) && (
-                      <button
-                        type="button"
-                        onClick={() => setEditingFolderId(scope.folderId)}
-                        title="Edit folder name & icon"
-                        aria-label={`Edit ${scopeMeta.title}`}
-                        className="h-6 w-6 rounded-md inline-flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
-                        style={{ color: 'var(--text-muted)' }}
+                    ) : scope.kind === 'channel' ? (
+                      <Tv
+                        className="w-4 h-4 shrink-0"
+                        style={{
+                          color: channelConfigs[scope.channel]?.color || 'var(--accent)',
+                        }}
+                      />
+                    ) : null}
+
+                    {scope.kind === 'channel' && renamingSingleChannel ? (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const target = singleChannelRenameDraft;
+                          setRenamingSingleChannel(false);
+                          handleRequestRenameChannel(scope.channel, target);
+                        }}
+                        className="flex items-center gap-1.5 min-w-[200px] max-w-sm"
                       >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
+                        <input
+                          type="text"
+                          autoFocus
+                          value={singleChannelRenameDraft}
+                          onChange={(e) => setSingleChannelRenameDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              e.stopPropagation();
+                              setRenamingSingleChannel(false);
+                            }
+                          }}
+                          placeholder="Channel name (empty = Unknown Channel)"
+                          className="flex-1 min-w-0 h-7 px-2.5 rounded-lg border text-xs font-medium outline-none focus:border-[var(--accent)]"
+                          style={{
+                            backgroundColor: 'var(--bg-surface)',
+                            borderColor: 'var(--accent)',
+                            color: 'var(--text-primary)',
+                          }}
+                        />
+                        <button
+                          type="submit"
+                          className="h-7 w-7 rounded-lg flex items-center justify-center shrink-0 cursor-pointer"
+                          style={{
+                            backgroundColor: 'var(--accent)',
+                            color: 'var(--accent-fg)',
+                          }}
+                          aria-label="Save channel rename"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRenamingSingleChannel(false)}
+                          className="h-7 w-7 rounded-lg border flex items-center justify-center shrink-0 cursor-pointer"
+                          style={{
+                            backgroundColor: 'var(--bg-surface)',
+                            borderColor: 'var(--border-subtle)',
+                            color: 'var(--text-muted)',
+                          }}
+                          aria-label="Cancel channel rename"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </form>
+                    ) : (
+                      <>
+                        <h2 className="font-display text-base font-semibold tracking-tight truncate">
+                          {scopeMeta.title}
+                        </h2>
+                        {scope.kind === 'folder' && folderById.has(scope.folderId) && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingFolderId(scope.folderId)}
+                            title="Edit folder name & icon"
+                            aria-label={`Edit ${scopeMeta.title}`}
+                            className="h-6 w-6 rounded-md inline-flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
+                            style={{ color: 'var(--text-muted)' }}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {scope.kind === 'channel' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSingleChannelRenameDraft(
+                                scope.channel === 'Unknown Channel' ? '' : scope.channel,
+                              );
+                              setRenamingSingleChannel(true);
+                            }}
+                            title="Rename or merge channel"
+                            aria-label={`Rename ${scope.channel}`}
+                            className="h-6 w-6 rounded-md inline-flex items-center justify-center transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
+                            style={{ color: 'var(--text-muted)' }}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </>
                     )}
+
                     <span
                       className="text-xs font-mono tabular-nums"
                       style={{ color: 'var(--text-muted)' }}
                     >
-                      {visibleStreams.length} {visibleStreams.length === 1 ? 'stream' : 'streams'}
+                      {scope.kind === 'channels'
+                        ? `${channelsOverviewData.length} ${channelsOverviewData.length === 1 ? 'channel' : 'channels'} · ${visibleStreams.length} ${visibleStreams.length === 1 ? 'stream' : 'streams'}`
+                        : `${visibleStreams.length} ${visibleStreams.length === 1 ? 'stream' : 'streams'}${
+                            scope.kind === 'channel' &&
+                            channelConfigs[scope.channel]?.defaultTopic
+                              ? ` · Default: ${channelConfigs[scope.channel]?.defaultTopic}`
+                              : ''
+                          }`}
                     </span>
                   </div>
+                </div>
               </div>
-            </div>
 
             <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              {scope.kind === 'channel' && (
+                <div className="inline-flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePinChannel(scope.channel)}
+                    className="h-8 w-8 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{
+                      backgroundColor: channelConfigs[scope.channel]?.pinned
+                        ? 'var(--accent-soft)'
+                        : 'var(--bg-surface)',
+                      borderColor: channelConfigs[scope.channel]?.pinned
+                        ? 'var(--accent)'
+                        : 'var(--border-subtle)',
+                      color: channelConfigs[scope.channel]?.pinned
+                        ? 'var(--accent)'
+                        : 'var(--text-muted)',
+                    }}
+                    title={
+                      channelConfigs[scope.channel]?.pinned
+                        ? 'Unpin channel'
+                        : 'Pin channel to top'
+                    }
+                    aria-label="Pin channel"
+                  >
+                    <Pin
+                      className={`w-3.5 h-3.5 ${
+                        channelConfigs[scope.channel]?.pinned ? 'fill-current' : ''
+                      }`}
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChannelBatchTargets([scope.channel])}
+                    className="h-8 w-8 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-secondary)',
+                    }}
+                    title={`Batch edit topic & tags for ${scope.channel}`}
+                    aria-label="Batch edit topic and tags"
+                  >
+                    <Tag className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChannelSettingsTarget(scope.channel)}
+                    className="h-8 w-8 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-secondary)',
+                    }}
+                    title="Customize icon, color & default topic"
+                    aria-label="Channel settings"
+                  >
+                    <Palette className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const entry = allChannelsDirectory.find(
+                        (c) => c.name === scope.channel,
+                      );
+                      setChannelDeleteTargets([
+                        {
+                          name: scope.channel,
+                          count: entry?.count ?? visibleStreams.length,
+                        },
+                      ]);
+                    }}
+                    className="h-8 w-8 rounded-lg border inline-flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--danger)',
+                    }}
+                    title={`Delete ${scope.channel} and all its streams`}
+                    aria-label="Delete channel"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               {scopeMeta.canBatchLoad && visibleStreams.length > 0 && (
                 <div
                   className="inline-flex items-center rounded-lg border overflow-hidden"
@@ -1052,6 +1662,29 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                     <Plus className="w-3 h-3" />
                     <span className="hidden sm:inline">Layer</span>
                   </button>
+                  {scope.kind === 'channel' && singleChannelFavTopIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onLoadStreamsToGrid(
+                          singleChannelFavTopIds,
+                          'replace',
+                          `${scope.channel} · Favorites & Top`,
+                        )
+                      }
+                      className="h-8 px-2.5 border-l text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap hover:bg-[var(--bg-surface-hover)]"
+                      style={{
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--warning)',
+                      }}
+                      title={`Load ${singleChannelFavTopIds.length} favorite or top-rated (4–5★) streams from ${scope.channel}`}
+                    >
+                      <Star className="w-3 h-3 fill-current" />
+                      <span className="hidden sm:inline">
+                        Favs ({singleChannelFavTopIds.length})
+                      </span>
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1070,7 +1703,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
             </div>
           </div>
 
-          {/* Row 2: Unified 32px Search + Sort + Grid/Table Toggle */}
+          {/* Row 2: Unified 32px Search + Sort + Selection + View Toggle */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative flex-1 min-w-[200px]">
               <Search
@@ -1102,127 +1735,345 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
               )}
             </div>
 
-            {/* Sort Selector + Custom Order GripVertical Toggle */}
-            <div className="inline-flex items-center gap-1 shrink-0">
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as VaultSortMode)}
-                className="h-8 px-2.5 rounded-lg border text-xs font-medium outline-none cursor-pointer"
-                style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--border-subtle)',
-                  color: 'var(--text-secondary)',
-                }}
-                aria-label="Sort streams"
-              >
-                <option value="custom">Sort: Custom Order</option>
-                <option value="recent">Sort: Recently Added</option>
-                <option value="listens">Sort: Most Listened</option>
-                <option value="rating">Sort: Highest Rated</option>
-                <option value="title">Sort: Title (A–Z)</option>
-                <option value="channel">Sort: Channel (A–Z)</option>
-              </select>
+            {scope.kind === 'channels' ? (
+              <>
+                {/* Dedicated Channel Sort + Custom Drag Order Toggle */}
+                <div className="inline-flex items-center gap-1 shrink-0">
+                  <select
+                    value={channelSortBy}
+                    onChange={(e) => setChannelSortBy(e.target.value as ChannelsSortMode)}
+                    className="h-8 px-2.5 rounded-lg border text-xs font-medium outline-none cursor-pointer"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-secondary)',
+                    }}
+                    aria-label="Sort channels"
+                  >
+                    <option value="custom">Channels: Custom Order</option>
+                    <option value="count-desc">Channels: Most Streams</option>
+                    <option value="count-asc">Channels: Fewest Streams</option>
+                    <option value="listens">Channels: Total Listens</option>
+                    <option value="recent">Channels: Latest Added</option>
+                    <option value="title-asc">Channels: A–Z</option>
+                    <option value="title-desc">Channels: Z–A</option>
+                  </select>
 
-              <button
-                type="button"
-                onClick={() =>
-                  setSortBy((prev) => (prev === 'custom' ? 'recent' : 'custom'))
-                }
-                title={
-                  isCustomSort
-                    ? 'Custom order active — drag cards or rows to rearrange (click to switch back)'
-                    : 'Enable Custom Order (drag & drop)'
-                }
-                aria-label={
-                  isCustomSort
-                    ? 'Custom drag order active'
-                    : 'Switch to Custom Order'
-                }
-                aria-pressed={isCustomSort}
-                className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
-                style={{
-                  backgroundColor: isCustomSort
-                    ? 'var(--accent-soft)'
-                    : 'var(--bg-surface)',
-                  borderColor: isCustomSort
-                    ? 'var(--accent)'
-                    : 'var(--border-subtle)',
-                  color: isCustomSort ? 'var(--accent)' : 'var(--text-secondary)',
-                }}
-              >
-                <GripVertical className="w-3.5 h-3.5" />
-              </button>
-            </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setChannelSortBy((prev) =>
+                        prev === 'custom' ? 'count-desc' : 'custom',
+                      )
+                    }
+                    title={
+                      isCustomChannelSort
+                        ? 'Custom channel order active — drag handles to rearrange channels'
+                        : 'Enable Custom Channel Order (drag & drop)'
+                    }
+                    aria-label="Toggle custom channel drag order"
+                    aria-pressed={isCustomChannelSort}
+                    className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
+                    style={{
+                      backgroundColor: isCustomChannelSort
+                        ? 'var(--accent-soft)'
+                        : 'var(--bg-surface)',
+                      borderColor: isCustomChannelSort
+                        ? 'var(--accent)'
+                        : 'var(--border-subtle)',
+                      color: isCustomChannelSort
+                        ? 'var(--accent)'
+                        : 'var(--text-secondary)',
+                    }}
+                  >
+                    <GripVertical className="w-3.5 h-3.5" />
+                  </button>
+                </div>
 
-            {/* Select Toggle for Bulk Edit */}
-            <button
-              type="button"
-              onClick={() => {
-                setBulkMode((prev) => {
-                  if (prev) {
-                    setSelectedStreamIds(new Set());
-                  }
-                  return !prev;
-                });
-              }}
-              className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors shrink-0"
-              style={{
-                backgroundColor: bulkMode ? 'var(--accent-soft)' : 'var(--bg-surface)',
-                borderColor: bulkMode ? 'var(--accent)' : 'var(--border-subtle)',
-                color: bulkMode ? 'var(--accent)' : 'var(--text-secondary)',
-              }}
-              title={bulkMode ? 'Exit Select mode' : 'Select multiple streams for bulk edit'}
-              aria-pressed={bulkMode}
-            >
-              <CheckSquare className="w-3.5 h-3.5" />
-              <span>Select</span>
-              {selectedStreamIds.size > 0 && (
-                <span
-                  className="font-mono text-[11px] font-semibold px-1 rounded"
-                  style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-fg)' }}
+                {/* Separate Stream Sort inside channels */}
+                <div className="inline-flex items-center gap-1 shrink-0">
+                  <select
+                    value={sortBy === 'channel' ? 'recent' : sortBy}
+                    onChange={(e) => setSortBy(e.target.value as VaultSortMode)}
+                    className="h-8 px-2.5 rounded-lg border text-xs font-medium outline-none cursor-pointer"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-secondary)',
+                    }}
+                    aria-label="Sort streams inside channels"
+                  >
+                    <option value="custom">Streams: Custom Order</option>
+                    <option value="recent">Streams: Recently Added</option>
+                    <option value="listens">Streams: Most Listened</option>
+                    <option value="rating">Streams: Highest Rated</option>
+                    <option value="title">Streams: Title (A–Z)</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSortBy((prev) => (prev === 'custom' ? 'recent' : 'custom'))
+                    }
+                    title={
+                      isCustomSort
+                        ? 'In-channel stream drag order active'
+                        : 'Enable Custom Order for streams inside each channel'
+                    }
+                    aria-label="Toggle custom in-channel stream order"
+                    aria-pressed={isCustomSort}
+                    className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
+                    style={{
+                      backgroundColor: isCustomSort
+                        ? 'var(--accent-soft)'
+                        : 'var(--bg-surface)',
+                      borderColor: isCustomSort
+                        ? 'var(--accent)'
+                        : 'var(--border-subtle)',
+                      color: isCustomSort ? 'var(--accent)' : 'var(--text-secondary)',
+                    }}
+                  >
+                    <GripVertical className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Select Channels Bulk Toggle */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChannelBulkMode((prev) => {
+                      const next = !prev;
+                      if (!next) {
+                        setSelectedChannelNames(new Set());
+                      } else {
+                        setBulkMode(false);
+                        setSelectedStreamIds(new Set());
+                      }
+                      return next;
+                    });
+                  }}
+                  className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors shrink-0 whitespace-nowrap cursor-pointer"
+                  style={{
+                    backgroundColor: channelBulkMode
+                      ? 'var(--accent-soft)'
+                      : 'var(--bg-surface)',
+                    borderColor: channelBulkMode
+                      ? 'var(--accent)'
+                      : 'var(--border-subtle)',
+                    color: channelBulkMode ? 'var(--accent)' : 'var(--text-secondary)',
+                  }}
+                  title="Select multiple channels to merge, batch edit, pin, load, or delete"
+                  aria-pressed={channelBulkMode}
                 >
-                  {selectedStreamIds.size}
-                </span>
-              )}
-            </button>
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  <span>Select</span>
+                  {selectedChannelNames.size > 0 && (
+                    <span
+                      className="font-mono text-[11px] font-semibold px-1 rounded"
+                      style={{
+                        backgroundColor: 'var(--accent)',
+                        color: 'var(--accent-fg)',
+                      }}
+                    >
+                      {selectedChannelNames.size}
+                    </span>
+                  )}
+                </button>
 
-            {/* Grid / Table Segmented View Switch */}
-            <div
-              className="inline-flex items-center h-8 gap-0.5 p-0.5 rounded-lg border shrink-0"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                borderColor: 'var(--border-subtle)',
-              }}
-              role="group"
-              aria-label="Vault display mode"
-            >
-              <button
-                type="button"
-                onClick={() => setViewMode('grid')}
-                className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                style={{
-                  backgroundColor: viewMode === 'grid' ? 'var(--accent-soft)' : 'transparent',
-                  color: viewMode === 'grid' ? 'var(--accent)' : 'var(--text-muted)',
-                }}
-                aria-label="Grid cards view"
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Cards</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('table')}
-                className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                style={{
-                  backgroundColor: viewMode === 'table' ? 'var(--accent-soft)' : 'transparent',
-                  color: viewMode === 'table' ? 'var(--accent)' : 'var(--text-muted)',
-                }}
-                aria-label="Dense table view"
-              >
-                <List className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Table</span>
-              </button>
-            </div>
+                {/* Channels 3-Mode View Switcher */}
+                <div
+                  className="inline-flex items-center h-8 gap-0.5 p-0.5 rounded-lg border shrink-0"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    borderColor: 'var(--border-subtle)',
+                  }}
+                  role="group"
+                  aria-label="Channels view mode"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setChannelsViewMode('carousels')}
+                    className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+                    style={{
+                      backgroundColor:
+                        channelsViewMode === 'carousels'
+                          ? 'var(--accent-soft)'
+                          : 'transparent',
+                      color:
+                        channelsViewMode === 'carousels'
+                          ? 'var(--accent)'
+                          : 'var(--text-muted)',
+                    }}
+                    aria-label="Horizontal carousels view"
+                  >
+                    <GalleryHorizontal className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Carousels</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChannelsViewMode('directory')}
+                    className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+                    style={{
+                      backgroundColor:
+                        channelsViewMode === 'directory'
+                          ? 'var(--accent-soft)'
+                          : 'transparent',
+                      color:
+                        channelsViewMode === 'directory'
+                          ? 'var(--accent)'
+                          : 'var(--text-muted)',
+                    }}
+                    aria-label="Directory cards grid view"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Directory</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChannelsViewMode('split')}
+                    className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+                    style={{
+                      backgroundColor:
+                        channelsViewMode === 'split'
+                          ? 'var(--accent-soft)'
+                          : 'transparent',
+                      color:
+                        channelsViewMode === 'split'
+                          ? 'var(--accent)'
+                          : 'var(--text-muted)',
+                    }}
+                    aria-label="Split master-detail list view"
+                  >
+                    <Columns2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Split</span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Sort Selector + Custom Order GripVertical Toggle */}
+                <div className="inline-flex items-center gap-1 shrink-0">
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as VaultSortMode)}
+                    className="h-8 px-2.5 rounded-lg border text-xs font-medium outline-none cursor-pointer"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-secondary)',
+                    }}
+                    aria-label="Sort streams"
+                  >
+                    <option value="custom">Sort: Custom Order</option>
+                    <option value="recent">Sort: Recently Added</option>
+                    <option value="listens">Sort: Most Listened</option>
+                    <option value="rating">Sort: Highest Rated</option>
+                    <option value="title">Sort: Title (A–Z)</option>
+                    <option value="channel">Sort: Channel (A–Z)</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSortBy((prev) => (prev === 'custom' ? 'recent' : 'custom'))
+                    }
+                    title={
+                      isCustomSort
+                        ? 'Custom order active — drag cards or rows to rearrange (click to switch back)'
+                        : 'Enable Custom Order (drag & drop)'
+                    }
+                    aria-label={
+                      isCustomSort
+                        ? 'Custom drag order active'
+                        : 'Switch to Custom Order'
+                    }
+                    aria-pressed={isCustomSort}
+                    className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
+                    style={{
+                      backgroundColor: isCustomSort
+                        ? 'var(--accent-soft)'
+                        : 'var(--bg-surface)',
+                      borderColor: isCustomSort
+                        ? 'var(--accent)'
+                        : 'var(--border-subtle)',
+                      color: isCustomSort ? 'var(--accent)' : 'var(--text-secondary)',
+                    }}
+                  >
+                    <GripVertical className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Select Toggle for Bulk Edit */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBulkMode((prev) => {
+                      if (prev) {
+                        setSelectedStreamIds(new Set());
+                      }
+                      return !prev;
+                    });
+                  }}
+                  className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors shrink-0"
+                  style={{
+                    backgroundColor: bulkMode ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                    borderColor: bulkMode ? 'var(--accent)' : 'var(--border-subtle)',
+                    color: bulkMode ? 'var(--accent)' : 'var(--text-secondary)',
+                  }}
+                  title={bulkMode ? 'Exit Select mode' : 'Select multiple streams for bulk edit'}
+                  aria-pressed={bulkMode}
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  <span>Select</span>
+                  {selectedStreamIds.size > 0 && (
+                    <span
+                      className="font-mono text-[11px] font-semibold px-1 rounded"
+                      style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-fg)' }}
+                    >
+                      {selectedStreamIds.size}
+                    </span>
+                  )}
+                </button>
+
+                {/* Grid / Table Segmented View Switch */}
+                <div
+                  className="inline-flex items-center h-8 gap-0.5 p-0.5 rounded-lg border shrink-0"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    borderColor: 'var(--border-subtle)',
+                  }}
+                  role="group"
+                  aria-label="Vault display mode"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('grid')}
+                    className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    style={{
+                      backgroundColor: viewMode === 'grid' ? 'var(--accent-soft)' : 'transparent',
+                      color: viewMode === 'grid' ? 'var(--accent)' : 'var(--text-muted)',
+                    }}
+                    aria-label="Grid cards view"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Cards</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('table')}
+                    className="h-full px-2 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    style={{
+                      backgroundColor: viewMode === 'table' ? 'var(--accent-soft)' : 'transparent',
+                      color: viewMode === 'table' ? 'var(--accent)' : 'var(--text-muted)',
+                    }}
+                    aria-label="Dense table view"
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Table</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Active Multi-Tag Filter Indicator */}
@@ -1268,248 +2119,127 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
           }`}
         >
           {scope.kind === 'channels' ? (
-            channelsOverviewData.length === 0 ? (
-              <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-3">
-                <div
-                  className="w-11 h-11 rounded-xl border flex items-center justify-center"
-                  style={{
-                    backgroundColor: 'var(--bg-surface)',
-                    borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  <Tv className="w-5 h-5" />
-                </div>
-                <div className="space-y-1">
-                  <h3 className="font-display text-sm font-bold">No channels found</h3>
-                  <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                    {searchQuery
-                      ? 'No channels or tracks match your search query.'
-                      : 'Save streams with creator channels to organize them here.'}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-7 max-w-[1800px] pb-16">
-                {channelsOverviewData.map((ch) => (
-                  <section key={ch.name} className="space-y-2.5">
-                    {/* Channel Row Header */}
-                    <div className="flex items-center justify-between gap-3 px-1">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => setScope({ kind: 'channel', channel: ch.name })}
-                          className="font-display text-sm font-bold hover:underline truncate text-left inline-flex items-center gap-1.5"
-                          style={{ color: 'var(--text-primary)' }}
-                          title={`View all streams from ${ch.name}`}
-                        >
-                          <Tv className="w-4 h-4 shrink-0" style={{ color: 'var(--accent)' }} />
-                          <span className="truncate">{ch.name}</span>
-                        </button>
-                        <span
-                          className="text-[11px] font-mono tabular-nums px-2 py-0.5 rounded-full border shrink-0"
-                          style={{
-                            backgroundColor: 'var(--bg-surface)',
-                            borderColor: 'var(--border-subtle)',
-                            color: 'var(--text-muted)',
-                          }}
-                        >
-                          {ch.streams.length} {ch.streams.length === 1 ? 'stream' : 'streams'}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onLoadStreamsToGrid(
-                              ch.streams.map((s) => s.id),
-                              'replace',
-                              ch.name
-                            )
-                          }
-                          className="h-7 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] transition-colors whitespace-nowrap"
-                          style={{
-                            backgroundColor: 'var(--bg-surface)',
-                            borderColor: 'var(--border-subtle)',
-                            color: 'var(--text-primary)',
-                          }}
-                          title={`Load "${ch.name}" stack to Live Grid`}
-                        >
-                          <Play className="w-3 h-3 fill-current" style={{ color: 'var(--accent)' }} />
-                          <span>Load Stack</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setScope({ kind: 'channel', channel: ch.name })}
-                          className="h-7 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-hover)] transition-colors whitespace-nowrap"
-                          style={{
-                            backgroundColor: 'var(--bg-surface)',
-                            borderColor: 'var(--border-subtle)',
-                            color: 'var(--text-secondary)',
-                          }}
-                          title={`Open ${ch.name} channel view`}
-                        >
-                          <span>View All</span>
-                          <ChevronRight className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Horizontal scrollable carousel: mouse horizontal scroll and touch swipe only */}
-                    <div className="overflow-x-auto flex gap-3.5 pb-2.5 pt-0.5 scrollbar-none">
-                      {ch.streams.map((item) => {
-                        const inGrid = activeIdSet.has(item.id);
-                        const isSelected = selectedStreamIds.has(item.id);
-                        const isBeingDragged = activeDragStreamIds.has(item.id);
-
-                        return (
-                          <div
-                            key={item.id}
-                            onPointerDown={(e) => handleStreamPointerDown(item.id, e)}
-                            className={`w-64 shrink-0 rounded-xl border flex flex-col overflow-hidden transition-all duration-150 ${
-                              isBeingDragged ? 'opacity-45 scale-[0.98]' : ''
-                            } ${
-                              isSelected ? 'ring-2 ring-[var(--accent)]' : ''
-                            }`}
-                            style={{
-                              backgroundColor: 'var(--bg-surface)',
-                              borderColor: isSelected
-                                ? 'var(--accent)'
-                                : inGrid
-                                ? 'var(--accent)'
-                                : 'var(--border-subtle)',
-                            }}
-                          >
-                            {/* Thumbnail */}
-                            <div className="relative aspect-video w-full overflow-hidden bg-[var(--bg-surface-subtle)]">
-                              <button
-                                type="button"
-                                draggable={false}
-                                onDragStart={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  if (shouldSuppressClick()) return;
-                                  if (bulkMode) {
-                                    toggleSelectStream(item.id);
-                                  } else {
-                                    setDrawerState({ open: true, mode: 'edit', streamId: item.id });
-                                  }
-                                }}
-                                className="w-full h-full text-left group select-none"
-                              >
-                                {!brokenThumbs[item.id] ? (
-                                  <img
-                                    src={item.thumbnailUrl}
-                                    alt={item.customLabel || item.title}
-                                    draggable={false}
-                                    referrerPolicy="no-referrer"
-                                    onError={() =>
-                                      setBrokenThumbs((prev) => ({ ...prev, [item.id]: true }))
-                                    }
-                                    className="w-full h-full object-cover pointer-events-none select-none"
-                                  />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)] pointer-events-none">
-                                    <MonitorPlay className="w-6 h-6" />
-                                  </div>
-                                )}
-                              </button>
-
-                              {/* Bulk checkbox */}
-                              {(bulkMode || isSelected) && (
-                                <button
-                                  type="button"
-                                  data-no-stream-drag="true"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleSelectStream(item.id);
-                                  }}
-                                  className="absolute top-2 left-2 w-5 h-5 rounded-md border flex items-center justify-center z-20 shadow-md cursor-pointer transition-transform active:scale-90"
-                                  style={{
-                                    backgroundColor: isSelected ? 'var(--accent)' : 'var(--bg-surface)',
-                                    borderColor: isSelected ? 'var(--accent)' : 'var(--border-strong)',
-                                    color: 'var(--accent-fg)',
-                                  }}
-                                  aria-label="Select stream"
-                                >
-                                  {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                                </button>
-                              )}
-
-                              {inGrid && !bulkMode && !isSelected && (
-                                <span
-                                  className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-tight pointer-events-none"
-                                  style={{
-                                    backgroundColor: 'var(--accent)',
-                                    color: 'var(--accent-fg)',
-                                  }}
-                                >
-                                  Stacked
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Card Content */}
-                            <div className="p-3 flex-1 flex flex-col justify-between gap-2">
-                              <div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (shouldSuppressClick()) return;
-                                    if (bulkMode) {
-                                      toggleSelectStream(item.id);
-                                    } else {
-                                      setDrawerState({ open: true, mode: 'edit', streamId: item.id });
-                                    }
-                                  }}
-                                  className="text-left w-full"
-                                >
-                                  <h4 className="text-xs font-semibold leading-snug line-clamp-2">
-                                    {item.customLabel || item.title}
-                                  </h4>
-                                </button>
-                                <p className="text-[11px] truncate mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                                  {item.category || 'General'}
-                                </p>
-                              </div>
-
-                              <div className="flex items-center justify-between gap-1 pt-1.5 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-                                <button
-                                  type="button"
-                                  data-no-stream-drag="true"
-                                  onClick={() => onStackStream(item.id)}
-                                  className="h-6 px-2 rounded-md border text-[10px] font-semibold inline-flex items-center gap-1 transition-colors"
-                                  style={{
-                                    backgroundColor: inGrid ? 'var(--accent-soft)' : 'var(--bg-surface-subtle)',
-                                    borderColor: inGrid ? 'var(--accent)' : 'var(--border-subtle)',
-                                    color: inGrid ? 'var(--accent)' : 'var(--text-primary)',
-                                  }}
-                                >
-                                  <Plus className="w-2.5 h-2.5" />
-                                  <span>{inGrid ? 'Layer' : 'Stack'}</span>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  data-no-stream-drag="true"
-                                  onClick={() => onUpdateStream(item.id, { favorite: !item.favorite })}
-                                  className="h-6 w-6 rounded-md flex items-center justify-center"
-                                  style={{ color: item.favorite ? 'var(--warning)' : 'var(--text-muted)' }}
-                                  aria-label={item.favorite ? 'Unfavorite' : 'Favorite'}
-                                >
-                                  <Star className={`w-3 h-3 ${item.favorite ? 'fill-current' : ''}`} />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            )
+            <StreamChannelsOverview
+              channels={channelsOverviewData}
+              viewMode={channelsViewMode}
+              isCustomChannelSort={isCustomChannelSort}
+              isCustomStreamSort={isCustomSort}
+              searchQuery={searchQuery}
+              activeIdSet={activeIdSet}
+              bulkMode={bulkMode}
+              selectedStreamIds={selectedStreamIds}
+              channelBulkMode={channelBulkMode}
+              selectedChannelNames={selectedChannelNames}
+              brokenThumbs={brokenThumbs}
+              onBrokenThumb={(streamId) =>
+                setBrokenThumbs((prev) => ({ ...prev, [streamId]: true }))
+              }
+              activeStreamDropTarget={activeDropTarget}
+              activeDragStreamIds={activeDragStreamIds}
+              onStreamPointerDown={handleStreamPointerDown}
+              shouldSuppressStreamClick={shouldSuppressClick}
+              draggingChannelName={draggingChannelName}
+              activeChannelDropTarget={activeChannelDropTarget}
+              onChannelPointerDown={handleChannelPointerDown}
+              shouldSuppressChannelClick={shouldSuppressChannelClick}
+              splitListScrollRef={splitListScrollRef}
+              onToggleSelectStream={toggleSelectStream}
+              onToggleSelectChannel={toggleSelectChannel}
+              onSelectAllChannels={() =>
+                setSelectedChannelNames(new Set(channelsOverviewData.map((c) => c.name)))
+              }
+              onClearChannelSelection={() => setSelectedChannelNames(new Set())}
+              onCloseChannelBulkMode={() => {
+                setChannelBulkMode(false);
+                setSelectedChannelNames(new Set());
+              }}
+              onBulkMergeSelectedChannels={() => {
+                const selected = channelsOverviewData.filter((c) =>
+                  selectedChannelNames.has(c.name),
+                );
+                if (selected.length < 2) return;
+                setPendingChannelMerge({
+                  mode: 'bulk-merge',
+                  sourceChannels: selected.map((c) => ({
+                    name: c.name,
+                    count: c.streams.length,
+                  })),
+                  suggestedTargetName: selected[0].name,
+                });
+              }}
+              onBulkBatchEditChannels={() => {
+                const selected = Array.from(selectedChannelNames);
+                if (selected.length === 0) return;
+                setChannelBatchTargets(selected);
+              }}
+              onBulkTogglePinChannels={() => {
+                if (!onUpdateChannelMeta) return;
+                const selected = Array.from(selectedChannelNames);
+                if (selected.length === 0) return;
+                const allPinned = selected.every((n) => Boolean(channelConfigs[n]?.pinned));
+                for (const ch of selected) {
+                  onUpdateChannelMeta(ch, { pinned: !allPinned });
+                }
+                onNotify(
+                  allPinned
+                    ? `Unpinned ${selected.length} channels`
+                    : `Pinned ${selected.length} channels to top`,
+                  'success',
+                );
+              }}
+              onBulkLoadSelectedChannels={() => {
+                const set = selectedChannelNames;
+                const ids = channelsOverviewData
+                  .filter((c) => set.has(c.name))
+                  .flatMap((c) => c.streams.map((s) => s.id));
+                if (ids.length === 0) return;
+                onLoadStreamsToGrid(ids, 'replace', `${set.size} Channels`);
+              }}
+              onBulkDeleteSelectedChannels={() => {
+                const selected = Array.from(selectedChannelNames).map((name) => {
+                  const entry = allChannelsDirectory.find((c) => c.name === name);
+                  return { name, count: entry?.count ?? 0 };
+                });
+                if (selected.length === 0) return;
+                setChannelDeleteTargets(selected);
+              }}
+              onOpenChannel={(channelName) =>
+                setScope({ kind: 'channel', channel: channelName })
+              }
+              onEditStream={(streamId) =>
+                setDrawerState({ open: true, mode: 'edit', streamId })
+              }
+              onAddStreamInChannel={(channelName, defaultTopic) =>
+                setDrawerState({
+                  open: true,
+                  mode: 'create',
+                  defaultChannel:
+                    channelName === 'Unknown Channel' ? '' : channelName,
+                  defaultTopic: defaultTopic || undefined,
+                })
+              }
+              onStackStream={onStackStream}
+              onToggleStreamInGrid={onToggleStreamInGrid}
+              onUpdateStream={onUpdateStream}
+              onIncrementListen={onIncrementListen}
+              onLoadStreamsToGrid={(ids, mode, label) =>
+                onLoadStreamsToGrid(ids, mode, label)
+              }
+              onTogglePinChannel={handleTogglePinChannel}
+              onRequestRenameChannel={handleRequestRenameChannel}
+              onOpenChannelSettings={(channelName) =>
+                setChannelSettingsTarget(channelName)
+              }
+              onOpenChannelBatchEdit={(channelName) =>
+                setChannelBatchTargets([channelName])
+              }
+              onOpenChannelDelete={(channelName) => {
+                const entry = allChannelsDirectory.find((c) => c.name === channelName);
+                setChannelDeleteTargets([
+                  { name: channelName, count: entry?.count ?? 0 },
+                ]);
+              }}
+            />
           ) : visibleStreams.length === 0 ? (
             <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-3">
               <div
@@ -2362,8 +3092,22 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
           folders={folders}
           inGrid={editingStream ? activeIdSet.has(editingStream.id) : false}
           defaultFolderId={scope.kind === 'folder' ? scope.folderId : null}
-          defaultTopic={scope.kind === 'topic' ? scope.topic : undefined}
-          defaultChannel={scope.kind === 'channel' ? scope.channel : undefined}
+          defaultTopic={
+            drawerState.mode === 'create' && drawerState.defaultTopic !== undefined
+              ? drawerState.defaultTopic
+              : scope.kind === 'topic'
+                ? scope.topic
+                : scope.kind === 'channel'
+                  ? channelConfigs[scope.channel]?.defaultTopic
+                  : undefined
+          }
+          defaultChannel={
+            drawerState.mode === 'create' && drawerState.defaultChannel !== undefined
+              ? drawerState.defaultChannel
+              : scope.kind === 'channel' && scope.channel !== 'Unknown Channel'
+                ? scope.channel
+                : undefined
+          }
           onClose={() => setDrawerState({ open: false })}
           onCreate={onAddStream}
           onUpdate={onUpdateStream}
@@ -2442,7 +3186,46 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
         }}
       />
 
+      {/* Channel Management Modals */}
+      <ChannelSettingsModal
+        channelName={channelSettingsTarget}
+        meta={channelSettingsTarget ? channelConfigs[channelSettingsTarget] : undefined}
+        existingTopics={existingTopics}
+        onClose={() => setChannelSettingsTarget(null)}
+        onSave={(channelName, patch) => {
+          if (!onUpdateChannelMeta) return;
+          onUpdateChannelMeta(channelName, patch);
+          onNotify(`Saved channel settings for “${channelName}”`, 'success');
+        }}
+      />
+
+      <ChannelRenameMergeModal
+        pending={pendingChannelMerge}
+        existingChannels={allChannelsDirectory.map((c) => ({
+          name: c.name,
+          count: c.count,
+        }))}
+        onClose={() => setPendingChannelMerge(null)}
+        onConfirm={executeRenameOrMergeChannels}
+      />
+
+      <ChannelBatchEditModal
+        channelNames={channelBatchTargets}
+        affectedStreamCount={channelBatchAffectedCount}
+        existingTopics={existingTopics}
+        existingTags={existingTags}
+        onClose={() => setChannelBatchTargets(null)}
+        onApply={handleBatchUpdateChannelsApply}
+      />
+
+      <ChannelDeleteModal
+        targets={channelDeleteTargets}
+        onClose={() => setChannelDeleteTargets(null)}
+        onConfirm={handleDeleteChannelsConfirm}
+      />
+
       {renderDragPreview()}
+      {renderChannelDragPreview()}
     </div>
   );
 };

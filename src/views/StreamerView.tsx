@@ -125,6 +125,11 @@ export const StreamerView = forwardRef<
     updateStreamFolder,
     deleteStreamFolder,
     setStreamTopicIcon,
+    updateStreamChannelMeta,
+    reorderStreamChannels,
+    renameOrMergeStreamChannels,
+    batchUpdateStreamChannels,
+    deleteStreamChannels,
     updateStreamerState,
     saveStreamPreset,
     loadStreamPreset,
@@ -135,6 +140,7 @@ export const StreamerView = forwardRef<
   const { streams, streamPresets, streamerState } = workspace;
   const streamFolders = workspace.streamFolders ?? [];
   const streamTopicIcons = workspace.streamTopicIcons ?? {};
+  const streamChannels = workspace.streamChannels ?? {};
 
   const viewMode: StreamViewMode = streamerState.viewMode || "grid";
   const sizingMode: StreamSizingMode = streamerState.sizingMode || "fit";
@@ -1880,6 +1886,12 @@ export const StreamerView = forwardRef<
             onDeleteFolder={deleteStreamFolder}
             topicIcons={streamTopicIcons}
             onSetTopicIcon={(topic, icon) => setStreamTopicIcon(topic, icon)}
+            channelConfigs={streamChannels}
+            onUpdateChannelMeta={updateStreamChannelMeta}
+            onReorderChannels={reorderStreamChannels}
+            onRenameOrMergeChannels={renameOrMergeStreamChannels}
+            onBatchUpdateChannels={batchUpdateStreamChannels}
+            onDeleteChannels={deleteStreamChannels}
             onNotify={pushToast}
           />
         )}

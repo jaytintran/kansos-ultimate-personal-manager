@@ -10,6 +10,7 @@ export const SYNCED_VIEW_PREFERENCE_KEYS = [
   "kanso_lists_prefs_v1",
   "kanso_events_filters_v1",
   "kanso_streamer_vault_sort_v1",
+  "kanso_streamer_channels_prefs_v1",
   "kanso_library_studio_prefs_v1",
   "kanso_audio_studio_prefs_v1",
   "kanso_contacts_prefs_v1",

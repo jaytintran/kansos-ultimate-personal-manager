@@ -489,6 +489,7 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
       streamerBytes:
         measureJsonBytes(workspace.streams) +
         measureJsonBytes(workspace.streamFolders) +
+        measureJsonBytes(workspace.streamChannels) +
         measureJsonBytes(workspace.streamPresets) +
         measureJsonBytes(workspace.streamerState),
       libraryMetaCount:
@@ -2990,6 +2991,8 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                             ...prev,
                             streams: [],
                             streamFolders: [],
+                            streamChannels: {},
+                            streamTopicIcons: {},
                             streamPresets: [],
                             streamerState: {
                               ...prev.streamerState,

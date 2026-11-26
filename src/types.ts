@@ -335,6 +335,14 @@ export interface StreamFolder {
   createdAt: string;
 }
 
+export interface StreamChannelMeta {
+  pinned?: boolean;
+  icon?: string;
+  color?: string;
+  defaultTopic?: string;
+  sortOrder?: number;
+}
+
 export interface StreamItem {
   id: string;
   url: string;
@@ -573,6 +581,7 @@ export interface KansoWorkspace {
   streams: StreamItem[];
   streamFolders?: StreamFolder[];
   streamTopicIcons?: Record<string, string>;
+  streamChannels?: Record<string, StreamChannelMeta>;
   streamPresets: StreamPreset[];
   streamerState: StreamerState;
   audioTracks?: AudioTrackRecord[];

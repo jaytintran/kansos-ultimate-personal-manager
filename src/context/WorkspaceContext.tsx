@@ -62,6 +62,7 @@ import {
   NoteStatus,
   ScratchpadCard,
   StackSlot,
+  StreamChannelMeta,
   StreamFolder,
   StreamItem,
   StreamPreset,
@@ -172,6 +173,7 @@ function hasSyncableWorkspaceChanged(
     prev.streamerState !== next.streamerState ||
     prev.streamPresets !== next.streamPresets ||
     prev.streamTopicIcons !== next.streamTopicIcons ||
+    prev.streamChannels !== next.streamChannels ||
     prev.contacts !== next.contacts ||
     prev.contactCircles !== next.contactCircles ||
     prev.financeAccounts !== next.financeAccounts ||
@@ -448,6 +450,10 @@ function normalizeParsedWorkspace(
     streamTopicIcons:
       parsed.streamTopicIcons && typeof parsed.streamTopicIcons === "object"
         ? parsed.streamTopicIcons
+        : {},
+    streamChannels:
+      parsed.streamChannels && typeof parsed.streamChannels === "object"
+        ? parsed.streamChannels
         : {},
     streamPresets: Array.isArray(parsed.streamPresets)
       ? parsed.streamPresets
@@ -880,6 +886,24 @@ interface WorkspaceContextValue {
   updateStreamFolder: (id: string, patch: Partial<StreamFolder>) => void;
   deleteStreamFolder: (id: string) => void;
   setStreamTopicIcon: (topic: string, icon: string | undefined) => void;
+  updateStreamChannelMeta: (
+    channelName: string,
+    patch: Partial<StreamChannelMeta>,
+  ) => void;
+  reorderStreamChannels: (orderedChannelNames: string[]) => void;
+  renameOrMergeStreamChannels: (
+    fromNames: string[],
+    targetName: string,
+  ) => number;
+  batchUpdateStreamChannels: (
+    channelNames: string[],
+    update: {
+      topic?: string;
+      tags?: string[];
+      tagsMode?: "append" | "replace";
+    },
+  ) => number;
+  deleteStreamChannels: (channelNames: string[]) => number;
   reorderActiveStreams: (fromIndex: number, toIndex: number) => void;
   reorderVaultStreams: (sortOrderById: Record<string, number>) => void;
   updateStreamerState: (patch: Partial<StreamerState>) => void;
@@ -4363,6 +4387,258 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace],
   );
 
+  const updateStreamChannelMeta = useCallback(
+    (channelName: string, patch: Partial<StreamChannelMeta>) => {
+      const key = channelName.trim() || "Unknown Channel";
+      mutateWorkspace((prev) => {
+        const nextMap = { ...(prev.streamChannels ?? {}) };
+        const merged: StreamChannelMeta = {
+          ...(nextMap[key] ?? {}),
+          ...patch,
+        };
+        if (!merged.pinned) delete merged.pinned;
+        if (!merged.icon?.trim()) delete merged.icon;
+        else merged.icon = merged.icon.trim();
+        if (!merged.color?.trim()) delete merged.color;
+        else merged.color = merged.color.trim();
+        if (!merged.defaultTopic?.trim()) delete merged.defaultTopic;
+        else merged.defaultTopic = merged.defaultTopic.trim();
+        if (
+          typeof merged.sortOrder !== "number" ||
+          !Number.isFinite(merged.sortOrder)
+        ) {
+          delete merged.sortOrder;
+        }
+        if (Object.keys(merged).length === 0) {
+          delete nextMap[key];
+        } else {
+          nextMap[key] = merged;
+        }
+        return {
+          ...prev,
+          streamChannels: nextMap,
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const reorderStreamChannels = useCallback(
+    (orderedChannelNames: string[]) => {
+      if (orderedChannelNames.length === 0) return;
+      mutateWorkspace((prev) => {
+        const nextMap = { ...(prev.streamChannels ?? {}) };
+        let changed = false;
+        orderedChannelNames.forEach((rawName, idx) => {
+          const key = rawName.trim() || "Unknown Channel";
+          const current = nextMap[key] ?? {};
+          if (current.sortOrder !== idx) {
+            nextMap[key] = { ...current, sortOrder: idx };
+            changed = true;
+          }
+        });
+        if (!changed) return prev;
+        return {
+          ...prev,
+          streamChannels: nextMap,
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const renameOrMergeStreamChannels = useCallback(
+    (fromNames: string[], targetName: string): number => {
+      const fromSet = new Set(
+        fromNames.map((n) => n.trim() || "Unknown Channel"),
+      );
+      if (fromSet.size === 0) return 0;
+      const resolvedTarget = targetName.trim() || "Unknown Channel";
+      const storedChannel =
+        resolvedTarget === "Unknown Channel" ? "" : resolvedTarget;
+      let affectedCount = 0;
+
+      mutateWorkspace((prev) => {
+        const nextStreams = prev.streams.map((s) => {
+          const ch = s.channel.trim() || "Unknown Channel";
+          if (!fromSet.has(ch)) return s;
+          affectedCount++;
+          if (s.channel === storedChannel) return s;
+          return { ...s, channel: storedChannel };
+        });
+
+        const nextChannels = { ...(prev.streamChannels ?? {}) };
+        const combinedMeta: StreamChannelMeta = {
+          ...(nextChannels[resolvedTarget] ?? {}),
+        };
+        for (const sourceName of fromSet) {
+          const srcMeta = nextChannels[sourceName];
+          if (!srcMeta) continue;
+          if (srcMeta.pinned) combinedMeta.pinned = true;
+          if (!combinedMeta.icon && srcMeta.icon)
+            combinedMeta.icon = srcMeta.icon;
+          if (!combinedMeta.color && srcMeta.color)
+            combinedMeta.color = srcMeta.color;
+          if (!combinedMeta.defaultTopic && srcMeta.defaultTopic) {
+            combinedMeta.defaultTopic = srcMeta.defaultTopic;
+          }
+          if (
+            typeof combinedMeta.sortOrder !== "number" &&
+            typeof srcMeta.sortOrder === "number"
+          ) {
+            combinedMeta.sortOrder = srcMeta.sortOrder;
+          }
+          if (sourceName !== resolvedTarget) {
+            delete nextChannels[sourceName];
+          }
+        }
+        if (Object.keys(combinedMeta).length > 0) {
+          nextChannels[resolvedTarget] = combinedMeta;
+        }
+
+        return {
+          ...prev,
+          streams: nextStreams,
+          streamChannels: nextChannels,
+        };
+      });
+
+      return affectedCount;
+    },
+    [mutateWorkspace],
+  );
+
+  const batchUpdateStreamChannels = useCallback(
+    (
+      channelNames: string[],
+      update: {
+        topic?: string;
+        tags?: string[];
+        tagsMode?: "append" | "replace";
+      },
+    ): number => {
+      const targetSet = new Set(
+        channelNames.map((n) => n.trim() || "Unknown Channel"),
+      );
+      if (targetSet.size === 0) return 0;
+      let affectedCount = 0;
+
+      mutateWorkspace((prev) => {
+        const nextStreams = prev.streams.map((s) => {
+          const ch = s.channel.trim() || "Unknown Channel";
+          if (!targetSet.has(ch)) return s;
+          affectedCount++;
+          let nextCategory = s.category;
+          let nextTags = s.tags;
+          if (typeof update.topic === "string") {
+            nextCategory = update.topic.trim() || "General";
+          }
+          if (Array.isArray(update.tags)) {
+            const cleanIncoming = update.tags
+              .map((t) => t.trim().toLowerCase())
+              .filter(Boolean);
+            nextTags =
+              update.tagsMode === "replace"
+                ? Array.from(new Set(cleanIncoming))
+                : Array.from(new Set([...s.tags, ...cleanIncoming]));
+          }
+          return {
+            ...s,
+            category: nextCategory,
+            tags: nextTags,
+          };
+        });
+        return {
+          ...prev,
+          streams: nextStreams,
+        };
+      });
+
+      return affectedCount;
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteStreamChannels = useCallback(
+    (channelNames: string[]): number => {
+      const targetSet = new Set(
+        channelNames.map((n) => n.trim() || "Unknown Channel"),
+      );
+      if (targetSet.size === 0) return 0;
+      let deletedCount = 0;
+
+      mutateWorkspace((prev) => {
+        const removedIds = new Set<string>();
+        const remainingStreams = prev.streams.filter((s) => {
+          const ch = s.channel.trim() || "Unknown Channel";
+          if (targetSet.has(ch)) {
+            removedIds.add(s.id);
+            deletedCount++;
+            return false;
+          }
+          return true;
+        });
+
+        const currentSlots = prev.streamerState.activeSlots ?? [];
+        const nextSlots = currentSlots.filter(
+          (sl) => !removedIds.has(sl.streamId),
+        );
+        const nextActive = nextSlots.map((sl) => sl.streamId);
+        const nextPresets = prev.streamPresets
+          .map((p) => {
+            const filteredSlots = (p.slots ?? []).filter(
+              (sl) => !removedIds.has(sl.streamId),
+            );
+            const filteredIds = p.streamIds.filter((sid) => !removedIds.has(sid));
+            return {
+              ...p,
+              streamIds: filteredIds,
+              slots: p.slots ? filteredSlots : undefined,
+              spotlightStreamId:
+                p.spotlightStreamId && removedIds.has(p.spotlightStreamId)
+                  ? filteredIds[0] || null
+                  : p.spotlightStreamId,
+            };
+          })
+          .filter((p) => p.streamIds.length > 0);
+
+        const nextPresetStillExists =
+          prev.streamerState.activePresetId !== null &&
+          nextPresets.some(
+            (p) => p.id === prev.streamerState.activePresetId,
+          );
+
+        const nextChannels = { ...(prev.streamChannels ?? {}) };
+        for (const name of targetSet) {
+          delete nextChannels[name];
+        }
+
+        return {
+          ...prev,
+          streams: remainingStreams,
+          streamChannels: nextChannels,
+          streamPresets: nextPresets,
+          streamerState: {
+            ...prev.streamerState,
+            activeSlots: nextSlots,
+            activeStreamIds: nextActive,
+            spotlightStreamId:
+              prev.streamerState.spotlightStreamId &&
+              removedIds.has(prev.streamerState.spotlightStreamId)
+                ? nextActive[0] || null
+                : prev.streamerState.spotlightStreamId,
+            activePresetId: nextPresetStillExists
+              ? prev.streamerState.activePresetId
+              : null,
+          },
+        };
+      });
+
+      return deletedCount;
+    },
+    [mutateWorkspace],
+  );
+
   const deleteStreamFolder = useCallback(
     (id: string) => {
       mutateWorkspace((prev) => {
@@ -6244,6 +6520,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
             typeof cleanNext.streamTopicIcons === "object"
               ? cleanNext.streamTopicIcons
               : {},
+          streamChannels:
+            cleanNext.streamChannels &&
+            typeof cleanNext.streamChannels === "object"
+              ? cleanNext.streamChannels
+              : {},
           streamPresets: Array.isArray(cleanNext.streamPresets)
             ? cleanNext.streamPresets
             : [],
@@ -6551,6 +6832,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       updateStreamFolder,
       deleteStreamFolder,
       setStreamTopicIcon,
+      updateStreamChannelMeta,
+      reorderStreamChannels,
+      renameOrMergeStreamChannels,
+      batchUpdateStreamChannels,
+      deleteStreamChannels,
       reorderActiveStreams,
       reorderVaultStreams,
       updateStreamerState,
@@ -6707,6 +6993,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       updateStreamFolder,
       deleteStreamFolder,
       setStreamTopicIcon,
+      updateStreamChannelMeta,
+      reorderStreamChannels,
+      renameOrMergeStreamChannels,
+      batchUpdateStreamChannels,
+      deleteStreamChannels,
       reorderActiveStreams,
       reorderVaultStreams,
       updateStreamerState,

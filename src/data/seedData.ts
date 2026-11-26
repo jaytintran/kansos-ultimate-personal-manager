@@ -127,6 +127,7 @@ export function createEmptyWorkspace(): KansoWorkspace {
     bookHighlights: [],
     streams: [],
     streamFolders: [],
+    streamChannels: {},
     streamPresets: [],
     streamerState: { ...DEFAULT_STREAMER_STATE },
     audioTracks: [],
