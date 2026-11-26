@@ -459,12 +459,23 @@ export interface WorkspaceSettings {
   fontMono?: MonoFontId;
 }
 
+export type AutoPushIndicatorStyle =
+  | "push-button"
+  | "sidebar-line"
+  | "floating-card"
+  | "toast";
+
 export interface GistSyncConfig {
   token: string;
   gistId: string;
   filename: string;
   lastSyncedAt: string | null;
+  lastRemoteUpdatedAt?: string | null;
   lastDirection: "push" | "pull" | "full" | null;
+  autoPushEnabled?: boolean;
+  autoPushDelaySeconds?: number;
+  autoPushIndicatorEnabled?: boolean;
+  autoPushIndicatorStyle?: AutoPushIndicatorStyle;
 }
 
 // ==========================================================================

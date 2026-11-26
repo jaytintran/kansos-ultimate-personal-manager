@@ -44,6 +44,7 @@ import {
 } from "../lib/db";
 import { formatFileSize } from "../lib/formatters";
 import {
+  AutoPushIndicatorStyle,
   ColorMode,
   EntryType,
   ThemeId,
@@ -215,7 +216,8 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     restoreSampleData,
     pushToast,
   } = useWorkspace();
-  const { gistSyncBusy } = useGistSyncStatus();
+  const { gistSyncBusy, autoPushStatus, dismissAutoPushNotice } =
+    useGistSyncStatus();
 
   const [tab, setTab] = useState<SettingsModalTab>(initialTab);
   const [showToken, setShowToken] = useState(false);
@@ -590,7 +592,8 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
       { preserveLocalLibrary: true },
     );
     updateGistConfig({
-      lastSyncedAt: new Date().toISOString(),
+      lastSyncedAt: pullPreview.remoteUpdatedAt,
+      lastRemoteUpdatedAt: pullPreview.remoteUpdatedAt,
       lastDirection: "pull",
     });
     setPullPreview(null);
@@ -1515,6 +1518,373 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* Safe Hybrid Auto-Push Settings */}
+              <div
+                className="pt-4 border-t space-y-3"
+                style={{ borderColor: "var(--border-subtle)" }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-0.5 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="text-xs font-semibold"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        Safe Hybrid Auto-Push
+                      </span>
+                      {gistConfig.autoPushEnabled &&
+                        gistConfig.token.trim() &&
+                        gistConfig.gistId.trim() && (
+                          <span
+                            className="text-[11px] font-mono tabular-nums"
+                            style={{
+                              color:
+                                autoPushStatus.phase === "conflict" ||
+                                autoPushStatus.phase === "error"
+                                  ? "var(--danger)"
+                                  : "var(--accent)",
+                            }}
+                          >
+                            ·{" "}
+                            {autoPushStatus.phase === "pending" &&
+                            autoPushStatus.secondsRemaining !== null
+                              ? `${autoPushStatus.secondsRemaining}s`
+                              : autoPushStatus.phase === "checking"
+                                ? "Checking..."
+                                : autoPushStatus.phase === "pushing"
+                                  ? "Pushing..."
+                                  : autoPushStatus.phase === "conflict"
+                                    ? "Paused (Pull needed)"
+                                    : autoPushStatus.phase === "offline"
+                                      ? "Offline"
+                                      : "Ready"}
+                          </span>
+                        )}
+                    </div>
+                    <p
+                      className="text-[11px] leading-relaxed"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      Waits for an idle pause after you edit, checks the remote
+                      Gist timestamp first, and automatically pauses if another
+                      device pushed newer changes.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={Boolean(gistConfig.autoPushEnabled)}
+                    aria-label="Enable Safe Hybrid Auto-Push"
+                    onClick={() =>
+                      updateGistConfig({
+                        autoPushEnabled: !gistConfig.autoPushEnabled,
+                      })
+                    }
+                    className="h-6 w-10 rounded-full p-0.5 transition-colors flex items-center shrink-0 cursor-pointer"
+                    style={{
+                      backgroundColor: gistConfig.autoPushEnabled
+                        ? "var(--accent)"
+                        : "var(--border-strong)",
+                      justifyContent: gistConfig.autoPushEnabled
+                        ? "flex-end"
+                        : "flex-start",
+                    }}
+                  >
+                    <span className="w-5 h-5 rounded-full bg-white shadow-xs" />
+                  </button>
+                </div>
+
+                {gistConfig.autoPushEnabled &&
+                  (!gistConfig.token.trim() || !gistConfig.gistId.trim()) && (
+                    <div
+                      className="p-2.5 rounded-xl border text-[11px] leading-relaxed"
+                      style={{
+                        backgroundColor: "var(--bg-surface-subtle)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {!gistConfig.token.trim()
+                        ? "Add your GitHub Personal Access Token above and push once to activate Auto-Push."
+                        : "Click Push Now once (or paste an existing Gist ID) so Auto-Push knows which Gist to watch and update."}
+                    </div>
+                  )}
+
+                {autoPushStatus.phase === "conflict" && (
+                  <div
+                    className="p-3 rounded-xl border space-y-2"
+                    style={{
+                      backgroundColor: "var(--bg-surface-subtle)",
+                      borderColor: "var(--danger)",
+                    }}
+                  >
+                    <div
+                      className="text-xs font-semibold flex items-center gap-1.5"
+                      style={{ color: "var(--danger)" }}
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      <span>Auto-Push Paused — Remote Gist Is Newer</span>
+                    </div>
+                    <p
+                      className="text-[11px] leading-relaxed"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      Another device updated your Gist
+                      {autoPushStatus.conflictRemoteUpdatedAt
+                        ? ` at ${new Date(autoPushStatus.conflictRemoteUpdatedAt).toLocaleString()}`
+                        : ""}
+                      . Pull first so your other device&apos;s changes aren&apos;t
+                      overwritten.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={effectiveBusy !== null}
+                        onClick={() => void quickPullGist()}
+                        className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        style={{
+                          backgroundColor: "var(--accent)",
+                          color: "var(--accent-fg)",
+                        }}
+                      >
+                        <CloudDownload className="w-3.5 h-3.5" />
+                        <span>Instant Pull Now</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={dismissAutoPushNotice}
+                        className="h-8 px-2.5 rounded-lg border text-xs cursor-pointer"
+                        style={{
+                          borderColor: "var(--border-subtle)",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {gistConfig.autoPushEnabled && (
+                  <div
+                    className="p-3.5 rounded-xl border space-y-4"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    {/* Delay in Seconds */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <label
+                          htmlFor="auto-push-delay-input"
+                          className="text-xs font-medium"
+                          style={{ color: "var(--text-primary)" }}
+                        >
+                          Idle Delay Before Pushing
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            id="auto-push-delay-input"
+                            type="number"
+                            min={5}
+                            max={600}
+                            value={gistConfig.autoPushDelaySeconds ?? 30}
+                            onChange={(e) => {
+                              const parsed = parseInt(e.target.value, 10);
+                              if (Number.isNaN(parsed)) return;
+                              updateGistConfig({
+                                autoPushDelaySeconds: Math.max(
+                                  5,
+                                  Math.min(600, parsed),
+                                ),
+                              });
+                            }}
+                            className="w-16 h-7 px-2 rounded-lg border text-xs font-mono tabular-nums text-right outline-none focus:border-[var(--accent)]"
+                            style={{
+                              backgroundColor: "var(--bg-canvas)",
+                              borderColor: "var(--border-subtle)",
+                              color: "var(--text-primary)",
+                            }}
+                          />
+                          <span
+                            className="text-[11px]"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            sec
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {[10, 20, 30, 60, 120].map((sec) => {
+                          const currentDelay =
+                            gistConfig.autoPushDelaySeconds ?? 30;
+                          const active = currentDelay === sec;
+                          return (
+                            <button
+                              key={sec}
+                              type="button"
+                              onClick={() =>
+                                updateGistConfig({ autoPushDelaySeconds: sec })
+                              }
+                              className="h-7 px-2.5 rounded-lg border text-xs font-mono tabular-nums transition-colors cursor-pointer"
+                              style={{
+                                backgroundColor: active
+                                  ? "var(--accent-soft)"
+                                  : "var(--bg-canvas)",
+                                borderColor: active
+                                  ? "var(--accent)"
+                                  : "var(--border-subtle)",
+                                color: active
+                                  ? "var(--accent)"
+                                  : "var(--text-secondary)",
+                              }}
+                            >
+                              {sec < 60 ? `${sec}s` : `${sec / 60}m (${sec}s)`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Indication Toggle */}
+                    <div
+                      className="pt-3 border-t space-y-2.5"
+                      style={{ borderColor: "var(--border-subtle)" }}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div
+                            className="text-xs font-medium"
+                            style={{ color: "var(--text-primary)" }}
+                          >
+                            Auto-Push Indication
+                          </div>
+                          <div
+                            className="text-[11px]"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            Show countdown, pushing state, and sync confirmation
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={
+                            gistConfig.autoPushIndicatorEnabled !== false
+                          }
+                          aria-label="Toggle Auto-Push Indication"
+                          onClick={() =>
+                            updateGistConfig({
+                              autoPushIndicatorEnabled:
+                                gistConfig.autoPushIndicatorEnabled === false,
+                            })
+                          }
+                          className="h-6 w-10 rounded-full p-0.5 transition-colors flex items-center shrink-0 cursor-pointer"
+                          style={{
+                            backgroundColor:
+                              gistConfig.autoPushIndicatorEnabled !== false
+                                ? "var(--accent)"
+                                : "var(--border-strong)",
+                            justifyContent:
+                              gistConfig.autoPushIndicatorEnabled !== false
+                                ? "flex-end"
+                                : "flex-start",
+                          }}
+                        >
+                          <span className="w-5 h-5 rounded-full bg-white shadow-xs" />
+                        </button>
+                      </div>
+
+                      {gistConfig.autoPushIndicatorEnabled !== false && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-0.5">
+                          {(
+                            [
+                              {
+                                id: "push-button",
+                                label: "Push Button Dot & Label",
+                                desc: "Live dot & countdown directly inside the Push button",
+                              },
+                              {
+                                id: "sidebar-line",
+                                label: "Sidebar Status Line",
+                                desc: "Subtle countdown & sync text above sidebar buttons",
+                              },
+                              {
+                                id: "floating-card",
+                                label: "Floating Corner Card",
+                                desc: "Compact corner card during countdown and push",
+                              },
+                              {
+                                id: "toast",
+                                label: "Completion Toast",
+                                desc: "Non-intrusive popup toast when auto-push finishes",
+                              },
+                            ] as {
+                              id: AutoPushIndicatorStyle;
+                              label: string;
+                              desc: string;
+                            }[]
+                          ).map((opt) => {
+                            const selected =
+                              (gistConfig.autoPushIndicatorStyle ??
+                                "push-button") === opt.id;
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() =>
+                                  updateGistConfig({
+                                    autoPushIndicatorStyle: opt.id,
+                                  })
+                                }
+                                className="p-2.5 rounded-xl border text-left transition-colors cursor-pointer flex items-start justify-between gap-2"
+                                style={{
+                                  backgroundColor: selected
+                                    ? "var(--accent-soft)"
+                                    : "var(--bg-canvas)",
+                                  borderColor: selected
+                                    ? "var(--accent)"
+                                    : "var(--border-subtle)",
+                                }}
+                              >
+                                <div className="min-w-0">
+                                  <div
+                                    className="text-xs font-semibold truncate"
+                                    style={{
+                                      color: selected
+                                        ? "var(--accent)"
+                                        : "var(--text-primary)",
+                                    }}
+                                  >
+                                    {opt.label}
+                                  </div>
+                                  <div
+                                    className="text-[11px] leading-snug mt-0.5"
+                                    style={{ color: "var(--text-muted)" }}
+                                  >
+                                    {opt.desc}
+                                  </div>
+                                </div>
+                                {selected && (
+                                  <Check
+                                    className="w-3.5 h-3.5 shrink-0 mt-0.5"
+                                    style={{ color: "var(--accent)" }}
+                                  />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Local Offline JSON Export / Import */}
               <div

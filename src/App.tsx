@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
+  Check,
   ChevronDown,
   ChevronUp,
   CloudDownload,
@@ -127,7 +129,8 @@ const KansoShell: React.FC = () => {
     pushToast,
     updateSettings,
   } = useWorkspace();
-  const { gistSyncBusy } = useGistSyncStatus();
+  const { gistSyncBusy, autoPushStatus, dismissAutoPushNotice } =
+    useGistSyncStatus();
   const navConfig = useMemo(
     () => resolveNavigationConfig(workspace.settings.navigation),
     [workspace.settings.navigation],
@@ -670,6 +673,27 @@ const KansoShell: React.FC = () => {
   const hasGistId = Boolean(gistConfig.gistId.trim());
   const isGistConfigured = hasGistToken || hasGistId;
 
+  const autoPushActive =
+    Boolean(gistConfig.autoPushEnabled) && hasGistToken && hasGistId;
+  const autoPushIndicatorOn =
+    autoPushActive && gistConfig.autoPushIndicatorEnabled !== false;
+  const autoPushIndicatorStyle =
+    gistConfig.autoPushIndicatorStyle ?? "push-button";
+  const showPushButtonIndicator =
+    autoPushIndicatorOn && autoPushIndicatorStyle === "push-button";
+  const showSidebarLineIndicator =
+    autoPushIndicatorOn &&
+    (autoPushIndicatorStyle === "sidebar-line" ||
+      autoPushStatus.phase === "conflict");
+  const isAutoPushConflict = autoPushStatus.phase === "conflict";
+  const isAutoPushError = autoPushStatus.phase === "error";
+  const isAutoPushPending = autoPushStatus.phase === "pending";
+  const isAutoPushSynced = autoPushStatus.phase === "synced";
+  const isAutoPushWorking =
+    gistSyncBusy === "push" ||
+    autoPushStatus.phase === "checking" ||
+    autoPushStatus.phase === "pushing";
+
   const isMoreViewActive = navConfig.mobileMoreVisible.includes(activeView);
   const activeViewDef = VIEW_META_MAP[activeView];
 
@@ -1131,6 +1155,22 @@ const KansoShell: React.FC = () => {
                 ) : (
                   <RefreshCw className="w-4 h-4" />
                 )}
+                {autoPushIndicatorOn &&
+                  (isAutoPushPending || isAutoPushConflict || isAutoPushError || isAutoPushSynced) && (
+                    <span
+                      className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${
+                        isAutoPushPending ? "animate-pulse" : ""
+                      }`}
+                      style={{
+                        backgroundColor:
+                          isAutoPushConflict || isAutoPushError
+                            ? "var(--danger)"
+                            : isAutoPushSynced
+                              ? "var(--accent)"
+                              : "#f59e0b",
+                      }}
+                    />
+                  )}
               </button>
 
               <button
@@ -1206,77 +1246,173 @@ const KansoShell: React.FC = () => {
               className="pt-3.5 mt-3 border-t space-y-2 shrink-0"
               style={{ borderColor: "var(--border-subtle)" }}
             >
-              {/* Top Row: Gist Sync Bar */}
+              {/* Top Row: Inline Push & Pull Buttons */}
               {isGistConfigured ? (
-                <div
-                  className="flex items-center justify-between gap-1 p-1 rounded-xl border"
-                  style={{
-                    backgroundColor: "var(--bg-surface-subtle)",
-                    borderColor: "var(--border-subtle)",
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => openModal("sync")}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium min-w-0 flex-1 text-left transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                    style={{ color: "var(--text-secondary)" }}
-                    title={
-                      gistConfig.lastSyncedAt
-                        ? `Last ${gistConfig.lastDirection || "sync"}: ${new Date(gistConfig.lastSyncedAt).toLocaleString()}`
-                        : "Configure GitHub Gist Sync"
-                    }
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">Gist Sync</span>
-                  </button>
+                <div className="space-y-1.5">
+                  {showSidebarLineIndicator &&
+                    autoPushStatus.phase !== "idle" && (
+                      <button
+                        type="button"
+                        onClick={() => openModal("sync")}
+                        className="w-full px-1 flex items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-left cursor-pointer hover:opacity-85"
+                        style={{
+                          color:
+                            isAutoPushConflict || isAutoPushError
+                              ? "var(--danger)"
+                              : isAutoPushSynced
+                                ? "var(--accent)"
+                                : "var(--text-muted)",
+                        }}
+                        title="Open Cloud Sync settings"
+                      >
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                              isAutoPushPending || isAutoPushWorking
+                                ? "animate-pulse"
+                                : ""
+                            }`}
+                            style={{
+                              backgroundColor:
+                                isAutoPushConflict || isAutoPushError
+                                  ? "var(--danger)"
+                                  : isAutoPushSynced
+                                    ? "var(--accent)"
+                                    : "#f59e0b",
+                            }}
+                          />
+                          <span className="truncate">
+                            {autoPushStatus.phase === "pending" &&
+                            autoPushStatus.secondsRemaining !== null
+                              ? `Auto-push in ${autoPushStatus.secondsRemaining}s`
+                              : autoPushStatus.phase === "checking"
+                                ? "Checking Gist..."
+                                : autoPushStatus.phase === "pushing"
+                                  ? "Auto-pushing..."
+                                  : autoPushStatus.phase === "conflict"
+                                    ? "Paused: Pull needed"
+                                    : autoPushStatus.phase === "offline"
+                                      ? "Offline · queued"
+                                      : autoPushStatus.phase === "error"
+                                        ? "Auto-push error"
+                                        : "Auto-pushed"}
+                          </span>
+                        </span>
+                        {isAutoPushConflict && (
+                          <span className="shrink-0 underline">Resolve</span>
+                        )}
+                      </button>
+                    )}
 
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       disabled={gistSyncBusy !== null || !hasGistToken}
                       onClick={() => void quickPushGist()}
-                      className="h-7 w-7 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface)] disabled:opacity-40 cursor-pointer"
+                      className="h-9 px-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors hover:bg-[var(--bg-surface-subtle)] disabled:opacity-40 cursor-pointer min-w-0"
                       style={{
-                        backgroundColor: "var(--bg-surface)",
-                        borderColor: "var(--border-subtle)",
-                        color: "var(--text-primary)",
+                        backgroundColor:
+                          showPushButtonIndicator &&
+                          (isAutoPushConflict || isAutoPushError)
+                            ? "color-mix(in srgb, var(--danger) 12%, var(--bg-surface))"
+                            : showPushButtonIndicator && isAutoPushSynced
+                              ? "var(--accent-soft)"
+                              : "var(--bg-surface)",
+                        borderColor:
+                          showPushButtonIndicator &&
+                          (isAutoPushConflict || isAutoPushError)
+                            ? "var(--danger)"
+                            : showPushButtonIndicator && isAutoPushSynced
+                              ? "var(--accent)"
+                              : "var(--border-subtle)",
+                        color:
+                          showPushButtonIndicator &&
+                          (isAutoPushConflict || isAutoPushError)
+                            ? "var(--danger)"
+                            : showPushButtonIndicator && isAutoPushSynced
+                              ? "var(--accent)"
+                              : "var(--text-primary)",
                       }}
                       title={
-                        hasGistToken
-                          ? "Quick Push to GitHub Gist"
-                          : "Add GitHub token in Gist Sync to push"
+                        isAutoPushConflict
+                          ? "Remote Gist is newer — Pull first or click Push to force overwrite"
+                          : hasGistToken
+                            ? gistConfig.lastSyncedAt
+                              ? `Push to GitHub Gist (Last ${gistConfig.lastDirection || "sync"}: ${new Date(gistConfig.lastSyncedAt).toLocaleString()})`
+                              : "Push to GitHub Gist"
+                            : "Add GitHub token in Settings → Sync to push"
                       }
-                      aria-label="Quick Push to GitHub Gist"
+                      aria-label="Push to GitHub Gist"
                     >
-                      {gistSyncBusy === "push" ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      {isAutoPushWorking ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
                       ) : (
-                        <CloudUpload className="w-3.5 h-3.5" />
+                        <CloudUpload className="w-3.5 h-3.5 shrink-0" />
                       )}
+                      {showPushButtonIndicator &&
+                        (isAutoPushPending ||
+                          isAutoPushConflict ||
+                          isAutoPushError ||
+                          isAutoPushSynced ||
+                          autoPushStatus.phase === "offline") && (
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                              isAutoPushPending ? "animate-pulse" : ""
+                            }`}
+                            style={{
+                              backgroundColor:
+                                isAutoPushConflict || isAutoPushError
+                                  ? "var(--danger)"
+                                  : isAutoPushSynced
+                                    ? "var(--accent)"
+                                    : "#f59e0b",
+                            }}
+                          />
+                        )}
+                      <span className="truncate font-mono-tabular">
+                        {autoPushStatus.phase === "checking"
+                          ? "Checking"
+                          : isAutoPushWorking
+                            ? "Pushing"
+                            : showPushButtonIndicator &&
+                                isAutoPushPending &&
+                                autoPushStatus.secondsRemaining !== null
+                              ? `Push ${autoPushStatus.secondsRemaining}s`
+                              : showPushButtonIndicator && isAutoPushConflict
+                                ? "Conflict"
+                                : "Push"}
+                      </span>
                     </button>
 
                     <button
                       type="button"
                       disabled={gistSyncBusy !== null || !hasGistId}
                       onClick={() => void quickPullGist()}
-                      className="h-7 w-7 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface)] disabled:opacity-40 cursor-pointer"
+                      className="h-9 px-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors hover:bg-[var(--bg-surface-subtle)] disabled:opacity-40 cursor-pointer min-w-0"
                       style={{
-                        backgroundColor: "var(--bg-surface)",
-                        borderColor: "var(--border-subtle)",
-                        color: "var(--text-primary)",
+                        backgroundColor: isAutoPushConflict
+                          ? "var(--accent-soft)"
+                          : "var(--bg-surface)",
+                        borderColor: isAutoPushConflict
+                          ? "var(--accent)"
+                          : "var(--border-subtle)",
+                        color: isAutoPushConflict
+                          ? "var(--accent)"
+                          : "var(--text-primary)",
                       }}
                       title={
                         hasGistId
-                          ? "Instant Pull from GitHub Gist"
-                          : "Push once or add Gist ID to pull"
+                          ? "Pull from GitHub Gist"
+                          : "Push once or add Gist ID in Settings → Sync to pull"
                       }
-                      aria-label="Instant Pull from GitHub Gist"
+                      aria-label="Pull from GitHub Gist"
                     >
                       {gistSyncBusy === "pull" ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
                       ) : (
-                        <CloudDownload className="w-3.5 h-3.5" />
+                        <CloudDownload className="w-3.5 h-3.5 shrink-0" />
                       )}
+                      <span className="truncate">Pull</span>
                     </button>
                   </div>
                 </div>
@@ -1389,63 +1525,88 @@ const KansoShell: React.FC = () => {
             )}
           </div>
 
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={toggleColorMode}
-              className="h-9 w-9 flex items-center justify-center rounded-lg"
-              style={{ color: "var(--text-secondary)" }}
-              aria-label="Toggle color mode"
-            >
-              {workspace.settings.colorMode === "dark" ? (
-                <Sun className="w-4 h-4" />
-              ) : (
-                <Moon className="w-4 h-4" />
-              )}
-            </button>
-
+          <div className="flex items-center gap-1.5 shrink-0">
             {isGistConfigured ? (
               <>
                 <button
                   type="button"
                   disabled={gistSyncBusy !== null || !hasGistToken}
                   onClick={() => void quickPushGist()}
-                  className="h-9 w-9 flex items-center justify-center rounded-lg disabled:opacity-40"
-                  style={{ color: "var(--text-secondary)" }}
-                  aria-label="Quick Push to GitHub Gist"
-                  title="Quick Push to GitHub Gist"
+                  className="h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-opacity disabled:opacity-40 cursor-pointer whitespace-nowrap"
+                  style={{
+                    backgroundColor:
+                      showPushButtonIndicator &&
+                      (isAutoPushConflict || isAutoPushError)
+                        ? "var(--danger)"
+                        : "var(--accent)",
+                    color: "var(--accent-fg)",
+                  }}
+                  aria-label="Push to GitHub Gist"
+                  title="Push to GitHub Gist"
                 >
-                  {gistSyncBusy === "push" ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                  {isAutoPushWorking ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
                   ) : (
-                    <CloudUpload className="w-4 h-4" />
+                    <CloudUpload className="w-3.5 h-3.5 shrink-0" />
                   )}
+                  {showPushButtonIndicator &&
+                    (isAutoPushPending || isAutoPushConflict) && (
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 bg-white ${
+                          isAutoPushPending ? "animate-pulse" : ""
+                        }`}
+                      />
+                    )}
+                  <span className="font-mono-tabular">
+                    {showPushButtonIndicator &&
+                    isAutoPushPending &&
+                    autoPushStatus.secondsRemaining !== null
+                      ? `Push ${autoPushStatus.secondsRemaining}s`
+                      : "Push"}
+                  </span>
                 </button>
+
                 <button
                   type="button"
                   disabled={gistSyncBusy !== null || !hasGistId}
                   onClick={() => void quickPullGist()}
-                  className="h-9 w-9 flex items-center justify-center rounded-lg disabled:opacity-40"
-                  style={{ color: "var(--text-secondary)" }}
-                  aria-label="Instant Pull from GitHub Gist"
-                  title="Instant Pull from GitHub Gist"
+                  className="h-9 px-3 rounded-lg border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer whitespace-nowrap"
+                  style={{
+                    backgroundColor: isAutoPushConflict
+                      ? "var(--accent-soft)"
+                      : "var(--bg-surface-subtle)",
+                    borderColor: isAutoPushConflict
+                      ? "var(--accent)"
+                      : "var(--border-subtle)",
+                    color: isAutoPushConflict
+                      ? "var(--accent)"
+                      : "var(--text-primary)",
+                  }}
+                  aria-label="Pull from GitHub Gist"
+                  title="Pull from GitHub Gist"
                 >
                   {gistSyncBusy === "pull" ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
                   ) : (
-                    <CloudDownload className="w-4 h-4" />
+                    <CloudDownload className="w-3.5 h-3.5 shrink-0" />
                   )}
+                  <span>Pull</span>
                 </button>
               </>
             ) : (
               <button
                 type="button"
                 onClick={() => openModal("sync")}
-                className="h-9 w-9 flex items-center justify-center rounded-lg"
-                style={{ color: "var(--text-secondary)" }}
+                className="h-9 px-3 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                style={{
+                  backgroundColor: "var(--bg-surface-subtle)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-primary)",
+                }}
                 aria-label="GitHub Gist Sync"
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Sync</span>
               </button>
             )}
 
@@ -1960,57 +2121,85 @@ const KansoShell: React.FC = () => {
             </div>
             )}
 
-            {/* Mobile Option 1 Utility Dock: Top Sync Bar + Bottom Wide Settings */}
+            {/* Mobile More Utility Dock: Inline Push/Pull + Bottom Wide Settings */}
             <div
               className="pt-3 border-t space-y-2"
               style={{ borderColor: "var(--border-subtle)" }}
             >
               {isGistConfigured ? (
-                <div
-                  className="flex items-center justify-between gap-1.5 p-1.5 rounded-xl border"
-                  style={{
-                    backgroundColor: "var(--bg-surface-subtle)",
-                    borderColor: "var(--border-subtle)",
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => openModal("sync")}
-                    className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium min-w-0 flex-1 text-left"
-                    style={{ color: "var(--text-secondary)" }}
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">Gist Sync</span>
-                  </button>
+                <div className="space-y-1.5">
+                  {showSidebarLineIndicator &&
+                    autoPushStatus.phase !== "idle" && (
+                      <button
+                        type="button"
+                        onClick={() => openModal("sync")}
+                        className="w-full px-1 flex items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-left cursor-pointer"
+                        style={{
+                          color:
+                            isAutoPushConflict || isAutoPushError
+                              ? "var(--danger)"
+                              : isAutoPushSynced
+                                ? "var(--accent)"
+                                : "var(--text-muted)",
+                        }}
+                      >
+                        <span className="truncate">
+                          {autoPushStatus.phase === "pending" &&
+                          autoPushStatus.secondsRemaining !== null
+                            ? `Auto-push in ${autoPushStatus.secondsRemaining}s`
+                            : autoPushStatus.phase === "checking"
+                              ? "Checking Gist..."
+                              : autoPushStatus.phase === "pushing"
+                                ? "Auto-pushing..."
+                                : autoPushStatus.phase === "conflict"
+                                  ? "Paused: Pull needed"
+                                  : autoPushStatus.phase === "offline"
+                                    ? "Offline · queued"
+                                    : autoPushStatus.phase === "error"
+                                      ? "Auto-push error"
+                                      : "Auto-pushed"}
+                        </span>
+                        {isAutoPushConflict && (
+                          <span className="shrink-0 underline">Resolve</span>
+                        )}
+                      </button>
+                    )}
 
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       disabled={gistSyncBusy !== null || !hasGistToken}
                       onClick={() => void quickPushGist()}
-                      className="h-9 px-3 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-40"
+                      className="h-10 px-3 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-40 cursor-pointer"
                       style={{
-                        backgroundColor: "var(--bg-surface)",
-                        borderColor: "var(--border-subtle)",
-                        color: "var(--text-primary)",
+                        backgroundColor: "var(--accent)",
+                        color: "var(--accent-fg)",
                       }}
                     >
-                      {gistSyncBusy === "push" ? (
+                      {isAutoPushWorking ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : (
                         <CloudUpload className="w-3.5 h-3.5" />
                       )}
-                      <span>Push</span>
+                      <span className="font-mono-tabular">
+                        {showPushButtonIndicator &&
+                        isAutoPushPending &&
+                        autoPushStatus.secondsRemaining !== null
+                          ? `Push ${autoPushStatus.secondsRemaining}s`
+                          : "Push"}
+                      </span>
                     </button>
 
                     <button
                       type="button"
                       disabled={gistSyncBusy !== null || !hasGistId}
                       onClick={() => void quickPullGist()}
-                      className="h-9 px-3 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-40"
+                      className="h-10 px-3 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-40 cursor-pointer"
                       style={{
-                        backgroundColor: "var(--bg-surface)",
-                        borderColor: "var(--border-subtle)",
+                        backgroundColor: "var(--bg-surface-subtle)",
+                        borderColor: isAutoPushConflict
+                          ? "var(--accent)"
+                          : "var(--border-subtle)",
                         color: "var(--text-primary)",
                       }}
                     >
@@ -2436,6 +2625,120 @@ const KansoShell: React.FC = () => {
                   </div>
                 </div>
               )}
+          </div>
+        )}
+
+      {/* Floating Auto-Push Status Card */}
+      {autoPushIndicatorOn &&
+        autoPushIndicatorStyle === "floating-card" &&
+        autoPushStatus.phase !== "idle" && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-[75] max-w-[300px] px-3.5 py-2.5 rounded-xl border space-y-2"
+            style={{
+              backgroundColor: "var(--bg-elevated)",
+              borderColor:
+                isAutoPushConflict || isAutoPushError
+                  ? "var(--danger)"
+                  : isAutoPushSynced
+                    ? "var(--accent)"
+                    : "var(--border-strong)",
+              boxShadow: "var(--shadow-popover)",
+            }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                {isAutoPushWorking ? (
+                  <Loader2
+                    className="w-3.5 h-3.5 animate-spin shrink-0"
+                    style={{ color: "var(--accent)" }}
+                  />
+                ) : isAutoPushConflict || isAutoPushError ? (
+                  <AlertTriangle
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: "var(--danger)" }}
+                  />
+                ) : isAutoPushSynced ? (
+                  <Check
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: "var(--accent)" }}
+                  />
+                ) : (
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      isAutoPushPending ? "animate-pulse" : ""
+                    }`}
+                    style={{ backgroundColor: "#f59e0b" }}
+                  />
+                )}
+                <span
+                  className="text-xs font-medium truncate font-mono-tabular"
+                  style={{
+                    color:
+                      isAutoPushConflict || isAutoPushError
+                        ? "var(--danger)"
+                        : "var(--text-primary)",
+                  }}
+                >
+                  {autoPushStatus.phase === "pending" &&
+                  autoPushStatus.secondsRemaining !== null
+                    ? `Auto-push in ${autoPushStatus.secondsRemaining}s`
+                    : autoPushStatus.phase === "checking"
+                      ? "Checking remote Gist..."
+                      : autoPushStatus.phase === "pushing"
+                        ? "Auto-pushing to Gist..."
+                        : autoPushStatus.phase === "conflict"
+                          ? "Auto-push paused"
+                          : autoPushStatus.phase === "offline"
+                            ? "Offline · changes queued"
+                            : autoPushStatus.phase === "error"
+                              ? "Auto-push failed"
+                              : "Auto-pushed to Gist"}
+                </span>
+              </div>
+
+              {(isAutoPushConflict || isAutoPushError) && (
+                <button
+                  type="button"
+                  onClick={dismissAutoPushNotice}
+                  className="opacity-70 hover:opacity-100 shrink-0 cursor-pointer"
+                  style={{ color: "var(--text-muted)" }}
+                  aria-label="Dismiss auto-push status"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {isAutoPushConflict && (
+              <div className="flex items-center gap-2 pt-0.5">
+                <button
+                  type="button"
+                  disabled={gistSyncBusy !== null}
+                  onClick={() => void quickPullGist()}
+                  className="h-7 px-2.5 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-40"
+                  style={{
+                    backgroundColor: "var(--accent)",
+                    color: "var(--accent-fg)",
+                  }}
+                >
+                  <CloudDownload className="w-3 h-3" />
+                  <span>Pull Now</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openModal("sync")}
+                  className="h-7 px-2 rounded-lg border text-[11px] cursor-pointer"
+                  style={{
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Sync Settings
+                </button>
+              </div>
+            )}
           </div>
         )}
 

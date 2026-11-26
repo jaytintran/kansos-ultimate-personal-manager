@@ -88,6 +88,7 @@ import {
 } from "../utils/date";
 import { releaseAndroidUri } from "../utils/androidSaf";
 import {
+  fetchRemoteGistUpdatedAt,
   isBookLinkedNote,
   pullWorkspaceFromGist,
   pushWorkspaceToGist,
@@ -124,8 +125,67 @@ const DEFAULT_GIST_CONFIG: GistSyncConfig = {
   gistId: "",
   filename: "kanso-workspace.json",
   lastSyncedAt: null,
+  lastRemoteUpdatedAt: null,
   lastDirection: null,
+  autoPushEnabled: false,
+  autoPushDelaySeconds: 30,
+  autoPushIndicatorEnabled: true,
+  autoPushIndicatorStyle: "push-button",
 };
+
+export function clampAutoPushDelaySeconds(seconds?: number): number {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) return 30;
+  return Math.max(5, Math.min(600, Math.round(seconds)));
+}
+
+function hasSyncableEntriesChanged(prevEntries: Entry[], nextEntries: Entry[]): boolean {
+  if (prevEntries === nextEntries) return false;
+  const prevSyncable = prevEntries.filter((e) => !isBookLinkedNote(e));
+  const nextSyncable = nextEntries.filter((e) => !isBookLinkedNote(e));
+  if (prevSyncable.length !== nextSyncable.length) return true;
+  for (let i = 0; i < prevSyncable.length; i++) {
+    if (prevSyncable[i] !== nextSyncable[i]) return true;
+  }
+  return false;
+}
+
+function hasSyncableWorkspaceChanged(
+  prev: KansoWorkspace,
+  next: KansoWorkspace,
+): boolean {
+  if (prev === next) return false;
+  if (
+    prev.habits !== next.habits ||
+    prev.habitLogs !== next.habitLogs ||
+    prev.lists !== next.lists ||
+    prev.listItems !== next.listItems ||
+    prev.scratchpads !== next.scratchpads ||
+    prev.customTabs !== next.customTabs ||
+    prev.noteNotebooks !== next.noteNotebooks ||
+    prev.streams !== next.streams ||
+    prev.streamFolders !== next.streamFolders ||
+    prev.streamerState !== next.streamerState ||
+    prev.streamPresets !== next.streamPresets ||
+    prev.streamTopicIcons !== next.streamTopicIcons ||
+    prev.contacts !== next.contacts ||
+    prev.contactCircles !== next.contactCircles ||
+    prev.financeAccounts !== next.financeAccounts ||
+    prev.financeCategories !== next.financeCategories ||
+    prev.financeTransactions !== next.financeTransactions ||
+    prev.financeSubscriptions !== next.financeSubscriptions ||
+    prev.financeSettings !== next.financeSettings ||
+    prev.languages !== next.languages ||
+    prev.languageDecks !== next.languageDecks ||
+    prev.languageItems !== next.languageItems ||
+    prev.languageDailyStats !== next.languageDailyStats ||
+    prev.languageActiveId !== next.languageActiveId ||
+    prev.settings !== next.settings ||
+    prev.viewPreferences !== next.viewPreferences
+  ) {
+    return true;
+  }
+  return hasSyncableEntriesChanged(prev.entries, next.entries);
+}
 
 function uid(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -571,8 +631,29 @@ interface ToastContextValue {
   dismissToast: (id: string) => void;
 }
 
+export type AutoPushPhase =
+  | "idle"
+  | "pending"
+  | "checking"
+  | "pushing"
+  | "synced"
+  | "conflict"
+  | "offline"
+  | "error";
+
+export interface AutoPushStatus {
+  phase: AutoPushPhase;
+  secondsRemaining: number | null;
+  hasPendingChanges: boolean;
+  lastAutoPushedAt: string | null;
+  conflictRemoteUpdatedAt: string | null;
+  message: string | null;
+}
+
 interface GistSyncStatusContextValue {
   gistSyncBusy: "push" | "pull" | null;
+  autoPushStatus: AutoPushStatus;
+  dismissAutoPushNotice: () => void;
 }
 
 interface WorkspaceContextValue {
@@ -972,6 +1053,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   const [gistSyncBusy, setGistSyncBusy] = useState<"push" | "pull" | null>(
     null,
   );
+  const [autoPushStatus, setAutoPushStatus] = useState<AutoPushStatus>({
+    phase: "idle",
+    secondsRemaining: null,
+    hasPendingChanges: false,
+    lastAutoPushedAt: null,
+    conflictRemoteUpdatedAt: null,
+    message: null,
+  });
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const latestWorkspaceRef = useRef<KansoWorkspace>(workspace);
@@ -985,6 +1074,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   const quotaToastShownRef = useRef(false);
   const idbWriteQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const persistTimerRef = useRef<number | null>(null);
+  const prevSyncableWsRef = useRef<KansoWorkspace>(workspace);
+  const suppressAutoPushDirtyRef = useRef(false);
+  const autoPushDirtyRef = useRef(false);
+  const autoPushConflictRef = useRef(false);
+  const autoPushDeadlineRef = useRef<number | null>(null);
+  const autoPushTimerRef = useRef<number | null>(null);
+  const autoPushTickRef = useRef<number | null>(null);
+  const autoPushSyncedClearRef = useRef<number | null>(null);
+  const autoPushConflictToastShownRef = useRef(false);
 
   const pushToast = useCallback(
     (text: string, tone: ToastMessage["tone"] = "neutral") => {
@@ -1085,6 +1183,354 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       // Ignore
     }
   }, [gistConfig]);
+
+  const clearAutoPushTimers = useCallback(() => {
+    if (autoPushTimerRef.current !== null) {
+      window.clearTimeout(autoPushTimerRef.current);
+      autoPushTimerRef.current = null;
+    }
+    if (autoPushTickRef.current !== null) {
+      window.clearInterval(autoPushTickRef.current);
+      autoPushTickRef.current = null;
+    }
+    if (autoPushSyncedClearRef.current !== null) {
+      window.clearTimeout(autoPushSyncedClearRef.current);
+      autoPushSyncedClearRef.current = null;
+    }
+    autoPushDeadlineRef.current = null;
+  }, []);
+
+  const dismissAutoPushNotice = useCallback(() => {
+    autoPushConflictRef.current = false;
+    autoPushConflictToastShownRef.current = false;
+    setAutoPushStatus((prev) => ({
+      ...prev,
+      phase: "idle",
+      secondsRemaining: null,
+      conflictRemoteUpdatedAt: null,
+      message: null,
+    }));
+  }, []);
+
+  const scheduleAutoPushCountdownRef = useRef<(delaySec?: number) => void>(
+    () => {},
+  );
+
+  const runSafeAutoPush = useCallback(async () => {
+    const cfg = latestGistConfigRef.current;
+    if (!cfg.autoPushEnabled || !cfg.token.trim() || !cfg.gistId.trim()) {
+      clearAutoPushTimers();
+      return;
+    }
+    if (autoPushConflictRef.current) return;
+
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      clearAutoPushTimers();
+      setAutoPushStatus((prev) => ({
+        ...prev,
+        phase: "offline",
+        secondsRemaining: null,
+        hasPendingChanges: true,
+        message: "Offline — waiting to reconnect",
+      }));
+      return;
+    }
+
+    if (latestGistSyncBusyRef.current !== null) {
+      scheduleAutoPushCountdownRef.current(2);
+      return;
+    }
+
+    clearAutoPushTimers();
+    latestGistSyncBusyRef.current = "push";
+    setGistSyncBusy("push");
+    setAutoPushStatus((prev) => ({
+      ...prev,
+      phase: "checking",
+      secondsRemaining: null,
+      hasPendingChanges: true,
+      message: "Checking remote Gist...",
+    }));
+
+    try {
+      const remoteUpdatedAt = await fetchRemoteGistUpdatedAt(cfg);
+      const knownSyncStr = cfg.lastRemoteUpdatedAt || cfg.lastSyncedAt;
+      const remoteMs = remoteUpdatedAt ? Date.parse(remoteUpdatedAt) : NaN;
+      const knownMs = knownSyncStr ? Date.parse(knownSyncStr) : NaN;
+
+      if (
+        !Number.isNaN(remoteMs) &&
+        !Number.isNaN(knownMs) &&
+        remoteMs > knownMs + 1000
+      ) {
+        autoPushConflictRef.current = true;
+        autoPushDirtyRef.current = true;
+        setAutoPushStatus((prev) => ({
+          ...prev,
+          phase: "conflict",
+          secondsRemaining: null,
+          hasPendingChanges: true,
+          conflictRemoteUpdatedAt: remoteUpdatedAt,
+          message: "Remote Gist is newer. Pull before pushing.",
+        }));
+        if (!autoPushConflictToastShownRef.current) {
+          autoPushConflictToastShownRef.current = true;
+          pushToast(
+            "Auto-push paused: remote Gist has newer changes. Pull before pushing.",
+            "error",
+          );
+        }
+        return;
+      }
+
+      setAutoPushStatus((prev) => ({
+        ...prev,
+        phase: "pushing",
+        secondsRemaining: null,
+        hasPendingChanges: true,
+        message: "Auto-pushing...",
+      }));
+
+      const snapshot = latestWorkspaceRef.current;
+      const result = await pushWorkspaceToGist(snapshot, cfg);
+      const editedDuringPush = hasSyncableWorkspaceChanged(
+        snapshot,
+        latestWorkspaceRef.current,
+      );
+
+      setGistConfig((prev) => ({
+        ...prev,
+        gistId: result.gistId,
+        lastSyncedAt: result.updatedAt,
+        lastRemoteUpdatedAt: result.updatedAt,
+        lastDirection: "push",
+      }));
+
+      autoPushConflictRef.current = false;
+      autoPushConflictToastShownRef.current = false;
+
+      if (editedDuringPush) {
+        autoPushDirtyRef.current = true;
+        scheduleAutoPushCountdownRef.current();
+        return;
+      }
+
+      autoPushDirtyRef.current = false;
+      setAutoPushStatus({
+        phase: "synced",
+        secondsRemaining: null,
+        hasPendingChanges: false,
+        lastAutoPushedAt: result.updatedAt,
+        conflictRemoteUpdatedAt: null,
+        message: "Auto-pushed",
+      });
+
+      if (
+        cfg.autoPushIndicatorEnabled !== false &&
+        cfg.autoPushIndicatorStyle === "toast"
+      ) {
+        pushToast("Auto-pushed workspace to GitHub Gist", "success");
+      }
+
+      autoPushSyncedClearRef.current = window.setTimeout(() => {
+        autoPushSyncedClearRef.current = null;
+        setAutoPushStatus((prev) =>
+          prev.phase === "synced"
+            ? { ...prev, phase: "idle", message: null }
+            : prev,
+        );
+      }, 5000);
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Auto-push failed.";
+      setAutoPushStatus((prev) => ({
+        ...prev,
+        phase: "error",
+        secondsRemaining: null,
+        hasPendingChanges: autoPushDirtyRef.current,
+        message: msg,
+      }));
+      pushToast(`Auto-push failed: ${msg}`, "error");
+    } finally {
+      latestGistSyncBusyRef.current = null;
+      setGistSyncBusy(null);
+    }
+  }, [clearAutoPushTimers, pushToast]);
+
+  const scheduleAutoPushCountdown = useCallback(
+    (overrideDelaySec?: number) => {
+      const cfg = latestGistConfigRef.current;
+      if (
+        !cfg.autoPushEnabled ||
+        !cfg.token.trim() ||
+        !cfg.gistId.trim() ||
+        autoPushConflictRef.current
+      ) {
+        return;
+      }
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        clearAutoPushTimers();
+        setAutoPushStatus((prev) => ({
+          ...prev,
+          phase: "offline",
+          secondsRemaining: null,
+          hasPendingChanges: true,
+          message: "Offline — waiting to reconnect",
+        }));
+        return;
+      }
+
+      const delaySec =
+        overrideDelaySec ?? clampAutoPushDelaySeconds(cfg.autoPushDelaySeconds);
+      clearAutoPushTimers();
+      const deadline = Date.now() + delaySec * 1000;
+      autoPushDeadlineRef.current = deadline;
+
+      setAutoPushStatus((prev) => ({
+        ...prev,
+        phase: "pending",
+        secondsRemaining: delaySec,
+        hasPendingChanges: true,
+        conflictRemoteUpdatedAt: null,
+        message: `Auto-push in ${delaySec}s`,
+      }));
+
+      autoPushTickRef.current = window.setInterval(() => {
+        if (autoPushDeadlineRef.current === null) return;
+        const remaining = Math.max(
+          0,
+          Math.ceil((autoPushDeadlineRef.current - Date.now()) / 1000),
+        );
+        setAutoPushStatus((prev) => {
+          if (prev.phase !== "pending") return prev;
+          if (prev.secondsRemaining === remaining) return prev;
+          return {
+            ...prev,
+            secondsRemaining: remaining,
+            message: `Auto-push in ${remaining}s`,
+          };
+        });
+      }, 1000);
+
+      autoPushTimerRef.current = window.setTimeout(() => {
+        void runSafeAutoPush();
+      }, delaySec * 1000);
+    },
+    [clearAutoPushTimers, runSafeAutoPush],
+  );
+
+  scheduleAutoPushCountdownRef.current = scheduleAutoPushCountdown;
+
+  // Detect syncable workspace changes for Safe Hybrid Auto-Push
+  useEffect(() => {
+    const prevWs = prevSyncableWsRef.current;
+    prevSyncableWsRef.current = workspace;
+
+    if (suppressAutoPushDirtyRef.current) {
+      suppressAutoPushDirtyRef.current = false;
+      return;
+    }
+    if (!hasUserMutatedRef.current) return;
+    if (!hasSyncableWorkspaceChanged(prevWs, workspace)) return;
+
+    autoPushDirtyRef.current = true;
+    const cfg = latestGistConfigRef.current;
+    if (!cfg.autoPushEnabled || !cfg.token.trim() || !cfg.gistId.trim()) {
+      return;
+    }
+    if (autoPushConflictRef.current) {
+      setAutoPushStatus((prev) => ({
+        ...prev,
+        hasPendingChanges: true,
+      }));
+      return;
+    }
+    scheduleAutoPushCountdown();
+  }, [workspace, scheduleAutoPushCountdown]);
+
+  // React to Auto-Push config toggles / delay updates & online/offline changes
+  useEffect(() => {
+    const isActive =
+      Boolean(gistConfig.autoPushEnabled) &&
+      Boolean(gistConfig.token.trim()) &&
+      Boolean(gistConfig.gistId.trim());
+
+    if (!isActive) {
+      clearAutoPushTimers();
+      autoPushConflictRef.current = false;
+      autoPushConflictToastShownRef.current = false;
+      setAutoPushStatus((prev) =>
+        prev.phase === "idle" && !prev.hasPendingChanges && !prev.message
+          ? prev
+          : {
+              phase: "idle",
+              secondsRemaining: null,
+              hasPendingChanges: false,
+              lastAutoPushedAt: prev.lastAutoPushedAt,
+              conflictRemoteUpdatedAt: null,
+              message: null,
+            },
+      );
+      return;
+    }
+
+    if (
+      autoPushDirtyRef.current &&
+      !autoPushConflictRef.current &&
+      latestGistSyncBusyRef.current === null
+    ) {
+      scheduleAutoPushCountdown();
+    }
+  }, [
+    gistConfig.autoPushEnabled,
+    gistConfig.autoPushDelaySeconds,
+    gistConfig.token,
+    gistConfig.gistId,
+    clearAutoPushTimers,
+    scheduleAutoPushCountdown,
+  ]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      const cfg = latestGistConfigRef.current;
+      if (
+        cfg.autoPushEnabled &&
+        cfg.token.trim() &&
+        cfg.gistId.trim() &&
+        autoPushDirtyRef.current &&
+        !autoPushConflictRef.current
+      ) {
+        scheduleAutoPushCountdown(
+          Math.min(5, clampAutoPushDelaySeconds(cfg.autoPushDelaySeconds)),
+        );
+      }
+    };
+    const handleOffline = () => {
+      const cfg = latestGistConfigRef.current;
+      if (
+        cfg.autoPushEnabled &&
+        autoPushDirtyRef.current &&
+        !autoPushConflictRef.current
+      ) {
+        clearAutoPushTimers();
+        setAutoPushStatus((prev) => ({
+          ...prev,
+          phase: "offline",
+          secondsRemaining: null,
+          hasPendingChanges: true,
+          message: "Offline — waiting to reconnect",
+        }));
+      }
+    };
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+      clearAutoPushTimers();
+    };
+  }, [clearAutoPushTimers, scheduleAutoPushCountdown]);
 
   // Apply theme & light/dark mode to <html> and sync native Android StatusBar
   useEffect(() => {
@@ -5521,9 +5967,26 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     [mutateWorkspace],
   );
 
-  const updateGistConfig = useCallback((patch: Partial<GistSyncConfig>) => {
-    setGistConfig((prev) => ({ ...prev, ...patch }));
-  }, []);
+  const updateGistConfig = useCallback(
+    (patch: Partial<GistSyncConfig>) => {
+      if (patch.lastDirection === "push" || patch.lastDirection === "pull") {
+        autoPushDirtyRef.current = false;
+        autoPushConflictRef.current = false;
+        autoPushConflictToastShownRef.current = false;
+        clearAutoPushTimers();
+        setAutoPushStatus((prev) => ({
+          phase: "idle",
+          secondsRemaining: null,
+          hasPendingChanges: false,
+          lastAutoPushedAt: prev.lastAutoPushedAt,
+          conflictRemoteUpdatedAt: null,
+          message: null,
+        }));
+      }
+      setGistConfig((prev) => ({ ...prev, ...patch }));
+    },
+    [clearAutoPushTimers],
+  );
 
   const replaceWorkspace = useCallback(
     (
@@ -5531,8 +5994,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       toastMessage?: string,
       options?: { preserveLocalLibrary?: boolean },
     ) => {
-      hasUserMutatedRef.current = true;
       const preserveLocalLibrary = options?.preserveLocalLibrary ?? false;
+      if (preserveLocalLibrary) {
+        suppressAutoPushDirtyRef.current = true;
+      } else {
+        hasUserMutatedRef.current = true;
+      }
       const empty = createEmptyWorkspace();
       const { viewPreferences: incomingViewPrefs, ...cleanNext } = next;
 
@@ -5797,16 +6264,22 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const quickPushGist = useCallback(async (): Promise<boolean> => {
     if (latestGistSyncBusyRef.current !== null) return false;
+    clearAutoPushTimers();
     latestGistSyncBusyRef.current = "push";
     setGistSyncBusy("push");
     try {
+      const snapshot = latestWorkspaceRef.current;
       const result = await pushWorkspaceToGist(
-        latestWorkspaceRef.current,
+        snapshot,
         latestGistConfigRef.current,
       );
+      autoPushDirtyRef.current = false;
+      autoPushConflictRef.current = false;
+      autoPushConflictToastShownRef.current = false;
       updateGistConfig({
         gistId: result.gistId,
         lastSyncedAt: result.updatedAt,
+        lastRemoteUpdatedAt: result.updatedAt,
         lastDirection: "push",
       });
       pushToast(
@@ -5826,21 +6299,26 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       latestGistSyncBusyRef.current = null;
       setGistSyncBusy(null);
     }
-  }, [updateGistConfig, pushToast]);
+  }, [clearAutoPushTimers, updateGistConfig, pushToast]);
 
   const quickPullGist = useCallback(async (): Promise<boolean> => {
     if (latestGistSyncBusyRef.current !== null) return false;
+    clearAutoPushTimers();
     latestGistSyncBusyRef.current = "pull";
     setGistSyncBusy("pull");
     try {
       const preview = await pullWorkspaceFromGist(latestGistConfigRef.current);
+      autoPushDirtyRef.current = false;
+      autoPushConflictRef.current = false;
+      autoPushConflictToastShownRef.current = false;
       replaceWorkspace(
         preview.workspace,
         "Pulled workspace from GitHub Gist",
         { preserveLocalLibrary: true },
       );
       updateGistConfig({
-        lastSyncedAt: new Date().toISOString(),
+        lastSyncedAt: preview.remoteUpdatedAt,
+        lastRemoteUpdatedAt: preview.remoteUpdatedAt,
         lastDirection: "pull",
       });
       return true;
@@ -5854,7 +6332,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       latestGistSyncBusyRef.current = null;
       setGistSyncBusy(null);
     }
-  }, [replaceWorkspace, updateGistConfig, pushToast]);
+  }, [clearAutoPushTimers, replaceWorkspace, updateGistConfig, pushToast]);
 
   const clearWorkspaceData = useCallback(() => {
     hasUserMutatedRef.current = true;
@@ -5902,8 +6380,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const gistSyncStatusValue = useMemo<GistSyncStatusContextValue>(
-    () => ({ gistSyncBusy }),
-    [gistSyncBusy],
+    () => ({ gistSyncBusy, autoPushStatus, dismissAutoPushNotice }),
+    [gistSyncBusy, autoPushStatus, dismissAutoPushNotice],
   );
 
   const workspaceContextValue = useMemo<WorkspaceContextValue>(

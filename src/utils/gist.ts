@@ -140,6 +140,49 @@ export async function pushWorkspaceToGist(
   };
 }
 
+export async function fetchRemoteGistUpdatedAt(
+  config: GistSyncConfig,
+): Promise<string | null> {
+  if (!navigator.onLine) {
+    throw new Error(
+      "You appear to be offline. Reconnect to check GitHub Gist.",
+    );
+  }
+  const token = config.token.trim();
+  const gistId = config.gistId.trim();
+  if (!token || !gistId) return null;
+
+  const response = await fetch(
+    `https://api.github.com/gists/${encodeURIComponent(gistId)}`,
+    {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    },
+  );
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error(
+        "GitHub rejected the token (401). Verify your PAT has the gist scope.",
+      );
+    }
+    if (response.status === 404) {
+      throw new Error(
+        "Gist ID not found (404). Clear the Gist ID to create a new private Gist.",
+      );
+    }
+    throw new Error(`GitHub Gist check failed (${response.status}).`);
+  }
+
+  const json = await response.json();
+  return typeof json?.updated_at === "string" ? json.updated_at : null;
+}
+
 export async function pullWorkspaceFromGist(
   config: GistSyncConfig,
 ): Promise<GistPullPreview> {
@@ -165,6 +208,7 @@ export async function pullWorkspaceFromGist(
     `https://api.github.com/gists/${encodeURIComponent(gistId)}`,
     {
       method: "GET",
+      cache: "no-store",
       headers,
     },
   );
