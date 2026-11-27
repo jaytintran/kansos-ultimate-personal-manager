@@ -899,6 +899,7 @@ interface TiptapEditorProps {
   allNotes?: Entry[];
   onOpenNote?: (noteId: string, title?: string) => void;
   onCreateLinkedNote?: (title: string) => Entry;
+  onTimestampLinkClick?: (seconds: number) => void;
 }
 
 type WikiCandidate =
@@ -928,6 +929,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   allNotes,
   onOpenNote,
   onCreateLinkedNote,
+  onTimestampLinkClick,
 }) => {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
@@ -962,6 +964,8 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   onOpenNoteRef.current = onOpenNote;
   const onCreateLinkedNoteRef = useRef(onCreateLinkedNote);
   onCreateLinkedNoteRef.current = onCreateLinkedNote;
+  const onTimestampLinkClickRef = useRef(onTimestampLinkClick);
+  onTimestampLinkClickRef.current = onTimestampLinkClick;
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -1161,6 +1165,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
             rel: 'noopener noreferrer',
           },
           isAllowedUri: (url, ctx) => {
+            if (/^\s*#ts=\d+\s*$/i.test(url)) return true;
             if (/^\s*(javascript|data|vbscript|file):/i.test(url)) return false;
             return ctx.defaultValidate(url);
           },
@@ -1199,6 +1204,16 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
         const resolvedPos = view.state.doc.resolve(pos);
         const markRange = linkMarkType ? getMarkRange(resolvedPos, linkMarkType) : undefined;
         const rawHref = anchorEl.getAttribute('href') || '';
+        const tsMatch = rawHref.trim().match(/^#ts=(\d+)$/i);
+        if (tsMatch) {
+          event.preventDefault();
+          const seconds = Number(tsMatch[1]);
+          if (Number.isFinite(seconds) && onTimestampLinkClickRef.current) {
+            onTimestampLinkClickRef.current(seconds);
+          }
+          return true;
+        }
+
         const safeHref = normalizeSafeUrl(rawHref) || rawHref;
 
         if (event.metaKey || event.ctrlKey) {

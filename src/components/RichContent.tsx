@@ -135,9 +135,15 @@ function processRichHtml(rawHtml: string): { html: string; hasTable: boolean } {
         }
       }
 
-      if (tag === 'a' && el.getAttribute('href')) {
-        el.setAttribute('target', '_blank');
-        el.setAttribute('rel', 'noopener noreferrer');
+      if (tag === 'a') {
+        const href = (el.getAttribute('href') || '').trim();
+        if (/^#ts=\d+$/i.test(href)) {
+          el.removeAttribute('target');
+          el.removeAttribute('rel');
+        } else if (href) {
+          el.setAttribute('target', '_blank');
+          el.setAttribute('rel', 'noopener noreferrer');
+        }
       }
 
       if ((tag === 'th' || tag === 'td') && !el.getAttribute('style')) {
@@ -192,9 +198,15 @@ interface RichContentProps {
   html: string;
   className?: string;
   fade?: boolean;
+  onTimestampClick?: (seconds: number) => void;
 }
 
-export const RichContent: React.FC<RichContentProps> = ({ html, className = '', fade = false }) => {
+export const RichContent: React.FC<RichContentProps> = ({
+  html,
+  className = '',
+  fade = false,
+  onTimestampClick,
+}) => {
   const { html: processed, hasTable } = useMemo(() => processRichHtml(html), [html]);
   if (!processed) return null;
 
@@ -204,6 +216,19 @@ export const RichContent: React.FC<RichContentProps> = ({ html, className = '', 
         hasTable ? 'kanso-rich-has-table' : ''
       } ${className}`}
       style={{ color: 'var(--text-secondary)' }}
+      onClick={(e) => {
+        const target = e.target as HTMLElement | null;
+        const anchor = target?.closest('a[href]') as HTMLAnchorElement | null;
+        const href = anchor?.getAttribute('href')?.trim() || '';
+        const match = href.match(/^#ts=(\d+)$/i);
+        if (match) {
+          e.preventDefault();
+          if (onTimestampClick) {
+            e.stopPropagation();
+            onTimestampClick(Number(match[1]));
+          }
+        }
+      }}
       dangerouslySetInnerHTML={{ __html: processed }}
     />
   );

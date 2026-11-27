@@ -3,6 +3,7 @@ import {
   Calendar,
   CalendarDays,
   Check,
+  ChevronDown,
   Filter,
   Globe,
   LayoutGrid,
@@ -17,10 +18,19 @@ import {
 } from "lucide-react";
 import { DynamicIcon } from "../components/IconLibrary";
 import { RichContent } from "../components/RichContent";
+import { EventComposerStylePicker } from "../components/events/EventComposerStylePicker";
 import { EventDaySummaryPane } from "../components/events/EventDaySummaryPane";
 import { EventInspector } from "../components/events/EventInspector";
 import { EventsMonthCalendar } from "../components/events/EventsMonthCalendar";
+import { NewEventComposer } from "../components/events/NewEventComposer";
+import { BottomSheet } from "../components/ui/BottomSheet";
 import { useWorkspace } from "../context/WorkspaceContext";
+import {
+  EventComposerPreferences,
+  loadEventComposerPrefs,
+  saveEventComposerPrefs,
+  subscribeEventComposerPrefs,
+} from "../lib/eventComposerPrefs";
 import {
   ContextMenuRecord,
   DetailSheetTarget,
@@ -114,8 +124,12 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
   const [search, setSearch] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
-  const [newEventDateOpen, setNewEventDateOpen] = useState(false);
-  const [newEventDate, setNewEventDate] = useState(todayKey);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerDateKey, setComposerDateKey] = useState(todayKey);
+  const [composerStyleMenuOpen, setComposerStyleMenuOpen] = useState(false);
+  const [composerPrefs, setComposerPrefs] = useState<EventComposerPreferences>(
+    loadEventComposerPrefs,
+  );
 
   const [filters, setFilters] = useState<PersistedEventFilters>(
     loadPersistedFilters,
@@ -166,6 +180,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
     return () => {
       window.removeEventListener(VIEW_PREFERENCE_SYNC_EVENT, onSynced);
     };
+  }, []);
+
+  useEffect(() => {
+    return subscribeEventComposerPrefs(setComposerPrefs);
   }, []);
 
   const activeLists = useMemo(
@@ -265,10 +283,19 @@ export const EventsView: React.FC<EventsViewProps> = ({
     (filters.timeframe !== "all" ? 1 : 0) +
     ((filters.status ?? "all") !== "all" ? 1 : 0);
 
+  const handleUpdateComposerPrefs = useCallback(
+    (next: EventComposerPreferences) => {
+      const saved = saveEventComposerPrefs(next);
+      setComposerPrefs(saved);
+    },
+    [],
+  );
+
   const openNewEventModalForDay = useCallback(
     (dayKey: string) => {
       const scheduledAt = buildDateAtTime(dayKey || todayKey, 10, 0);
-      setNewEventDateOpen(false);
+      setComposerOpen(false);
+      setComposerStyleMenuOpen(false);
       onOpenDetail({
         mode: "event",
         draft: {
@@ -283,8 +310,35 @@ export const EventsView: React.FC<EventsViewProps> = ({
     [todayKey, onOpenDetail],
   );
 
+  const handleOpenNewEventForDay = useCallback(
+    (dayKey: string) => {
+      const targetDay = dayKey || todayKey;
+      setComposerStyleMenuOpen(false);
+      const activeMode = isDesktop
+        ? composerPrefs.desktopMode
+        : composerPrefs.mobileMode;
+      if (activeMode === "full-sheet") {
+        openNewEventModalForDay(targetDay);
+        return;
+      }
+      setComposerDateKey(targetDay);
+      setComposerOpen(true);
+    },
+    [
+      todayKey,
+      isDesktop,
+      composerPrefs.desktopMode,
+      composerPrefs.mobileMode,
+      openNewEventModalForDay,
+    ],
+  );
+
   const handleStartNewEvent = () => {
-    openNewEventModalForDay(newEventDate || todayKey);
+    const targetDay =
+      filters.viewMode === "calendar" && selectedDayKey
+        ? selectedDayKey
+        : todayKey;
+    handleOpenNewEventForDay(targetDay);
   };
 
   const handleOpenEventClick = useCallback(
@@ -311,10 +365,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
           setFocusCreateNonce((n) => n + 1);
         }
       } else if (focusCreate) {
-        openNewEventModalForDay(dateKey);
+        handleOpenNewEventForDay(dateKey);
       }
     },
-    [isDesktop, openNewEventModalForDay],
+    [isDesktop, handleOpenNewEventForDay],
   );
 
   const getEventPresentation = (ev: Entry) => {
@@ -446,75 +500,84 @@ export const EventsView: React.FC<EventsViewProps> = ({
               <span>Inspector</span>
             </button>
 
-            {/* New Event Button + Date Picker Popover */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setNewEventDate(
-                    filters.viewMode === "calendar" && selectedDayKey
-                      ? selectedDayKey
-                      : todayKey,
-                  );
-                  setNewEventDateOpen((v) => !v);
-                }}
-                className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+            {/* New Event Split Button + UI Style Selector */}
+            <div className="relative flex items-center">
+              <div
+                className="inline-flex items-center rounded-lg overflow-hidden"
                 style={{
                   backgroundColor: "var(--accent)",
                   color: "var(--accent-fg)",
                 }}
               >
-                <Plus className="w-3.5 h-3.5" />
-                <span>New Event</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={handleStartNewEvent}
+                  className="h-8 pl-3 pr-2.5 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer hover:brightness-105 transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>New Event</span>
+                </button>
+                <span
+                  aria-hidden="true"
+                  className="w-px h-4 opacity-30"
+                  style={{ backgroundColor: "var(--accent-fg)" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setComposerStyleMenuOpen((v) => !v)}
+                  title="Choose New Event UI style (Desktop & Mobile)"
+                  aria-label="Choose New Event UI style"
+                  aria-expanded={composerStyleMenuOpen}
+                  className="h-8 w-7 inline-flex items-center justify-center cursor-pointer hover:brightness-105 transition-all"
+                >
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+              </div>
 
-              {newEventDateOpen && (
+              {composerStyleMenuOpen && isDesktop && (
                 <>
                   <div
                     className="fixed inset-0 z-20"
-                    onClick={() => setNewEventDateOpen(false)}
+                    onClick={() => setComposerStyleMenuOpen(false)}
                   />
                   <div
-                    className="absolute right-0 top-10 z-30 w-64 rounded-xl border p-3.5 space-y-3"
+                    className="absolute right-0 top-10 z-30 w-80 rounded-2xl border p-3.5 space-y-2.5"
                     style={{
                       backgroundColor: "var(--bg-elevated)",
                       borderColor: "var(--border-strong)",
                       boxShadow: "var(--shadow-popover)",
                     }}
                   >
-                    <div className="text-xs font-semibold">Pick Event Date</div>
-                    <input
-                      type="date"
-                      value={newEventDate}
-                      onChange={(e) => setNewEventDate(e.target.value)}
-                      className="w-full h-9 px-2.5 rounded-lg border text-xs font-mono outline-none"
-                      style={{
-                        backgroundColor: "var(--bg-surface)",
-                        borderColor: "var(--border-subtle)",
-                        color: "var(--text-primary)",
-                      }}
-                    />
-                    <div className="flex justify-end gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-semibold">
+                          New Event UI Style
+                        </div>
+                        <div
+                          className="text-[11px]"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          Customize separately for Desktop &amp; Mobile
+                        </div>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => setNewEventDateOpen(false)}
-                        className="h-8 px-2.5 rounded-lg text-xs cursor-pointer"
+                        onClick={() => setComposerStyleMenuOpen(false)}
+                        aria-label="Close style menu"
+                        className="h-6 w-6 rounded-md flex items-center justify-center hover:bg-[var(--bg-surface-hover)] cursor-pointer"
                         style={{ color: "var(--text-muted)" }}
                       >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleStartNewEvent}
-                        className="h-8 px-3 rounded-lg text-xs font-semibold cursor-pointer"
-                        style={{
-                          backgroundColor: "var(--accent)",
-                          color: "var(--accent-fg)",
-                        }}
-                      >
-                        Continue
+                        <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
+
+                    <EventComposerStylePicker
+                      prefs={composerPrefs}
+                      onChangePrefs={handleUpdateComposerPrefs}
+                      defaultScope="desktop"
+                      compact
+                      onLaunchNow={handleStartNewEvent}
+                    />
                   </div>
                 </>
               )}
@@ -865,7 +928,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
             onOpenEventModal={(eventId) =>
               onOpenDetail({ mode: "event", id: eventId })
             }
-            onNewEventForDayMobile={openNewEventModalForDay}
+            onNewEventForDayMobile={handleOpenNewEventForDay}
             onContextMenuEvent={(ev, e) =>
               onOpenContextMenu({ kind: "entry", entry: ev }, e)
             }
@@ -1362,6 +1425,43 @@ export const EventsView: React.FC<EventsViewProps> = ({
           )}
         </aside>
       )}
+
+      {/* Mobile New Event UI Style Picker Sheet */}
+      {!isDesktop && (
+        <BottomSheet
+          isOpen={composerStyleMenuOpen}
+          onClose={() => setComposerStyleMenuOpen(false)}
+          title="New Event UI Style"
+          subtitle="Choose your preferred layout on Desktop & Mobile"
+          ariaLabel="New Event UI Style"
+        >
+          <div className="p-4">
+            <EventComposerStylePicker
+              prefs={composerPrefs}
+              onChangePrefs={handleUpdateComposerPrefs}
+              defaultScope="mobile"
+              onLaunchNow={handleStartNewEvent}
+            />
+          </div>
+        </BottomSheet>
+      )}
+
+      {/* Multi-Mode New Event Composer */}
+      <NewEventComposer
+        open={composerOpen}
+        initialDateKey={composerDateKey}
+        isDesktop={isDesktop}
+        prefs={composerPrefs}
+        onUpdatePrefs={handleUpdateComposerPrefs}
+        allEvents={allEvents}
+        lists={activeLists}
+        allEventTags={allEventTags}
+        timeFormat={timeFormat}
+        onClose={() => setComposerOpen(false)}
+        onOpenFullEditor={(draft) =>
+          onOpenDetail({ mode: "event", draft })
+        }
+      />
     </div>
   );
 };

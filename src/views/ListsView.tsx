@@ -22,8 +22,10 @@ import {
   MoreVertical,
   PanelLeftOpen,
   PanelRight,
+  Pause,
   PauseCircle,
   Pencil,
+  Play,
   Plus,
   Rows3,
   Search,
@@ -40,6 +42,7 @@ import {
 import { IconPicker } from "../components/IconPicker";
 import { NlpInputBar } from "../components/NlpInputBar";
 import { RichContent } from "../components/RichContent";
+import { CourseYouTubePlayer } from "../components/lists/CourseYouTubePlayer";
 import { ListItemInspector } from "../components/lists/ListItemInspector";
 import { ListItemTabEditor } from "../components/lists/ListItemTabEditor";
 import { ListsTabStrip } from "../components/lists/ListsTabStrip";
@@ -105,8 +108,18 @@ import {
   removeListItemBookLinks,
   useListItemBookLinks,
 } from "../utils/listBookLinks";
+import {
+  formatCourseResumeLabel,
+  removeCoursePlaybackProgress,
+  useCoursePlaybackProgress,
+} from "../utils/coursePlaybackProgress";
 import { countLinkedNotesForListItems } from "../utils/listItemLinks";
+import { extractUrlFromListInput } from "../utils/nlp";
 import { VIEW_PREFERENCE_SYNC_EVENT } from "../utils/viewPreferences";
+import {
+  fetchYouTubeCourseMetadata,
+  parseYouTubeCourseUrl,
+} from "../utils/youtube";
 
 type ListsSubTab = "items" | "notes" | "events";
 type ContextPaneTab = "notes" | "events";
@@ -354,6 +367,38 @@ function loadLocalWorkspaceState(
   }
 }
 
+const CourseGridThumbnail: React.FC<{
+  src: string | null;
+  alt: string;
+  isPlaylist: boolean;
+}> = ({ src, alt, isPlaylist }) => {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  if (src && failedSrc !== src) {
+    return (
+      <img
+        src={src}
+        alt={alt}
+        referrerPolicy="no-referrer"
+        onError={() => setFailedSrc(src)}
+        className="w-full h-full object-cover transition-transform duration-200 group-hover/thumb:scale-[1.02]"
+      />
+    );
+  }
+  return (
+    <div
+      className="w-full h-full flex flex-col items-center justify-center gap-1 text-xs font-medium"
+      style={{
+        background:
+          "linear-gradient(135deg, var(--bg-surface-subtle), var(--accent-soft))",
+        color: "var(--text-secondary)",
+      }}
+    >
+      <Play className="w-5 h-5" style={{ color: "var(--accent)" }} />
+      <span>{isPlaylist ? "YouTube Playlist" : "YouTube Course"}</span>
+    </div>
+  );
+};
+
 interface ListsViewProps {
   onOpenDetail: (target: DetailSheetTarget) => void;
   onOpenContextMenu: (record: ContextMenuRecord, e: React.MouseEvent) => void;
@@ -396,6 +441,15 @@ export const ListsView: React.FC<ListsViewProps> = ({
     [activeLists],
   );
   const bookLinksMap = useListItemBookLinks();
+  const courseProgressMap = useCoursePlaybackProgress();
+
+  // Inline Course YouTube Theater & sticky mini-bar state
+  const [activeCoursePlayerId, setActiveCoursePlayerId] = useState<string | null>(
+    null,
+  );
+  const [playerManualCollapsed, setPlayerManualCollapsed] = useState(false);
+  const [playerScrollCollapsed, setPlayerScrollCollapsed] = useState(false);
+  const leftScrollPaneRef = useRef<HTMLElement | null>(null);
 
   // Global synced fallback defaults
   const [prefs, setPrefs] = useState<LayoutConfig & { splitOpen: boolean }>(
@@ -1094,6 +1148,121 @@ export const ListsView: React.FC<ListsViewProps> = ({
     return out;
   }, [groupedTree]);
 
+  const isCoursesScope = useMemo(
+    () =>
+      !isSmartScope &&
+      (effectiveBaseList?.listType === "courses" ||
+        currentList?.listType === "courses"),
+    [isSmartScope, effectiveBaseList?.listType, currentList?.listType],
+  );
+
+  const courseProgressStats = useMemo(() => {
+    if (!isCoursesScope) return null;
+    const activeItems = scopeItemsAll.filter((i) => i.status !== "dropped");
+    const total = activeItems.length > 0 ? activeItems.length : scopeItemsAll.length;
+    const completed = activeItems.filter((i) => i.status === "done").length;
+    const inProgress = activeItems.filter((i) => i.status === "processing").length;
+    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { total, completed, inProgress, percent };
+  }, [isCoursesScope, scopeItemsAll]);
+
+  const activeCoursePlayerItem = useMemo(() => {
+    if (!activeCoursePlayerId) return null;
+    const found = listItemById.get(activeCoursePlayerId) ?? null;
+    if (!found || !found.url || !parseYouTubeCourseUrl(found.url)) return null;
+    return found;
+  }, [activeCoursePlayerId, listItemById]);
+
+  useEffect(() => {
+    if (activeCoursePlayerId && !activeCoursePlayerItem) {
+      setActiveCoursePlayerId(null);
+      setPlayerManualCollapsed(false);
+      setPlayerScrollCollapsed(false);
+    }
+  }, [activeCoursePlayerId, activeCoursePlayerItem]);
+
+  // Collapse inline theater into sticky mini-bar when switching to a sublist/scope that does not include the playing video
+  useEffect(() => {
+    if (!activeCoursePlayerItem) return;
+    const inCurrentScope = scopeItemsAll.some(
+      (i) => i.id === activeCoursePlayerItem.id,
+    );
+    if (!inCurrentScope) {
+      setPlayerManualCollapsed(true);
+    }
+  }, [scopeKey, activeSublistFilter, activeCoursePlayerItem, scopeItemsAll]);
+
+  const nextYouTubeItem = useMemo(() => {
+    if (!activeCoursePlayerItem) return null;
+    const pool = renderedItemOrder.length > 0 ? renderedItemOrder : scopeItemsAll;
+    const idx = pool.findIndex((i) => i.id === activeCoursePlayerItem.id);
+    if (idx === -1) {
+      return (
+        pool.find(
+          (i) =>
+            i.id !== activeCoursePlayerItem.id &&
+            i.status !== "dropped" &&
+            Boolean(i.url && parseYouTubeCourseUrl(i.url)),
+        ) ?? null
+      );
+    }
+    for (let i = idx + 1; i < pool.length; i++) {
+      const candidate = pool[i];
+      if (
+        candidate.status !== "dropped" &&
+        candidate.url &&
+        parseYouTubeCourseUrl(candidate.url)
+      ) {
+        return candidate;
+      }
+    }
+    return null;
+  }, [activeCoursePlayerItem, renderedItemOrder, scopeItemsAll]);
+
+  const handlePlayYouTubeItem = useCallback((itemId: string) => {
+    setActiveCoursePlayerId(itemId);
+    setPlayerManualCollapsed(false);
+    setPlayerScrollCollapsed(false);
+    window.requestAnimationFrame(() => {
+      leftScrollPaneRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }, []);
+
+  const handleQuickAddListItem = useCallback(
+    (
+      targetListId: string,
+      rawText: string,
+      status: ListItemStatus = "inbox",
+    ): ListItem | null => {
+      const { url, strippedText, fallbackTitle } =
+        extractUrlFromListInput(rawText.trim());
+      const created = addListItem(targetListId, rawText, status);
+      if (!created) return null;
+
+      if (created.url && parseYouTubeCourseUrl(created.url)) {
+        const hadCustomTitle =
+          Boolean(strippedText) &&
+          Boolean(fallbackTitle) &&
+          created.title !== fallbackTitle;
+        void fetchYouTubeCourseMetadata(created.url).then((meta) => {
+          if (!meta || !meta.fetchedOnline) return;
+          const patch: Partial<ListItem> = {};
+          if (!hadCustomTitle && meta.title) {
+            patch.title = meta.title;
+          }
+          if (!created.subtitle?.trim() && meta.channel) {
+            patch.subtitle = meta.channel;
+          }
+          if (Object.keys(patch).length > 0) {
+            updateListItem(created.id, patch);
+          }
+        });
+      }
+      return created;
+    },
+    [addListItem, updateListItem],
+  );
+
   const emptyStatusesForDrag = useMemo(() => {
     if (
       !draggingItemId ||
@@ -1568,6 +1737,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
   ) => {
     const count = ids.length;
     removeListItemBookLinks(ids);
+    removeCoursePlaybackProgress(ids);
     deleteListItems(ids, linkedNotesBehavior);
     pushToast(
       linkedNotesBehavior === "delete"
@@ -1743,21 +1913,21 @@ export const ListsView: React.FC<ListsViewProps> = ({
         const targetListId =
           col.listId || smartAddTargetListId || activeLists[0]?.id;
         if (!targetListId) return;
-        addListItem(targetListId, rawText, scope.status);
+        handleQuickAddListItem(targetListId, rawText, scope.status);
       } else {
         const targetListId =
           col.listId || focusedSublist?.id || scope.listId;
         const targetStatus: ListItemStatus =
           col.status ||
           (localState.statusFilter === "all" ? "inbox" : localState.statusFilter);
-        addListItem(targetListId, rawText, targetStatus);
+        handleQuickAddListItem(targetListId, rawText, targetStatus);
       }
     },
     [
       scope,
       smartAddTargetListId,
       activeLists,
-      addListItem,
+      handleQuickAddListItem,
       focusedSublist,
       localState.statusFilter,
     ],
@@ -2154,6 +2324,11 @@ export const ListsView: React.FC<ListsViewProps> = ({
     const isChecked = selectedIds.has(item.id);
     const validUrl = item.url ? normalizeExternalUrl(item.url) : "";
     const itemList = listById.get(item.listId);
+    const ytCourseInfo = item.url ? parseYouTubeCourseUrl(item.url) : null;
+    const isNowPlaying = activeCoursePlayerItem?.id === item.id;
+    const resumeLabel = ytCourseInfo
+      ? formatCourseResumeLabel(courseProgressMap[item.id], item.status)
+      : null;
     const bookLink =
       itemList?.listType === "books" ? bookLinksMap[item.id] ?? null : null;
     const linkedBookRecord = bookLink
@@ -2259,11 +2434,13 @@ export const ListsView: React.FC<ListsViewProps> = ({
         style={{
           backgroundColor: isChecked
             ? "var(--accent-soft)"
-            : isSelectedForEdit
-              ? "var(--bg-surface-subtle)"
-              : "var(--bg-surface)",
+            : isNowPlaying
+              ? "var(--accent-soft)"
+              : isSelectedForEdit
+                ? "var(--bg-surface-subtle)"
+                : "var(--bg-surface)",
           borderColor:
-            isDropTarget || isSelectedForEdit || isChecked
+            isDropTarget || isNowPlaying || isSelectedForEdit || isChecked
               ? "var(--accent)"
               : "var(--border-subtle)",
         }}
@@ -2285,6 +2462,56 @@ export const ListsView: React.FC<ListsViewProps> = ({
                   }`
             }
           />
+        )}
+
+        {/* Top 16:9 Thumbnail Preview for YouTube Grid Cards */}
+        {!inBoard && ytCourseInfo && (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePlayYouTubeItem(item.id);
+            }}
+            className="relative aspect-video w-full rounded-lg overflow-hidden border group/thumb cursor-pointer"
+            style={{
+              backgroundColor: "var(--bg-surface-subtle)",
+              borderColor: "var(--border-subtle)",
+            }}
+          >
+            <CourseGridThumbnail
+              src={ytCourseInfo.thumbnailUrl}
+              alt={item.title}
+              isPlaylist={ytCourseInfo.kind === "playlist"}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent flex items-end justify-between p-2.5">
+              <span
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold shadow-sm"
+                style={{
+                  backgroundColor: isNowPlaying
+                    ? "var(--accent)"
+                    : "rgba(15, 23, 42, 0.85)",
+                  color: "#ffffff",
+                }}
+              >
+                {isNowPlaying ? (
+                  <>
+                    <Pause className="w-3 h-3" />
+                    <span>Now Playing</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3 h-3 ml-0.5" />
+                    <span>Play</span>
+                  </>
+                )}
+              </span>
+
+              {resumeLabel && (
+                <span className="px-1.5 py-0.5 rounded bg-black/75 text-white text-[10px] font-mono tabular-nums">
+                  {resumeLabel}
+                </span>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Top Header Row: Checkbox + Drag + Status + Title/Subtitle + Actions */}
@@ -2461,14 +2688,19 @@ export const ListsView: React.FC<ListsViewProps> = ({
           )}
 
           {/* Clickable External URL Link Chip + Local Library Book Chip */}
-          {(validUrl || (bookLink && linkedBookRecord)) && (
+          {((validUrl && (inBoard || !ytCourseInfo)) ||
+            (bookLink && linkedBookRecord)) && (
             <div className="pl-8 flex flex-wrap items-center gap-1.5">
-              {validUrl && (
+              {validUrl && (inBoard || !ytCourseInfo) && (
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    openExternalUrlSafely(item.url!);
+                    if (ytCourseInfo && inBoard) {
+                      handlePlayYouTubeItem(item.id);
+                    } else {
+                      openExternalUrlSafely(item.url!);
+                    }
                   }}
                   className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-medium max-w-full transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] cursor-pointer"
                   style={{
@@ -2476,13 +2708,19 @@ export const ListsView: React.FC<ListsViewProps> = ({
                     borderColor: "var(--border-subtle)",
                     color: "var(--text-secondary)",
                   }}
-                  title={`Open ${validUrl}`}
+                  title={ytCourseInfo ? "Play course video" : `Open ${validUrl}`}
                 >
-                  <Globe className="w-3 h-3 shrink-0 opacity-75" />
+                  {ytCourseInfo ? (
+                    <Play className="w-3 h-3 shrink-0" style={{ color: "var(--accent)" }} />
+                  ) : (
+                    <Globe className="w-3 h-3 shrink-0 opacity-75" />
+                  )}
                   <span className="truncate">
-                    {formatUrlDisplayLabel(item.url!)}
+                    {ytCourseInfo ? "Play Video" : formatUrlDisplayLabel(item.url!)}
                   </span>
-                  <ExternalLink className="w-2.5 h-2.5 shrink-0 opacity-65" />
+                  {!ytCourseInfo && (
+                    <ExternalLink className="w-2.5 h-2.5 shrink-0 opacity-65" />
+                  )}
                 </button>
               )}
 
@@ -2546,7 +2784,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
     );
   };
 
-  // Stacked & Compact row renderer
+  // Stacked (2-row Quiet) & Compact (1-line dense) row renderer
   const renderItemRow = (item: ListItem) => {
     if (activeLayout.viewMode === "grid") {
       return renderCard(item, false);
@@ -2562,7 +2800,27 @@ export const ListsView: React.FC<ListsViewProps> = ({
     const isChecked = selectedIds.has(item.id);
     const showCheckbox = selectionMode || selectedIds.size > 0;
     const validUrl = item.url ? normalizeExternalUrl(item.url) : "";
+    const ytCourseInfo = item.url ? parseYouTubeCourseUrl(item.url) : null;
+    const isNowPlaying = activeCoursePlayerItem?.id === item.id;
+    const resumeLabel = ytCourseInfo
+      ? formatCourseResumeLabel(courseProgressMap[item.id], item.status)
+      : null;
     const hasDue = Boolean(item.scheduledAt);
+    const srcList = listById.get(item.listId);
+    const showsSublistChip =
+      isSmartScope ||
+      Boolean(
+        currentList &&
+          effectiveHasSublists &&
+          effectiveGroupBy !== "sublist",
+      );
+    const sublistChipLabel = showsSublistChip
+      ? isSmartScope
+        ? srcList?.title
+        : item.listId === effectiveBaseList?.id
+          ? "Direct"
+          : srcList?.title
+      : null;
 
     const dragHandle = isCustomSort && !isInlineEditing && (
       <div
@@ -2616,6 +2874,132 @@ export const ListsView: React.FC<ListsViewProps> = ({
       </div>
     );
 
+    if (isCompact) {
+      return (
+        <div
+          key={item.id}
+          {...makeCommonDragHandlers(item, isInlineEditing)}
+          onClick={() => handleOpenItem(item)}
+          onDoubleClick={(e) => {
+            if (isInlineEditing || selectionMode || selectedIds.size > 0) return;
+            e.stopPropagation();
+            handleOpenItemTab(item.id);
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            onOpenContextMenu({ kind: "list_item", item }, e);
+          }}
+          style={{
+            backgroundColor: isChecked
+              ? "var(--accent-soft)"
+              : isNowPlaying
+                ? "var(--accent-soft)"
+                : isSelectedForEdit
+                  ? "var(--bg-surface-subtle)"
+                  : undefined,
+            boxShadow: isDropTarget
+              ? itemDropTarget.position === "before"
+                ? "inset 0 2.5px 0 var(--accent)"
+                : "inset 0 -2.5px 0 var(--accent)"
+              : isNowPlaying
+                ? "inset 0 0 0 1px var(--accent)"
+                : undefined,
+          }}
+          className={`group relative flex items-center gap-2 px-2 -mx-2 rounded-lg cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]/75 py-1.5 ${
+            isCustomSort && !isInlineEditing
+              ? "cursor-grab active:cursor-grabbing"
+              : ""
+          } ${isBeingDragged ? "opacity-50 bg-[var(--accent-soft)]" : ""}`}
+        >
+          {(showCheckbox || isChecked) && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleItemSelection(item.id);
+              }}
+              aria-label={isChecked ? "Deselect item" : "Select item"}
+              className="h-6 w-5 flex items-center justify-center rounded shrink-0 cursor-pointer transition-opacity"
+              style={{
+                color: isChecked ? "var(--accent)" : "var(--text-muted)",
+              }}
+            >
+              {isChecked ? (
+                <CheckSquare className="w-3.5 h-3.5" />
+              ) : (
+                <Square className="w-3.5 h-3.5" />
+              )}
+            </button>
+          )}
+
+          {dragHandle}
+          {renderStatusButton(item)}
+
+          <div className="flex-1 min-w-0">
+            <span
+              className={`text-sm font-medium leading-snug truncate block ${
+                item.status === "done" ? "line-through opacity-60" : ""
+              }`}
+              style={{ color: "var(--text-primary)" }}
+            >
+              {item.title}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {renderSourceListBadge(item)}
+            {ytCourseInfo ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePlayYouTubeItem(item.id);
+                }}
+                className="h-6 px-1.5 rounded-md inline-flex items-center gap-1 text-[11px] font-medium transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                style={{ color: "var(--accent)" }}
+                title="Play course video"
+              >
+                <Play className="w-3 h-3" />
+              </button>
+            ) : validUrl ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openExternalUrlSafely(item.url!);
+                }}
+                className="h-6 px-1.5 rounded-md inline-flex items-center gap-1 text-[11px] font-medium transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                style={{ color: "var(--accent)" }}
+                title={`Open ${validUrl}`}
+              >
+                <ExternalLink className="w-3 h-3" />
+              </button>
+            ) : null}
+            {renderDueDateChip(item, true)}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenContextMenu({ kind: "list_item", item }, e);
+              }}
+              className="h-7 w-7 flex items-center justify-center rounded-md shrink-0 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              style={{ color: "var(--text-muted)" }}
+              aria-label="Item actions"
+            >
+              <MoreVertical className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const hasRow2Metadata =
+      Boolean(item.subtitle) ||
+      Boolean(sublistChipLabel) ||
+      itemTags.length > 0 ||
+      Boolean(resumeLabel) ||
+      hasDue;
+
     return (
       <div
         key={item.id}
@@ -2633,82 +3017,82 @@ export const ListsView: React.FC<ListsViewProps> = ({
         style={{
           backgroundColor: isChecked
             ? "var(--accent-soft)"
-            : isSelectedForEdit
-              ? "var(--bg-surface-subtle)"
-              : undefined,
+            : isNowPlaying
+              ? "var(--accent-soft)"
+              : isSelectedForEdit
+                ? "var(--bg-surface-subtle)"
+                : undefined,
           boxShadow: isDropTarget
             ? itemDropTarget.position === "before"
               ? "inset 0 2.5px 0 var(--accent)"
               : "inset 0 -2.5px 0 var(--accent)"
-            : undefined,
+            : isNowPlaying
+              ? "inset 0 0 0 1px var(--accent)"
+              : undefined,
         }}
-        className={`group relative flex items-start sm:items-center gap-2 px-2 -mx-2 rounded-lg cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]/75 ${
-          isCompact ? "py-1.5" : "py-2.5"
-        } ${isCustomSort && !isInlineEditing ? "cursor-grab active:cursor-grabbing" : ""} ${
-          isBeingDragged ? "opacity-50 bg-[var(--accent-soft)]" : ""
-        }`}
+        className={`group relative flex flex-col gap-1.5 px-2.5 -mx-2 rounded-lg cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]/75 py-2.5 ${
+          isCustomSort && !isInlineEditing
+            ? "cursor-grab active:cursor-grabbing"
+            : ""
+        } ${isBeingDragged ? "opacity-50 bg-[var(--accent-soft)]" : ""}`}
       >
-        {/* Multi-select checkbox (shown only after entering multi-select mode) */}
-        {(showCheckbox || isChecked) && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleItemSelection(item.id);
-            }}
-            aria-label={isChecked ? "Deselect item" : "Select item"}
-            className="h-6 w-5 flex items-center justify-center rounded shrink-0 cursor-pointer transition-opacity"
-            style={{
-              color: isChecked ? "var(--accent)" : "var(--text-muted)",
-            }}
-          >
-            {isChecked ? (
-              <CheckSquare className="w-3.5 h-3.5" />
-            ) : (
-              <Square className="w-3.5 h-3.5" />
-            )}
-          </button>
-        )}
-
-        {dragHandle}
-
-        {/* Status Icon Button */}
-        <div className={isCompact ? "" : "pt-0.5 sm:pt-0"}>
-          {renderStatusButton(item)}
-        </div>
-
-        {/* Title + Subtitle (+ Inline quick edit) */}
-        <div className="flex-1 min-w-0">
-          {isInlineEditing ? (
-            <div
-              className="flex flex-wrap items-center gap-1.5"
-              onClick={(e) => e.stopPropagation()}
+        {/* Row 1: Status + Title (wraps up to 2 lines) + Clean Action Triggers */}
+        <div className="flex items-start gap-2 min-w-0">
+          {(showCheckbox || isChecked) && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleItemSelection(item.id);
+              }}
+              aria-label={isChecked ? "Deselect item" : "Select item"}
+              className="h-6 w-5 flex items-center justify-center rounded shrink-0 cursor-pointer transition-opacity mt-0.5"
+              style={{
+                color: isChecked ? "var(--accent)" : "var(--text-muted)",
+              }}
             >
-              <input
-                type="text"
-                value={editingItem.title}
-                onChange={(e) =>
-                  setEditingItem((prev) =>
-                    prev ? { ...prev, title: e.target.value } : prev,
-                  )
-                }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    commitInlineEdit();
-                  } else if (e.key === "Escape") {
-                    setEditingItem(null);
+              {isChecked ? (
+                <CheckSquare className="w-3.5 h-3.5" />
+              ) : (
+                <Square className="w-3.5 h-3.5" />
+              )}
+            </button>
+          )}
+
+          {dragHandle}
+
+          <div className="pt-0.5 shrink-0">{renderStatusButton(item)}</div>
+
+          <div className="flex-1 min-w-0 pt-0.5">
+            {isInlineEditing ? (
+              <div
+                className="flex flex-wrap items-center gap-1.5"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <input
+                  type="text"
+                  value={editingItem.title}
+                  onChange={(e) =>
+                    setEditingItem((prev) =>
+                      prev ? { ...prev, title: e.target.value } : prev,
+                    )
                   }
-                }}
-                autoFocus
-                className="flex-1 min-w-[160px] px-2 py-0.5 rounded-md border text-sm font-medium outline-none"
-                style={{
-                  backgroundColor: "var(--bg-canvas)",
-                  borderColor: "var(--accent)",
-                  color: "var(--text-primary)",
-                }}
-              />
-              {!isCompact && (
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      commitInlineEdit();
+                    } else if (e.key === "Escape") {
+                      setEditingItem(null);
+                    }
+                  }}
+                  autoFocus
+                  className="flex-1 min-w-[160px] px-2 py-0.5 rounded-md border text-sm font-medium outline-none"
+                  style={{
+                    backgroundColor: "var(--bg-canvas)",
+                    borderColor: "var(--accent)",
+                    color: "var(--text-primary)",
+                  }}
+                />
                 <input
                   type="text"
                   value={editingItem.subtitle}
@@ -2725,158 +3109,205 @@ export const ListsView: React.FC<ListsViewProps> = ({
                       setEditingItem(null);
                     }
                   }}
-                  placeholder="Subtitle..."
-                  className="w-40 px-2 py-0.5 rounded-md border text-xs outline-none"
+                  placeholder="Provider / Subtitle..."
+                  className="w-44 px-2 py-0.5 rounded-md border text-xs outline-none"
                   style={{
                     backgroundColor: "var(--bg-canvas)",
                     borderColor: "var(--border-subtle)",
                     color: "var(--text-secondary)",
                   }}
                 />
-              )}
-              <button
-                type="button"
-                onClick={commitInlineEdit}
-                className="h-6 w-6 flex items-center justify-center rounded-md cursor-pointer"
-                style={{
-                  backgroundColor: "var(--accent)",
-                  color: "var(--accent-fg)",
-                }}
-                aria-label="Save edit"
-              >
-                <Check className="w-3 h-3" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditingItem(null)}
-                className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                style={{ color: "var(--text-muted)" }}
-                aria-label="Cancel edit"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex flex-col sm:flex-row sm:items-baseline sm:gap-2 min-w-0">
+                <button
+                  type="button"
+                  onClick={commitInlineEdit}
+                  className="h-6 w-6 flex items-center justify-center rounded-md cursor-pointer"
+                  style={{
+                    backgroundColor: "var(--accent)",
+                    color: "var(--accent-fg)",
+                  }}
+                  aria-label="Save edit"
+                >
+                  <Check className="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                  style={{ color: "var(--text-muted)" }}
+                  aria-label="Cancel edit"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
               <span
-                className={`text-sm font-medium leading-snug truncate ${
+                className={`block text-sm font-medium leading-snug line-clamp-2 ${
                   item.status === "done" ? "line-through opacity-60" : ""
                 }`}
                 style={{ color: "var(--text-primary)" }}
               >
                 {item.title}
               </span>
-              {!isCompact && item.subtitle && (
-                <span
-                  className="text-xs truncate"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {item.subtitle}
-                </span>
-              )}
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Mobile metadata inline row */}
-          {(hasDue ||
-            itemTags.length > 0 ||
-            isSmartScope ||
-            (currentList && effectiveHasSublists && effectiveGroupBy !== "sublist") ||
-            Boolean(validUrl)) && (
-            <div
-              className="flex sm:hidden flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-[11px]"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {renderSourceListBadge(item)}
-              {validUrl && (
+          {!isInlineEditing && (
+            <div className="flex items-center gap-1 shrink-0">
+              {ytCourseInfo ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePlayYouTubeItem(item.id);
+                  }}
+                  title={isNowPlaying ? "Now playing" : "Play video in Course theater"}
+                  aria-label={isNowPlaying ? "Now playing" : "Play course video"}
+                  className="h-8 sm:h-7 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                  style={{
+                    backgroundColor: isNowPlaying
+                      ? "var(--accent)"
+                      : "var(--bg-surface)",
+                    borderColor: isNowPlaying
+                      ? "var(--accent)"
+                      : "var(--border-subtle)",
+                    color: isNowPlaying
+                      ? "var(--accent-fg)"
+                      : "var(--accent)",
+                  }}
+                >
+                  <Play className="w-3 h-3 shrink-0" />
+                  <span>{isNowPlaying ? "Now Playing" : "Play"}</span>
+                </button>
+              ) : validUrl ? (
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     openExternalUrlSafely(item.url!);
                   }}
-                  className="inline-flex items-center gap-1 font-medium hover:underline cursor-pointer"
-                  style={{ color: "var(--accent)" }}
+                  title={`Open ${validUrl}`}
+                  aria-label={`Open ${validUrl} in new tab`}
+                  className="h-8 w-8 sm:h-7 sm:w-7 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--accent)",
+                  }}
                 >
-                  <ExternalLink className="w-3 h-3" />
-                  <span>{formatUrlDisplayLabel(item.url!)}</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
                 </button>
-              )}
-              {hasDue && renderDueDateChip(item, false)}
-              {itemTags.length > 0 && (
-                <span className="font-mono tabular-nums">
-                  {itemTags.map((t) => `#${t}`).join(" ")}
-                </span>
-              )}
+              ) : null}
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingItem({
+                    id: item.id,
+                    title: item.title,
+                    subtitle: item.subtitle || "",
+                  });
+                }}
+                className="h-7 w-7 hidden sm:group-hover:flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                style={{ color: "var(--text-muted)" }}
+                title="Quick edit title & subtitle"
+                aria-label="Quick edit item"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenContextMenu({ kind: "list_item", item }, e);
+                }}
+                className="h-8 w-8 sm:h-7 sm:w-7 flex items-center justify-center rounded-md shrink-0 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                style={{ color: "var(--text-muted)" }}
+                aria-label="Item actions"
+              >
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
         </div>
 
-        {/* Desktop Metadata: source list badge, URL open button, tags, clickable due date */}
-        <div className="hidden sm:flex items-center gap-2 shrink-0">
-          {renderSourceListBadge(item)}
+        {/* Row 2: Subtle Bordered Metadata Chips (Provider/Channel, Sublist, Tags, Saved Resume) */}
+        {!isInlineEditing && hasRow2Metadata && (
+          <div className="pl-8 flex flex-wrap items-center gap-1.5 min-w-0">
+            {item.subtitle && (
+              <span
+                className="inline-flex items-center px-1.5 py-0.5 rounded-md border text-[11px] leading-tight max-w-[220px] truncate"
+                style={{
+                  backgroundColor: "var(--bg-surface-subtle)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+                title={item.subtitle}
+              >
+                {item.subtitle}
+              </span>
+            )}
 
-          {validUrl && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                openExternalUrlSafely(item.url!);
-              }}
-              className="h-6 px-1.5 rounded-md inline-flex items-center gap-1 text-[11px] font-medium transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-              style={{ color: "var(--accent)" }}
-              title={`Open ${validUrl}`}
-              aria-label={`Open ${validUrl}`}
-            >
-              <ExternalLink className="w-3 h-3" />
-            </button>
-          )}
+            {sublistChipLabel && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[11px] leading-tight max-w-[160px] truncate"
+                style={{
+                  backgroundColor: "var(--bg-surface-subtle)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {srcList && sublistChipLabel !== "Direct" && (
+                  <CollectionIcon
+                    name={srcList.icon}
+                    className="w-2.5 h-2.5 shrink-0"
+                    style={{ color: srcList.color || "#4f46e5" }}
+                  />
+                )}
+                <span className="truncate">{sublistChipLabel}</span>
+              </span>
+            )}
 
-          {itemTags.length > 0 && (
-            <span
-              className="max-w-[160px] truncate text-[11px] font-mono tabular-nums"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {itemTags.map((t) => `#${t}`).join(" ")}
-            </span>
-          )}
+            {resumeLabel && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[11px] font-mono tabular-nums leading-tight"
+                style={{
+                  backgroundColor: "var(--bg-surface-subtle)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--accent)",
+                }}
+              >
+                <Clock className="w-2.5 h-2.5 shrink-0" />
+                <span>{resumeLabel}</span>
+              </span>
+            )}
 
-          {renderDueDateChip(item, true)}
-        </div>
+            {itemTags.map((t) => (
+              <span
+                key={t}
+                className="inline-flex items-center px-1.5 py-0.5 rounded-md border text-[11px] font-mono leading-tight"
+                style={{
+                  backgroundColor: "var(--bg-surface-subtle)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-muted)",
+                }}
+              >
+                #{t}
+              </span>
+            ))}
 
-        {/* Hover Quick-Edit + Context Menu Trigger */}
-        {!isInlineEditing && (
-          <div className="flex items-center shrink-0">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditingItem({
-                  id: item.id,
-                  title: item.title,
-                  subtitle: item.subtitle || "",
-                });
-              }}
-              className="h-7 w-7 hidden group-hover:flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-              style={{ color: "var(--text-muted)" }}
-              title="Quick edit title & subtitle"
-              aria-label="Quick edit item"
-            >
-              <Pencil className="w-3 h-3" />
-            </button>
-
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenContextMenu({ kind: "list_item", item }, e);
-              }}
-              className="h-7 w-7 flex items-center justify-center rounded-md shrink-0 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-              style={{ color: "var(--text-muted)" }}
-              aria-label="Item actions"
-            >
-              <MoreVertical className="w-3.5 h-3.5" />
-            </button>
+            {hasDue && (
+              <span
+                className="inline-flex items-center rounded-md border"
+                style={{
+                  backgroundColor: "var(--bg-surface-subtle)",
+                  borderColor: "var(--border-subtle)",
+                }}
+              >
+                {renderDueDateChip(item, false)}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -4100,10 +4531,132 @@ export const ListsView: React.FC<ListsViewProps> = ({
       ) : (
         <div className="flex-1 min-h-0 flex overflow-hidden">
           {/* LEFT PRIMARY PANE */}
-          <section className="flex-1 min-w-0 overflow-y-auto overscroll-none px-4 sm:px-6 py-4 space-y-4">
+          <section
+            ref={leftScrollPaneRef}
+            onScroll={(e) => {
+              if (!activeCoursePlayerItem || playerManualCollapsed) return;
+              const top = e.currentTarget.scrollTop;
+              if (top > 220 && !playerScrollCollapsed) {
+                setPlayerScrollCollapsed(true);
+              } else if (top < 24 && playerScrollCollapsed) {
+                setPlayerScrollCollapsed(false);
+              }
+            }}
+            className="flex-1 min-w-0 overflow-y-auto overscroll-none px-4 sm:px-6 py-4 space-y-4"
+          >
             {/* TRACKED ITEMS */}
             {(splitVisible || localState.subTab === "items") && (
               <>
+                {/* Inline Top Course YouTube Theater / Sticky Mini-Bar */}
+                {activeCoursePlayerItem && (() => {
+                  const collapsed = playerManualCollapsed || playerScrollCollapsed;
+                  return (
+                    <div
+                      className={
+                        collapsed
+                          ? "sticky top-0 z-20 -mt-1 pt-1 pb-1 bg-[var(--bg-canvas)]/95 backdrop-blur-sm"
+                          : ""
+                      }
+                    >
+                      <CourseYouTubePlayer
+                        item={activeCoursePlayerItem}
+                        mode="theater"
+                        autoplay
+                        collapsed={collapsed}
+                        onToggleCollapse={() => {
+                          if (collapsed) {
+                            setPlayerManualCollapsed(false);
+                            setPlayerScrollCollapsed(false);
+                            leftScrollPaneRef.current?.scrollTo({
+                              top: 0,
+                              behavior: "smooth",
+                            });
+                          } else {
+                            setPlayerManualCollapsed(true);
+                          }
+                        }}
+                        onClose={() => {
+                          setActiveCoursePlayerId(null);
+                          setPlayerManualCollapsed(false);
+                          setPlayerScrollCollapsed(false);
+                        }}
+                        onOpenStudyTab={() => {
+                          const id = activeCoursePlayerItem.id;
+                          setActiveCoursePlayerId(null);
+                          setPlayerManualCollapsed(false);
+                          setPlayerScrollCollapsed(false);
+                          handleOpenItemTab(id);
+                        }}
+                        onMarkCompleted={() => {
+                          updateListItem(activeCoursePlayerItem.id, {
+                            status: "done",
+                          });
+                          pushToast("Course marked completed", "success");
+                        }}
+                        nextVideoTitle={nextYouTubeItem?.title ?? null}
+                        onNextVideo={
+                          nextYouTubeItem
+                            ? () => handlePlayYouTubeItem(nextYouTubeItem.id)
+                            : undefined
+                        }
+                      />
+                    </div>
+                  );
+                })()}
+
+                {/* Quiet Course Progress Summary Bar */}
+                {isCoursesScope && courseProgressStats && courseProgressStats.total > 0 && (
+                  <div
+                    className="rounded-xl border px-3.5 py-2.5 flex items-center justify-between gap-4"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    <div className="flex items-center gap-2 text-xs min-w-0">
+                      <span
+                        className="font-semibold font-mono tabular-nums"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        {courseProgressStats.completed} / {courseProgressStats.total} completed
+                      </span>
+                      {courseProgressStats.inProgress > 0 && (
+                        <>
+                          <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>
+                            ·
+                          </span>
+                          <span
+                            className="font-mono tabular-nums"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            {courseProgressStats.inProgress} active
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <div
+                        className="w-24 sm:w-36 h-1.5 rounded-full overflow-hidden"
+                        style={{ backgroundColor: "var(--bg-surface-subtle)" }}
+                      >
+                        <div
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${courseProgressStats.percent}%`,
+                            backgroundColor: "var(--accent)",
+                          }}
+                        />
+                      </div>
+                      <span
+                        className="text-[11px] font-mono tabular-nums w-8 text-right"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {courseProgressStats.percent}%
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Smart Quick-Add Bar (URL auto-attach + natural date + #tags) */}
                 {(currentList || (isSmartScope && activeLists.length > 0)) && (() => {
                   const subtreeIdSet = currentList
@@ -4146,11 +4699,11 @@ export const ListsView: React.FC<ListsViewProps> = ({
                             smartAddTargetListId || activeLists[0]?.id;
                           if (!targetId) return false;
                           return Boolean(
-                            addListItem(targetId, raw, scope.status),
+                            handleQuickAddListItem(targetId, raw, scope.status),
                           );
                         }
                         return Boolean(
-                          addListItem(
+                          handleQuickAddListItem(
                             effectiveListAddTarget || scope.listId,
                             raw,
                             localState.statusFilter === "all"
@@ -5423,6 +5976,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
                     }
                     onJumpToBookLocation={onJumpToBookLocation}
                     onJumpToNote={onJumpToNote}
+                    onPlayYouTubeItem={handlePlayYouTubeItem}
                   />
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-2.5">

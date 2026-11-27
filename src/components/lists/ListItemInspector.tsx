@@ -9,7 +9,10 @@ import {
   Hash,
   Link2,
   ListChecks,
+  Loader2,
   Maximize2,
+  Play,
+  RefreshCw,
   Trash2,
   Type,
   X,
@@ -30,6 +33,11 @@ import {
   setListItemBookLink,
 } from "../../utils/listBookLinks";
 import { countLinkedNotesForListItems } from "../../utils/listItemLinks";
+import {
+  fetchYouTubeCourseMetadata,
+  parseYouTubeCourseUrl,
+} from "../../utils/youtube";
+import { removeCoursePlaybackProgress } from "../../utils/coursePlaybackProgress";
 import { TiptapEditor } from "../TiptapEditor";
 import { DeleteListItemsConfirmModal } from "./DeleteListItemsConfirmModal";
 import { ListItemLinkedNotesSection } from "./ListItemLinkedNotesSection";
@@ -102,6 +110,7 @@ interface ListItemInspectorProps {
   onOpenModal: (itemId: string) => void;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
   onJumpToNote?: (noteId: string) => void;
+  onPlayYouTubeItem?: (itemId: string) => void;
 }
 
 function buildSnapshot(src: {
@@ -125,6 +134,7 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
   onOpenModal,
   onJumpToBookLocation,
   onJumpToNote,
+  onPlayYouTubeItem,
 }) => {
   const { workspace, updateListItem, deleteListItem, pushToast } =
     useWorkspace();
@@ -147,12 +157,14 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
     getListItemBookLink(item.id),
   );
   const [saveState, setSaveState] = useState<"saved" | "saving">("saved");
+  const [fetchingYt, setFetchingYt] = useState(false);
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
 
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const debounceTimerRef = useRef<number | null>(null);
   const isComposingRef = useRef(false);
+  const lastAutoFetchedUrlRef = useRef<string>(item.url ?? "");
 
   const lastSavedSnapRef = useRef<string>(
     buildSnapshot({
@@ -363,6 +375,57 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
   };
 
   const validOpenUrl = normalizeExternalUrl(url);
+  const ytCourseInfo = useMemo(() => parseYouTubeCourseUrl(url), [url]);
+
+  const handleFetchYouTubeInfo = useCallback(
+    async (forceOverwrite = false) => {
+      if (!ytCourseInfo) return;
+      setFetchingYt(true);
+      try {
+        const meta = await fetchYouTubeCourseMetadata(url);
+        if (!meta || !meta.fetchedOnline) {
+          if (forceOverwrite) {
+            pushToast("Couldn't fetch YouTube info right now — URL kept", "neutral");
+          }
+          return;
+        }
+        const isBlankTitle =
+          !latestDraftRef.current.title.trim() ||
+          latestDraftRef.current.title.trim() === "Untitled Item" ||
+          latestDraftRef.current.title.trim() === url.trim();
+        const isBlankSubtitle = !latestDraftRef.current.subtitle.trim();
+
+        if ((forceOverwrite || isBlankTitle) && meta.title) {
+          setTitle(meta.title);
+        }
+        if ((forceOverwrite || isBlankSubtitle) && meta.channel) {
+          setSubtitle(meta.channel);
+        }
+        if (forceOverwrite) {
+          pushToast("Fetched YouTube course details", "success");
+        }
+      } finally {
+        setFetchingYt(false);
+      }
+    },
+    [ytCourseInfo, url, pushToast],
+  );
+
+  // Auto-fill blank title or Provider when pasting a YouTube URL
+  useEffect(() => {
+    const normalized = ytCourseInfo?.normalizedUrl;
+    if (!normalized || normalized === lastAutoFetchedUrlRef.current) return;
+    lastAutoFetchedUrlRef.current = normalized;
+    const needsTitle =
+      !title.trim() ||
+      title.trim() === "Untitled Item" ||
+      title.trim() === url.trim();
+    const needsSubtitle = !subtitle.trim();
+    if (needsTitle || needsSubtitle) {
+      void handleFetchYouTubeInfo(false);
+    }
+  }, [ytCourseInfo?.normalizedUrl, title, subtitle, url, handleFetchYouTubeInfo]);
+
   const linkedNotesCounts = useMemo(
     () => countLinkedNotesForListItems(workspace.entries, [item.id]),
     [workspace.entries, item.id],
@@ -391,6 +454,24 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
         </span>
 
         <div className="flex items-center gap-1">
+          {ytCourseInfo && onPlayYouTubeItem && (
+            <button
+              type="button"
+              onClick={() => {
+                flushSave();
+                onPlayYouTubeItem(item.id);
+              }}
+              title="Play course video"
+              className="h-7 px-2 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 transition-opacity hover:opacity-90 cursor-pointer"
+              style={{
+                backgroundColor: "var(--accent)",
+                color: "var(--accent-fg)",
+              }}
+            >
+              <Play className="w-3 h-3" />
+              <span>Play</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -582,6 +663,27 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
                 className="flex-1 min-w-0 bg-transparent rounded-md px-2 py-1 text-xs outline-none transition-colors hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] placeholder:opacity-50"
                 style={{ color: "var(--text-primary)" }}
               />
+              {ytCourseInfo && (
+                <button
+                  type="button"
+                  disabled={fetchingYt}
+                  onClick={() => void handleFetchYouTubeInfo(true)}
+                  title="Fetch YouTube title and channel"
+                  className="h-6 px-1.5 rounded-md border text-[11px] font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-hover)] disabled:opacity-50 shrink-0 cursor-pointer"
+                  style={{
+                    backgroundColor: "var(--bg-surface-subtle)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {fetchingYt ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3 h-3" />
+                  )}
+                  <span>Fetch</span>
+                </button>
+              )}
               {validOpenUrl && (
                 <button
                   type="button"
@@ -751,6 +853,7 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
         onConfirm={(behavior) => {
           setDeleteConfirmOpen(false);
           deleteListItem(item.id, behavior);
+          removeCoursePlaybackProgress([item.id]);
           pushToast(
             behavior === "delete"
               ? "List item & linked notes deleted"

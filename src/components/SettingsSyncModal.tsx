@@ -71,8 +71,15 @@ import {
   validateWorkspacePayload,
 } from "../utils/gist";
 import { KansoLogo } from "./KansoLogo";
+import { EventComposerStylePicker } from "./events/EventComposerStylePicker";
 import { TypographySettingsPanel } from "./settings/TypographySettingsPanel";
 import { ViewsSettingsPanel } from "./settings/ViewsSettingsPanel";
+import {
+  EventComposerPreferences,
+  loadEventComposerPrefs,
+  saveEventComposerPrefs,
+  subscribeEventComposerPrefs,
+} from "../lib/eventComposerPrefs";
 import { resolveNavigationConfig } from "../lib/viewNavigation";
 
 export type SettingsModalTab =
@@ -164,6 +171,7 @@ const LOCAL_STORAGE_KEY_LABELS: Record<string, string> = {
   kanso_notes_view_mode_v1: "Notes Layout Mode",
   kanso_lists_prefs_v1: "Lists View Preferences",
   kanso_events_filters_v1: "Events Filter State",
+  kanso_events_composer_prefs_v1: "Events New-Event UI Preferences",
   kanso_streamer_vault_sort_v1: "Streamer Vault Sort Order",
   kanso_library_studio_prefs_v1: "Library & Reader Preferences",
   kanso_library_voice_prefs_v1: "Audiobook Voice Preferences",
@@ -274,6 +282,8 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     useState<number>(() =>
       isAndroidCapacitor() ? getAudioAndroidLinkedFolders().length : 0,
     );
+  const [eventComposerPrefs, setEventComposerPrefs] =
+    useState<EventComposerPreferences>(loadEventComposerPrefs);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -375,6 +385,10 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
+
+  useEffect(() => {
+    return subscribeEventComposerPrefs(setEventComposerPrefs);
+  }, []);
 
   const effectiveBusy = gistSyncBusy ?? syncBusyLocal;
 
@@ -2739,6 +2753,33 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                 >
                   <span className="w-5 h-5 rounded-full bg-white shadow-xs" />
                 </button>
+              </div>
+
+              {/* New Event Composer UI Style (Desktop & Mobile) */}
+              <div
+                className="space-y-3 pt-4 border-t"
+                style={{ borderColor: "var(--border-subtle)" }}
+              >
+                <div>
+                  <div className="text-sm font-semibold">
+                    New Event Composer Style
+                  </div>
+                  <div
+                    className="text-xs mt-0.5"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Choose how the + New Event composer opens on Desktop and
+                    Mobile.
+                  </div>
+                </div>
+                <EventComposerStylePicker
+                  prefs={eventComposerPrefs}
+                  onChangePrefs={(next) => {
+                    const saved = saveEventComposerPrefs(next);
+                    setEventComposerPrefs(saved);
+                    pushToast("Updated New Event UI style", "success");
+                  }}
+                />
               </div>
 
               {/* Android Capacitor-only Library & Audio File Storage Preferences */}
