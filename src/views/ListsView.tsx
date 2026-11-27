@@ -450,6 +450,8 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const [playerManualCollapsed, setPlayerManualCollapsed] = useState(false);
   const [playerScrollCollapsed, setPlayerScrollCollapsed] = useState(false);
   const leftScrollPaneRef = useRef<HTMLElement | null>(null);
+  const lastLeftScrollTopRef = useRef(0);
+  const ignorePlayerScrollUntilRef = useRef(0);
 
   // Global synced fallback defaults
   const [prefs, setPrefs] = useState<LayoutConfig & { splitOpen: boolean }>(
@@ -1220,6 +1222,8 @@ export const ListsView: React.FC<ListsViewProps> = ({
   }, [activeCoursePlayerItem, renderedItemOrder, scopeItemsAll]);
 
   const handlePlayYouTubeItem = useCallback((itemId: string) => {
+    ignorePlayerScrollUntilRef.current = performance.now() + 700;
+    lastLeftScrollTopRef.current = 0;
     setActiveCoursePlayerId(itemId);
     setPlayerManualCollapsed(false);
     setPlayerScrollCollapsed(false);
@@ -4534,11 +4538,28 @@ export const ListsView: React.FC<ListsViewProps> = ({
           <section
             ref={leftScrollPaneRef}
             onScroll={(e) => {
+              const el = e.currentTarget;
+              const top = el.scrollTop;
+              const prevTop = lastLeftScrollTopRef.current;
+              lastLeftScrollTopRef.current = top;
+
               if (!activeCoursePlayerItem || playerManualCollapsed) return;
-              const top = e.currentTarget.scrollTop;
-              if (top > 220 && !playerScrollCollapsed) {
+              const now = performance.now();
+              if (now < ignorePlayerScrollUntilRef.current) return;
+
+              if (top > 28 && top > prevTop && !playerScrollCollapsed) {
+                ignorePlayerScrollUntilRef.current = now + 450;
                 setPlayerScrollCollapsed(true);
-              } else if (top < 24 && playerScrollCollapsed) {
+                return;
+              }
+
+              if (
+                playerScrollCollapsed &&
+                top <= 8 &&
+                top < prevTop &&
+                el.scrollHeight > el.clientHeight + 80
+              ) {
+                ignorePlayerScrollUntilRef.current = now + 350;
                 setPlayerScrollCollapsed(false);
               }
             }}
@@ -4562,9 +4583,13 @@ export const ListsView: React.FC<ListsViewProps> = ({
                         item={activeCoursePlayerItem}
                         mode="theater"
                         autoplay
+                        maxHeightClass="max-h-[min(420px,46dvh)]"
                         collapsed={collapsed}
                         onToggleCollapse={() => {
                           if (collapsed) {
+                            ignorePlayerScrollUntilRef.current =
+                              performance.now() + 700;
+                            lastLeftScrollTopRef.current = 0;
                             setPlayerManualCollapsed(false);
                             setPlayerScrollCollapsed(false);
                             leftScrollPaneRef.current?.scrollTo({
