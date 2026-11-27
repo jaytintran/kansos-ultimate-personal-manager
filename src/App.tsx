@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   CloudDownload,
   CloudUpload,
@@ -55,6 +56,10 @@ import {
   ViewId,
 } from "./types";
 import { formatAudioDuration } from "./lib/audioFormatters";
+import {
+  loadShowMobileHeader,
+  subscribeShowMobileHeader,
+} from "./lib/mobileHeaderPref";
 import {
   resolveNavigationConfig,
   VIEW_META_MAP,
@@ -205,6 +210,12 @@ const KansoShell: React.FC = () => {
   const [listItemJumpRequest, setListItemJumpRequest] =
     useState<ListItemJumpRequest | null>(null);
   const [isMobileKeyboardOpen, setIsMobileKeyboardOpen] = useState(false);
+  const [showMobileHeader, setShowMobileHeader] = useState<boolean>(
+    loadShowMobileHeader,
+  );
+  useEffect(() => {
+    return subscribeShowMobileHeader(setShowMobileHeader);
+  }, []);
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState<boolean>(
     () => {
       try {
@@ -1631,163 +1642,167 @@ const KansoShell: React.FC = () => {
           </div>
         )}
 
-      {/* Mobile Compact Top Bar */}
-      <header
-        className="lg:hidden shrink-0 z-30 pt-safe px-3 border-b"
-        style={{
-          backgroundColor: "var(--bg-surface)",
-          borderColor: "var(--border-subtle)",
-        }}
-      >
-        <div className="h-12 px-1 px-safe flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <KansoLogo size={22} />
-            <span className="font-display text-base font-bold tracking-tight whitespace-nowrap">
-              Kanso
-            </span>
-            {isMoreViewActive && activeViewDef && (
-              <span
-                className="text-xs mt-1 font-medium truncate"
-                style={{ color: "var(--text-muted)" }}
-              >
-                · {activeViewDef.label}
+      {/* Mobile Compact Top Bar (hidden by default via local device setting) */}
+      {showMobileHeader && (
+        <header
+          className="lg:hidden shrink-0 z-30 pt-safe px-3 border-b"
+          style={{
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
+          }}
+        >
+          <div className="h-12 px-1 px-safe flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <KansoLogo size={22} />
+              <span className="font-display text-base font-bold tracking-tight whitespace-nowrap">
+                Kanso
               </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            {isGistConfigured ? (
-              <>
-                <button
-                  type="button"
-                  disabled={gistSyncBusy !== null || !hasGistToken}
-                  onClick={() => void quickPushGist()}
-                  className="h-7 px-2.5 rounded-md text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-opacity disabled:opacity-40 cursor-pointer whitespace-nowrap"
-                  style={{
-                    backgroundColor:
-                      showPushButtonIndicator &&
-                      (isAutoPushConflict || isAutoPushError)
-                        ? "var(--danger)"
-                        : "var(--accent)",
-                    color: "var(--accent-fg)",
-                  }}
-                  aria-label="Push to GitHub Gist"
-                  title="Push to GitHub Gist"
+              {isMoreViewActive && activeViewDef && (
+                <span
+                  className="text-xs mt-1 font-medium truncate"
+                  style={{ color: "var(--text-muted)" }}
                 >
-                  {isAutoPushWorking ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  ) : (
-                    <CloudUpload className="w-3.5 h-3.5 shrink-0" />
-                  )}
-                  {showPushButtonIndicator &&
-                    (isAutoPushPending || isAutoPushConflict) && (
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full shrink-0 bg-white ${
-                          isAutoPushPending ? "animate-pulse" : ""
-                        }`}
-                      />
+                  · {activeViewDef.label}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              {isGistConfigured ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={gistSyncBusy !== null || !hasGistToken}
+                    onClick={() => void quickPushGist()}
+                    className="h-7 px-2.5 rounded-md text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-opacity disabled:opacity-40 cursor-pointer whitespace-nowrap"
+                    style={{
+                      backgroundColor:
+                        showPushButtonIndicator &&
+                        (isAutoPushConflict || isAutoPushError)
+                          ? "var(--danger)"
+                          : "var(--accent)",
+                      color: "var(--accent-fg)",
+                    }}
+                    aria-label="Push to GitHub Gist"
+                    title="Push to GitHub Gist"
+                  >
+                    {isAutoPushWorking ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                    ) : (
+                      <CloudUpload className="w-3.5 h-3.5 shrink-0" />
                     )}
-                  <span className="font-mono-tabular">
                     {showPushButtonIndicator &&
-                    isAutoPushPending &&
-                    autoPushStatus.secondsRemaining !== null
-                      ? `Push ${autoPushStatus.secondsRemaining}s`
-                      : "Push"}
-                  </span>
-                </button>
+                      (isAutoPushPending || isAutoPushConflict) && (
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full shrink-0 bg-white ${
+                            isAutoPushPending ? "animate-pulse" : ""
+                          }`}
+                        />
+                      )}
+                    <span className="font-mono-tabular">
+                      {showPushButtonIndicator &&
+                      isAutoPushPending &&
+                      autoPushStatus.secondsRemaining !== null
+                        ? `Push ${autoPushStatus.secondsRemaining}s`
+                        : "Push"}
+                    </span>
+                  </button>
 
+                  <button
+                    type="button"
+                    disabled={gistSyncBusy !== null || !hasGistId}
+                    onClick={() => void quickPullGist()}
+                    className="h-7 px-2.5 rounded-md border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer whitespace-nowrap"
+                    style={{
+                      backgroundColor:
+                        showPullButtonIndicator && isAutoPullConflict
+                          ? "color-mix(in srgb, var(--danger) 12%, var(--bg-surface))"
+                          : (showPullButtonIndicator && isAutoPullPulled) ||
+                              isAutoPushConflict
+                            ? "var(--accent-soft)"
+                            : "var(--bg-surface-subtle)",
+                      borderColor:
+                        showPullButtonIndicator && isAutoPullConflict
+                          ? "var(--danger)"
+                          : (showPullButtonIndicator && isAutoPullPulled) ||
+                              isAutoPushConflict
+                            ? "var(--accent)"
+                            : "var(--border-subtle)",
+                      color:
+                        showPullButtonIndicator && isAutoPullConflict
+                          ? "var(--danger)"
+                          : (showPullButtonIndicator && isAutoPullPulled) ||
+                              isAutoPushConflict
+                            ? "var(--accent)"
+                            : "var(--text-primary)",
+                    }}
+                    aria-label="Pull from GitHub Gist"
+                    title="Pull from GitHub Gist"
+                  >
+                    {isAutoPullWorking ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                    ) : (
+                      <CloudDownload className="w-3.5 h-3.5 shrink-0" />
+                    )}
+                    {showPullButtonIndicator &&
+                      (isAutoPullConflict || isAutoPullPulled) && (
+                        <span
+                          className="w-1.5 h-1.5 rounded-full shrink-0"
+                          style={{
+                            backgroundColor: isAutoPullConflict
+                              ? "var(--danger)"
+                              : "var(--accent)",
+                          }}
+                        />
+                      )}
+                    <span className="font-mono-tabular">
+                      {isAutoPullChecking
+                        ? "Checking"
+                        : isAutoPullWorking
+                          ? "Pulling"
+                          : showPullButtonIndicator && isAutoPullConflict
+                            ? "Conflict"
+                            : "Pull"}
+                    </span>
+                  </button>
+                </>
+              ) : (
                 <button
                   type="button"
-                  disabled={gistSyncBusy !== null || !hasGistId}
-                  onClick={() => void quickPullGist()}
-                  className="h-7 px-2.5 rounded-md border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer whitespace-nowrap"
+                  onClick={() => openModal("sync")}
+                  className="h-7 px-2.5 rounded-md border text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                   style={{
-                    backgroundColor:
-                      showPullButtonIndicator && isAutoPullConflict
-                        ? "color-mix(in srgb, var(--danger) 12%, var(--bg-surface))"
-                        : (showPullButtonIndicator && isAutoPullPulled) ||
-                            isAutoPushConflict
-                          ? "var(--accent-soft)"
-                          : "var(--bg-surface-subtle)",
-                    borderColor:
-                      showPullButtonIndicator && isAutoPullConflict
-                        ? "var(--danger)"
-                        : (showPullButtonIndicator && isAutoPullPulled) ||
-                            isAutoPushConflict
-                          ? "var(--accent)"
-                          : "var(--border-subtle)",
-                    color:
-                      showPullButtonIndicator && isAutoPullConflict
-                        ? "var(--danger)"
-                        : (showPullButtonIndicator && isAutoPullPulled) ||
-                            isAutoPushConflict
-                          ? "var(--accent)"
-                          : "var(--text-primary)",
+                    backgroundColor: "var(--bg-surface-subtle)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-primary)",
                   }}
-                  aria-label="Pull from GitHub Gist"
-                  title="Pull from GitHub Gist"
+                  aria-label="GitHub Gist Sync"
                 >
-                  {isAutoPullWorking ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  ) : (
-                    <CloudDownload className="w-3.5 h-3.5 shrink-0" />
-                  )}
-                  {showPullButtonIndicator &&
-                    (isAutoPullConflict || isAutoPullPulled) && (
-                      <span
-                        className="w-1.5 h-1.5 rounded-full shrink-0"
-                        style={{
-                          backgroundColor: isAutoPullConflict
-                            ? "var(--danger)"
-                            : "var(--accent)",
-                        }}
-                      />
-                    )}
-                  <span className="font-mono-tabular">
-                    {isAutoPullChecking
-                      ? "Checking"
-                      : isAutoPullWorking
-                        ? "Pulling"
-                        : showPullButtonIndicator && isAutoPullConflict
-                          ? "Conflict"
-                          : "Pull"}
-                  </span>
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Sync</span>
                 </button>
-              </>
-            ) : (
+              )}
+
               <button
                 type="button"
-                onClick={() => openModal("sync")}
-                className="h-7 px-2.5 rounded-md border text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
-                style={{
-                  backgroundColor: "var(--bg-surface-subtle)",
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-primary)",
-                }}
-                aria-label="GitHub Gist Sync"
+                onClick={() => openModal("appearance")}
+                className="h-9 w-9 flex items-center justify-center rounded-lg"
+                style={{ color: "var(--text-secondary)" }}
+                aria-label="Settings"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Sync</span>
+                <Settings className="w-4 h-4" />
               </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => openModal("appearance")}
-              className="h-9 w-9 flex items-center justify-center rounded-lg"
-              style={{ color: "var(--text-secondary)" }}
-              aria-label="Settings"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       {/* Main Content Viewport */}
       <main
         ref={mainRef}
         className={`flex-1 min-w-0 min-h-0 overscroll-none ${
+          showMobileHeader ? "" : "pt-safe lg:pt-0"
+        } ${
           isFixedHeightView
             ? "flex flex-col overflow-hidden lg:block lg:overflow-visible lg:pb-0"
             : "overflow-y-auto lg:overflow-visible lg:pb-8"
@@ -2466,26 +2481,39 @@ const KansoShell: React.FC = () => {
               <button
                 type="button"
                 onClick={() => openModal("appearance")}
-                className="w-full h-11 px-3.5 rounded-xl border text-xs font-semibold flex items-center justify-between"
+                className="w-full min-h-[64px] py-3.5 px-4 rounded-xl border flex items-center justify-between gap-3 transition-colors active:scale-[0.99] cursor-pointer"
                 style={{
                   backgroundColor: "var(--bg-surface)",
                   borderColor: "var(--border-subtle)",
                   color: "var(--text-primary)",
                 }}
               >
-                <span className="flex items-center gap-2">
-                  <Settings
-                    className="w-4 h-4"
-                    style={{ color: "var(--accent)" }}
-                  />
-                  <span>Settings</span>
+                <span className="flex items-center gap-3 min-w-0">
+                  <span
+                    className="h-10 w-10 rounded-xl flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: "var(--accent-soft)" }}
+                  >
+                    <Settings
+                      className="w-5 h-5"
+                      style={{ color: "var(--accent)" }}
+                    />
+                  </span>
+                  <span className="text-left min-w-0">
+                    <span className="block text-[15px] font-semibold leading-tight">
+                      Settings
+                    </span>
+                    <span
+                      className="block text-xs mt-0.5 truncate"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      Theme · Views · Sync · Workspace
+                    </span>
+                  </span>
                 </span>
-                <span
-                  className="text-[11px] font-normal"
+                <ChevronRight
+                  className="w-4 h-4 shrink-0"
                   style={{ color: "var(--text-muted)" }}
-                >
-                  Theme · Views · Workspace
-                </span>
+                />
               </button>
             </div>
           </div>

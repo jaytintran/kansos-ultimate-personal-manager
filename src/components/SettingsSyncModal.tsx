@@ -80,6 +80,11 @@ import {
   saveEventComposerPrefs,
   subscribeEventComposerPrefs,
 } from "../lib/eventComposerPrefs";
+import {
+  loadShowMobileHeader,
+  saveShowMobileHeader,
+  subscribeShowMobileHeader,
+} from "../lib/mobileHeaderPref";
 import { resolveNavigationConfig } from "../lib/viewNavigation";
 
 export type SettingsModalTab =
@@ -183,6 +188,7 @@ const LOCAL_STORAGE_KEY_LABELS: Record<string, string> = {
   kanso_contacts_prefs_v1: "Contacts View Preferences",
   kanso_finance_prefs_v1: "Finance View Preferences",
   kanso_desktop_sidebar_collapsed_v1: "Desktop Sidebar Rail State",
+  kanso_show_mobile_header_v1: "Mobile Top Header Visibility",
 };
 
 function measureJsonBytes(value: unknown): number {
@@ -284,6 +290,13 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
     );
   const [eventComposerPrefs, setEventComposerPrefs] =
     useState<EventComposerPreferences>(loadEventComposerPrefs);
+  const [showMobileHeader, setShowMobileHeader] = useState<boolean>(
+    loadShowMobileHeader,
+  );
+
+  useEffect(() => {
+    return subscribeShowMobileHeader(setShowMobileHeader);
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -2709,6 +2722,43 @@ export const SettingsSyncModal: React.FC<SettingsSyncModalProps> = ({
                       ? "var(--accent)"
                       : "var(--border-strong)",
                     justifyContent: showNavCounts ? "flex-end" : "flex-start",
+                  }}
+                >
+                  <span className="w-5 h-5 rounded-full bg-white shadow-xs" />
+                </button>
+              </div>
+
+              {/* Mobile-Only Top Header Visibility (Local Device Only) */}
+              <div
+                className="lg:hidden flex items-center justify-between gap-4 pt-4 border-t"
+                style={{ borderColor: "var(--border-subtle)" }}
+              >
+                <div>
+                  <div className="text-sm font-semibold">
+                    Mobile Top Header
+                  </div>
+                  <div
+                    className="text-xs"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Show the Kanso logo, quick sync, and settings bar at the top
+                    on mobile. Stored on this device only.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={showMobileHeader}
+                  onClick={() => {
+                    const next = saveShowMobileHeader(!showMobileHeader);
+                    setShowMobileHeader(next);
+                  }}
+                  className="h-6 w-11 rounded-full p-0.5 transition-colors flex items-center shrink-0 cursor-pointer"
+                  style={{
+                    backgroundColor: showMobileHeader
+                      ? "var(--accent)"
+                      : "var(--border-strong)",
+                    justifyContent: showMobileHeader ? "flex-end" : "flex-start",
                   }}
                 >
                   <span className="w-5 h-5 rounded-full bg-white shadow-xs" />
