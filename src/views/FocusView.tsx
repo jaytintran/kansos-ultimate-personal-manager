@@ -550,11 +550,14 @@ export const FocusView: React.FC<FocusViewProps> = ({
   const showDoneSection = mobileSection === "all" || mobileSection === "done";
 
   return (
-    <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden overscroll-none lg:block lg:h-auto lg:overflow-visible">
+    <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden overscroll-none lg:min-h-dvh lg:h-auto lg:overflow-visible">
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-none lg:overflow-visible">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-20 space-y-5">
-          {/* Header + Shelf Tab Bar */}
-          <header className="space-y-2">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-0 pb-20 lg:pb-12 space-y-5">
+          {/* Pinned Header + Shelf Tab Bar + Mobile Section Pills */}
+          <header
+            className="sticky top-0 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 pt-3 sm:pt-4 pb-3 border-b bg-[var(--bg-canvas)] space-y-2"
+            style={{ borderColor: "var(--border-subtle)" }}
+          >
             <div className="flex flex-wrap items-baseline justify-between gap-2 pb-1">
               <div className="flex items-baseline gap-2.5 min-w-0">
                 <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight">
@@ -845,21 +848,7 @@ export const FocusView: React.FC<FocusViewProps> = ({
                 />
               )}
 
-              {/* 3. Desktop Unified Smart Capture Bar spanning both columns */}
-              <div className="hidden lg:block">
-                <FocusCaptureBar
-                  customTabs={activeCustomTabs}
-                  baseDateKey={todayKey}
-                  xActiveCount={xActiveTasks.length}
-                  xLimit={xLimit}
-                  availableTags={allTags}
-                  bucket={captureBucket}
-                  onBucketChange={setCaptureBucket}
-                  onSubmitItem={handleCaptureSubmit}
-                  previewPosition="bottom"
-                  prefillSeed={capturePrefill}
-                />
-              </div>
+              {/* 3. Desktop Capture Bar is sticky at the bottom to match Timeline View */}
 
               {/* Two-column cockpit on desktop, stacked on mobile */}
               <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_minmax(330px,0.85fr)] gap-6 items-start">
@@ -1568,23 +1557,25 @@ export const FocusView: React.FC<FocusViewProps> = ({
         </div>
       </div>
 
-      {/* Mobile-only Docked Bottom Capture Bar above mobile nav / keyboard */}
+      {/* Docked Mobile Bottom Capture Bar · Sticky Bottom Capture Bar on Desktop */}
       {activeTab === "today" && (
-        <div className="lg:hidden shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-canvas)] px-3 py-2">
-          <FocusCaptureBar
-            customTabs={activeCustomTabs}
-            baseDateKey={todayKey}
-            xActiveCount={xActiveTasks.length}
-            xLimit={xLimit}
-            availableTags={allTags}
-            bucket={captureBucket}
-            onBucketChange={setCaptureBucket}
-            onSubmitItem={handleCaptureSubmit}
-            previewPosition="top"
-            compact
-            elevated
-            prefillSeed={capturePrefill}
-          />
+        <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-canvas)] px-3 py-2 lg:border-t-0 lg:bg-transparent lg:sticky lg:bottom-4 lg:z-20 lg:px-8 lg:pb-4 lg:pt-0 lg:pointer-events-none">
+          <div className="max-w-6xl mx-auto lg:pointer-events-auto">
+            <FocusCaptureBar
+              customTabs={activeCustomTabs}
+              baseDateKey={todayKey}
+              xActiveCount={xActiveTasks.length}
+              xLimit={xLimit}
+              availableTags={allTags}
+              bucket={captureBucket}
+              onBucketChange={setCaptureBucket}
+              onSubmitItem={handleCaptureSubmit}
+              previewPosition="top"
+              compact
+              elevated
+              prefillSeed={capturePrefill}
+            />
+          </div>
         </div>
       )}
 

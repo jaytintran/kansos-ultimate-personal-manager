@@ -378,13 +378,13 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
           <div
             className={
               splitOpen
-                ? "max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-6 space-y-5"
-                : "max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-4 lg:pb-32 space-y-5"
+                ? "max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-0 pb-6 space-y-5"
+                : "max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-0 pb-4 lg:pb-32 space-y-5"
             }
           >
       {/* Header */}
       <header
-        className="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b"
+        className="sticky top-0 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 pt-4 sm:pt-5 pb-3 border-b bg-[var(--bg-canvas)] flex flex-wrap items-center justify-between gap-3"
         style={{ borderColor: "var(--border-subtle)" }}
       >
         <div className="flex items-center gap-2 min-w-0">

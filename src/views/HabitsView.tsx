@@ -220,12 +220,14 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
   )}`;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-20 space-y-5">
-      {/* Header */}
-      <header
-        className="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b"
-        style={{ borderColor: "var(--border-subtle)" }}
-      >
+    <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden overscroll-none lg:block lg:h-auto lg:overflow-visible">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-none lg:overflow-visible">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-0 pb-20 space-y-5">
+          {/* Header */}
+          <header
+            className="sticky top-0 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 pt-4 sm:pt-5 pb-3 border-b bg-[var(--bg-canvas)] flex flex-wrap items-center justify-between gap-3"
+            style={{ borderColor: "var(--border-subtle)" }}
+          >
         <div className="flex items-baseline gap-2.5 min-w-0">
           <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight">
             Habits
@@ -1157,6 +1159,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({ onOpenDetail }) => {
           })}
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 };

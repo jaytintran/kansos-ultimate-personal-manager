@@ -3500,7 +3500,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
 
       {/* ================= PINNED TOP CHROME (Home View Only) ================= */}
       {!activeTabItem && (
-      <div className="shrink-0">
+      <div className="shrink-0 relative z-20">
         {/* Row 1: Unified Compact View Header */}
         <header
           className="flex items-center justify-between gap-3 px-4 sm:px-6 pt-4 pb-3 border-b"
@@ -4011,6 +4011,420 @@ export const ListsView: React.FC<ListsViewProps> = ({
             onClearAllDragStates={clearAllDragStates}
           />
         )}
+
+        {/* Row 5: Pinned Quick-Add + Search/Filters/Select Bar (All Lists Scopes: Smart Views & Regular Lists) */}
+        {(currentList || isSmartScope) &&
+          (splitVisible || localState.subTab === "items") && (
+            <div
+              className="px-4 sm:px-6 pt-3 pb-3 border-b space-y-2.5 bg-[var(--bg-canvas)]"
+              style={{ borderColor: "var(--border-subtle)" }}
+            >
+              {/* Smart Quick-Add Bar (URL auto-attach + natural date + #tags) */}
+              {(currentList || (isSmartScope && activeLists.length > 0)) && (() => {
+                const subtreeIdSet = currentList
+                  ? new Set(
+                      getDescendantListIds(
+                        currentList.id,
+                        listTreeIndex.childrenMap,
+                      ),
+                    )
+                  : null;
+                const subtreeOptions = subtreeIdSet
+                  ? flattenedLists.filter((n) => subtreeIdSet.has(n.list.id))
+                  : [];
+                const savedListAddTarget = listAddTargetByScope[scopeKey];
+                const effectiveListAddTarget = currentList
+                  ? activeSublistFilter === "direct"
+                    ? currentList.id
+                    : focusedSublist
+                      ? focusedSublist.id
+                      : savedListAddTarget &&
+                          subtreeIdSet?.has(savedListAddTarget)
+                        ? savedListAddTarget
+                        : currentList.id
+                  : "";
+                const effectiveListAddTargetTitle =
+                  listById.get(effectiveListAddTarget)?.title ||
+                  currentList?.title ||
+                  "list";
+
+                return (
+                  <NlpInputBar
+                    placeholder={
+                      currentList
+                        ? `Add to ${effectiveListAddTargetTitle} (paste URL, due tomorrow, #tag)...`
+                        : `Add to ${STATUS_META[scope.kind === "smart" ? scope.status : "inbox"].label} (paste URL, due tomorrow, #tag)...`
+                    }
+                    onSubmit={(raw) => {
+                      if (scope.kind === "smart") {
+                        const targetId =
+                          smartAddTargetListId || activeLists[0]?.id;
+                        if (!targetId) return false;
+                        return Boolean(
+                          handleQuickAddListItem(targetId, raw, scope.status),
+                        );
+                      }
+                      return Boolean(
+                        handleQuickAddListItem(
+                          effectiveListAddTarget || scope.listId,
+                          raw,
+                          localState.statusFilter === "all"
+                            ? "inbox"
+                            : localState.statusFilter,
+                        ),
+                      );
+                    }}
+                    leadingSlot={
+                      isSmartScope && activeLists.length > 0 ? (
+                        <select
+                          value={smartAddTargetListId}
+                          onChange={(e) =>
+                            setSmartAddTargetListId(e.target.value)
+                          }
+                          aria-label="Target list"
+                          className="h-7 px-2 rounded-lg border text-xs font-medium outline-none max-w-[160px] cursor-pointer"
+                          style={{
+                            backgroundColor: "var(--bg-surface-subtle)",
+                            borderColor: "var(--border-subtle)",
+                            color: "var(--text-secondary)",
+                          }}
+                        >
+                          {flattenedLists.map((node) => (
+                            <option key={node.list.id} value={node.list.id}>
+                              {formatIndentedListOptionLabel(node)}
+                            </option>
+                          ))}
+                        </select>
+                      ) : currentList &&
+                        hasSublists &&
+                        activeSublistFilter === "all" &&
+                        subtreeOptions.length > 1 ? (
+                        <select
+                          value={effectiveListAddTarget}
+                          onChange={(e) =>
+                            setListAddTargetByScope((prev) => ({
+                              ...prev,
+                              [scopeKey]: e.target.value,
+                            }))
+                          }
+                          aria-label="Target list or sublist"
+                          className="h-7 px-2 rounded-lg border text-xs font-medium outline-none max-w-[160px] cursor-pointer"
+                          style={{
+                            backgroundColor: "var(--bg-surface-subtle)",
+                            borderColor: "var(--border-subtle)",
+                            color: "var(--text-secondary)",
+                          }}
+                        >
+                          {subtreeOptions.map((node) => (
+                            <option key={node.list.id} value={node.list.id}>
+                              {node.list.id === currentList.id
+                                ? `${node.list.title} (Direct)`
+                                : formatIndentedListOptionLabel(node)}
+                            </option>
+                          ))}
+                        </select>
+                      ) : undefined
+                    }
+                    parseUrls
+                    availableTags={scopeUniqueTags}
+                    submitLabel="Add"
+                    compact
+                    previewPosition="bottom"
+                    showTimeblockTip={false}
+                  />
+                );
+              })()}
+
+              {/* Filter / ViewMode / Multi-Select Bar */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div
+                  className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border flex-1 min-w-[150px]"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                  }}
+                >
+                  <Search
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: "var(--text-muted)" }}
+                  />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Filter items..."
+                    className="flex-1 min-w-0 bg-transparent text-xs outline-none"
+                    style={{ color: "var(--text-primary)" }}
+                  />
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      aria-label="Clear search"
+                      className="opacity-70 hover:opacity-100 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Mobile Filters Sheet Trigger */}
+                <button
+                  type="button"
+                  onClick={() => setMobileFilterOpen(true)}
+                  className="lg:hidden h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer"
+                  style={{
+                    backgroundColor:
+                      activeMobileFilterCount > 0
+                        ? "var(--accent-soft)"
+                        : "var(--bg-surface)",
+                    borderColor:
+                      activeMobileFilterCount > 0
+                        ? "var(--accent)"
+                        : "var(--border-subtle)",
+                    color:
+                      activeMobileFilterCount > 0
+                        ? "var(--accent)"
+                        : "var(--text-secondary)",
+                  }}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span>Filters</span>
+                  {activeMobileFilterCount > 0 && (
+                    <span className="font-mono text-[11px]">
+                      {activeMobileFilterCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Desktop View Mode: Stacked / Grid / Compact / Board */}
+                <div
+                  className="hidden lg:inline-flex items-center h-8 p-0.5 rounded-lg border"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                  }}
+                >
+                  {(
+                    [
+                      { id: "stacked", icon: ListIcon, label: "Quiet rows" },
+                      { id: "grid", icon: LayoutGrid, label: "Grid cards" },
+                      { id: "compact", icon: Rows3, label: "Compact rows" },
+                      { id: "board", icon: Columns3, label: "Kanban board" },
+                    ] as {
+                      id: ListsViewMode;
+                      icon: React.ComponentType<{ className?: string }>;
+                      label: string;
+                    }[]
+                  ).map((vm) => {
+                    const Icon = vm.icon;
+                    const active = activeLayout.viewMode === vm.id;
+                    return (
+                      <button
+                        key={vm.id}
+                        type="button"
+                        onClick={() =>
+                          updateActiveLayout({ viewMode: vm.id })
+                        }
+                        title={vm.label}
+                        aria-label={vm.label}
+                        className="h-6.5 w-7 flex items-center justify-center rounded-md cursor-pointer"
+                        style={{
+                          backgroundColor: active
+                            ? "var(--accent-soft)"
+                            : "transparent",
+                          color: active
+                            ? "var(--accent)"
+                            : "var(--text-muted)",
+                        }}
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop Board Column Axis Switch (when viewing parent list in Kanban mode) */}
+                {activeLayout.viewMode === "board" &&
+                  currentList &&
+                  effectiveHasSublists && (
+                    <select
+                      value={effectiveBoardBy}
+                      onChange={(e) =>
+                        setLocalState((prev) => ({
+                          ...prev,
+                          boardByByScope: {
+                            ...prev.boardByByScope,
+                            [scopeKey]: e.target.value as "status" | "sublist",
+                          },
+                        }))
+                      }
+                      aria-label="Board columns"
+                      className="hidden lg:block h-8 px-2.5 rounded-lg border text-xs outline-none cursor-pointer"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      <option value="sublist">Columns: Sublists</option>
+                      <option value="status">Columns: Status</option>
+                    </select>
+                  )}
+
+                {/* Desktop Group By & Then By (hidden in Kanban board mode since columns define grouping) */}
+                {activeLayout.viewMode !== "board" && (
+                  <>
+                    <select
+                      value={effectiveGroupBy}
+                      onChange={(e) =>
+                        updateActiveLayout({
+                          groupBy: e.target.value as ListsGroupBy,
+                        })
+                      }
+                      aria-label="Group by"
+                      className="hidden lg:block h-8 px-2.5 rounded-lg border text-xs outline-none cursor-pointer"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {effectiveHasSublists && (
+                        <option value="sublist">Group: Sublist</option>
+                      )}
+                      <option value="status">Group: Status</option>
+                      <option value="tag">Group: Tag</option>
+                      <option value="none">Group: None</option>
+                    </select>
+
+                    {effectiveGroupBy !== "none" && (
+                      <select
+                        value={effectiveThenBy}
+                        onChange={(e) =>
+                          updateActiveLayout({
+                            thenBy: e.target.value as ListsGroupBy,
+                          })
+                        }
+                        aria-label="Then by"
+                        className="hidden lg:block h-8 px-2.5 rounded-lg border text-xs outline-none cursor-pointer"
+                        style={{
+                          backgroundColor: "var(--bg-surface)",
+                          borderColor: "var(--border-subtle)",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        <option value="none">Then: None</option>
+                        {effectiveHasSublists &&
+                          effectiveGroupBy !== "sublist" && (
+                            <option value="sublist">Then: Sublist</option>
+                          )}
+                        {effectiveGroupBy !== "tag" && (
+                          <option value="tag">Then: Tag</option>
+                        )}
+                        {effectiveGroupBy !== "status" && (
+                          <option value="status">Then: Status</option>
+                        )}
+                      </select>
+                    )}
+                  </>
+                )}
+
+                {/* Desktop Sort Selector + Custom Order Toggle */}
+                <div className="hidden lg:flex items-center gap-1">
+                  <select
+                    value={activeLayout.sortBy}
+                    onChange={(e) =>
+                      updateActiveLayout({
+                        sortBy: e.target.value as ListsSortMode,
+                      })
+                    }
+                    aria-label="Sort items"
+                    className="h-8 px-2.5 rounded-lg border text-xs outline-none cursor-pointer"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <option value="custom">Sort: Custom Order</option>
+                    <option value="newest">Sort: Recently Added</option>
+                    <option value="oldest">Sort: Oldest First</option>
+                    <option value="title">Sort: Title A–Z</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateActiveLayout({
+                        sortBy: isCustomSort ? "newest" : "custom",
+                      })
+                    }
+                    title={
+                      isCustomSort
+                        ? "Custom order active — drag items to rearrange"
+                        : "Enable Custom Order (drag & drop)"
+                    }
+                    aria-label={
+                      isCustomSort
+                        ? "Custom drag order active"
+                        : "Switch to Custom Order"
+                    }
+                    aria-pressed={isCustomSort}
+                    className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
+                    style={{
+                      backgroundColor: isCustomSort
+                        ? "var(--accent-soft)"
+                        : "var(--bg-surface)",
+                      borderColor: isCustomSort
+                        ? "var(--accent)"
+                        : "var(--border-subtle)",
+                      color: isCustomSort
+                        ? "var(--accent)"
+                        : "var(--text-secondary)",
+                    }}
+                  >
+                    <GripVertical className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Multi-select Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectionMode || selectedIds.size > 0) {
+                      setSelectionMode(false);
+                      setSelectedIds(new Set());
+                      setBulkTagOpen(false);
+                    } else {
+                      setSelectionMode(true);
+                    }
+                  }}
+                  title="Select multiple items for bulk actions"
+                  aria-label="Toggle multi-select mode"
+                  aria-pressed={selectionMode || selectedIds.size > 0}
+                  className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                  style={{
+                    backgroundColor:
+                      selectionMode || selectedIds.size > 0
+                        ? "var(--accent-soft)"
+                        : "var(--bg-surface)",
+                    borderColor:
+                      selectionMode || selectedIds.size > 0
+                        ? "var(--accent)"
+                        : "var(--border-subtle)",
+                    color:
+                      selectionMode || selectedIds.size > 0
+                        ? "var(--accent)"
+                        : "var(--text-secondary)",
+                  }}
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Select</span>
+                </button>
+              </div>
+            </div>
+          )}
       </div>
       )}
 
@@ -4274,410 +4688,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
                   </div>
                 )}
 
-                {/* Smart Quick-Add Bar (URL auto-attach + natural date + #tags) */}
-                {(currentList || (isSmartScope && activeLists.length > 0)) && (() => {
-                  const subtreeIdSet = currentList
-                    ? new Set(
-                        getDescendantListIds(
-                          currentList.id,
-                          listTreeIndex.childrenMap,
-                        ),
-                      )
-                    : null;
-                  const subtreeOptions = subtreeIdSet
-                    ? flattenedLists.filter((n) => subtreeIdSet.has(n.list.id))
-                    : [];
-                  const savedListAddTarget = listAddTargetByScope[scopeKey];
-                  const effectiveListAddTarget = currentList
-                    ? activeSublistFilter === "direct"
-                      ? currentList.id
-                      : focusedSublist
-                        ? focusedSublist.id
-                        : savedListAddTarget &&
-                            subtreeIdSet?.has(savedListAddTarget)
-                          ? savedListAddTarget
-                          : currentList.id
-                    : "";
-                  const effectiveListAddTargetTitle =
-                    listById.get(effectiveListAddTarget)?.title ||
-                    currentList?.title ||
-                    "list";
-
-                  return (
-                    <NlpInputBar
-                      placeholder={
-                        currentList
-                          ? `Add to ${effectiveListAddTargetTitle} (paste URL, due tomorrow, #tag)...`
-                          : `Add to ${STATUS_META[scope.kind === "smart" ? scope.status : "inbox"].label} (paste URL, due tomorrow, #tag)...`
-                      }
-                      onSubmit={(raw) => {
-                        if (scope.kind === "smart") {
-                          const targetId =
-                            smartAddTargetListId || activeLists[0]?.id;
-                          if (!targetId) return false;
-                          return Boolean(
-                            handleQuickAddListItem(targetId, raw, scope.status),
-                          );
-                        }
-                        return Boolean(
-                          handleQuickAddListItem(
-                            effectiveListAddTarget || scope.listId,
-                            raw,
-                            localState.statusFilter === "all"
-                              ? "inbox"
-                              : localState.statusFilter,
-                          ),
-                        );
-                      }}
-                      leadingSlot={
-                        isSmartScope && activeLists.length > 0 ? (
-                          <select
-                            value={smartAddTargetListId}
-                            onChange={(e) =>
-                              setSmartAddTargetListId(e.target.value)
-                            }
-                            aria-label="Target list"
-                            className="h-7 px-2 rounded-lg border text-xs font-medium outline-none max-w-[160px] cursor-pointer"
-                            style={{
-                              backgroundColor: "var(--bg-surface-subtle)",
-                              borderColor: "var(--border-subtle)",
-                              color: "var(--text-secondary)",
-                            }}
-                          >
-                            {flattenedLists.map((node) => (
-                              <option key={node.list.id} value={node.list.id}>
-                                {formatIndentedListOptionLabel(node)}
-                              </option>
-                            ))}
-                          </select>
-                        ) : currentList &&
-                          hasSublists &&
-                          activeSublistFilter === "all" &&
-                          subtreeOptions.length > 1 ? (
-                          <select
-                            value={effectiveListAddTarget}
-                            onChange={(e) =>
-                              setListAddTargetByScope((prev) => ({
-                                ...prev,
-                                [scopeKey]: e.target.value,
-                              }))
-                            }
-                            aria-label="Target list or sublist"
-                            className="h-7 px-2 rounded-lg border text-xs font-medium outline-none max-w-[160px] cursor-pointer"
-                            style={{
-                              backgroundColor: "var(--bg-surface-subtle)",
-                              borderColor: "var(--border-subtle)",
-                              color: "var(--text-secondary)",
-                            }}
-                          >
-                            {subtreeOptions.map((node) => (
-                              <option key={node.list.id} value={node.list.id}>
-                                {node.list.id === currentList.id
-                                  ? `${node.list.title} (Direct)`
-                                  : formatIndentedListOptionLabel(node)}
-                              </option>
-                            ))}
-                          </select>
-                        ) : undefined
-                      }
-                      parseUrls
-                      availableTags={scopeUniqueTags}
-                      submitLabel="Add"
-                      compact
-                      previewPosition="bottom"
-                      showTimeblockTip={false}
-                    />
-                  );
-                })()}
-
-                {/* Desktop Filter / ViewMode / Multi-Select Bar */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <div
-                    className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border flex-1 min-w-[150px]"
-                    style={{
-                      backgroundColor: "var(--bg-surface)",
-                      borderColor: "var(--border-subtle)",
-                    }}
-                  >
-                    <Search
-                      className="w-3.5 h-3.5 shrink-0"
-                      style={{ color: "var(--text-muted)" }}
-                    />
-                    <input
-                      type="text"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Filter items..."
-                      className="flex-1 min-w-0 bg-transparent text-xs outline-none"
-                      style={{ color: "var(--text-primary)" }}
-                    />
-                    {search && (
-                      <button
-                        type="button"
-                        onClick={() => setSearch("")}
-                        aria-label="Clear search"
-                        className="opacity-70 hover:opacity-100 cursor-pointer"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Mobile Filters Sheet Trigger */}
-                  <button
-                    type="button"
-                    onClick={() => setMobileFilterOpen(true)}
-                    className="lg:hidden h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer"
-                    style={{
-                      backgroundColor:
-                        activeMobileFilterCount > 0
-                          ? "var(--accent-soft)"
-                          : "var(--bg-surface)",
-                      borderColor:
-                        activeMobileFilterCount > 0
-                          ? "var(--accent)"
-                          : "var(--border-subtle)",
-                      color:
-                        activeMobileFilterCount > 0
-                          ? "var(--accent)"
-                          : "var(--text-secondary)",
-                    }}
-                  >
-                    <SlidersHorizontal className="w-3.5 h-3.5" />
-                    <span>Filters</span>
-                    {activeMobileFilterCount > 0 && (
-                      <span className="font-mono text-[11px]">
-                        {activeMobileFilterCount}
-                      </span>
-                    )}
-                  </button>
-
-                  {/* Desktop View Mode: Stacked / Grid / Compact / Board */}
-                  <div
-                    className="hidden lg:inline-flex items-center h-8 p-0.5 rounded-lg border"
-                    style={{
-                      backgroundColor: "var(--bg-surface)",
-                      borderColor: "var(--border-subtle)",
-                    }}
-                  >
-                    {(
-                      [
-                        { id: "stacked", icon: ListIcon, label: "Quiet rows" },
-                        { id: "grid", icon: LayoutGrid, label: "Grid cards" },
-                        { id: "compact", icon: Rows3, label: "Compact rows" },
-                        { id: "board", icon: Columns3, label: "Kanban board" },
-                      ] as {
-                        id: ListsViewMode;
-                        icon: React.ComponentType<{ className?: string }>;
-                        label: string;
-                      }[]
-                    ).map((vm) => {
-                      const Icon = vm.icon;
-                      const active = activeLayout.viewMode === vm.id;
-                      return (
-                        <button
-                          key={vm.id}
-                          type="button"
-                          onClick={() =>
-                            updateActiveLayout({ viewMode: vm.id })
-                          }
-                          title={vm.label}
-                          aria-label={vm.label}
-                          className="h-6.5 w-7 flex items-center justify-center rounded-md cursor-pointer"
-                          style={{
-                            backgroundColor: active
-                              ? "var(--accent-soft)"
-                              : "transparent",
-                            color: active
-                              ? "var(--accent)"
-                              : "var(--text-muted)",
-                          }}
-                        >
-                          <Icon className="w-3.5 h-3.5" />
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Desktop Board Column Axis Switch (when viewing parent list in Kanban mode) */}
-                  {activeLayout.viewMode === "board" &&
-                    currentList &&
-                    effectiveHasSublists && (
-                      <select
-                        value={effectiveBoardBy}
-                        onChange={(e) =>
-                          setLocalState((prev) => ({
-                            ...prev,
-                            boardByByScope: {
-                              ...prev.boardByByScope,
-                              [scopeKey]: e.target.value as "status" | "sublist",
-                            },
-                          }))
-                        }
-                        aria-label="Board columns"
-                        className="hidden lg:block h-8 px-2.5 rounded-lg border text-xs outline-none cursor-pointer"
-                        style={{
-                          backgroundColor: "var(--bg-surface)",
-                          borderColor: "var(--border-subtle)",
-                          color: "var(--text-secondary)",
-                        }}
-                      >
-                        <option value="sublist">Columns: Sublists</option>
-                        <option value="status">Columns: Status</option>
-                      </select>
-                    )}
-
-                  {/* Desktop Group By & Then By (hidden in Kanban board mode since columns define grouping) */}
-                  {activeLayout.viewMode !== "board" && (
-                    <>
-                      <select
-                        value={effectiveGroupBy}
-                        onChange={(e) =>
-                          updateActiveLayout({
-                            groupBy: e.target.value as ListsGroupBy,
-                          })
-                        }
-                        aria-label="Group by"
-                        className="hidden lg:block h-8 px-2.5 rounded-lg border text-xs outline-none cursor-pointer"
-                        style={{
-                          backgroundColor: "var(--bg-surface)",
-                          borderColor: "var(--border-subtle)",
-                          color: "var(--text-secondary)",
-                        }}
-                      >
-                        {effectiveHasSublists && (
-                          <option value="sublist">Group: Sublist</option>
-                        )}
-                        <option value="status">Group: Status</option>
-                        <option value="tag">Group: Tag</option>
-                        <option value="none">Group: None</option>
-                      </select>
-
-                      {effectiveGroupBy !== "none" && (
-                        <select
-                          value={effectiveThenBy}
-                          onChange={(e) =>
-                            updateActiveLayout({
-                              thenBy: e.target.value as ListsGroupBy,
-                            })
-                          }
-                          aria-label="Then by"
-                          className="hidden lg:block h-8 px-2.5 rounded-lg border text-xs outline-none cursor-pointer"
-                          style={{
-                            backgroundColor: "var(--bg-surface)",
-                            borderColor: "var(--border-subtle)",
-                            color: "var(--text-secondary)",
-                          }}
-                        >
-                          <option value="none">Then: None</option>
-                          {effectiveHasSublists &&
-                            effectiveGroupBy !== "sublist" && (
-                              <option value="sublist">Then: Sublist</option>
-                            )}
-                          {effectiveGroupBy !== "tag" && (
-                            <option value="tag">Then: Tag</option>
-                          )}
-                          {effectiveGroupBy !== "status" && (
-                            <option value="status">Then: Status</option>
-                          )}
-                        </select>
-                      )}
-                    </>
-                  )}
-
-                  {/* Desktop Sort Selector + Custom Order Toggle */}
-                  <div className="hidden lg:flex items-center gap-1">
-                    <select
-                      value={activeLayout.sortBy}
-                      onChange={(e) =>
-                        updateActiveLayout({
-                          sortBy: e.target.value as ListsSortMode,
-                        })
-                      }
-                      aria-label="Sort items"
-                      className="h-8 px-2.5 rounded-lg border text-xs outline-none cursor-pointer"
-                      style={{
-                        backgroundColor: "var(--bg-surface)",
-                        borderColor: "var(--border-subtle)",
-                        color: "var(--text-secondary)",
-                      }}
-                    >
-                      <option value="custom">Sort: Custom Order</option>
-                      <option value="newest">Sort: Recently Added</option>
-                      <option value="oldest">Sort: Oldest First</option>
-                      <option value="title">Sort: Title A–Z</option>
-                    </select>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateActiveLayout({
-                          sortBy: isCustomSort ? "newest" : "custom",
-                        })
-                      }
-                      title={
-                        isCustomSort
-                          ? "Custom order active — drag items to rearrange"
-                          : "Enable Custom Order (drag & drop)"
-                      }
-                      aria-label={
-                        isCustomSort
-                          ? "Custom drag order active"
-                          : "Switch to Custom Order"
-                      }
-                      aria-pressed={isCustomSort}
-                      className="h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0"
-                      style={{
-                        backgroundColor: isCustomSort
-                          ? "var(--accent-soft)"
-                          : "var(--bg-surface)",
-                        borderColor: isCustomSort
-                          ? "var(--accent)"
-                          : "var(--border-subtle)",
-                        color: isCustomSort
-                          ? "var(--accent)"
-                          : "var(--text-secondary)",
-                      }}
-                    >
-                      <GripVertical className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Multi-select Toggle Button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectionMode || selectedIds.size > 0) {
-                        setSelectionMode(false);
-                        setSelectedIds(new Set());
-                        setBulkTagOpen(false);
-                      } else {
-                        setSelectionMode(true);
-                      }
-                    }}
-                    title="Select multiple items for bulk actions"
-                    aria-label="Toggle multi-select mode"
-                    aria-pressed={selectionMode || selectedIds.size > 0}
-                    className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-                    style={{
-                      backgroundColor:
-                        selectionMode || selectedIds.size > 0
-                          ? "var(--accent-soft)"
-                          : "var(--bg-surface)",
-                      borderColor:
-                        selectionMode || selectedIds.size > 0
-                          ? "var(--accent)"
-                          : "var(--border-subtle)",
-                      color:
-                        selectionMode || selectedIds.size > 0
-                          ? "var(--accent)"
-                          : "var(--text-secondary)",
-                    }}
-                  >
-                    <CheckSquare className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Select</span>
-                  </button>
-                </div>
+                {/* Quick-Add & Filter/Search/Select controls are pinned above */}
 
                 {/* Multi-Select Bulk Action Bar */}
                 {(selectionMode || selectedIds.size > 0) && (

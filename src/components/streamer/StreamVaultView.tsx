@@ -2530,7 +2530,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Vault Context Header & Controls */}
         <div
-          className="px-3 sm:px-6 pt-3 sm:pt-4 pb-2.5 sm:pb-3.5 border-b space-y-2.5 sm:space-y-3 shrink-0"
+          className="px-3 sm:px-6 pt-3 sm:pt-4 pb-3 sm:pb-3.5 border-b space-y-2.5 sm:space-y-3 shrink-0"
           style={{
             backgroundColor: 'var(--bg-canvas)',
             borderColor: 'var(--border-subtle)',

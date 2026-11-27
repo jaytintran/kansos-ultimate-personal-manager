@@ -3019,7 +3019,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           {!(
             activeFilter.kind === "smart" && activeFilter.id === "highlights"
           ) && (
-            <div className="px-4 sm:px-6 pt-4 border-[var(--border-subtle)] bg-[var(--bg-canvas)]/70 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div className="px-4 sm:px-6 pt-3.5 pb-3 border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)] flex flex-wrap items-center justify-between gap-2 shrink-0">
               {/* Left: Drill-down Breadcrumb + Unified Search + Active Tag Chips */}
               <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[200px]">
                 {drilledViewFolder && (

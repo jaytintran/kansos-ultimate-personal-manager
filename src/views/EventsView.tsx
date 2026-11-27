@@ -458,13 +458,18 @@ export const EventsView: React.FC<EventsViewProps> = ({
       className="h-full flex-1 min-h-0 lg:h-dvh flex overflow-hidden overscroll-none"
       style={{ backgroundColor: "var(--bg-canvas)" }}
     >
-      {/* Main Scrollable Events Workspace Column */}
-      <div className="flex-1 min-w-0 h-full overflow-y-auto overscroll-none px-4 sm:px-6 lg:px-8 pt-5 pb-24 lg:pb-10 space-y-4">
-        {/* Header */}
-        <header
-          className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b"
+      {/* Main Events Workspace Column */}
+      <div className="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
+        {/* Pinned Header + Search/Filter Toolbar */}
+        <div
+          className="shrink-0 relative z-20 px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-3 border-b bg-[var(--bg-canvas)] space-y-3"
           style={{ borderColor: "var(--border-subtle)" }}
         >
+          {/* Header */}
+          <header
+            className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b"
+            style={{ borderColor: "var(--border-subtle)" }}
+          >
           <div className="flex items-baseline gap-2.5 min-w-0">
             <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight">
               Events
@@ -911,8 +916,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
             </button>
           </div>
         </div>
+        </div>
 
-        {/* Events Content */}
+        {/* Scrollable Events Content */}
+        <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-none px-4 sm:px-6 lg:px-8 pt-4 pb-24 lg:pb-10 space-y-4">
         {filters.viewMode === "calendar" ? (
           <EventsMonthCalendar
             year={calendarMonth.year}
@@ -1317,6 +1324,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
             })}
           </div>
         )}
+        </div>
       </div>
 
       {/* DESKTOP RIGHT SPLIT PANE: Event Inspector OR Selected Day Summary */}

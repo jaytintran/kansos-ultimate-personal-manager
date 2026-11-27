@@ -201,7 +201,7 @@ export const StreamerTransportBar: React.FC<StreamerTransportBarProps> = ({
   return (
     <div
       ref={barRef}
-      className="relative px-3 py-1.5 md:px-6 md:py-4 border-b shrink-0"
+      className="relative px-3 pt-2 pb-3 md:px-6 md:py-4 border-b shrink-0"
       style={{
         backgroundColor: "var(--bg-canvas)",
         borderColor: "var(--border-subtle)",

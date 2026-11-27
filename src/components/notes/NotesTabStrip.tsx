@@ -3,12 +3,18 @@ import { ExternalLink, Pin, Plus, X } from "lucide-react";
 import type { Entry } from "../../types";
 import { NotePageIcon } from "../IconLibrary";
 
+export interface NotesSecondaryTab {
+  label: string;
+  icon: string;
+}
+
 interface NotesTabStripProps {
   openNotes: Entry[];
-  activeTabId: string | null; // null means Notes Home view is active
-  homeTabLabel?: string;
-  homeTabIcon?: string;
+  activeTabId: string | null; // null means browser view (All Notes or secondaryTab) is active
+  secondaryTab?: NotesSecondaryTab | null;
   onSelectHome: () => void;
+  onSelectSecondaryTab?: () => void;
+  onCloseSecondaryTab?: () => void;
   onSelectTab: (noteId: string) => void;
   onCloseTab: (noteId: string) => void;
   onCloseOtherTabs: (keepNoteId: string) => void;
@@ -27,9 +33,10 @@ const TAB_DRAG_MIME = "application/x-kanso-note-tab-id";
 export const NotesTabStrip: React.FC<NotesTabStripProps> = ({
   openNotes,
   activeTabId,
-  homeTabLabel = "Notes",
-  homeTabIcon = "BookOpen",
+  secondaryTab = null,
   onSelectHome,
+  onSelectSecondaryTab,
+  onCloseSecondaryTab,
   onSelectTab,
   onCloseTab,
   onCloseOtherTabs,
@@ -38,7 +45,8 @@ export const NotesTabStrip: React.FC<NotesTabStripProps> = ({
   onCreateNoteTab,
   onOpenInModal,
 }) => {
-  const isHomeActive = activeTabId === null;
+  const isAllNotesActive = activeTabId === null && !secondaryTab;
+  const isSecondaryActive = activeTabId === null && Boolean(secondaryTab);
 
   const activeDragTabIdRef = useRef<string | null>(null);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
@@ -135,26 +143,75 @@ export const NotesTabStrip: React.FC<NotesTabStripProps> = ({
         className="border-b border-[var(--border-subtle)] bg-[var(--bg-sidebar)] select-none shrink-0"
       >
         <div className="h-10 lg:h-9 px-2 flex items-end gap-1 overflow-x-auto no-scrollbar">
-          {/* Pinned Notes Home Tab */}
+          {/* Pinned Tab 1: Permanent All Notes */}
           <button
             type="button"
             role="tab"
-            aria-selected={isHomeActive}
-            title={homeTabLabel}
+            aria-selected={isAllNotesActive}
+            title="All Notes"
             onClick={onSelectHome}
             className={`h-9 lg:h-8 px-3 max-w-[190px] rounded-t-md inline-flex items-center gap-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer border-t border-x ${
-              isHomeActive
+              isAllNotesActive
                 ? "bg-[var(--bg-canvas)] text-[var(--text-primary)] border-[var(--border-subtle)] -mb-px"
                 : "bg-transparent text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]/70"
             }`}
           >
             <NotePageIcon
-              icon={homeTabIcon}
+              icon="BookOpen"
               fallback="BookOpen"
               className="w-3.5 h-3.5 text-[var(--accent)] shrink-0"
             />
-            <span className="truncate">{homeTabLabel}</span>
+            <span className="truncate">All Notes</span>
           </button>
+
+          {/* Tab 2: Active Notebook / Scope Browser Tab (when navigated outside All Notes) */}
+          {secondaryTab && (
+            <div
+              role="tab"
+              aria-selected={isSecondaryActive}
+              className={`relative group h-9 lg:h-8 max-w-[200px] sm:max-w-[220px] min-w-[110px] pl-2.5 pr-1.5 rounded-t-md inline-flex items-center gap-1.5 text-xs transition-colors shrink-0 border-t border-x ${
+                isSecondaryActive
+                  ? "bg-[var(--bg-canvas)] text-[var(--text-primary)] font-medium border-[var(--border-subtle)] -mb-px"
+                  : "bg-transparent text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]/70"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={onSelectSecondaryTab}
+                title={secondaryTab.label}
+                className="flex-1 min-w-0 h-full flex items-center gap-1.5 text-left cursor-pointer"
+              >
+                <NotePageIcon
+                  icon={secondaryTab.icon}
+                  fallback="BookOpen"
+                  className={`w-3.5 h-3.5 shrink-0 ${
+                    isSecondaryActive
+                      ? "text-[var(--accent)]"
+                      : "text-[var(--text-muted)]"
+                  }`}
+                />
+                <span className="truncate">{secondaryTab.label}</span>
+              </button>
+
+              {onCloseSecondaryTab && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCloseSecondaryTab();
+                  }}
+                  aria-label={`Close ${secondaryTab.label}`}
+                  className={`p-1 lg:p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0 transition-opacity ${
+                    isSecondaryActive
+                      ? "opacity-85 hover:opacity-100"
+                      : "opacity-70 lg:opacity-0 lg:group-hover:opacity-100 focus:opacity-100"
+                  }`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          )}
 
           {openNotes.length > 0 && (
             <div className="h-4 w-px bg-[var(--border-subtle)] self-center mx-0.5 shrink-0" />

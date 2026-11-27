@@ -1122,9 +1122,9 @@ export const NotesView: React.FC<NotesViewProps> = ({
           ? "Unfiled Notes"
           : scope.kind === "archive"
             ? "Archived Notes"
-            : "Notes";
+            : "All Notes";
 
-  const homeTabMeta = useMemo(() => {
+  const secondaryBrowserTab = useMemo(() => {
     if (drilledParentNote) {
       return {
         label: drilledParentNote.title?.trim() || "Untitled Note",
@@ -1148,7 +1148,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
         return { label: "Archived Notes", icon: "Archive" };
       case "all":
       default:
-        return { label: "Notes", icon: "BookOpen" };
+        return null;
     }
   }, [drilledParentNote, activeNotebook, scope.kind]);
 
@@ -1198,9 +1198,17 @@ export const NotesView: React.FC<NotesViewProps> = ({
         <NotesTabStrip
           openNotes={openNotes}
           activeTabId={activeTabNote ? activeTabNote.id : null}
-          homeTabLabel={homeTabMeta.label}
-          homeTabIcon={homeTabMeta.icon}
-          onSelectHome={() => setActiveTabId(null)}
+          secondaryTab={secondaryBrowserTab}
+          onSelectHome={() => {
+            setScope({ kind: "all" });
+            setDrilledParentId(null);
+            setActiveTabId(null);
+          }}
+          onSelectSecondaryTab={() => setActiveTabId(null)}
+          onCloseSecondaryTab={() => {
+            setScope({ kind: "all" });
+            setDrilledParentId(null);
+          }}
           onSelectTab={handleOpenNoteById}
           onCloseTab={handleCloseNoteTab}
           onCloseOtherTabs={handleCloseOtherTabs}
@@ -1244,12 +1252,17 @@ export const NotesView: React.FC<NotesViewProps> = ({
             }}
           />
         ) : (
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 lg:px-8 pt-5 pb-20 space-y-4">
-          {/* Header */}
-          <header
-            className="flex flex-wrap items-center justify-between gap-3 pb-3 mb-0"
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          {/* Pinned Header + Mobile Notebooks Strip + Search/Sort Toolbar */}
+          <div
+            className="shrink-0 relative z-20 px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-3 border-b bg-[var(--bg-canvas)] space-y-3"
             style={{ borderColor: "var(--border-subtle)" }}
           >
+            {/* Header */}
+            <header
+              className="flex flex-wrap items-center justify-between gap-3"
+              style={{ borderColor: "var(--border-subtle)" }}
+            >
             <div className="flex items-center gap-2 min-w-0">
               {/* Desktop collapsed sidebar reopen */}
               {sidebarCollapsedDesktop && (
@@ -1914,8 +1927,10 @@ export const NotesView: React.FC<NotesViewProps> = ({
               </button>
             </div>
           </div>
+          </div>
 
-          {/* Notes Content */}
+          {/* Scrollable Notes Content */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 lg:px-8 pt-4 pb-20 space-y-4">
           {(() => {
             const renderGridCard = (
               note: Entry,
@@ -3131,6 +3146,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
               </div>
             );
           })()}
+          </div>
         </div>
         )}
       </div>

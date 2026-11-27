@@ -883,10 +883,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   return (
     <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden overscroll-none lg:block lg:h-auto lg:overflow-visible">
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-none lg:overflow-visible">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-4 lg:pb-36 space-y-5">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-0 pb-4 lg:pb-36 space-y-5">
       {/* Header: Title Date Picker / All-Dates + Mode Switcher & Type Filter Dropdown + Search */}
       <header
-        className="space-y-2.5 relative"
+        className="sticky top-0 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 pt-4 sm:pt-5 pb-3 border-b bg-[var(--bg-canvas)] space-y-2.5"
         style={{ borderColor: "var(--border-subtle)" }}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">

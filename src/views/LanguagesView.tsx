@@ -382,7 +382,8 @@ export const LanguagesView: React.FC = () => {
   // Empty zero-languages onboarding screen
   if (!activeLanguage) {
     return (
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-6">
+      <div className="h-full flex-1 min-h-0 overflow-y-auto overscroll-none lg:overflow-visible">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-6">
         <div
           className="rounded-2xl border p-6 sm:p-10 space-y-6"
           style={{
@@ -484,15 +485,22 @@ export const LanguagesView: React.FC = () => {
           }}
           onNotify={pushToast}
         />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4">
-      {/* Studio Top Bar */}
-      <header
-        className="rounded-2xl border p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3"
+    <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden overscroll-none lg:block lg:h-auto lg:overflow-visible">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-none lg:overflow-visible">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 pt-0 pb-12 space-y-4">
+          {/* Pinned Studio Top Bar */}
+          <div
+            className="sticky top-0 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 pt-4 sm:pt-5 pb-3 border-b bg-[var(--bg-canvas)]"
+            style={{ borderColor: "var(--border-subtle)" }}
+          >
+            <header
+              className="rounded-2xl border p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3"
         style={{
           backgroundColor: "var(--bg-surface)",
           borderColor: "var(--border-subtle)",
@@ -683,6 +691,7 @@ export const LanguagesView: React.FC = () => {
           </button>
         </div>
       </header>
+          </div>
 
       {/* STAGE 1 + 2: VAULT (Capture & Deconstruct Blocks) */}
       {studioTab === "vault" && (
@@ -1615,6 +1624,8 @@ export const LanguagesView: React.FC = () => {
         onImport={(drafts) => importLanguageItems(activeLanguage.id, drafts)}
         onNotify={pushToast}
       />
+        </div>
+      </div>
     </div>
   );
 };
