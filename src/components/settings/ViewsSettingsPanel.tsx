@@ -9,12 +9,13 @@ import {
   Smartphone,
 } from "lucide-react";
 import {
-  MAX_MOBILE_PRIMARY_SLOTS,
+  MOBILE_PRIMARY_SLOT_OPTIONS,
   moveDesktopViewToGroup,
   moveDesktopViewWithinGroup,
   moveMobileViewAcrossLists,
   moveMobileViewWithinList,
   resolveNavigationConfig,
+  setMobilePrimarySlotLimit,
   toggleViewVisibilityInNav,
   VIEW_META_MAP,
 } from "../../lib/viewNavigation";
@@ -399,6 +400,69 @@ export const ViewsSettingsPanel: React.FC<ViewsSettingsPanelProps> = ({
       {/* ================= MOBILE BOTTOM BAR & MORE SHEET ================= */}
       {scope === "mobile" && (
         <div className="space-y-4">
+          {/* Bottom Bar Capacity Selector */}
+          <section
+            className="rounded-xl border p-3.5 flex flex-wrap items-center justify-between gap-3"
+            style={{
+              backgroundColor: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
+            }}
+          >
+            <div className="min-w-0">
+              <div className="text-xs font-semibold">
+                Bottom Bar Capacity
+              </div>
+              <div
+                className="text-[11px] mt-0.5"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {resolved.mobilePrimaryMaxSlots} view tabs beside More (
+                {resolved.mobilePrimaryMaxSlots + 1} buttons total)
+              </div>
+            </div>
+
+            <div
+              className="inline-flex items-center gap-1 p-1 rounded-xl border shrink-0"
+              style={{
+                backgroundColor: "var(--bg-surface-subtle)",
+                borderColor: "var(--border-subtle)",
+              }}
+              role="radiogroup"
+              aria-label="Mobile bottom bar view tab slots"
+            >
+              {MOBILE_PRIMARY_SLOT_OPTIONS.map((slotCount) => {
+                const selected = resolved.mobilePrimaryMaxSlots === slotCount;
+                return (
+                  <button
+                    key={slotCount}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() =>
+                      onUpdateNavigation(
+                        setMobilePrimarySlotLimit(navigation, slotCount),
+                      )
+                    }
+                    className="h-8 px-2.5 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer"
+                    style={{
+                      backgroundColor: selected
+                        ? "var(--bg-surface)"
+                        : "transparent",
+                      color: selected
+                        ? "var(--accent)"
+                        : "var(--text-secondary)",
+                      boxShadow: selected
+                        ? "0 1px 2px rgba(0,0,0,0.06)"
+                        : "none",
+                    }}
+                  >
+                    {slotCount} tabs ({slotCount + 1})
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
           {/* Mobile Primary Bottom Bar */}
           <section
             className="rounded-xl border overflow-hidden"
@@ -425,14 +489,15 @@ export const ViewsSettingsPanel: React.FC<ViewsSettingsPanelProps> = ({
                   className="text-[11px] ml-2"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  · Up to {MAX_MOBILE_PRIMARY_SLOTS} tabs beside More
+                  · Up to {resolved.mobilePrimaryMaxSlots} tabs beside More
                 </span>
               </div>
               <span
                 className="text-[11px] font-mono tabular-nums"
                 style={{ color: "var(--text-muted)" }}
               >
-                {resolved.mobilePrimaryAll.length}/{MAX_MOBILE_PRIMARY_SLOTS} slots
+                {resolved.mobilePrimaryAll.length}/
+                {resolved.mobilePrimaryMaxSlots} slots
               </span>
             </div>
 
@@ -603,12 +668,12 @@ export const ViewsSettingsPanel: React.FC<ViewsSettingsPanelProps> = ({
                   Mobile More Sheet
                 </span>
                 {resolved.mobilePrimaryAll.length >=
-                  MAX_MOBILE_PRIMARY_SLOTS && (
+                  resolved.mobilePrimaryMaxSlots && (
                   <span
                     className="text-[11px] ml-2"
                     style={{ color: "var(--text-muted)" }}
                   >
-                    · Pinning swaps with slot 4
+                    · Pinning swaps with slot {resolved.mobilePrimaryMaxSlots}
                   </span>
                 )}
               </div>

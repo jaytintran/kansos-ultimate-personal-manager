@@ -1955,57 +1955,95 @@ const KansoShell: React.FC = () => {
                   setMoreSheetOpen(false);
                   navigateToView(item.id);
                 }}
-                className="flex flex-col items-center justify-center h-full gap-0.5 transition-colors"
+                className="flex flex-col items-center justify-center h-full min-w-0 gap-0.5 py-1 transition-colors cursor-pointer"
                 style={{
                   color: active ? "var(--accent)" : "var(--text-muted)",
                 }}
               >
-                <Icon className="w-4.5 h-4.5" />
-                <span className="text-[10px] font-medium leading-none truncate max-w-full px-0.5">
+                <span
+                  className="w-9 h-6 rounded-full flex items-center justify-center transition-colors shrink-0"
+                  style={{
+                    backgroundColor: active
+                      ? "var(--accent-soft)"
+                      : "transparent",
+                  }}
+                >
+                  <Icon className="w-[18px] h-[18px]" />
+                </span>
+                <span
+                  className={`text-[9.5px] sm:text-[10px] leading-tight tracking-[-0.01em] truncate max-w-full px-0.5 ${
+                    active ? "font-semibold" : "font-medium"
+                  }`}
+                >
                   {item.label}
                 </span>
               </button>
             );
           })}
 
-          <button
-            type="button"
-            onClick={() => setMoreSheetOpen((prev) => !prev)}
-            className="flex flex-col items-center justify-center h-full gap-0.5 transition-colors"
-            style={{
-              color:
-                moreSheetOpen ||
-                isMoreViewActive ||
-                (showStreamerAudioControls && streamerPlayback.isPlaying) ||
-                (showAudioStudioControls && audioPlayback.isPlaying)
-                  ? (streamerPlayback.isViewMuted || audioPlayback.isViewMuted) &&
-                    !moreSheetOpen &&
-                    !isMoreViewActive
-                    ? "var(--danger)"
-                    : "var(--accent)"
-                  : "var(--text-muted)",
-            }}
-            aria-expanded={moreSheetOpen}
-            aria-label="More views"
-          >
-            {(showAudioStudioControls && activeView !== "audio") ||
-            (showStreamerAudioControls && activeView !== "streamer") ? (
-              (showAudioStudioControls && audioPlayback.isViewMuted) ||
-              (showStreamerAudioControls && streamerPlayback.isViewMuted) ? (
-                <VolumeX className="w-4.5 h-4.5" />
-              ) : (showAudioStudioControls && !audioPlayback.isPlaying) ||
-                (showStreamerAudioControls && streamerPlayback.isAllPaused) ? (
-                <Pause className="w-4.5 h-4.5" />
-              ) : (
-                <Volume2 className="w-4.5 h-4.5" />
-              )
-            ) : (
-              <MoreHorizontal className="w-4.5 h-4.5" />
-            )}
-            <span className="text-[10px] font-medium leading-none">
-              {isMoreViewActive && activeViewDef ? activeViewDef.label : "More"}
-            </span>
-          </button>
+          {(() => {
+            const moreActive = moreSheetOpen || isMoreViewActive;
+            const moreAudioMuted =
+              ((showStreamerAudioControls && streamerPlayback.isViewMuted) ||
+                (showAudioStudioControls && audioPlayback.isViewMuted)) &&
+              !moreActive;
+            const moreHighlighted =
+              moreActive ||
+              (showStreamerAudioControls && streamerPlayback.isPlaying) ||
+              (showAudioStudioControls && audioPlayback.isPlaying);
+
+            return (
+              <button
+                type="button"
+                onClick={() => setMoreSheetOpen((prev) => !prev)}
+                className="flex flex-col items-center justify-center h-full min-w-0 gap-0.5 py-1 transition-colors cursor-pointer"
+                style={{
+                  color: moreHighlighted
+                    ? moreAudioMuted
+                      ? "var(--danger)"
+                      : "var(--accent)"
+                    : "var(--text-muted)",
+                }}
+                aria-expanded={moreSheetOpen}
+                aria-label="More views"
+              >
+                <span
+                  className="w-9 h-6 rounded-full flex items-center justify-center transition-colors shrink-0"
+                  style={{
+                    backgroundColor: moreAudioMuted
+                      ? "color-mix(in srgb, var(--danger) 12%, transparent)"
+                      : moreHighlighted
+                        ? "var(--accent-soft)"
+                        : "transparent",
+                  }}
+                >
+                  {(showAudioStudioControls && activeView !== "audio") ||
+                  (showStreamerAudioControls && activeView !== "streamer") ? (
+                    (showAudioStudioControls && audioPlayback.isViewMuted) ||
+                    (showStreamerAudioControls && streamerPlayback.isViewMuted) ? (
+                      <VolumeX className="w-[18px] h-[18px]" />
+                    ) : (showAudioStudioControls && !audioPlayback.isPlaying) ||
+                      (showStreamerAudioControls && streamerPlayback.isAllPaused) ? (
+                      <Pause className="w-[18px] h-[18px]" />
+                    ) : (
+                      <Volume2 className="w-[18px] h-[18px]" />
+                    )
+                  ) : (
+                    <MoreHorizontal className="w-[18px] h-[18px]" />
+                  )}
+                </span>
+                <span
+                  className={`text-[9.5px] sm:text-[10px] leading-tight tracking-[-0.01em] truncate max-w-full px-0.5 ${
+                    moreActive ? "font-semibold" : "font-medium"
+                  }`}
+                >
+                  {isMoreViewActive && activeViewDef
+                    ? activeViewDef.label
+                    : "More"}
+                </span>
+              </button>
+            );
+          })()}
         </div>
         </nav>
       )}

@@ -405,6 +405,7 @@ export interface WorkspaceNavigationSettings {
   desktopGroups?: ViewId[][];
   mobilePrimary?: ViewId[];
   mobileMore?: ViewId[];
+  mobilePrimarySlots?: number;
 }
 
 export type AppFontId =

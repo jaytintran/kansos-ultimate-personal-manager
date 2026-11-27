@@ -127,10 +127,10 @@ export const DEFAULT_MOBILE_PRIMARY_VIEWS: ViewId[] = [
   "timeline",
   "habits",
   "notes",
+  "lists",
 ];
 
 export const DEFAULT_MOBILE_MORE_VIEWS: ViewId[] = [
-  "lists",
   "events",
   "contacts",
   "finance",
@@ -141,7 +141,21 @@ export const DEFAULT_MOBILE_MORE_VIEWS: ViewId[] = [
   "achievements",
 ];
 
-export const MAX_MOBILE_PRIMARY_SLOTS = 4;
+export const MIN_MOBILE_PRIMARY_SLOTS = 3;
+export const DEFAULT_MOBILE_PRIMARY_SLOTS = 5;
+export const MAX_MOBILE_PRIMARY_SLOTS = 5;
+export const MOBILE_PRIMARY_SLOT_OPTIONS = [3, 4, 5] as const;
+
+export function normalizeMobilePrimarySlots(raw?: number): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    return DEFAULT_MOBILE_PRIMARY_SLOTS;
+  }
+  const rounded = Math.round(raw);
+  return Math.min(
+    MAX_MOBILE_PRIMARY_SLOTS,
+    Math.max(MIN_MOBILE_PRIMARY_SLOTS, rounded),
+  );
+}
 
 function isValidViewId(value: unknown): value is ViewId {
   return typeof value === "string" && VALID_VIEW_ID_SET.has(value);
@@ -186,6 +200,7 @@ function normalizeDesktopGroups(rawGroups?: ViewId[][]): ViewId[][] {
 function normalizeMobileLists(
   rawPrimary?: ViewId[],
   rawMore?: ViewId[],
+  maxPrimarySlots = DEFAULT_MOBILE_PRIMARY_SLOTS,
 ): { mobilePrimary: ViewId[]; mobileMore: ViewId[] } {
   const srcPrimary = Array.isArray(rawPrimary)
     ? rawPrimary
@@ -196,17 +211,22 @@ function normalizeMobileLists(
 
   const seen = new Set<ViewId>();
   const mobilePrimary: ViewId[] = [];
+  const overflowPrimary: ViewId[] = [];
   const mobileMore: ViewId[] = [];
 
   for (const id of srcPrimary) {
-    if (
-      isValidViewId(id) &&
-      !seen.has(id) &&
-      mobilePrimary.length < MAX_MOBILE_PRIMARY_SLOTS
-    ) {
-      seen.add(id);
+    if (!isValidViewId(id) || seen.has(id)) continue;
+    seen.add(id);
+    if (mobilePrimary.length < maxPrimarySlots) {
       mobilePrimary.push(id);
+    } else {
+      overflowPrimary.push(id);
     }
+  }
+
+  // Keep any views trimmed by a smaller slot limit at the top of More
+  for (const id of overflowPrimary) {
+    mobileMore.push(id);
   }
 
   for (const id of srcMore) {
@@ -216,7 +236,7 @@ function normalizeMobileLists(
     }
   }
 
-  // Include any leftover primary overflow or future views cleanly in mobileMore
+  // Include any leftover future views cleanly in mobileMore
   for (const id of ALL_VIEW_IDS) {
     if (!seen.has(id)) {
       seen.add(id);
@@ -274,16 +294,24 @@ export interface ResolvedNavigationConfig {
   mobilePrimaryVisible: ViewId[];
   mobileMoreAll: ViewId[];
   mobileMoreVisible: ViewId[];
+  mobilePrimaryMaxSlots: number;
   resolveSafeView: (candidate?: ViewId | null) => ViewId;
 }
 
 export function resolveNavigationConfig(
   nav?: WorkspaceNavigationSettings,
 ): ResolvedNavigationConfig {
+  const mobilePrimaryMaxSlots = normalizeMobilePrimarySlots(
+    nav?.mobilePrimarySlots,
+  );
   const desktopGroupsAll = normalizeDesktopGroups(nav?.desktopGroups);
   const desktopFlat = desktopGroupsAll.flat();
   const { mobilePrimary: mobilePrimaryAll, mobileMore: mobileMoreAll } =
-    normalizeMobileLists(nav?.mobilePrimary, nav?.mobileMore);
+    normalizeMobileLists(
+      nav?.mobilePrimary,
+      nav?.mobileMore,
+      mobilePrimaryMaxSlots,
+    );
 
   const hiddenViews = normalizeHiddenViews(nav?.hiddenViews, desktopFlat);
   const hiddenSet = new Set<ViewId>(hiddenViews);
@@ -317,6 +345,7 @@ export function resolveNavigationConfig(
     mobilePrimaryVisible,
     mobileMoreAll,
     mobileMoreVisible,
+    mobilePrimaryMaxSlots,
     resolveSafeView,
   };
 }
@@ -329,11 +358,16 @@ export function compactNavigationSettings(input: {
   desktopGroups: ViewId[][];
   mobilePrimary: ViewId[];
   mobileMore: ViewId[];
+  mobilePrimarySlots?: number;
 }): WorkspaceNavigationSettings | undefined {
+  const mobilePrimarySlots = normalizeMobilePrimarySlots(
+    input.mobilePrimarySlots,
+  );
   const desktopGroups = normalizeDesktopGroups(input.desktopGroups);
   const { mobilePrimary, mobileMore } = normalizeMobileLists(
     input.mobilePrimary,
     input.mobileMore,
+    mobilePrimarySlots,
   );
   const hiddenViews = normalizeHiddenViews(
     input.hiddenViews,
@@ -353,6 +387,9 @@ export function compactNavigationSettings(input: {
   if (!arraysEqual(mobileMore, DEFAULT_MOBILE_MORE_VIEWS)) {
     out.mobileMore = mobileMore;
   }
+  if (mobilePrimarySlots !== DEFAULT_MOBILE_PRIMARY_SLOTS) {
+    out.mobilePrimarySlots = mobilePrimarySlots;
+  }
 
   return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -367,6 +404,7 @@ export function sanitizeNavigationSettings(
     desktopGroups: resolved.desktopGroupsAll,
     mobilePrimary: resolved.mobilePrimaryAll,
     mobileMore: resolved.mobileMoreAll,
+    mobilePrimarySlots: resolved.mobilePrimaryMaxSlots,
   });
 }
 
@@ -396,6 +434,7 @@ export function toggleViewVisibilityInNav(
     desktopGroups: resolved.desktopGroupsAll,
     mobilePrimary: resolved.mobilePrimaryAll,
     mobileMore: resolved.mobileMoreAll,
+    mobilePrimarySlots: resolved.mobilePrimaryMaxSlots,
   });
 }
 
@@ -420,6 +459,7 @@ export function moveDesktopViewWithinGroup(
     desktopGroups: groups,
     mobilePrimary: resolved.mobilePrimaryAll,
     mobileMore: resolved.mobileMoreAll,
+    mobilePrimarySlots: resolved.mobilePrimaryMaxSlots,
   });
 }
 
@@ -456,6 +496,7 @@ export function moveDesktopViewToGroup(
     desktopGroups: nonEmpty,
     mobilePrimary: resolved.mobilePrimaryAll,
     mobileMore: resolved.mobileMoreAll,
+    mobilePrimarySlots: resolved.mobilePrimaryMaxSlots,
   });
 }
 
@@ -481,6 +522,7 @@ export function moveMobileViewWithinList(
     desktopGroups: resolved.desktopGroupsAll,
     mobilePrimary: primary,
     mobileMore: more,
+    mobilePrimarySlots: resolved.mobilePrimaryMaxSlots,
   });
 }
 
@@ -497,7 +539,7 @@ export function moveMobileViewAcrossLists(
     const idx = more.indexOf(viewId);
     if (idx === -1) return nav;
     more.splice(idx, 1);
-    if (primary.length >= MAX_MOBILE_PRIMARY_SLOTS) {
+    if (primary.length >= resolved.mobilePrimaryMaxSlots) {
       const displaced = primary.pop();
       if (displaced) {
         more.unshift(displaced);
@@ -516,5 +558,38 @@ export function moveMobileViewAcrossLists(
     desktopGroups: resolved.desktopGroupsAll,
     mobilePrimary: primary,
     mobileMore: more,
+    mobilePrimarySlots: resolved.mobilePrimaryMaxSlots,
+  });
+}
+
+export function setMobilePrimarySlotLimit(
+  nav: WorkspaceNavigationSettings | undefined,
+  nextSlots: number,
+): WorkspaceNavigationSettings | undefined {
+  const resolved = resolveNavigationConfig(nav);
+  const normalizedSlots = normalizeMobilePrimarySlots(nextSlots);
+  const primary = [...resolved.mobilePrimaryAll];
+  const more = [...resolved.mobileMoreAll];
+
+  if (
+    normalizedSlots > resolved.mobilePrimaryMaxSlots &&
+    primary.length >= resolved.mobilePrimaryMaxSlots
+  ) {
+    while (primary.length < normalizedSlots && more.length > 0) {
+      const nextVisibleIdx = more.findIndex((id) => !resolved.hiddenSet.has(id));
+      const pickIdx = nextVisibleIdx !== -1 ? nextVisibleIdx : 0;
+      const [promoted] = more.splice(pickIdx, 1);
+      if (promoted) {
+        primary.push(promoted);
+      }
+    }
+  }
+
+  return compactNavigationSettings({
+    hiddenViews: resolved.hiddenViews,
+    desktopGroups: resolved.desktopGroupsAll,
+    mobilePrimary: primary,
+    mobileMore: more,
+    mobilePrimarySlots: normalizedSlots,
   });
 }
