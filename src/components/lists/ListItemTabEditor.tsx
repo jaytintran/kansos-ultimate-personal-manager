@@ -154,7 +154,6 @@ interface ListItemTabEditorProps {
   sidebarCollapsedDesktop: boolean;
   linkedPaneOpenDesktop: boolean;
   onExpandDesktopSidebar: () => void;
-  onOpenMobileSidebar: () => void;
   onToggleDesktopLinkedPane: () => void;
   onSelectParentListHome: (listId: string) => void;
   playLaunchRequest?: { itemId: string; nonce: number } | null;
@@ -169,7 +168,6 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
   sidebarCollapsedDesktop,
   linkedPaneOpenDesktop,
   onExpandDesktopSidebar,
-  onOpenMobileSidebar,
   onToggleDesktopLinkedPane,
   onSelectParentListHome,
   playLaunchRequest,
@@ -641,21 +639,6 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
               <PanelLeftOpen className="w-3.5 h-3.5" />
             </button>
           )}
-
-          <button
-            type="button"
-            onClick={onOpenMobileSidebar}
-            title="Lists & smart views"
-            aria-label="Open lists sidebar"
-            className="lg:hidden h-7 w-7 flex items-center justify-center rounded-lg border shrink-0 cursor-pointer"
-            style={{
-              backgroundColor: "var(--bg-surface)",
-              borderColor: "var(--border-subtle)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            <PanelLeftOpen className="w-3.5 h-3.5" />
-          </button>
 
           <nav
             aria-label="List item breadcrumb"

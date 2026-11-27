@@ -69,6 +69,7 @@ import {
 import {
   DEFAULT_LISTS_SIDEBAR_WIDTH,
   ListsLeftSidebar,
+  ListsWorkspaceTab,
   MAX_LISTS_SIDEBAR_WIDTH,
   MIN_LISTS_SIDEBAR_WIDTH,
 } from "../components/lists/ListsLeftSidebar";
@@ -467,7 +468,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const [quickJumpOpen, setQuickJumpOpen] = useState(false);
   const [quickJumpQuery, setQuickJumpQuery] = useState("");
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [isWorkspaceTab, setIsWorkspaceTab] = useState(false);
   const [targetListPickerOpen, setTargetListPickerOpen] = useState(false);
 
   const [smartAddTargetListId, setSmartAddTargetListId] = useState<string>(
@@ -512,7 +513,12 @@ export const ListsView: React.FC<ListsViewProps> = ({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const mq = window.matchMedia("(min-width: 1024px)");
-    const update = () => setIsDesktop(mq.matches);
+    const update = () => {
+      setIsDesktop(mq.matches);
+      if (mq.matches) {
+        setIsWorkspaceTab(false);
+      }
+    };
     update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
@@ -540,6 +546,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
         : [...prev.openTabIds, targetItem.id],
       activeTabId: targetItem.id,
     }));
+    setIsWorkspaceTab(false);
   }, [listItemJumpRequest, workspace.listItems, pushToast]);
 
   // Persist prefs (global fallback + splitOpen)
@@ -1456,6 +1463,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
           : [...prev.openTabIds, itemId],
         activeTabId: itemId,
       }));
+      setIsWorkspaceTab(false);
     },
     [listItemById],
   );
@@ -1488,6 +1496,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
         activeTabId: nextActive,
       };
     });
+    setIsWorkspaceTab(false);
   }, []);
 
   const handleCloseOtherItemTabs = useCallback((keepItemId: string) => {
@@ -1496,6 +1505,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
       openTabIds: prev.openTabIds.includes(keepItemId) ? [keepItemId] : [],
       activeTabId: prev.openTabIds.includes(keepItemId) ? keepItemId : null,
     }));
+    setIsWorkspaceTab(false);
   }, []);
 
   const handleCloseAllItemTabs = useCallback(() => {
@@ -1504,6 +1514,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
       openTabIds: [],
       activeTabId: null,
     }));
+    setIsWorkspaceTab(false);
   }, []);
 
   const handleReorderItemTabs = useCallback(
@@ -1550,6 +1561,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
         openTabIds: [...prev.openTabIds, created.id],
         activeTabId: created.id,
       }));
+      setIsWorkspaceTab(false);
     },
     [addListItem, scope],
   );
@@ -1737,6 +1749,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
           activeTabId: null,
         };
       });
+      setIsWorkspaceTab(false);
     } else if (listModal.list) {
       updateList(listModal.list.id, {
         title: listModal.title.trim(),
@@ -3227,6 +3240,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
       });
       setSelectedIds(new Set());
       setSelectionMode(false);
+      setIsWorkspaceTab(false);
     },
     [listTreeIndex.byId],
   );
@@ -3402,7 +3416,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
       className="h-full flex-1 min-h-0 lg:h-dvh flex overflow-hidden overscroll-none"
       style={{ backgroundColor: "var(--bg-canvas)" }}
     >
-      {/* Desktop Resizable/Collapsible Left Sidebar + Mobile Slide-Over Drawer */}
+      {/* Desktop Resizable/Collapsible Left Sidebar */}
       <ListsLeftSidebar
         lists={activeLists}
         listItemCounts={listItemCountsByCollection}
@@ -3433,8 +3447,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
             },
           }))
         }
-        isOpenMobile={mobileSidebarOpen}
-        onCloseMobile={() => setMobileSidebarOpen(false)}
         onCollapseDesktop={() =>
           setLocalState((prev) => ({
             ...prev,
@@ -3473,6 +3485,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
         listsById={listById}
         statusMeta={STATUS_META}
         activeTabId={activeTabItem ? activeTabItem.id : null}
+        isWorkspaceActive={isWorkspaceTab}
         homeTabLabel={
           currentList
             ? currentList.title
@@ -3487,9 +3500,11 @@ export const ListsView: React.FC<ListsViewProps> = ({
             : activeSmartMeta?.color
         }
         homeSmartIcon={SmartHeaderIcon}
-        onSelectHome={() =>
-          setLocalState((prev) => ({ ...prev, activeTabId: null }))
-        }
+        onSelectWorkspace={() => setIsWorkspaceTab(true)}
+        onSelectHome={() => {
+          setIsWorkspaceTab(false);
+          setLocalState((prev) => ({ ...prev, activeTabId: null }));
+        }}
         onSelectTab={handleOpenItemTab}
         onCloseTab={handleCloseItemTab}
         onCloseOtherTabs={handleCloseOtherItemTabs}
@@ -3499,7 +3514,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
       />
 
       {/* ================= PINNED TOP CHROME (Home View Only) ================= */}
-      {!activeTabItem && (
+      {!isWorkspaceTab && !activeTabItem && (
       <div className="shrink-0 relative z-20">
         {/* Row 1: Unified Compact View Header */}
         <header
@@ -3509,22 +3524,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
           {currentList ? (
             <>
               <div className="flex items-center gap-2.5 min-w-0">
-                {/* Mobile Slide-Over Sidebar Trigger */}
-                <button
-                  type="button"
-                  onClick={() => setMobileSidebarOpen(true)}
-                  title="Open lists sidebar"
-                  aria-label="Open lists sidebar"
-                  className="lg:hidden h-8 w-8 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
-                  style={{
-                    backgroundColor: "var(--bg-surface)",
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--text-secondary)",
-                  }}
-                >
-                  <PanelLeftOpen className="w-4 h-4" />
-                </button>
-
                 {/* Desktop Collapsed Sidebar Reopen */}
                 {localState.sidebarCollapsedDesktop && (
                   <button
@@ -3690,22 +3689,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
           ) : activeSmartMeta && SmartHeaderIcon ? (
             <>
               <div className="flex items-center gap-2.5 min-w-0">
-                {/* Mobile Slide-Over Sidebar Trigger */}
-                <button
-                  type="button"
-                  onClick={() => setMobileSidebarOpen(true)}
-                  title="Open lists sidebar"
-                  aria-label="Open lists sidebar"
-                  className="lg:hidden h-8 w-8 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
-                  style={{
-                    backgroundColor: "var(--bg-surface)",
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--text-secondary)",
-                  }}
-                >
-                  <PanelLeftOpen className="w-4 h-4" />
-                </button>
-
                 {/* Desktop Collapsed Sidebar Reopen */}
                 {localState.sidebarCollapsedDesktop && (
                   <button
@@ -3781,20 +3764,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
           ) : (
             <div className="flex items-center justify-between w-full gap-2">
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setMobileSidebarOpen(true)}
-                  title="Open lists sidebar"
-                  aria-label="Open lists sidebar"
-                  className="lg:hidden h-8 w-8 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer shrink-0"
-                  style={{
-                    backgroundColor: "var(--bg-surface)",
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--text-secondary)",
-                  }}
-                >
-                  <PanelLeftOpen className="w-4 h-4" />
-                </button>
                 {localState.sidebarCollapsedDesktop && (
                   <button
                     type="button"
@@ -4429,7 +4398,57 @@ export const ListsView: React.FC<ListsViewProps> = ({
       )}
 
       {/* ================= FULL-HEIGHT SPLIT BODY ================= */}
-      {activeTabItem ? (
+      {isWorkspaceTab ? (
+        <ListsWorkspaceTab
+          lists={activeLists}
+          listItemCounts={listItemCountsByCollection}
+          directListItemCounts={directListItemCountsByCollection}
+          globalStatusCounts={globalStatusCounts}
+          statusOrder={STATUS_ORDER}
+          statusMeta={STATUS_META}
+          scope={scope}
+          sectionsCollapsed={localState.sidebarSectionsCollapsed}
+          expandedListIds={localState.expandedListIds}
+          onToggleExpandList={(listId) =>
+            setLocalState((prev) => ({
+              ...prev,
+              expandedListIds: {
+                ...prev.expandedListIds,
+                [listId]: !prev.expandedListIds[listId],
+              },
+            }))
+          }
+          onToggleSection={(section) =>
+            setLocalState((prev) => ({
+              ...prev,
+              sidebarSectionsCollapsed: {
+                ...prev.sidebarSectionsCollapsed,
+                [section]: !prev.sidebarSectionsCollapsed[section],
+              },
+            }))
+          }
+          onSelectScope={handleSelectScope}
+          onCreateList={openCreateListModal}
+          onCreateSublist={openCreateSublistModal}
+          onEditList={(list) =>
+            setListModal({
+              mode: "edit",
+              list,
+              title: list.title,
+              icon: list.icon,
+              color: list.color || LIST_COLORS[0],
+              listType: list.listType || "custom",
+              parentId: list.parentId ?? null,
+            })
+          }
+          onDeleteList={(list) => setDeleteTargetList(list)}
+          onReorderList={reorderLists}
+          onMoveItemToList={handleMoveItemToList}
+          onChangeItemStatus={handleChangeItemStatus}
+          activeDragItemIdRef={activeDragItemIdRef}
+          onClearAllDragStates={clearAllDragStates}
+        />
+      ) : activeTabItem ? (
         <div className="flex-1 min-h-0 flex overflow-hidden">
           <ListItemTabEditor
             key={activeTabItem.id}
@@ -4443,7 +4462,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
                 sidebarCollapsedDesktop: false,
               }))
             }
-            onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
             onToggleDesktopLinkedPane={() =>
               setPrefs((p) => ({ ...p, splitOpen: !p.splitOpen }))
             }

@@ -22,7 +22,7 @@ export type ListsSidebarScope =
   | { kind: "list"; listId: string }
   | { kind: "smart"; status: ListItemStatus };
 
-interface ListsLeftSidebarProps {
+export interface ListsWorkspaceTreeProps {
   lists: ListCollection[];
   listItemCounts: Map<string, number>;
   directListItemCounts?: Map<string, number>;
@@ -41,16 +41,10 @@ interface ListsLeftSidebarProps {
     }
   >;
   scope: ListsSidebarScope;
-  sidebarWidth: number;
-  isCollapsedDesktop: boolean;
   sectionsCollapsed: { smart: boolean; lists: boolean };
   expandedListIds: Record<string, boolean>;
   onToggleExpandList: (listId: string) => void;
   onToggleSection: (section: "smart" | "lists") => void;
-  isOpenMobile: boolean;
-  onCloseMobile: () => void;
-  onCollapseDesktop: () => void;
-  onSidebarWidthChange: (width: number) => void;
   onSelectScope: (scope: ListsSidebarScope) => void;
   onCreateList: () => void;
   onCreateSublist: (parentList: ListCollection) => void;
@@ -67,7 +61,17 @@ interface ListsLeftSidebarProps {
   onClearAllDragStates: () => void;
 }
 
-export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
+interface ListsLeftSidebarProps extends ListsWorkspaceTreeProps {
+  sidebarWidth: number;
+  isCollapsedDesktop: boolean;
+  onCollapseDesktop: () => void;
+  onSidebarWidthChange: (width: number) => void;
+}
+
+const ListsWorkspaceTreeBody: React.FC<
+  ListsWorkspaceTreeProps & { variant: "sidebar" | "tab" }
+> = ({
+  variant,
   lists,
   listItemCounts,
   directListItemCounts,
@@ -75,16 +79,10 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
   statusOrder,
   statusMeta,
   scope,
-  sidebarWidth,
-  isCollapsedDesktop,
   sectionsCollapsed,
   expandedListIds,
   onToggleExpandList,
   onToggleSection,
-  isOpenMobile,
-  onCloseMobile,
-  onCollapseDesktop,
-  onSidebarWidthChange,
   onSelectScope,
   onCreateList,
   onCreateSublist,
@@ -96,8 +94,8 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
   activeDragItemIdRef,
   onClearAllDragStates,
 }) => {
+  const isTab = variant === "tab";
   const [sidebarSearch, setSidebarSearch] = useState("");
-  const [isResizing, setIsResizing] = useState(false);
 
   // Drag & drop highlights inside sidebar
   const dragListRowIdRef = useRef<string | null>(null);
@@ -157,28 +155,6 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
     }
     return visible;
   }, [normalizedSearch, treeIndex]);
-
-  const handleStartResize = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = sidebarWidth;
-    setIsResizing(true);
-
-    const onMove = (ev: PointerEvent) => {
-      const next = Math.min(
-        MAX_LISTS_SIDEBAR_WIDTH,
-        Math.max(MIN_LISTS_SIDEBAR_WIDTH, startWidth + (ev.clientX - startX)),
-      );
-      onSidebarWidthChange(next);
-    };
-    const onUp = () => {
-      setIsResizing(false);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  };
 
   const resetSidebarDrag = () => {
     dragListRowIdRef.current = null;
@@ -241,9 +217,9 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
     return (
       <div key={list.id} className="space-y-0.5">
         <div
-          draggable={!normalizedSearch}
+          draggable={!isTab && !normalizedSearch}
           onDragStart={(e) => {
-            if (normalizedSearch) {
+            if (isTab || normalizedSearch) {
               e.preventDefault();
               return;
             }
@@ -326,15 +302,15 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
               y: e.clientY,
             });
           }}
-          className={`group relative flex items-center gap-1 pr-2 py-1 rounded-lg text-xs hover:bg-[var(--bg-surface-hover)] ${
-            isBeingDragged ? "opacity-45" : ""
-          } ${
+          className={`group relative flex items-center gap-1.5 pr-2 rounded-lg hover:bg-[var(--bg-surface-hover)] ${
+            isTab ? "py-1.5 text-[13px]" : "py-1 text-xs"
+          } ${isBeingDragged ? "opacity-45" : ""} ${
             isItemDropHover || dropPos === "inside"
               ? "ring-1 ring-[var(--accent)]"
               : ""
           }`}
           style={{
-            paddingLeft: `${8 + Math.min(depth, 6) * 14}px`,
+            paddingLeft: `${(isTab ? 10 : 8) + Math.min(depth, 6) * (isTab ? 16 : 14)}px`,
             backgroundColor:
               isItemDropHover || dropPos === "inside"
                 ? "var(--accent-soft)"
@@ -362,25 +338,24 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
                   ? `Collapse ${list.title} sublists`
                   : `Expand ${list.title} sublists`
               }
-              className="w-4 h-4 -ml-0.5 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] shrink-0 cursor-pointer"
+              className={`${
+                isTab ? "w-5 h-5" : "w-4 h-4 -ml-0.5"
+              } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] shrink-0 cursor-pointer`}
               style={{ color: "var(--text-muted)" }}
             >
               {isExpanded ? (
-                <ChevronDown className="w-3 h-3" />
+                <ChevronDown className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
               ) : (
-                <ChevronRight className="w-3 h-3" />
+                <ChevronRight className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
               )}
             </button>
           ) : hasAnyNestedLists ? (
-            <span className="w-3.5 shrink-0" aria-hidden="true" />
+            <span className={isTab ? "w-5 shrink-0" : "w-3.5 shrink-0"} aria-hidden="true" />
           ) : null}
 
           <button
             type="button"
-            onClick={() => {
-              onSelectScope({ kind: "list", listId: list.id });
-              onCloseMobile();
-            }}
+            onClick={() => onSelectScope({ kind: "list", listId: list.id })}
             className="flex-1 min-w-0 flex items-center gap-2 py-0.5 text-left cursor-pointer"
             title={
               hasChildren
@@ -390,7 +365,7 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
           >
             <CollectionIcon
               name={list.icon}
-              className="w-3.5 h-3.5 shrink-0"
+              className={isTab ? "w-4 h-4 shrink-0" : "w-3.5 h-3.5 shrink-0"}
               style={{ color: accentHex }}
             />
             <span
@@ -403,9 +378,15 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
             </span>
           </button>
 
-          {/* Hover Actions (+ Sublist, Edit, Delete) + Recursive Item Count */}
+          {/* Inline Actions (+ Sublist, Edit, Delete) + Recursive Item Count */}
           <div className="flex items-center gap-0.5 shrink-0">
-            <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto flex items-center gap-0.5">
+            <div
+              className={`flex items-center gap-0.5 ${
+                isTab
+                  ? "opacity-75"
+                  : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
+              }`}
+            >
               <button
                 type="button"
                 onClick={(e) => {
@@ -414,9 +395,11 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
                 }}
                 title={`New sublist in ${list.title}`}
                 aria-label={`New sublist in ${list.title}`}
-                className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                className={`${
+                  isTab ? "w-7 h-7" : "w-5 h-5"
+                } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer`}
               >
-                <Plus className="w-3 h-3" />
+                <Plus className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
               </button>
               <button
                 type="button"
@@ -426,9 +409,11 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
                 }}
                 title="Edit list"
                 aria-label={`Edit ${list.title}`}
-                className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                className={`${
+                  isTab ? "w-7 h-7" : "w-5 h-5"
+                } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer`}
               >
-                <Pencil className="w-3 h-3" />
+                <Pencil className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
               </button>
               <button
                 type="button"
@@ -438,13 +423,15 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
                 }}
                 title="Delete list"
                 aria-label={`Delete ${list.title}`}
-                className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--danger)] cursor-pointer"
+                className={`${
+                  isTab ? "w-7 h-7" : "w-5 h-5"
+                } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--danger)] cursor-pointer`}
               >
-                <Trash2 className="w-3 h-3" />
+                <Trash2 className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
               </button>
             </div>
             <span
-              className="font-mono tabular-nums text-[11px] min-w-[18px] text-right"
+              className="font-mono tabular-nums text-[11px] min-w-[20px] text-right"
               style={{
                 color: active ? accentHex : "var(--text-muted)",
               }}
@@ -468,77 +455,21 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
     .map((root) => renderListNode(root, 0))
     .filter(Boolean);
 
-  const sidebarContent = (isDesktop: boolean) => (
-    <aside
-      aria-label="Lists navigation sidebar"
-      className="relative h-full flex flex-col border-r shrink-0 select-none"
-      style={{
-        width: isDesktop ? sidebarWidth : 284,
-        backgroundColor: "var(--bg-surface)",
-        borderColor: "var(--border-subtle)",
-      }}
-    >
-      {/* Sidebar Top Bar */}
-      <div
-        className="h-12 px-3 flex items-center justify-between gap-2 border-b shrink-0"
-        style={{ borderColor: "var(--border-subtle)" }}
-      >
-        <span
-          className="text-xs font-semibold tracking-wide uppercase"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Lists
-        </span>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => {
-              onCreateList();
-              onCloseMobile();
-            }}
-            title="New list collection"
-            aria-label="New list collection"
-            className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-          {isDesktop ? (
-            <button
-              type="button"
-              onClick={onCollapseDesktop}
-              title="Collapse sidebar"
-              aria-label="Collapse lists sidebar"
-              className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <PanelLeftClose className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onCloseMobile}
-              aria-label="Close sidebar"
-              className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Sidebar Search Box */}
-      <div className="px-2.5 pt-2.5 pb-1 shrink-0">
+  return (
+    <>
+      {/* Find List Search Box */}
+      <div className={isTab ? "px-4 pt-3 pb-1 shrink-0" : "px-2.5 pt-2.5 pb-1 shrink-0"}>
         <div
-          className="h-8 px-2.5 rounded-lg border flex items-center gap-1.5"
+          className={`${
+            isTab ? "h-9 px-3" : "h-8 px-2.5"
+          } rounded-lg border flex items-center gap-2`}
           style={{
-            backgroundColor: "var(--bg-canvas)",
+            backgroundColor: isTab ? "var(--bg-surface)" : "var(--bg-canvas)",
             borderColor: "var(--border-subtle)",
           }}
         >
           <Search
-            className="w-3.5 h-3.5 shrink-0"
+            className={isTab ? "w-4 h-4 shrink-0" : "w-3.5 h-3.5 shrink-0"}
             style={{ color: "var(--text-muted)" }}
           />
           <input
@@ -546,45 +477,53 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
             value={sidebarSearch}
             onChange={(e) => setSidebarSearch(e.target.value)}
             placeholder="Find list..."
-            aria-label="Filter lists in sidebar"
-            className="flex-1 min-w-0 bg-transparent text-xs outline-none placeholder:opacity-60"
+            aria-label="Filter lists in workspace"
+            className={`flex-1 min-w-0 bg-transparent outline-none placeholder:opacity-60 ${
+              isTab ? "text-[13px]" : "text-xs"
+            }`}
             style={{ color: "var(--text-primary)" }}
           />
           {sidebarSearch && (
             <button
               type="button"
               onClick={() => setSidebarSearch("")}
-              aria-label="Clear sidebar search"
+              aria-label="Clear search"
               className="opacity-70 hover:opacity-100 cursor-pointer"
               style={{ color: "var(--text-muted)" }}
             >
-              <X className="w-3 h-3" />
+              <X className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
             </button>
           )}
         </div>
       </div>
 
       {/* Scrollable Sections */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2.5 space-y-3">
+      <div
+        className={`flex-1 min-h-0 overflow-y-auto ${
+          isTab ? "px-3.5 py-3.5 space-y-4" : "px-2 py-2.5 space-y-3"
+        }`}
+      >
         {/* Section 1: Cross-List Smart Views */}
         {filteredSmartStatuses.length > 0 && (
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <button
               type="button"
               onClick={() => onToggleSection("smart")}
-              className="w-full px-1.5 flex items-center justify-between text-[10.5px] font-semibold uppercase tracking-wider cursor-pointer"
+              className={`w-full px-1.5 flex items-center justify-between font-semibold uppercase tracking-wider cursor-pointer ${
+                isTab ? "text-[11px]" : "text-[10.5px]"
+              }`}
               style={{ color: "var(--text-muted)" }}
             >
               <span>Smart Views</span>
               {sectionsCollapsed.smart ? (
-                <ChevronRight className="w-3 h-3" />
+                <ChevronRight className="w-3.5 h-3.5" />
               ) : (
-                <ChevronDown className="w-3 h-3" />
+                <ChevronDown className="w-3.5 h-3.5" />
               )}
             </button>
 
             {!sectionsCollapsed.smart && (
-              <div className="space-y-0.5">
+              <div className={isTab ? "space-y-1" : "space-y-0.5"}>
                 {filteredSmartStatuses.map((st) => {
                   const sm = statusMeta[st];
                   const Icon = sm.icon;
@@ -633,13 +572,12 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
                         e.preventDefault();
                         onChangeItemStatus(itemId, st);
                       }}
-                      onClick={() => {
-                        onSelectScope({ kind: "smart", status: st });
-                        onCloseMobile();
-                      }}
-                      className={`w-full px-2 py-1.5 rounded-lg flex items-center justify-between gap-2 text-xs transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer ${
-                        isItemDropHover ? "ring-1 ring-[var(--accent)]" : ""
-                      }`}
+                      onClick={() => onSelectScope({ kind: "smart", status: st })}
+                      className={`w-full rounded-lg flex items-center justify-between gap-2 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer ${
+                        isTab
+                          ? "px-3 py-2 text-[13px]"
+                          : "px-2 py-1.5 text-xs"
+                      } ${isItemDropHover ? "ring-1 ring-[var(--accent)]" : ""}`}
                       style={{
                         backgroundColor: isItemDropHover
                           ? "var(--accent-soft)"
@@ -652,9 +590,9 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
                       }}
                       title={`View all ${sm.label} items · Drop item here to mark ${sm.label}`}
                     >
-                      <span className="flex items-center gap-2 min-w-0">
+                      <span className="flex items-center gap-2.5 min-w-0">
                         <Icon
-                          className="w-3.5 h-3.5 shrink-0"
+                          className={isTab ? "w-4 h-4 shrink-0" : "w-3.5 h-3.5 shrink-0"}
                           style={{ color: sm.color }}
                         />
                         <span
@@ -691,44 +629,45 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
         />
 
         {/* Section 2: User Lists (Nested Tree) */}
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <div className="px-1.5 flex items-center justify-between">
             <button
               type="button"
               onClick={() => onToggleSection("lists")}
-              className="flex items-center gap-1 text-[10.5px] font-semibold uppercase tracking-wider cursor-pointer"
+              className={`flex items-center gap-1 font-semibold uppercase tracking-wider cursor-pointer ${
+                isTab ? "text-[11px]" : "text-[10.5px]"
+              }`}
               style={{ color: "var(--text-muted)" }}
             >
               <span>Your Lists</span>
               {sectionsCollapsed.lists ? (
-                <ChevronRight className="w-3 h-3" />
+                <ChevronRight className="w-3.5 h-3.5" />
               ) : (
-                <ChevronDown className="w-3 h-3" />
+                <ChevronDown className="w-3.5 h-3.5" />
               )}
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                onCreateList();
-                onCloseMobile();
-              }}
+              onClick={onCreateList}
               title="Create new list"
               aria-label="Create new list"
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              className={`${
+                isTab ? "w-7 h-7" : "w-5 h-5"
+              } flex items-center justify-center rounded hover:bg-[var(--bg-surface-hover)] cursor-pointer`}
               style={{ color: "var(--text-muted)" }}
             >
-              <Plus className="w-3 h-3" />
+              <Plus className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
             </button>
           </div>
 
           {!sectionsCollapsed.lists && (
-            <div className="space-y-0.5">
+            <div className={isTab ? "space-y-1" : "space-y-0.5"}>
               {renderedRootNodes}
 
               {renderedRootNodes.length === 0 && (
                 <p
-                  className="px-2 py-2 text-[11px]"
+                  className="px-2 py-2 text-xs"
                   style={{ color: "var(--text-muted)" }}
                 >
                   {normalizedSearch ? "No matching lists" : "No lists yet"}
@@ -738,49 +677,6 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
           )}
         </div>
       </div>
-
-      {/* Desktop Drag-Resize Divider */}
-      {isDesktop && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize lists sidebar"
-          title="Drag to resize · Double-click to reset"
-          onPointerDown={handleStartResize}
-          onDoubleClick={() => onSidebarWidthChange(DEFAULT_LISTS_SIDEBAR_WIDTH)}
-          className={`absolute top-0 right-[-3px] bottom-0 w-1.5 cursor-col-resize z-20 transition-colors ${
-            isResizing
-              ? "bg-[var(--accent)]/60"
-              : "bg-transparent hover:bg-[var(--accent)]/35"
-          }`}
-        />
-      )}
-    </aside>
-  );
-
-  return (
-    <>
-      {/* Desktop Resizable/Collapsible Left Sidebar */}
-      {!isCollapsedDesktop && (
-        <div className="hidden lg:block h-full shrink-0">
-          {sidebarContent(true)}
-        </div>
-      )}
-
-      {/* Mobile Slide-Over Sidebar Drawer */}
-      {isOpenMobile && (
-        <div
-          className="fixed inset-0 z-50 lg:hidden flex bg-black/50 backdrop-blur-[1px] overscroll-none"
-          onClick={onCloseMobile}
-        >
-          <div
-            className="h-full pt-safe pb-safe flex overscroll-none"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {sidebarContent(false)}
-          </div>
-        </div>
-      )}
 
       {/* Sidebar List Row Right-Click Context Menu */}
       {listRowContextMenu && (
@@ -867,5 +763,141 @@ export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
         </div>
       )}
     </>
+  );
+};
+
+export const ListsWorkspaceTab: React.FC<ListsWorkspaceTreeProps> = (props) => {
+  const { onCreateList } = props;
+
+  return (
+    <div
+      className="lg:hidden flex-1 min-h-0 flex flex-col overflow-hidden"
+      style={{ backgroundColor: "var(--bg-canvas)" }}
+    >
+      {/* Pinned Workspace Tab Header */}
+      <header
+        className="shrink-0 relative z-20 px-4 sm:px-6 pt-4 pb-3 border-b bg-[var(--bg-canvas)] flex items-center justify-between gap-3"
+        style={{ borderColor: "var(--border-subtle)" }}
+      >
+        <h1 className="font-display text-lg font-semibold tracking-tight leading-tight">
+          Workspace
+        </h1>
+
+        <button
+          type="button"
+          onClick={onCreateList}
+          className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+          style={{
+            backgroundColor: "var(--accent)",
+            color: "var(--accent-fg)",
+          }}
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>New List</span>
+        </button>
+      </header>
+
+      <ListsWorkspaceTreeBody {...props} variant="tab" />
+    </div>
+  );
+};
+
+export const ListsLeftSidebar: React.FC<ListsLeftSidebarProps> = ({
+  sidebarWidth,
+  isCollapsedDesktop,
+  onCollapseDesktop,
+  onSidebarWidthChange,
+  ...treeProps
+}) => {
+  const [isResizing, setIsResizing] = useState(false);
+
+  const handleStartResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    setIsResizing(true);
+
+    const onMove = (ev: PointerEvent) => {
+      const next = Math.min(
+        MAX_LISTS_SIDEBAR_WIDTH,
+        Math.max(MIN_LISTS_SIDEBAR_WIDTH, startWidth + (ev.clientX - startX)),
+      );
+      onSidebarWidthChange(next);
+    };
+    const onUp = () => {
+      setIsResizing(false);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  if (isCollapsedDesktop) return null;
+
+  return (
+    <div className="hidden lg:block h-full shrink-0">
+      <aside
+        aria-label="Lists navigation sidebar"
+        className="relative h-full flex flex-col border-r shrink-0 select-none"
+        style={{
+          width: sidebarWidth,
+          backgroundColor: "var(--bg-surface)",
+          borderColor: "var(--border-subtle)",
+        }}
+      >
+        {/* Sidebar Top Bar */}
+        <div
+          className="h-12 px-3 flex items-center justify-between gap-2 border-b shrink-0"
+          style={{ borderColor: "var(--border-subtle)" }}
+        >
+          <span
+            className="text-xs font-semibold tracking-wide uppercase"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Lists
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={treeProps.onCreateList}
+              title="New list collection"
+              aria-label="New list collection"
+              className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onCollapseDesktop}
+              title="Collapse sidebar"
+              aria-label="Collapse lists sidebar"
+              className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              style={{ color: "var(--text-muted)" }}
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <ListsWorkspaceTreeBody {...treeProps} variant="sidebar" />
+
+        {/* Desktop Drag-Resize Divider */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize lists sidebar"
+          title="Drag to resize · Double-click to reset"
+          onPointerDown={handleStartResize}
+          onDoubleClick={() => onSidebarWidthChange(DEFAULT_LISTS_SIDEBAR_WIDTH)}
+          className={`absolute top-0 right-[-3px] bottom-0 w-1.5 cursor-col-resize z-20 transition-colors ${
+            isResizing
+              ? "bg-[var(--accent)]/60"
+              : "bg-transparent hover:bg-[var(--accent)]/35"
+          }`}
+        />
+      </aside>
+    </div>
   );
 };

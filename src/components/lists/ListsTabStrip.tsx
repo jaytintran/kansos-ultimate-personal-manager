@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { FolderTree, Plus, X } from "lucide-react";
 import type { ListCollection, ListItem, ListItemStatus } from "../../types";
 import { ListIcon as CollectionIcon } from "../IconLibrary";
 
@@ -17,7 +17,8 @@ interface ListsTabStripProps {
   openItems: ListItem[];
   listsById: Map<string, ListCollection>;
   statusMeta: Record<ListItemStatus, StatusMetaEntry>;
-  activeTabId: string | null; // null means Lists Home view is active
+  activeTabId: string | null; // null means Lists Home view is active unless isWorkspaceActive
+  isWorkspaceActive?: boolean;
   homeTabLabel: string;
   homeTabIcon?: string;
   homeTabColor?: string;
@@ -25,6 +26,7 @@ interface ListsTabStripProps {
     className?: string;
     style?: React.CSSProperties;
   }>;
+  onSelectWorkspace?: () => void;
   onSelectHome: () => void;
   onSelectTab: (itemId: string) => void;
   onCloseTab: (itemId: string) => void;
@@ -45,10 +47,12 @@ export const ListsTabStrip: React.FC<ListsTabStripProps> = ({
   listsById,
   statusMeta,
   activeTabId,
+  isWorkspaceActive = false,
   homeTabLabel,
   homeTabIcon,
   homeTabColor,
   homeSmartIcon: HomeSmartIcon,
+  onSelectWorkspace,
   onSelectHome,
   onSelectTab,
   onCloseTab,
@@ -57,7 +61,7 @@ export const ListsTabStrip: React.FC<ListsTabStripProps> = ({
   onReorderTabs,
   onOpenTargetListPicker,
 }) => {
-  const isHomeActive = activeTabId === null;
+  const isHomeActive = activeTabId === null && !isWorkspaceActive;
 
   const activeDragTabIdRef = useRef<string | null>(null);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
@@ -158,6 +162,31 @@ export const ListsTabStrip: React.FC<ListsTabStripProps> = ({
         className="border-b border-[var(--border-subtle)] bg-[var(--bg-sidebar)] select-none shrink-0"
       >
         <div className="h-10 lg:h-9 px-2 flex items-end gap-1 overflow-x-auto no-scrollbar">
+          {/* Mobile-Only First Tab: Workspace Tree View */}
+          {onSelectWorkspace && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isWorkspaceActive}
+              title="Workspace"
+              onClick={onSelectWorkspace}
+              className={`lg:hidden h-9 px-3 rounded-t-md inline-flex items-center gap-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer border-t border-x ${
+                isWorkspaceActive
+                  ? "bg-[var(--bg-canvas)] text-[var(--text-primary)] border-[var(--border-subtle)] -mb-px"
+                  : "bg-transparent text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]/70"
+              }`}
+            >
+              <FolderTree
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  isWorkspaceActive
+                    ? "text-[var(--accent)]"
+                    : "text-[var(--text-muted)]"
+                }`}
+              />
+              <span>Workspace</span>
+            </button>
+          )}
+
           {/* Pinned Scope Home Tab */}
           <button
             type="button"
