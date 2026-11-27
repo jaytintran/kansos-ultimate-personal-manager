@@ -815,6 +815,10 @@ export const StreamerView = forwardRef<
         } else if (nextState === 0 && slot) {
           // Video ended: increment loop counter & either loop or auto-pause at target
           const nextCount = (completedLoopsRef.current[matchedSlotId] || 0) + 1;
+          completedLoopsRef.current = {
+            ...completedLoopsRef.current,
+            [matchedSlotId!]: nextCount,
+          };
           setCompletedLoops((prev) => ({
             ...prev,
             [matchedSlotId!]: nextCount,
@@ -1193,12 +1197,40 @@ export const StreamerView = forwardRef<
         savedTargets.length > 0 ? savedTargets : slots.map((sl) => sl.slotId);
 
       allPausedRef.current = false;
+      const resetSlotIds: string[] = [];
       for (const slotId of targets) {
         playingIntentsRef.current.add(slotId);
         const slot = slots.find((sl) => sl.slotId === slotId);
         const iframe = iframeRefs.current[slotId] || null;
+        if (
+          slot &&
+          slot.loopMode === "count" &&
+          (completedLoopsRef.current[slotId] || 0) >= slot.loopCount
+        ) {
+          resetSlotIds.push(slotId);
+          sendYouTubeCommand(iframe, "seekTo", [0, true], slotId);
+        }
         sendYouTubeCommand(iframe, "playVideo", [], slotId);
         if (slot) applySlotAudio(slot, iframe, sleepFadeRef.current);
+      }
+      if (resetSlotIds.length > 0) {
+        const nextLoops = { ...completedLoopsRef.current };
+        for (const id of resetSlotIds) nextLoops[id] = 0;
+        completedLoopsRef.current = nextLoops;
+        setCompletedLoops(nextLoops);
+        setLoopDoneMap((prev) => {
+          const next = { ...prev };
+          for (const id of resetSlotIds) next[id] = false;
+          return next;
+        });
+        setPlaybackProgress((prev) => {
+          const next = { ...prev };
+          for (const id of resetSlotIds) {
+            const cur = next[id] ?? { currentTime: 0, duration: 0 };
+            next[id] = { ...cur, currentTime: 0 };
+          }
+          return next;
+        });
       }
       setAllPaused(false);
       setPlayerStates((prev) => {
@@ -1259,6 +1291,8 @@ export const StreamerView = forwardRef<
       applySlotAudio(slot, iframe, sleepFadeRef.current);
     }
     setAllPaused(false);
+    completedLoopsRef.current = {};
+    setCompletedLoops({});
     setLoopDoneMap({});
     setPlayerStates((prev) => {
       const next = { ...prev };
@@ -1289,6 +1323,8 @@ export const StreamerView = forwardRef<
       setSleepRemainingSeconds(null);
       allPausedRef.current = false;
       setAllPaused(false);
+      completedLoopsRef.current = {};
+      setCompletedLoops({});
       setLoopDoneMap({});
 
       for (const sl of slots) {
@@ -1398,7 +1434,38 @@ export const StreamerView = forwardRef<
     }
   }, []);
 
-  // Per-card Play/Pause toggle (clean player strip)
+  // Reset finite loop count to 0 and immediately restart playback from 0:00
+  const handleResetSlotLoop = useCallback(
+    (slot: StackSlot) => {
+      const iframe = iframeRefs.current[slot.slotId] || null;
+      bannerDismissedRef.current = false;
+      allPausedRef.current = false;
+      setAllPaused(false);
+
+      completedLoopsRef.current = {
+        ...completedLoopsRef.current,
+        [slot.slotId]: 0,
+      };
+      setCompletedLoops((prev) => ({ ...prev, [slot.slotId]: 0 }));
+      setLoopDoneMap((prev) => ({ ...prev, [slot.slotId]: false }));
+      setPlaybackProgress((prev) => {
+        const cur = prev[slot.slotId] ?? { currentTime: 0, duration: 0 };
+        return {
+          ...prev,
+          [slot.slotId]: { ...cur, currentTime: 0 },
+        };
+      });
+
+      playingIntentsRef.current.add(slot.slotId);
+      sendYouTubeCommand(iframe, "seekTo", [0, true], slot.slotId);
+      sendYouTubeCommand(iframe, "playVideo", [], slot.slotId);
+      applySlotAudio(slot, iframe, sleepFadeRef.current);
+      setPlayerStates((prev) => ({ ...prev, [slot.slotId]: 1 }));
+    },
+    [applySlotAudio],
+  );
+
+  // Per-card Play/Pause toggle (auto-resets finished finite loops back to 0 and replays)
   const handleToggleCardPlayPause = useCallback(
     (slot: StackSlot) => {
       const iframe = iframeRefs.current[slot.slotId] || null;
@@ -1411,6 +1478,14 @@ export const StreamerView = forwardRef<
         sendYouTubeCommand(iframe, "pauseVideo", [], slot.slotId);
         setPlayerStates((prev) => ({ ...prev, [slot.slotId]: 2 }));
       } else {
+        const finishedFinite =
+          Boolean(loopDoneMap[slot.slotId]) ||
+          (slot.loopMode === "count" &&
+            (completedLoopsRef.current[slot.slotId] || 0) >= slot.loopCount);
+        if (finishedFinite) {
+          handleResetSlotLoop(slot);
+          return;
+        }
         bannerDismissedRef.current = false;
         allPausedRef.current = false;
         setAllPaused(false);
@@ -1423,7 +1498,7 @@ export const StreamerView = forwardRef<
         setPlayerStates((prev) => ({ ...prev, [slot.slotId]: 1 }));
       }
     },
-    [applySlotAudio],
+    [applySlotAudio, handleResetSlotLoop, loopDoneMap],
   );
 
   // Per-card Seek handler
@@ -1476,18 +1551,22 @@ export const StreamerView = forwardRef<
     [viewMuted, updateStreamSlot],
   );
 
-  const handleToggleLoopMode = useCallback(
-    (slot: StackSlot) => {
-      const nextMode = slot.loopMode === "infinite" ? "count" : "infinite";
-      updateStreamSlot(slot.slotId, { loopMode: nextMode });
-      if (
-        nextMode === "infinite" ||
-        (completedLoops[slot.slotId] || 0) < slot.loopCount
-      ) {
-        setLoopDoneMap((prev) => ({ ...prev, [slot.slotId]: false }));
+  const handleSetLoopMode = useCallback(
+    (slot: StackSlot, nextMode: "infinite" | "count") => {
+      if (slot.loopMode !== nextMode) {
+        updateStreamSlot(slot.slotId, { loopMode: nextMode });
+      }
+      if (nextMode === "infinite") {
+        setLoopDoneMap((prev) =>
+          prev[slot.slotId] ? { ...prev, [slot.slotId]: false } : prev,
+        );
+      } else {
+        const reached =
+          (completedLoopsRef.current[slot.slotId] || 0) >= slot.loopCount;
+        setLoopDoneMap((prev) => ({ ...prev, [slot.slotId]: reached }));
       }
     },
-    [updateStreamSlot, completedLoops],
+    [updateStreamSlot],
   );
 
   const handleChangeLoopCount = useCallback(
@@ -1497,11 +1576,11 @@ export const StreamerView = forwardRef<
         loopMode: "count",
         loopCount: safeCount,
       });
-      if ((completedLoops[slot.slotId] || 0) < safeCount) {
-        setLoopDoneMap((prev) => ({ ...prev, [slot.slotId]: false }));
-      }
+      const currentCompleted = completedLoopsRef.current[slot.slotId] || 0;
+      const reached = currentCompleted >= safeCount;
+      setLoopDoneMap((prev) => ({ ...prev, [slot.slotId]: reached }));
     },
-    [updateStreamSlot, completedLoops],
+    [updateStreamSlot],
   );
 
   const handleQuietLayer = useCallback(() => {
@@ -1939,42 +2018,24 @@ export const StreamerView = forwardRef<
                         handleReorderSlot(draggedId, slot.slotId, position);
                       }}
                       onDragEnd={clearSlotDragState}
-                      onGripPointerDown={(e) => {
-                        if (
-                          e.pointerType === "mouse" ||
-                          activeSlots.length <= 1
-                        ) {
-                          return;
-                        }
-                        e.stopPropagation();
-                        e.currentTarget.setPointerCapture(e.pointerId);
+                      onHeaderTouchDragStart={() => {
+                        if (activeSlots.length <= 1) return;
                         activeDragSlotIdRef.current = slot.slotId;
                         setDraggingSlotId(slot.slotId);
                         setSlotDropTarget(null);
                       }}
-                      onGripPointerMove={(e) => {
-                        if (
-                          e.pointerType === "mouse" ||
-                          activeDragSlotIdRef.current !== slot.slotId
-                        ) {
-                          return;
-                        }
+                      onHeaderTouchDragMove={(clientX, clientY) => {
+                        if (activeDragSlotIdRef.current !== slot.slotId) return;
                         setSlotDropTarget(
-                          resolveSlotTouchDrop(
-                            e.clientX,
-                            e.clientY,
-                            slot.slotId,
-                          ),
+                          resolveSlotTouchDrop(clientX, clientY, slot.slotId),
                         );
                       }}
-                      onGripPointerUp={(e) => {
-                        if (e.pointerType === "mouse") return;
-                        e.stopPropagation();
+                      onHeaderTouchDragEnd={(clientX, clientY) => {
                         if (activeDragSlotIdRef.current === slot.slotId) {
                           const target =
                             resolveSlotTouchDrop(
-                              e.clientX,
-                              e.clientY,
+                              clientX,
+                              clientY,
                               slot.slotId,
                             ) ?? slotDropTarget;
                           clearSlotDragState();
@@ -1989,17 +2050,18 @@ export const StreamerView = forwardRef<
                           clearSlotDragState();
                         }
                       }}
-                      onGripPointerCancel={clearSlotDragState}
+                      onHeaderTouchDragCancel={clearSlotDragState}
                       onTogglePlayPause={() => handleToggleCardPlayPause(slot)}
                       onSeek={(secs) => handleSeekSlot(slot, secs)}
                       onToggleMute={() => handleToggleCardMute(slot)}
                       onChangeVolume={(vol) =>
                         handleChangeCardVolume(slot, vol)
                       }
-                      onToggleLoopMode={() => handleToggleLoopMode(slot)}
+                      onSetLoopMode={(mode) => handleSetLoopMode(slot, mode)}
                       onChangeLoopCount={(count) =>
                         handleChangeLoopCount(slot, count)
                       }
+                      onResetLoop={() => handleResetSlotLoop(slot)}
                       onRemove={() => removeStreamSlot(slot.slotId)}
                     />
                   );
