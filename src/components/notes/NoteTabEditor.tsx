@@ -103,7 +103,6 @@ interface NoteTabEditorProps {
   sidebarCollapsedDesktop: boolean;
   connOpenDesktop: boolean;
   onExpandDesktopSidebar: () => void;
-  onOpenMobileTree: () => void;
   onToggleDesktopConnections: () => void;
   onOpenMobileConnections: () => void;
   onOpenNoteTab: (noteId: string) => void;
@@ -143,7 +142,6 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   sidebarCollapsedDesktop,
   connOpenDesktop,
   onExpandDesktopSidebar,
-  onOpenMobileTree,
   onToggleDesktopConnections,
   onOpenMobileConnections,
   onOpenNoteTab,
@@ -680,21 +678,6 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
               <PanelLeftOpen className="w-3.5 h-3.5" />
             </button>
           )}
-
-          <button
-            type="button"
-            onClick={onOpenMobileTree}
-            title="Page tree & notebooks"
-            aria-label="Open page tree"
-            className="lg:hidden h-7 w-7 flex items-center justify-center rounded-lg border shrink-0 cursor-pointer"
-            style={{
-              backgroundColor: "var(--bg-surface)",
-              borderColor: "var(--border-subtle)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            <PanelLeftOpen className="w-3.5 h-3.5" />
-          </button>
 
           {/* Notion-style Ancestor Breadcrumb Trail */}
           <nav

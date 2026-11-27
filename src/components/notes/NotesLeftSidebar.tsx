@@ -4,7 +4,6 @@ import {
   BookOpen,
   ChevronDown,
   ChevronRight,
-  FileText,
   FolderOpen,
   Library,
   ListChecks,
@@ -12,7 +11,6 @@ import {
   Pencil,
   Plus,
   Trash2,
-  X,
 } from "lucide-react";
 import { DynamicIcon, NotePageIcon } from "../IconLibrary";
 import { buildNoteChildrenMap, wouldCreateParentCycle } from "../../lib/noteGraphUtils";
@@ -30,7 +28,7 @@ export type NotesScope =
   | { kind: "archive" }
   | { kind: "notebook"; notebookId: string };
 
-interface NotesLeftSidebarProps {
+export interface NotesWorkspaceTreeProps {
   allNotes: Entry[];
   archivedNotesCount: number;
   bookNotesCount: number;
@@ -38,12 +36,6 @@ interface NotesLeftSidebarProps {
   notebooks: NoteNotebook[];
   scope: NotesScope;
   focusedNoteId: string | null;
-  sidebarWidth: number;
-  isCollapsedDesktop: boolean;
-  isOpenMobile: boolean;
-  onCloseMobile: () => void;
-  onCollapseDesktop: () => void;
-  onSidebarWidthChange: (width: number) => void;
   onSelectScope: (scope: NotesScope) => void;
   onOpenNote: (noteId: string) => void;
   onCreateNote: (options: { notebookId?: string | null; parentId?: string | null }) => void;
@@ -53,6 +45,13 @@ interface NotesLeftSidebarProps {
   onNestNoteUnderParent: (draggedNoteId: string, newParentId: string | null) => void;
   onMoveNoteToNotebook: (noteId: string, notebookId: string | null) => void;
   onReorderNotebook: (draggedId: string, targetId: string, position: "before" | "after") => void;
+}
+
+interface NotesLeftSidebarProps extends NotesWorkspaceTreeProps {
+  sidebarWidth: number;
+  isCollapsedDesktop: boolean;
+  onCollapseDesktop: () => void;
+  onSidebarWidthChange: (width: number) => void;
 }
 
 const EXPANDED_STORAGE_KEY = "kanso_notes_sidebar_expanded_v1";
@@ -70,7 +69,10 @@ function loadExpandedIds(): Record<string, boolean> {
   return {};
 }
 
-export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
+const NotesWorkspaceTreeBody: React.FC<
+  NotesWorkspaceTreeProps & { variant: "sidebar" | "tab" }
+> = ({
+  variant,
   allNotes,
   archivedNotesCount,
   bookNotesCount,
@@ -78,12 +80,6 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
   notebooks,
   scope,
   focusedNoteId,
-  sidebarWidth,
-  isCollapsedDesktop,
-  isOpenMobile,
-  onCloseMobile,
-  onCollapseDesktop,
-  onSidebarWidthChange,
   onSelectScope,
   onOpenNote,
   onCreateNote,
@@ -94,6 +90,7 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
   onMoveNoteToNotebook,
   onReorderNotebook,
 }) => {
+  const isTab = variant === "tab";
   const [sectionsCollapsed, setSectionsCollapsed] = useState<{
     smart: boolean;
     notebooks: boolean;
@@ -101,7 +98,6 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
   }>({ smart: false, notebooks: false, unfiled: false });
 
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>(loadExpandedIds);
-  const [isResizing, setIsResizing] = useState(false);
   const [dropHighlightKey, setDropHighlightKey] = useState<string | null>(null);
   const [nbDropTarget, setNbDropTarget] = useState<{
     id: string;
@@ -185,28 +181,6 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
     return map;
   }, [allNotes, notebookMap]);
 
-  const handleStartResize = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = sidebarWidth;
-    setIsResizing(true);
-
-    const onMove = (ev: PointerEvent) => {
-      const next = Math.min(
-        MAX_NOTES_SIDEBAR_WIDTH,
-        Math.max(MIN_NOTES_SIDEBAR_WIDTH, startWidth + (ev.clientX - startX)),
-      );
-      onSidebarWidthChange(next);
-    };
-    const onUp = () => {
-      setIsResizing(false);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  };
-
   const renderPageNode = (note: Entry, depth: number, visited = new Set<string>()): React.ReactNode => {
     if (visited.has(note.id)) return null;
     const nextVisited = new Set(visited);
@@ -222,7 +196,7 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
     return (
       <div key={note.id} className="select-none">
         <div
-          draggable
+          draggable={!isTab}
           onDragStart={(e) => {
             e.stopPropagation();
             e.dataTransfer.setData("application/x-kanso-note-id", note.id);
@@ -263,7 +237,7 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
             onNestNoteUnderParent(draggedId, note.id);
           }}
           style={{
-            paddingLeft: `${8 + depth * 14}px`,
+            paddingLeft: `${(isTab ? 10 : 8) + depth * (isTab ? 16 : 14)}px`,
             backgroundColor: isDropHover
               ? "var(--accent-soft)"
               : isFocused
@@ -271,7 +245,9 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
                 : "transparent",
             color: isFocused ? "var(--accent)" : "var(--text-secondary)",
           }}
-          className={`group flex items-center gap-1 pr-1.5 py-1 rounded-md text-xs transition-colors hover:bg-[var(--bg-surface-hover)] ${
+          className={`group flex items-center gap-1.5 pr-1.5 ${
+            isTab ? "py-1.5 rounded-lg text-[13px]" : "py-1 rounded-md text-xs"
+          } transition-colors hover:bg-[var(--bg-surface-hover)] ${
             isDropHover ? "ring-1 ring-[var(--accent)]" : ""
           }`}
         >
@@ -281,7 +257,7 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
               e.stopPropagation();
               if (hasChildren) toggleExpanded(`note:${note.id}`);
             }}
-            className={`w-4 h-4 flex items-center justify-center rounded shrink-0 ${
+            className={`${isTab ? "w-5 h-5" : "w-4 h-4"} flex items-center justify-center rounded shrink-0 ${
               hasChildren
                 ? "hover:bg-[var(--bg-surface)] cursor-pointer opacity-75 hover:opacity-100"
                 : "opacity-0 pointer-events-none"
@@ -291,23 +267,20 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
           >
             {hasChildren &&
               (isExpanded ? (
-                <ChevronDown className="w-3 h-3" />
+                <ChevronDown className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
               ) : (
-                <ChevronRight className="w-3 h-3" />
+                <ChevronRight className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
               ))}
           </button>
 
           <button
             type="button"
-            onClick={() => {
-              onOpenNote(note.id);
-              onCloseMobile();
-            }}
-            className="flex-1 min-w-0 flex items-center gap-1.5 text-left py-0.5 cursor-pointer"
+            onClick={() => onOpenNote(note.id)}
+            className="flex-1 min-w-0 flex items-center gap-2 text-left py-0.5 cursor-pointer"
           >
             <NotePageIcon
               icon={note.icon}
-              className="w-3.5 h-3.5 shrink-0 opacity-85"
+              className={`${isTab ? "w-4 h-4" : "w-3.5 h-3.5"} shrink-0 opacity-85`}
               style={{
                 color: isFocused
                   ? "var(--accent)"
@@ -333,13 +306,16 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
                 notebookId: note.notebookId ?? null,
                 parentId: note.id,
               });
-              onCloseMobile();
             }}
             title={`Add sub-page inside ${note.title || "Untitled Note"}`}
             aria-label={`Add sub-page inside ${note.title || "Untitled Note"}`}
-            className="opacity-0 group-hover:opacity-100 focus:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] transition-opacity shrink-0 cursor-pointer"
+            className={`${
+              isTab
+                ? "opacity-70 hover:opacity-100 w-7 h-7"
+                : "opacity-0 group-hover:opacity-100 focus:opacity-100 w-5 h-5"
+            } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] transition-opacity shrink-0 cursor-pointer`}
           >
-            <Plus className="w-3 h-3" />
+            <Plus className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
           </button>
         </div>
 
@@ -352,44 +328,537 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
     );
   };
 
-  const sidebarContent = (isDesktop: boolean) => (
-    <aside
-      className="relative h-full flex flex-col border-r shrink-0 select-none"
-      style={{
-        width: isDesktop ? sidebarWidth : 284,
-        backgroundColor: "var(--bg-surface)",
-        borderColor: "var(--border-subtle)",
-      }}
+  return (
+    <div
+      className={`flex-1 min-h-0 overflow-y-auto ${
+        isTab ? "px-3.5 py-4 space-y-5" : "px-2 py-3 space-y-4"
+      }`}
     >
-      {/* Sidebar Top Bar */}
-      <div
-        className="h-12 px-3 flex items-center justify-between gap-2 border-b shrink-0"
-        style={{ borderColor: "var(--border-subtle)" }}
-      >
-        <span
-          className="text-xs font-semibold tracking-wide uppercase"
+      {/* Smart Views */}
+      <div className="space-y-1.5">
+        <button
+          type="button"
+          onClick={() => setSectionsCollapsed((s) => ({ ...s, smart: !s.smart }))}
+          className={`w-full px-1.5 flex items-center justify-between font-semibold uppercase tracking-wider cursor-pointer ${
+            isTab ? "text-[11px]" : "text-[10.5px]"
+          }`}
           style={{ color: "var(--text-muted)" }}
         >
-          Workspace
-        </span>
-        <div className="flex items-center gap-1">
+          <span>Smart Views</span>
+          {sectionsCollapsed.smart ? (
+            <ChevronRight className="w-3.5 h-3.5" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5" />
+          )}
+        </button>
+
+        {!sectionsCollapsed.smart && (
+          <div className={isTab ? "space-y-1" : "space-y-0.5"}>
+            {(
+              [
+                {
+                  kind: "all" as const,
+                  label: "All Notes",
+                  count: allNotes.length,
+                  icon: BookOpen,
+                },
+                {
+                  kind: "book_notes" as const,
+                  label: "Book Notes",
+                  count: bookNotesCount,
+                  icon: Library,
+                },
+                {
+                  kind: "list_notes" as const,
+                  label: "From Lists",
+                  count: listNotesCount,
+                  icon: ListChecks,
+                },
+                {
+                  kind: "unfiled" as const,
+                  label: "Unfiled",
+                  count: unfiledNotes.length,
+                  icon: FolderOpen,
+                  isDropUnfiled: true,
+                },
+                {
+                  kind: "archive" as const,
+                  label: "Archive",
+                  count: archivedNotesCount,
+                  icon: Archive,
+                },
+              ] as const
+            ).map((item) => {
+              const Icon = item.icon;
+              const active = scope.kind === item.kind;
+              const dropKey = `smart:${item.kind}`;
+              const isUnfiledHover =
+                "isDropUnfiled" in item && dropHighlightKey === dropKey;
+
+              return (
+                <button
+                  key={item.kind}
+                  type="button"
+                  onClick={() => onSelectScope({ kind: item.kind })}
+                  onDragOver={(e) => {
+                    if (!("isDropUnfiled" in item)) return;
+                    if (!e.dataTransfer.types.includes("application/x-kanso-note-id")) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDropHighlightKey(dropKey);
+                  }}
+                  onDragLeave={() => {
+                    setDropHighlightKey((prev) => (prev === dropKey ? null : prev));
+                  }}
+                  onDrop={(e) => {
+                    if (!("isDropUnfiled" in item)) return;
+                    if (!e.dataTransfer.types.includes("application/x-kanso-note-id")) return;
+                    const noteId =
+                      e.dataTransfer.getData("application/x-kanso-note-id") ||
+                      dragNoteIdRef.current;
+                    setDropHighlightKey(null);
+                    dragNoteIdRef.current = null;
+                    if (!noteId) return;
+                    e.preventDefault();
+                    onMoveNoteToNotebook(noteId, null);
+                  }}
+                  className={`w-full flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                    isTab
+                      ? "px-3 py-2 rounded-lg text-[13px]"
+                      : "px-2 py-1.5 rounded-md text-xs"
+                  } ${isUnfiledHover ? "ring-1 ring-[var(--accent)]" : ""}`}
+                  style={{
+                    backgroundColor:
+                      active || isUnfiledHover ? "var(--accent-soft)" : "transparent",
+                    color:
+                      active || isUnfiledHover
+                        ? "var(--accent)"
+                        : "var(--text-secondary)",
+                  }}
+                >
+                  <span className="flex items-center gap-2.5 min-w-0">
+                    <Icon className={isTab ? "w-4 h-4 shrink-0" : "w-3.5 h-3.5 shrink-0"} />
+                    <span className={`truncate ${active ? "font-semibold" : "font-medium"}`}>
+                      {item.label}
+                    </span>
+                  </span>
+                  <span className="font-mono tabular-nums text-[11px] opacity-80 shrink-0">
+                    {item.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Notebooks + Nested Pages */}
+      <div className="space-y-1.5">
+        <div className="px-1.5 flex items-center justify-between">
           <button
             type="button"
-            onClick={() => {
+            onClick={() => setSectionsCollapsed((s) => ({ ...s, notebooks: !s.notebooks }))}
+            className={`flex items-center gap-1 font-semibold uppercase tracking-wider cursor-pointer ${
+              isTab ? "text-[11px]" : "text-[10.5px]"
+            }`}
+            style={{ color: "var(--text-muted)" }}
+          >
+            {sectionsCollapsed.notebooks ? (
+              <ChevronRight className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" />
+            )}
+            <span>Notebooks</span>
+          </button>
+          <button
+            type="button"
+            onClick={onCreateNotebook}
+            title="New notebook"
+            aria-label="New notebook"
+            className={`${
+              isTab ? "h-7 w-7" : "h-5 w-5"
+            } flex items-center justify-center rounded hover:bg-[var(--bg-surface-hover)] cursor-pointer`}
+            style={{ color: "var(--text-muted)" }}
+          >
+            <Plus className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
+          </button>
+        </div>
+
+        {!sectionsCollapsed.notebooks && (
+          <div className={isTab ? "space-y-1" : "space-y-0.5"}>
+            {notebooks.map((nb) => {
+              const active = scope.kind === "notebook" && scope.notebookId === nb.id;
+              const roots = rootPagesByNotebook.get(nb.id) ?? [];
+              const totalCount = totalCountByNotebook.get(nb.id) || 0;
+              const isNbExpanded = Boolean(expandedNodes[`nb:${nb.id}`]);
+              const dropKey = `nb:${nb.id}`;
+              const isDropHover = dropHighlightKey === dropKey;
+              const isOrderTarget = nbDropTarget?.id === nb.id;
+
+              return (
+                <div key={nb.id} className="space-y-0.5">
+                  <div
+                    draggable={!isTab}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("application/x-kanso-notebook-id", nb.id);
+                      e.dataTransfer.effectAllowed = "move";
+                      dragNotebookIdRef.current = nb.id;
+                    }}
+                    onDragEnd={() => {
+                      dragNotebookIdRef.current = null;
+                      setNbDropTarget(null);
+                    }}
+                    onDragOver={(e) => {
+                      const types = e.dataTransfer.types;
+                      if (types.includes("application/x-kanso-note-id")) {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        setDropHighlightKey(dropKey);
+                        return;
+                      }
+                      if (
+                        types.includes("application/x-kanso-notebook-id") &&
+                        dragNotebookIdRef.current &&
+                        dragNotebookIdRef.current !== nb.id
+                      ) {
+                        e.preventDefault();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const pos =
+                          e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                        setNbDropTarget({ id: nb.id, position: pos });
+                      }
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setDropHighlightKey((prev) => (prev === dropKey ? null : prev));
+                        setNbDropTarget((prev) => (prev?.id === nb.id ? null : prev));
+                      }
+                    }}
+                    onDrop={(e) => {
+                      const types = e.dataTransfer.types;
+                      if (types.includes("application/x-kanso-note-id")) {
+                        const noteId =
+                          e.dataTransfer.getData("application/x-kanso-note-id") ||
+                          dragNoteIdRef.current;
+                        setDropHighlightKey(null);
+                        dragNoteIdRef.current = null;
+                        if (!noteId) return;
+                        e.preventDefault();
+                        setExpandedTrue(`nb:${nb.id}`);
+                        onMoveNoteToNotebook(noteId, nb.id);
+                        return;
+                      }
+                      if (types.includes("application/x-kanso-notebook-id")) {
+                        const draggedNbId =
+                          e.dataTransfer.getData("application/x-kanso-notebook-id") ||
+                          dragNotebookIdRef.current;
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const pos =
+                          e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                        setNbDropTarget(null);
+                        dragNotebookIdRef.current = null;
+                        if (!draggedNbId || draggedNbId === nb.id) return;
+                        e.preventDefault();
+                        onReorderNotebook(draggedNbId, nb.id, pos);
+                      }
+                    }}
+                    className={`group relative flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-hover)] ${
+                      isTab
+                        ? "px-2 py-1.5 rounded-lg text-[13px]"
+                        : "px-1.5 py-1 rounded-md text-xs"
+                    } ${isDropHover ? "ring-1 ring-[var(--accent)]" : ""}`}
+                    style={{
+                      backgroundColor:
+                        active || isDropHover ? "var(--accent-soft)" : "transparent",
+                      color:
+                        active || isDropHover
+                          ? "var(--accent)"
+                          : "var(--text-secondary)",
+                      boxShadow: isOrderTarget
+                        ? nbDropTarget.position === "before"
+                          ? "inset 0 2px 0 var(--accent)"
+                          : "inset 0 -2px 0 var(--accent)"
+                        : undefined,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (roots.length > 0) toggleExpanded(`nb:${nb.id}`);
+                      }}
+                      className={`${
+                        isTab ? "w-5 h-5" : "w-4 h-4"
+                      } flex items-center justify-center rounded shrink-0 ${
+                        roots.length > 0
+                          ? "hover:bg-[var(--bg-surface)] cursor-pointer opacity-75"
+                          : "opacity-0 pointer-events-none"
+                      }`}
+                      aria-label={isNbExpanded ? "Collapse notebook" : "Expand notebook"}
+                      tabIndex={roots.length > 0 ? 0 : -1}
+                    >
+                      {roots.length > 0 &&
+                        (isNbExpanded ? (
+                          <ChevronDown className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
+                        ) : (
+                          <ChevronRight className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
+                        ))}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onSelectScope({ kind: "notebook", notebookId: nb.id })}
+                      className="flex-1 min-w-0 flex items-center gap-2 text-left py-0.5 cursor-pointer"
+                    >
+                      <DynamicIcon
+                        name={nb.icon || "BookOpen"}
+                        className={isTab ? "w-4 h-4 shrink-0" : "w-3.5 h-3.5 shrink-0"}
+                      />
+                      <span
+                        className={`truncate ${active ? "font-semibold" : "font-medium"}`}
+                        style={{
+                          color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                        }}
+                      >
+                        {nb.name}
+                      </span>
+                    </button>
+
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedTrue(`nb:${nb.id}`);
+                          onCreateNote({ notebookId: nb.id, parentId: null });
+                        }}
+                        title={`New note in ${nb.name}`}
+                        aria-label={`New note in ${nb.name}`}
+                        className={`${
+                          isTab
+                            ? "opacity-70 hover:opacity-100 w-7 h-7"
+                            : "opacity-0 group-hover:opacity-100 focus:opacity-100 w-5 h-5"
+                        } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer`}
+                      >
+                        <Plus className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditNotebook(nb);
+                        }}
+                        title="Edit notebook"
+                        aria-label={`Edit ${nb.name}`}
+                        className={`${
+                          isTab
+                            ? "opacity-70 hover:opacity-100 w-7 h-7"
+                            : "opacity-0 group-hover:opacity-100 focus:opacity-100 w-5 h-5"
+                        } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer`}
+                      >
+                        <Pencil className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteNotebook(nb);
+                        }}
+                        title="Delete notebook"
+                        aria-label={`Delete ${nb.name}`}
+                        className={`${
+                          isTab
+                            ? "opacity-70 hover:opacity-100 w-7 h-7"
+                            : "opacity-0 group-hover:opacity-100 focus:opacity-100 w-5 h-5"
+                        } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--danger)] cursor-pointer`}
+                      >
+                        <Trash2 className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
+                      </button>
+                      <span
+                        className="font-mono tabular-nums text-[11px] w-5 text-right"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {totalCount}
+                      </span>
+                    </div>
+                  </div>
+
+                  {isNbExpanded && roots.length > 0 && (
+                    <div className="pl-2 space-y-0.5">
+                      {roots.map((n) => renderPageNode(n, 0))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {notebooks.length === 0 && (
+              <p className="px-2 py-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                No notebooks yet
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Unfiled Pages Tree */}
+      {unfiledRootPages.length > 0 && (
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            onClick={() => setSectionsCollapsed((s) => ({ ...s, unfiled: !s.unfiled }))}
+            className={`w-full px-1.5 flex items-center justify-between font-semibold uppercase tracking-wider cursor-pointer ${
+              isTab ? "text-[11px]" : "text-[10.5px]"
+            }`}
+            style={{ color: "var(--text-muted)" }}
+          >
+            <span>Unfiled Pages</span>
+            {sectionsCollapsed.unfiled ? (
+              <ChevronRight className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" />
+            )}
+          </button>
+
+          {!sectionsCollapsed.unfiled && (
+            <div className="space-y-0.5">
+              {unfiledRootPages.map((n) => renderPageNode(n, 0))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export const NotesWorkspaceTab: React.FC<NotesWorkspaceTreeProps> = (props) => {
+  const { scope, onCreateNote, onCreateNotebook } = props;
+
+  return (
+    <div
+      className="lg:hidden flex-1 min-h-0 flex flex-col overflow-hidden"
+      style={{ backgroundColor: "var(--bg-canvas)" }}
+    >
+      {/* Pinned Workspace Tab Header */}
+      <header
+        className="shrink-0 relative z-20 px-4 sm:px-6 pt-4 pb-3 border-b bg-[var(--bg-canvas)] flex items-center justify-between gap-3"
+        style={{ borderColor: "var(--border-subtle)" }}
+      >
+        <h1 className="font-display text-lg font-semibold tracking-tight leading-tight">
+          Workspace
+        </h1>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={onCreateNotebook}
+            className="h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+            style={{
+              backgroundColor: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Notebook</span>
+          </button>
+          <button
+            type="button"
+            onClick={() =>
               onCreateNote({
                 notebookId: scope.kind === "notebook" ? scope.notebookId : null,
                 parentId: null,
-              });
-              onCloseMobile();
+              })
+            }
+            className="h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+            style={{
+              backgroundColor: "var(--accent)",
+              color: "var(--accent-fg)",
             }}
-            title="New note"
-            aria-label="New note"
-            className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-            style={{ color: "var(--text-secondary)" }}
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5" />
+            <span>New Note</span>
           </button>
-          {isDesktop ? (
+        </div>
+      </header>
+
+      <NotesWorkspaceTreeBody {...props} variant="tab" />
+    </div>
+  );
+};
+
+export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
+  sidebarWidth,
+  isCollapsedDesktop,
+  onCollapseDesktop,
+  onSidebarWidthChange,
+  ...treeProps
+}) => {
+  const [isResizing, setIsResizing] = useState(false);
+
+  const handleStartResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    setIsResizing(true);
+
+    const onMove = (ev: PointerEvent) => {
+      const next = Math.min(
+        MAX_NOTES_SIDEBAR_WIDTH,
+        Math.max(MIN_NOTES_SIDEBAR_WIDTH, startWidth + (ev.clientX - startX)),
+      );
+      onSidebarWidthChange(next);
+    };
+    const onUp = () => {
+      setIsResizing(false);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  if (isCollapsedDesktop) return null;
+
+  return (
+    <div className="hidden lg:block h-full shrink-0">
+      <aside
+        className="relative h-full flex flex-col border-r shrink-0 select-none"
+        style={{
+          width: sidebarWidth,
+          backgroundColor: "var(--bg-surface)",
+          borderColor: "var(--border-subtle)",
+        }}
+      >
+        {/* Sidebar Top Bar */}
+        <div
+          className="h-12 px-3 flex items-center justify-between gap-2 border-b shrink-0"
+          style={{ borderColor: "var(--border-subtle)" }}
+        >
+          <span
+            className="text-xs font-semibold tracking-wide uppercase"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Workspace
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() =>
+                treeProps.onCreateNote({
+                  notebookId:
+                    treeProps.scope.kind === "notebook"
+                      ? treeProps.scope.notebookId
+                      : null,
+                  parentId: null,
+                })
+              }
+              title="New note"
+              aria-label="New note"
+              className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
             <button
               type="button"
               onClick={onCollapseDesktop}
@@ -400,396 +869,12 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
             >
               <PanelLeftClose className="w-4 h-4" />
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onCloseMobile}
-              aria-label="Close sidebar"
-              className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Scrollable Tree Sections */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-2 py-3 space-y-4">
-        {/* Smart Views */}
-        <div className="space-y-1">
-          <button
-            type="button"
-            onClick={() => setSectionsCollapsed((s) => ({ ...s, smart: !s.smart }))}
-            className="w-full px-1.5 flex items-center justify-between text-[10.5px] font-semibold uppercase tracking-wider cursor-pointer"
-            style={{ color: "var(--text-muted)" }}
-          >
-            <span>Smart Views</span>
-            {sectionsCollapsed.smart ? (
-              <ChevronRight className="w-3 h-3" />
-            ) : (
-              <ChevronDown className="w-3 h-3" />
-            )}
-          </button>
-
-          {!sectionsCollapsed.smart && (
-            <div className="space-y-0.5">
-              {(
-                [
-                  {
-                    kind: "all" as const,
-                    label: "All Notes",
-                    count: allNotes.length,
-                    icon: BookOpen,
-                  },
-                  {
-                    kind: "book_notes" as const,
-                    label: "Book Notes",
-                    count: bookNotesCount,
-                    icon: Library,
-                  },
-                  {
-                    kind: "list_notes" as const,
-                    label: "From Lists",
-                    count: listNotesCount,
-                    icon: ListChecks,
-                  },
-                  {
-                    kind: "unfiled" as const,
-                    label: "Unfiled",
-                    count: unfiledNotes.length,
-                    icon: FolderOpen,
-                    isDropUnfiled: true,
-                  },
-                  {
-                    kind: "archive" as const,
-                    label: "Archive",
-                    count: archivedNotesCount,
-                    icon: Archive,
-                  },
-                ] as const
-              ).map((item) => {
-                const Icon = item.icon;
-                const active = scope.kind === item.kind;
-                const dropKey = `smart:${item.kind}`;
-                const isUnfiledHover =
-                  "isDropUnfiled" in item && dropHighlightKey === dropKey;
-
-                return (
-                  <button
-                    key={item.kind}
-                    type="button"
-                    onClick={() => {
-                      onSelectScope({ kind: item.kind });
-                      onCloseMobile();
-                    }}
-                    onDragOver={(e) => {
-                      if (!("isDropUnfiled" in item)) return;
-                      if (!e.dataTransfer.types.includes("application/x-kanso-note-id")) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                      setDropHighlightKey(dropKey);
-                    }}
-                    onDragLeave={() => {
-                      setDropHighlightKey((prev) => (prev === dropKey ? null : prev));
-                    }}
-                    onDrop={(e) => {
-                      if (!("isDropUnfiled" in item)) return;
-                      if (!e.dataTransfer.types.includes("application/x-kanso-note-id")) return;
-                      const noteId =
-                        e.dataTransfer.getData("application/x-kanso-note-id") ||
-                        dragNoteIdRef.current;
-                      setDropHighlightKey(null);
-                      dragNoteIdRef.current = null;
-                      if (!noteId) return;
-                      e.preventDefault();
-                      onMoveNoteToNotebook(noteId, null);
-                    }}
-                    className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${
-                      isUnfiledHover ? "ring-1 ring-[var(--accent)]" : ""
-                    }`}
-                    style={{
-                      backgroundColor:
-                        active || isUnfiledHover ? "var(--accent-soft)" : "transparent",
-                      color:
-                        active || isUnfiledHover
-                          ? "var(--accent)"
-                          : "var(--text-secondary)",
-                    }}
-                  >
-                    <span className="flex items-center gap-2 min-w-0">
-                      <Icon className="w-3.5 h-3.5 shrink-0" />
-                      <span className={`truncate ${active ? "font-semibold" : "font-medium"}`}>
-                        {item.label}
-                      </span>
-                    </span>
-                    <span className="font-mono tabular-nums text-[11px] opacity-80 shrink-0">
-                      {item.count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Notebooks + Nested Pages */}
-        <div className="space-y-1">
-          <div className="px-1.5 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => setSectionsCollapsed((s) => ({ ...s, notebooks: !s.notebooks }))}
-              className="flex items-center gap-1 text-[10.5px] font-semibold uppercase tracking-wider cursor-pointer"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {sectionsCollapsed.notebooks ? (
-                <ChevronRight className="w-3 h-3" />
-              ) : (
-                <ChevronDown className="w-3 h-3" />
-              )}
-              <span>Notebooks</span>
-            </button>
-            <button
-              type="button"
-              onClick={onCreateNotebook}
-              title="New notebook"
-              aria-label="New notebook"
-              className="h-5 w-5 flex items-center justify-center rounded hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <Plus className="w-3 h-3" />
-            </button>
           </div>
-
-          {!sectionsCollapsed.notebooks && (
-            <div className="space-y-0.5">
-              {notebooks.map((nb) => {
-                const active = scope.kind === "notebook" && scope.notebookId === nb.id;
-                const roots = rootPagesByNotebook.get(nb.id) ?? [];
-                const totalCount = totalCountByNotebook.get(nb.id) || 0;
-                const isNbExpanded = Boolean(expandedNodes[`nb:${nb.id}`]);
-                const dropKey = `nb:${nb.id}`;
-                const isDropHover = dropHighlightKey === dropKey;
-                const isOrderTarget = nbDropTarget?.id === nb.id;
-
-                return (
-                  <div key={nb.id} className="space-y-0.5">
-                    <div
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("application/x-kanso-notebook-id", nb.id);
-                        e.dataTransfer.effectAllowed = "move";
-                        dragNotebookIdRef.current = nb.id;
-                      }}
-                      onDragEnd={() => {
-                        dragNotebookIdRef.current = null;
-                        setNbDropTarget(null);
-                      }}
-                      onDragOver={(e) => {
-                        const types = e.dataTransfer.types;
-                        if (types.includes("application/x-kanso-note-id")) {
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = "move";
-                          setDropHighlightKey(dropKey);
-                          return;
-                        }
-                        if (
-                          types.includes("application/x-kanso-notebook-id") &&
-                          dragNotebookIdRef.current &&
-                          dragNotebookIdRef.current !== nb.id
-                        ) {
-                          e.preventDefault();
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const pos =
-                            e.clientY < rect.top + rect.height / 2 ? "before" : "after";
-                          setNbDropTarget({ id: nb.id, position: pos });
-                        }
-                      }}
-                      onDragLeave={(e) => {
-                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                          setDropHighlightKey((prev) => (prev === dropKey ? null : prev));
-                          setNbDropTarget((prev) => (prev?.id === nb.id ? null : prev));
-                        }
-                      }}
-                      onDrop={(e) => {
-                        const types = e.dataTransfer.types;
-                        if (types.includes("application/x-kanso-note-id")) {
-                          const noteId =
-                            e.dataTransfer.getData("application/x-kanso-note-id") ||
-                            dragNoteIdRef.current;
-                          setDropHighlightKey(null);
-                          dragNoteIdRef.current = null;
-                          if (!noteId) return;
-                          e.preventDefault();
-                          setExpandedTrue(`nb:${nb.id}`);
-                          onMoveNoteToNotebook(noteId, nb.id);
-                          return;
-                        }
-                        if (types.includes("application/x-kanso-notebook-id")) {
-                          const draggedNbId =
-                            e.dataTransfer.getData("application/x-kanso-notebook-id") ||
-                            dragNotebookIdRef.current;
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const pos =
-                            e.clientY < rect.top + rect.height / 2 ? "before" : "after";
-                          setNbDropTarget(null);
-                          dragNotebookIdRef.current = null;
-                          if (!draggedNbId || draggedNbId === nb.id) return;
-                          e.preventDefault();
-                          onReorderNotebook(draggedNbId, nb.id, pos);
-                        }
-                      }}
-                      className={`group relative flex items-center gap-1 px-1.5 py-1 rounded-md text-xs transition-colors hover:bg-[var(--bg-surface-hover)] ${
-                        isDropHover ? "ring-1 ring-[var(--accent)]" : ""
-                      }`}
-                      style={{
-                        backgroundColor:
-                          active || isDropHover ? "var(--accent-soft)" : "transparent",
-                        color:
-                          active || isDropHover
-                            ? "var(--accent)"
-                            : "var(--text-secondary)",
-                        boxShadow: isOrderTarget
-                          ? nbDropTarget.position === "before"
-                            ? "inset 0 2px 0 var(--accent)"
-                            : "inset 0 -2px 0 var(--accent)"
-                          : undefined,
-                      }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (roots.length > 0) toggleExpanded(`nb:${nb.id}`);
-                        }}
-                        className={`w-4 h-4 flex items-center justify-center rounded shrink-0 ${
-                          roots.length > 0
-                            ? "hover:bg-[var(--bg-surface)] cursor-pointer opacity-75"
-                            : "opacity-0 pointer-events-none"
-                        }`}
-                        aria-label={isNbExpanded ? "Collapse notebook" : "Expand notebook"}
-                        tabIndex={roots.length > 0 ? 0 : -1}
-                      >
-                        {roots.length > 0 &&
-                          (isNbExpanded ? (
-                            <ChevronDown className="w-3 h-3" />
-                          ) : (
-                            <ChevronRight className="w-3 h-3" />
-                          ))}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelectScope({ kind: "notebook", notebookId: nb.id });
-                          onCloseMobile();
-                        }}
-                        className="flex-1 min-w-0 flex items-center gap-2 text-left py-0.5 cursor-pointer"
-                      >
-                        <DynamicIcon name={nb.icon || "BookOpen"} className="w-3.5 h-3.5 shrink-0" />
-                        <span
-                          className={`truncate ${active ? "font-semibold" : "font-medium"}`}
-                          style={{
-                            color: active ? "var(--text-primary)" : "var(--text-secondary)",
-                          }}
-                        >
-                          {nb.name}
-                        </span>
-                      </button>
-
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedTrue(`nb:${nb.id}`);
-                            onCreateNote({ notebookId: nb.id, parentId: null });
-                            onCloseMobile();
-                          }}
-                          title={`New note in ${nb.name}`}
-                          aria-label={`New note in ${nb.name}`}
-                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer"
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEditNotebook(nb);
-                          }}
-                          title="Edit notebook"
-                          aria-label={`Edit ${nb.name}`}
-                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
-                        >
-                          <Pencil className="w-3 h-3" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteNotebook(nb);
-                          }}
-                          title="Delete notebook"
-                          aria-label={`Delete ${nb.name}`}
-                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--danger)] cursor-pointer"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                        <span
-                          className="font-mono tabular-nums text-[11px] w-5 text-right"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          {totalCount}
-                        </span>
-                      </div>
-                    </div>
-
-                    {isNbExpanded && roots.length > 0 && (
-                      <div className="pl-2 space-y-0.5">
-                        {roots.map((n) => renderPageNode(n, 0))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              {notebooks.length === 0 && (
-                <p className="px-2 py-1 text-[11px]" style={{ color: "var(--text-muted)" }}>
-                  No notebooks yet
-                </p>
-              )}
-            </div>
-          )}
         </div>
 
-        {/* Unfiled Pages Tree */}
-        {unfiledRootPages.length > 0 && (
-          <div className="space-y-1">
-            <button
-              type="button"
-              onClick={() => setSectionsCollapsed((s) => ({ ...s, unfiled: !s.unfiled }))}
-              className="w-full px-1.5 flex items-center justify-between text-[10.5px] font-semibold uppercase tracking-wider cursor-pointer"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <span>Unfiled Pages</span>
-              {sectionsCollapsed.unfiled ? (
-                <ChevronRight className="w-3 h-3" />
-              ) : (
-                <ChevronDown className="w-3 h-3" />
-              )}
-            </button>
+        <NotesWorkspaceTreeBody {...treeProps} variant="sidebar" />
 
-            {!sectionsCollapsed.unfiled && (
-              <div className="space-y-0.5">
-                {unfiledRootPages.map((n) => renderPageNode(n, 0))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Desktop Drag-Resize Divider */}
-      {isDesktop && (
+        {/* Desktop Drag-Resize Divider */}
         <div
           role="separator"
           aria-orientation="vertical"
@@ -801,29 +886,7 @@ export const NotesLeftSidebar: React.FC<NotesLeftSidebarProps> = ({
             isResizing ? "bg-[var(--accent)]/60" : "bg-transparent hover:bg-[var(--accent)]/35"
           }`}
         />
-      )}
-    </aside>
-  );
-
-  return (
-    <>
-      {!isCollapsedDesktop && (
-        <div className="hidden lg:block h-full shrink-0">{sidebarContent(true)}</div>
-      )}
-
-      {isOpenMobile && (
-        <div
-          className="fixed inset-0 z-50 lg:hidden flex bg-black/50 backdrop-blur-[1px] overscroll-none"
-          onClick={onCloseMobile}
-        >
-          <div
-            className="h-full pt-safe pb-safe flex overscroll-none"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {sidebarContent(false)}
-          </div>
-        </div>
-      )}
-    </>
+      </aside>
+    </div>
   );
 };

@@ -42,6 +42,7 @@ import {
   MIN_NOTES_SIDEBAR_WIDTH,
   NotesLeftSidebar,
   NotesScope,
+  NotesWorkspaceTab,
 } from "../components/notes/NotesLeftSidebar";
 import { NotesTabStrip } from "../components/notes/NotesTabStrip";
 import { NoteTabEditor } from "../components/notes/NoteTabEditor";
@@ -259,7 +260,25 @@ export const NotesView: React.FC<NotesViewProps> = ({
       return false;
     }
   });
-  const [mobileTreeOpen, setMobileTreeOpen] = useState(false);
+  const [isWorkspaceTab, setIsWorkspaceTab] = useState(false);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return;
+    }
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const handleViewportChange = () => {
+      if (mq.matches) {
+        setIsWorkspaceTab(false);
+      }
+    };
+    handleViewportChange();
+    mq.addEventListener("change", handleViewportChange);
+    return () => mq.removeEventListener("change", handleViewportChange);
+  }, []);
 
   const [connOpenDesktop, setConnOpenDesktop] = useState<boolean>(() => {
     try {
@@ -790,6 +809,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
     setScope(nextScope);
     setDrilledParentId(null);
     setActiveTabId(null);
+    setIsWorkspaceTab(false);
   }, []);
 
   const handleOpenNoteById = useCallback(
@@ -800,6 +820,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
         prev.includes(noteId) ? prev : [...prev, noteId],
       );
       setActiveTabId(noteId);
+      setIsWorkspaceTab(false);
     },
     [anyNoteById],
   );
@@ -820,6 +841,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
         : [...prev, noteJumpRequest.noteId],
     );
     setActiveTabId(noteJumpRequest.noteId);
+    setIsWorkspaceTab(false);
   }, [noteJumpRequest, anyNoteById, pushToast]);
 
   const handleCloseNoteTab = useCallback(
@@ -831,6 +853,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
         if (activeTabId === noteId) {
           const fallbackId = next[idx] ?? next[idx - 1] ?? null;
           setActiveTabId(fallbackId);
+          setIsWorkspaceTab(false);
         }
         return next;
       });
@@ -841,11 +864,13 @@ export const NotesView: React.FC<NotesViewProps> = ({
   const handleCloseOtherTabs = useCallback((keepNoteId: string) => {
     setOpenTabIds((prev) => (prev.includes(keepNoteId) ? [keepNoteId] : []));
     setActiveTabId(keepNoteId);
+    setIsWorkspaceTab(false);
   }, []);
 
   const handleCloseAllTabs = useCallback(() => {
     setOpenTabIds([]);
     setActiveTabId(null);
+    setIsWorkspaceTab(false);
   }, []);
 
   const handleReorderNoteTabs = useCallback(
@@ -884,6 +909,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
       setFocusedNoteId(created.id);
       setOpenTabIds((prev) => [...prev, created.id]);
       setActiveTabId(created.id);
+      setIsWorkspaceTab(false);
       return created;
     },
     [addNotePage, workspace.settings.defaultNoteTimelineSync],
@@ -1124,7 +1150,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
             ? "Archived Notes"
             : "All Notes";
 
-  const secondaryBrowserTab = useMemo(() => {
+  const homeTabMeta = useMemo(() => {
     if (drilledParentNote) {
       return {
         label: drilledParentNote.title?.trim() || "Untitled Note",
@@ -1148,13 +1174,13 @@ export const NotesView: React.FC<NotesViewProps> = ({
         return { label: "Archived Notes", icon: "Archive" };
       case "all":
       default:
-        return null;
+        return { label: "Notes", icon: "BookOpen" };
     }
   }, [drilledParentNote, activeNotebook, scope.kind]);
 
   return (
     <div className="h-full flex-1 min-h-0 lg:h-dvh flex overflow-hidden">
-      {/* Desktop Resizable/Collapsible Left Sidebar + Mobile Slide-Over Tree Drawer */}
+      {/* Desktop Resizable/Collapsible Left Sidebar */}
       <NotesLeftSidebar
         allNotes={allNotes}
         archivedNotesCount={archivedNotes.length}
@@ -1165,8 +1191,6 @@ export const NotesView: React.FC<NotesViewProps> = ({
         focusedNoteId={focusedNoteId}
         sidebarWidth={sidebarWidth}
         isCollapsedDesktop={sidebarCollapsedDesktop}
-        isOpenMobile={mobileTreeOpen}
-        onCloseMobile={() => setMobileTreeOpen(false)}
         onCollapseDesktop={() => setSidebarCollapsedDesktop(true)}
         onSidebarWidthChange={setSidebarWidth}
         onSelectScope={handleSelectScope}
@@ -1198,16 +1222,13 @@ export const NotesView: React.FC<NotesViewProps> = ({
         <NotesTabStrip
           openNotes={openNotes}
           activeTabId={activeTabNote ? activeTabNote.id : null}
-          secondaryTab={secondaryBrowserTab}
+          isWorkspaceActive={isWorkspaceTab}
+          homeTabLabel={homeTabMeta.label}
+          homeTabIcon={homeTabMeta.icon}
+          onSelectWorkspace={() => setIsWorkspaceTab(true)}
           onSelectHome={() => {
-            setScope({ kind: "all" });
-            setDrilledParentId(null);
+            setIsWorkspaceTab(false);
             setActiveTabId(null);
-          }}
-          onSelectSecondaryTab={() => setActiveTabId(null)}
-          onCloseSecondaryTab={() => {
-            setScope({ kind: "all" });
-            setDrilledParentId(null);
           }}
           onSelectTab={handleOpenNoteById}
           onCloseTab={handleCloseNoteTab}
@@ -1225,7 +1246,39 @@ export const NotesView: React.FC<NotesViewProps> = ({
           }
         />
 
-        {activeTabNote ? (
+        {isWorkspaceTab ? (
+          <NotesWorkspaceTab
+            allNotes={allNotes}
+            archivedNotesCount={archivedNotes.length}
+            bookNotesCount={bookNotes.length}
+            listNotesCount={listNotes.length}
+            notebooks={notebooks}
+            scope={scope}
+            focusedNoteId={focusedNoteId}
+            onSelectScope={handleSelectScope}
+            onOpenNote={handleOpenNoteById}
+            onCreateNote={handleCreateNoteDirect}
+            onCreateNotebook={() =>
+              setNotebookModal({
+                mode: "create",
+                name: "",
+                icon: "BookOpen",
+              })
+            }
+            onEditNotebook={(nb) =>
+              setNotebookModal({
+                mode: "edit",
+                notebook: nb,
+                name: nb.name,
+                icon: resolveNotebookIconName(nb.icon),
+              })
+            }
+            onDeleteNotebook={handleDeleteNotebook}
+            onNestNoteUnderParent={handleNestNoteUnderParent}
+            onMoveNoteToNotebook={handleMoveNoteToNotebook}
+            onReorderNotebook={reorderNoteNotebooks}
+          />
+        ) : activeTabNote ? (
           <NoteTabEditor
             key={activeTabNote.id}
             note={activeTabNote}
@@ -1233,7 +1286,6 @@ export const NotesView: React.FC<NotesViewProps> = ({
             sidebarCollapsedDesktop={sidebarCollapsedDesktop}
             connOpenDesktop={connOpenDesktop}
             onExpandDesktopSidebar={() => setSidebarCollapsedDesktop(false)}
-            onOpenMobileTree={() => setMobileTreeOpen(true)}
             onToggleDesktopConnections={() => setConnOpenDesktop((v) => !v)}
             onOpenMobileConnections={() => setMobileConnOpen(true)}
             onOpenNoteTab={handleOpenNoteById}
@@ -1281,22 +1333,6 @@ export const NotesView: React.FC<NotesViewProps> = ({
                   <PanelLeftOpen className="w-4 h-4" />
                 </button>
               )}
-
-              {/* Mobile tree drawer trigger */}
-              <button
-                type="button"
-                onClick={() => setMobileTreeOpen(true)}
-                title="Page tree & notebooks"
-                aria-label="Open page tree"
-                className="lg:hidden h-8 w-8 flex items-center justify-center rounded-lg border shrink-0"
-                style={{
-                  backgroundColor: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                <PanelLeftOpen className="w-4 h-4" />
-              </button>
 
               <div className="flex items-baseline gap-2.5 min-w-0">
                 <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight truncate">
