@@ -143,8 +143,8 @@ export const DEFAULT_MOBILE_MORE_VIEWS: ViewId[] = [
 
 export const MIN_MOBILE_PRIMARY_SLOTS = 3;
 export const DEFAULT_MOBILE_PRIMARY_SLOTS = 5;
-export const MAX_MOBILE_PRIMARY_SLOTS = 5;
-export const MOBILE_PRIMARY_SLOT_OPTIONS = [3, 4, 5] as const;
+export const MAX_MOBILE_PRIMARY_SLOTS = 6;
+export const MOBILE_PRIMARY_SLOT_OPTIONS = [3, 4, 5, 6] as const;
 
 export function normalizeMobilePrimarySlots(raw?: number): number {
   if (typeof raw !== "number" || !Number.isFinite(raw)) {

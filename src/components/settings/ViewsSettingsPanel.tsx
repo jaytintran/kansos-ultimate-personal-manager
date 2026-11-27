@@ -417,12 +417,13 @@ export const ViewsSettingsPanel: React.FC<ViewsSettingsPanelProps> = ({
                 style={{ color: "var(--text-muted)" }}
               >
                 {resolved.mobilePrimaryMaxSlots} view tabs beside More (
-                {resolved.mobilePrimaryMaxSlots + 1} buttons total)
+                {resolved.mobilePrimaryMaxSlots + 1} buttons total
+                {resolved.mobilePrimaryMaxSlots >= 6 ? " · icons only" : ""})
               </div>
             </div>
 
             <div
-              className="inline-flex items-center gap-1 p-1 rounded-xl border shrink-0"
+              className="grid grid-cols-2 sm:inline-flex items-center gap-1 p-1 rounded-xl border w-full sm:w-auto shrink-0"
               style={{
                 backgroundColor: "var(--bg-surface-subtle)",
                 borderColor: "var(--border-subtle)",
@@ -443,7 +444,7 @@ export const ViewsSettingsPanel: React.FC<ViewsSettingsPanelProps> = ({
                         setMobilePrimarySlotLimit(navigation, slotCount),
                       )
                     }
-                    className="h-8 px-2.5 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer"
+                    className="h-8 px-2.5 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer text-center"
                     style={{
                       backgroundColor: selected
                         ? "var(--bg-surface)"

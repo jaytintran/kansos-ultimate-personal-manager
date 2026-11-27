@@ -1928,75 +1928,76 @@ const KansoShell: React.FC = () => {
       </main>
 
       {/* Mobile Bottom Thumb-Zone Navigation (hidden cleanly while typing on soft keyboard) */}
-      {!isMobileKeyboardOpen && (
-        <nav
-          className="lg:hidden shrink-0 z-30 border-t pb-safe"
-          style={{
-            backgroundColor: "var(--bg-surface)",
-            borderColor: "var(--border-subtle)",
-          }}
-          aria-label="Mobile workspace navigation"
-        >
-        <div
-          className="h-15 grid items-center px-1 px-safe"
-          style={{
-            gridTemplateColumns: `repeat(${navConfig.mobilePrimaryVisible.length + 1}, minmax(0, 1fr))`,
-          }}
-        >
-          {navConfig.mobilePrimaryVisible.map((id) => {
-            const item = VIEW_META_MAP[id];
-            const Icon = item.icon;
-            const active = activeView === item.id && !moreSheetOpen;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  setMoreSheetOpen(false);
-                  navigateToView(item.id);
-                }}
-                className="flex flex-col items-center justify-center h-full min-w-0 gap-0.5 py-1 transition-colors cursor-pointer"
-                style={{
-                  color: active ? "var(--accent)" : "var(--text-muted)",
-                }}
-              >
-                <span
-                  className="w-9 h-6 rounded-full flex items-center justify-center transition-colors shrink-0"
-                  style={{
-                    backgroundColor: active
-                      ? "var(--accent-soft)"
-                      : "transparent",
-                  }}
-                >
-                  <Icon className="w-[18px] h-[18px]" />
-                </span>
-                <span
-                  className={`text-[9.5px] sm:text-[10px] leading-tight tracking-[-0.01em] truncate max-w-full px-0.5 ${
-                    active ? "font-semibold" : "font-medium"
-                  }`}
-                >
-                  {item.label}
-                </span>
-              </button>
-            );
-          })}
+      {!isMobileKeyboardOpen && (() => {
+        const isIconOnlyMobileNav =
+          navConfig.mobilePrimaryVisible.length + 1 >= 7;
+        const iconSizeClass = isIconOnlyMobileNav
+          ? "w-5 h-5"
+          : "w-[18px] h-[18px]";
+        const moreActive = moreSheetOpen || isMoreViewActive;
+        const moreAudioMuted =
+          ((showStreamerAudioControls && streamerPlayback.isViewMuted) ||
+            (showAudioStudioControls && audioPlayback.isViewMuted)) &&
+          !moreActive;
+        const moreHighlighted =
+          moreActive ||
+          (showStreamerAudioControls && streamerPlayback.isPlaying) ||
+          (showAudioStudioControls && audioPlayback.isPlaying);
+        const moreLabel =
+          isMoreViewActive && activeViewDef ? activeViewDef.label : "More";
 
-          {(() => {
-            const moreActive = moreSheetOpen || isMoreViewActive;
-            const moreAudioMuted =
-              ((showStreamerAudioControls && streamerPlayback.isViewMuted) ||
-                (showAudioStudioControls && audioPlayback.isViewMuted)) &&
-              !moreActive;
-            const moreHighlighted =
-              moreActive ||
-              (showStreamerAudioControls && streamerPlayback.isPlaying) ||
-              (showAudioStudioControls && audioPlayback.isPlaying);
+        return (
+          <nav
+            className="lg:hidden shrink-0 z-30 border-t pb-safe"
+            style={{
+              backgroundColor: "var(--bg-surface)",
+              borderColor: "var(--border-subtle)",
+            }}
+            aria-label="Mobile workspace navigation"
+          >
+            <div
+              className="h-15 grid items-center px-1 px-safe"
+              style={{
+                gridTemplateColumns: `repeat(${navConfig.mobilePrimaryVisible.length + 1}, minmax(0, 1fr))`,
+              }}
+            >
+              {navConfig.mobilePrimaryVisible.map((id) => {
+                const item = VIEW_META_MAP[id];
+                const Icon = item.icon;
+                const active = activeView === item.id && !moreSheetOpen;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setMoreSheetOpen(false);
+                      navigateToView(item.id);
+                    }}
+                    aria-label={item.label}
+                    title={item.label}
+                    className="flex flex-col items-center justify-center h-full min-w-0 gap-1 py-1 transition-colors cursor-pointer"
+                    style={{
+                      color: active ? "var(--accent)" : "var(--text-muted)",
+                    }}
+                  >
+                    <Icon className={`${iconSizeClass} shrink-0`} />
+                    {!isIconOnlyMobileNav && (
+                      <span
+                        className={`text-[9.5px] sm:text-[10px] leading-tight tracking-[-0.01em] truncate max-w-full px-0.5 ${
+                          active ? "font-semibold" : "font-medium"
+                        }`}
+                      >
+                        {item.label}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
 
-            return (
               <button
                 type="button"
                 onClick={() => setMoreSheetOpen((prev) => !prev)}
-                className="flex flex-col items-center justify-center h-full min-w-0 gap-0.5 py-1 transition-colors cursor-pointer"
+                className="flex flex-col items-center justify-center h-full min-w-0 gap-1 py-1 transition-colors cursor-pointer"
                 style={{
                   color: moreHighlighted
                     ? moreAudioMuted
@@ -2005,48 +2006,41 @@ const KansoShell: React.FC = () => {
                     : "var(--text-muted)",
                 }}
                 aria-expanded={moreSheetOpen}
-                aria-label="More views"
+                aria-label={
+                  isMoreViewActive && activeViewDef
+                    ? `${activeViewDef.label} (More views)`
+                    : "More views"
+                }
+                title={moreLabel}
               >
-                <span
-                  className="w-9 h-6 rounded-full flex items-center justify-center transition-colors shrink-0"
-                  style={{
-                    backgroundColor: moreAudioMuted
-                      ? "color-mix(in srgb, var(--danger) 12%, transparent)"
-                      : moreHighlighted
-                        ? "var(--accent-soft)"
-                        : "transparent",
-                  }}
-                >
-                  {(showAudioStudioControls && activeView !== "audio") ||
-                  (showStreamerAudioControls && activeView !== "streamer") ? (
-                    (showAudioStudioControls && audioPlayback.isViewMuted) ||
-                    (showStreamerAudioControls && streamerPlayback.isViewMuted) ? (
-                      <VolumeX className="w-[18px] h-[18px]" />
-                    ) : (showAudioStudioControls && !audioPlayback.isPlaying) ||
-                      (showStreamerAudioControls && streamerPlayback.isAllPaused) ? (
-                      <Pause className="w-[18px] h-[18px]" />
-                    ) : (
-                      <Volume2 className="w-[18px] h-[18px]" />
-                    )
+                {(showAudioStudioControls && activeView !== "audio") ||
+                (showStreamerAudioControls && activeView !== "streamer") ? (
+                  (showAudioStudioControls && audioPlayback.isViewMuted) ||
+                  (showStreamerAudioControls && streamerPlayback.isViewMuted) ? (
+                    <VolumeX className={`${iconSizeClass} shrink-0`} />
+                  ) : (showAudioStudioControls && !audioPlayback.isPlaying) ||
+                    (showStreamerAudioControls && streamerPlayback.isAllPaused) ? (
+                    <Pause className={`${iconSizeClass} shrink-0`} />
                   ) : (
-                    <MoreHorizontal className="w-[18px] h-[18px]" />
-                  )}
-                </span>
-                <span
-                  className={`text-[9.5px] sm:text-[10px] leading-tight tracking-[-0.01em] truncate max-w-full px-0.5 ${
-                    moreActive ? "font-semibold" : "font-medium"
-                  }`}
-                >
-                  {isMoreViewActive && activeViewDef
-                    ? activeViewDef.label
-                    : "More"}
-                </span>
+                    <Volume2 className={`${iconSizeClass} shrink-0`} />
+                  )
+                ) : (
+                  <MoreHorizontal className={`${iconSizeClass} shrink-0`} />
+                )}
+                {!isIconOnlyMobileNav && (
+                  <span
+                    className={`text-[9.5px] sm:text-[10px] leading-tight tracking-[-0.01em] truncate max-w-full px-0.5 ${
+                      moreActive ? "font-semibold" : "font-medium"
+                    }`}
+                  >
+                    {moreLabel}
+                  </span>
+                )}
               </button>
-            );
-          })()}
-        </div>
-        </nav>
-      )}
+            </div>
+          </nav>
+        );
+      })()}
 
       {/* Mobile "More" Slide-Up Bottom Sheet */}
       {moreSheetOpen && (
