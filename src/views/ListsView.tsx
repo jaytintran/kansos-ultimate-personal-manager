@@ -22,7 +22,6 @@ import {
   MoreVertical,
   PanelLeftOpen,
   PanelRight,
-  Pause,
   PauseCircle,
   Pencil,
   Play,
@@ -42,7 +41,6 @@ import {
 import { IconPicker } from "../components/IconPicker";
 import { NlpInputBar } from "../components/NlpInputBar";
 import { RichContent } from "../components/RichContent";
-import { CourseYouTubePlayer } from "../components/lists/CourseYouTubePlayer";
 import { ListItemInspector } from "../components/lists/ListItemInspector";
 import { ListItemTabEditor } from "../components/lists/ListItemTabEditor";
 import { ListsTabStrip } from "../components/lists/ListsTabStrip";
@@ -443,15 +441,12 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const bookLinksMap = useListItemBookLinks();
   const courseProgressMap = useCoursePlaybackProgress();
 
-  // Inline Course YouTube Theater & sticky mini-bar state
-  const [activeCoursePlayerId, setActiveCoursePlayerId] = useState<string | null>(
-    null,
-  );
-  const [playerManualCollapsed, setPlayerManualCollapsed] = useState(false);
-  const [playerScrollCollapsed, setPlayerScrollCollapsed] = useState(false);
-  const leftScrollPaneRef = useRef<HTMLElement | null>(null);
-  const lastLeftScrollTopRef = useRef(0);
-  const ignorePlayerScrollUntilRef = useRef(0);
+  // Study Tab auto-play launch handshake when Play is clicked from Lists View
+  const studyPlayNonceRef = useRef(0);
+  const [studyPlayLaunchRequest, setStudyPlayLaunchRequest] = useState<{
+    itemId: string;
+    nonce: number;
+  } | null>(null);
 
   // Global synced fallback defaults
   const [prefs, setPrefs] = useState<LayoutConfig & { splitOpen: boolean }>(
@@ -468,11 +463,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
     null,
   );
   const [duePickerItemId, setDuePickerItemId] = useState<string | null>(null);
-  const [editingItem, setEditingItem] = useState<{
-    id: string;
-    title: string;
-    subtitle: string;
-  } | null>(null);
 
   const [quickJumpOpen, setQuickJumpOpen] = useState(false);
   const [quickJumpQuery, setQuickJumpQuery] = useState("");
@@ -1168,70 +1158,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
     return { total, completed, inProgress, percent };
   }, [isCoursesScope, scopeItemsAll]);
 
-  const activeCoursePlayerItem = useMemo(() => {
-    if (!activeCoursePlayerId) return null;
-    const found = listItemById.get(activeCoursePlayerId) ?? null;
-    if (!found || !found.url || !parseYouTubeCourseUrl(found.url)) return null;
-    return found;
-  }, [activeCoursePlayerId, listItemById]);
-
-  useEffect(() => {
-    if (activeCoursePlayerId && !activeCoursePlayerItem) {
-      setActiveCoursePlayerId(null);
-      setPlayerManualCollapsed(false);
-      setPlayerScrollCollapsed(false);
-    }
-  }, [activeCoursePlayerId, activeCoursePlayerItem]);
-
-  // Collapse inline theater into sticky mini-bar when switching to a sublist/scope that does not include the playing video
-  useEffect(() => {
-    if (!activeCoursePlayerItem) return;
-    const inCurrentScope = scopeItemsAll.some(
-      (i) => i.id === activeCoursePlayerItem.id,
-    );
-    if (!inCurrentScope) {
-      setPlayerManualCollapsed(true);
-    }
-  }, [scopeKey, activeSublistFilter, activeCoursePlayerItem, scopeItemsAll]);
-
-  const nextYouTubeItem = useMemo(() => {
-    if (!activeCoursePlayerItem) return null;
-    const pool = renderedItemOrder.length > 0 ? renderedItemOrder : scopeItemsAll;
-    const idx = pool.findIndex((i) => i.id === activeCoursePlayerItem.id);
-    if (idx === -1) {
-      return (
-        pool.find(
-          (i) =>
-            i.id !== activeCoursePlayerItem.id &&
-            i.status !== "dropped" &&
-            Boolean(i.url && parseYouTubeCourseUrl(i.url)),
-        ) ?? null
-      );
-    }
-    for (let i = idx + 1; i < pool.length; i++) {
-      const candidate = pool[i];
-      if (
-        candidate.status !== "dropped" &&
-        candidate.url &&
-        parseYouTubeCourseUrl(candidate.url)
-      ) {
-        return candidate;
-      }
-    }
-    return null;
-  }, [activeCoursePlayerItem, renderedItemOrder, scopeItemsAll]);
-
-  const handlePlayYouTubeItem = useCallback((itemId: string) => {
-    ignorePlayerScrollUntilRef.current = performance.now() + 700;
-    lastLeftScrollTopRef.current = 0;
-    setActiveCoursePlayerId(itemId);
-    setPlayerManualCollapsed(false);
-    setPlayerScrollCollapsed(false);
-    window.requestAnimationFrame(() => {
-      leftScrollPaneRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-    });
-  }, []);
-
   const handleQuickAddListItem = useCallback(
     (
       targetListId: string,
@@ -1534,6 +1460,19 @@ export const ListsView: React.FC<ListsViewProps> = ({
     [listItemById],
   );
 
+  const handlePlayYouTubeItem = useCallback(
+    (itemId: string) => {
+      if (!listItemById.has(itemId)) return;
+      studyPlayNonceRef.current += 1;
+      setStudyPlayLaunchRequest({
+        itemId,
+        nonce: studyPlayNonceRef.current,
+      });
+      handleOpenItemTab(itemId);
+    },
+    [listItemById, handleOpenItemTab],
+  );
+
   const handleCloseItemTab = useCallback((itemId: string) => {
     setLocalState((prev) => {
       const idx = prev.openTabIds.indexOf(itemId);
@@ -1681,18 +1620,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
       if (isSelectedItemRef) isSelectedItemRef.current = null;
     };
   }, [selectItemHandlerRef, isSelectedItemRef, selectedIds]);
-
-  const commitInlineEdit = useCallback(() => {
-    if (!editingItem) return;
-    const trimmedTitle = editingItem.title.trim();
-    if (trimmedTitle) {
-      updateListItem(editingItem.id, {
-        title: trimmedTitle,
-        subtitle: editingItem.subtitle.trim(),
-      });
-    }
-    setEditingItem(null);
-  }, [editingItem, updateListItem]);
 
   // Bulk Actions
   const handleBulkStatus = (nextStatus: ListItemStatus) => {
@@ -2229,17 +2156,13 @@ export const ListsView: React.FC<ListsViewProps> = ({
     return null;
   };
 
-  const makeCommonDragHandlers = (item: ListItem, isInlineEditing: boolean) => ({
+  const makeCommonDragHandlers = (item: ListItem) => ({
     ref: (node: HTMLDivElement | null) => {
       if (node) itemElRefs.current.set(item.id, node);
       else itemElRefs.current.delete(item.id);
     },
-    draggable: !isInlineEditing,
+    draggable: true,
     onDragStart: (e: React.DragEvent<HTMLDivElement>) => {
-      if (isInlineEditing) {
-        e.preventDefault();
-        return;
-      }
       e.dataTransfer.setData("application/x-kanso-list-item-id", item.id);
       e.dataTransfer.effectAllowed = "move";
       activeDragItemIdRef.current = item.id;
@@ -2322,14 +2245,12 @@ export const ListsView: React.FC<ListsViewProps> = ({
     const itemTags = item.tags || [];
     const isBeingDragged = draggingItemId === item.id;
     const isDropTarget = itemDropTarget?.itemId === item.id;
-    const isInlineEditing = editingItem?.id === item.id;
     const isSelectedForEdit =
       isDesktop && prefs.splitOpen && localState.selectedItemId === item.id;
     const isChecked = selectedIds.has(item.id);
     const validUrl = item.url ? normalizeExternalUrl(item.url) : "";
     const itemList = listById.get(item.listId);
     const ytCourseInfo = item.url ? parseYouTubeCourseUrl(item.url) : null;
-    const isNowPlaying = activeCoursePlayerItem?.id === item.id;
     const resumeLabel = ytCourseInfo
       ? formatCourseResumeLabel(courseProgressMap[item.id], item.status)
       : null;
@@ -2343,7 +2264,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
     const el = itemElRefs.current.get(item.id) ?? null;
     const singleCol = inBoard ? true : isSingleColumnForElement(el);
 
-    const dragHandle = isCustomSort && !isInlineEditing && (
+    const dragHandle = isCustomSort && (
       <div
         role="button"
         tabIndex={0}
@@ -2405,20 +2326,15 @@ export const ListsView: React.FC<ListsViewProps> = ({
       isSmartScope ||
       showsSublistSourceBadge ||
       !inBoard;
-    const showFooter =
-      Boolean(item.scheduledAt) ||
-      isSmartScope ||
-      showsSublistSourceBadge ||
-      itemTags.length > 0 ||
-      !isInlineEditing;
+    const showFooter = true;
 
     return (
       <div
         key={item.id}
-        {...makeCommonDragHandlers(item, isInlineEditing)}
+        {...makeCommonDragHandlers(item)}
         onClick={() => handleOpenItem(item)}
         onDoubleClick={(e) => {
-          if (isInlineEditing || selectionMode || selectedIds.size > 0) return;
+          if (selectionMode || selectedIds.size > 0) return;
           e.stopPropagation();
           handleOpenItemTab(item.id);
         }}
@@ -2427,9 +2343,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
           onOpenContextMenu({ kind: "list_item", item }, e);
         }}
         className={`group relative rounded-xl border p-4 cursor-pointer transition-all duration-150 hover:border-[var(--border-strong)] flex flex-col justify-between gap-2.5 ${
-          isCustomSort && !isInlineEditing
-            ? "cursor-grab active:cursor-grabbing"
-            : ""
+          isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
         } ${isBeingDragged ? "opacity-45 scale-[0.98]" : ""} ${
           isDropTarget
             ? "ring-1 ring-[var(--accent)]/60 ring-offset-1 ring-offset-[var(--bg-canvas)]"
@@ -2438,13 +2352,11 @@ export const ListsView: React.FC<ListsViewProps> = ({
         style={{
           backgroundColor: isChecked
             ? "var(--accent-soft)"
-            : isNowPlaying
-              ? "var(--accent-soft)"
-              : isSelectedForEdit
-                ? "var(--bg-surface-subtle)"
-                : "var(--bg-surface)",
+            : isSelectedForEdit
+              ? "var(--bg-surface-subtle)"
+              : "var(--bg-surface)",
           borderColor:
-            isDropTarget || isNowPlaying || isSelectedForEdit || isChecked
+            isDropTarget || isSelectedForEdit || isChecked
               ? "var(--accent)"
               : "var(--border-subtle)",
         }}
@@ -2490,23 +2402,12 @@ export const ListsView: React.FC<ListsViewProps> = ({
               <span
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold shadow-sm"
                 style={{
-                  backgroundColor: isNowPlaying
-                    ? "var(--accent)"
-                    : "rgba(15, 23, 42, 0.85)",
+                  backgroundColor: "rgba(15, 23, 42, 0.85)",
                   color: "#ffffff",
                 }}
               >
-                {isNowPlaying ? (
-                  <>
-                    <Pause className="w-3 h-3" />
-                    <span>Now Playing</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-3 h-3 ml-0.5" />
-                    <span>Play</span>
-                  </>
-                )}
+                <Play className="w-3 h-3 ml-0.5" />
+                <span>Play</span>
               </span>
 
               {resumeLabel && (
@@ -2546,138 +2447,40 @@ export const ListsView: React.FC<ListsViewProps> = ({
             {renderStatusButton(item)}
 
             <div className="flex-1 min-w-0 pt-0.5">
-              {isInlineEditing ? (
+              <div className="space-y-0.5">
                 <div
-                  className="space-y-1.5"
-                  onClick={(e) => e.stopPropagation()}
+                  className={`text-sm font-semibold leading-snug line-clamp-2 ${
+                    item.status === "done" ? "line-through opacity-60" : ""
+                  }`}
+                  style={{ color: "var(--text-primary)" }}
                 >
-                  <input
-                    type="text"
-                    value={editingItem.title}
-                    onChange={(e) =>
-                      setEditingItem((prev) =>
-                        prev ? { ...prev, title: e.target.value } : prev,
-                      )
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        commitInlineEdit();
-                      } else if (e.key === "Escape") {
-                        setEditingItem(null);
-                      }
-                    }}
-                    autoFocus
-                    className="w-full px-2 py-1 rounded-md border text-sm font-semibold outline-none"
-                    style={{
-                      backgroundColor: "var(--bg-canvas)",
-                      borderColor: "var(--accent)",
-                      color: "var(--text-primary)",
-                    }}
-                  />
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="text"
-                      value={editingItem.subtitle}
-                      onChange={(e) =>
-                        setEditingItem((prev) =>
-                          prev ? { ...prev, subtitle: e.target.value } : prev,
-                        )
-                      }
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          commitInlineEdit();
-                        } else if (e.key === "Escape") {
-                          setEditingItem(null);
-                        }
-                      }}
-                      placeholder="Subtitle..."
-                      className="flex-1 min-w-0 px-2 py-0.5 rounded-md border text-xs outline-none"
-                      style={{
-                        backgroundColor: "var(--bg-canvas)",
-                        borderColor: "var(--border-subtle)",
-                        color: "var(--text-secondary)",
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={commitInlineEdit}
-                      className="h-6 w-6 flex items-center justify-center rounded-md cursor-pointer"
-                      style={{
-                        backgroundColor: "var(--accent)",
-                        color: "var(--accent-fg)",
-                      }}
-                      aria-label="Save edit"
-                    >
-                      <Check className="w-3 h-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditingItem(null)}
-                      className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                      style={{ color: "var(--text-muted)" }}
-                      aria-label="Cancel edit"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
+                  {item.title}
                 </div>
-              ) : (
-                <div className="space-y-0.5">
+                {item.subtitle && (
                   <div
-                    className={`text-sm font-semibold leading-snug line-clamp-2 ${
-                      item.status === "done" ? "line-through opacity-60" : ""
-                    }`}
-                    style={{ color: "var(--text-primary)" }}
+                    className="text-xs line-clamp-1"
+                    style={{ color: "var(--text-muted)" }}
                   >
-                    {item.title}
+                    {item.subtitle}
                   </div>
-                  {item.subtitle && (
-                    <div
-                      className="text-xs line-clamp-1"
-                      style={{ color: "var(--text-muted)" }}
-                    >
-                      {item.subtitle}
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
-            {!isInlineEditing && (
-              <div className="flex items-center shrink-0">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingItem({
-                      id: item.id,
-                      title: item.title,
-                      subtitle: item.subtitle || "",
-                    });
-                  }}
-                  className="h-6 w-6 hidden group-hover:flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                  style={{ color: "var(--text-muted)" }}
-                  title="Quick edit title & subtitle"
-                  aria-label="Quick edit item"
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenContextMenu({ kind: "list_item", item }, e);
-                  }}
-                  className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                  style={{ color: "var(--text-muted)" }}
-                  aria-label="Item actions"
-                >
-                  <MoreVertical className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
+            <div className="flex items-center shrink-0">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenContextMenu({ kind: "list_item", item }, e);
+                }}
+                className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                style={{ color: "var(--text-muted)" }}
+                aria-label="Item actions"
+              >
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           {/* 3-line Rich Note Preview inside Card */}
@@ -2798,14 +2601,12 @@ export const ListsView: React.FC<ListsViewProps> = ({
     const itemTags = item.tags || [];
     const isBeingDragged = draggingItemId === item.id;
     const isDropTarget = itemDropTarget?.itemId === item.id;
-    const isInlineEditing = editingItem?.id === item.id;
     const isSelectedForEdit =
       isDesktop && prefs.splitOpen && localState.selectedItemId === item.id;
     const isChecked = selectedIds.has(item.id);
     const showCheckbox = selectionMode || selectedIds.size > 0;
     const validUrl = item.url ? normalizeExternalUrl(item.url) : "";
     const ytCourseInfo = item.url ? parseYouTubeCourseUrl(item.url) : null;
-    const isNowPlaying = activeCoursePlayerItem?.id === item.id;
     const resumeLabel = ytCourseInfo
       ? formatCourseResumeLabel(courseProgressMap[item.id], item.status)
       : null;
@@ -2826,7 +2627,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
           : srcList?.title
       : null;
 
-    const dragHandle = isCustomSort && !isInlineEditing && (
+    const dragHandle = isCustomSort && (
       <div
         role="button"
         tabIndex={0}
@@ -2882,10 +2683,10 @@ export const ListsView: React.FC<ListsViewProps> = ({
       return (
         <div
           key={item.id}
-          {...makeCommonDragHandlers(item, isInlineEditing)}
+          {...makeCommonDragHandlers(item)}
           onClick={() => handleOpenItem(item)}
           onDoubleClick={(e) => {
-            if (isInlineEditing || selectionMode || selectedIds.size > 0) return;
+            if (selectionMode || selectedIds.size > 0) return;
             e.stopPropagation();
             handleOpenItemTab(item.id);
           }}
@@ -2896,23 +2697,17 @@ export const ListsView: React.FC<ListsViewProps> = ({
           style={{
             backgroundColor: isChecked
               ? "var(--accent-soft)"
-              : isNowPlaying
-                ? "var(--accent-soft)"
-                : isSelectedForEdit
-                  ? "var(--bg-surface-subtle)"
-                  : undefined,
+              : isSelectedForEdit
+                ? "var(--bg-surface-subtle)"
+                : undefined,
             boxShadow: isDropTarget
               ? itemDropTarget.position === "before"
                 ? "inset 0 2.5px 0 var(--accent)"
                 : "inset 0 -2.5px 0 var(--accent)"
-              : isNowPlaying
-                ? "inset 0 0 0 1px var(--accent)"
-                : undefined,
+              : undefined,
           }}
           className={`group relative flex items-center gap-2 px-2 -mx-2 rounded-lg cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]/75 py-1.5 ${
-            isCustomSort && !isInlineEditing
-              ? "cursor-grab active:cursor-grabbing"
-              : ""
+            isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
           } ${isBeingDragged ? "opacity-50 bg-[var(--accent-soft)]" : ""}`}
         >
           {(showCheckbox || isChecked) && (
@@ -3007,10 +2802,10 @@ export const ListsView: React.FC<ListsViewProps> = ({
     return (
       <div
         key={item.id}
-        {...makeCommonDragHandlers(item, isInlineEditing)}
+        {...makeCommonDragHandlers(item)}
         onClick={() => handleOpenItem(item)}
         onDoubleClick={(e) => {
-          if (isInlineEditing || selectionMode || selectedIds.size > 0) return;
+          if (selectionMode || selectedIds.size > 0) return;
           e.stopPropagation();
           handleOpenItemTab(item.id);
         }}
@@ -3021,23 +2816,17 @@ export const ListsView: React.FC<ListsViewProps> = ({
         style={{
           backgroundColor: isChecked
             ? "var(--accent-soft)"
-            : isNowPlaying
-              ? "var(--accent-soft)"
-              : isSelectedForEdit
-                ? "var(--bg-surface-subtle)"
-                : undefined,
+            : isSelectedForEdit
+              ? "var(--bg-surface-subtle)"
+              : undefined,
           boxShadow: isDropTarget
             ? itemDropTarget.position === "before"
               ? "inset 0 2.5px 0 var(--accent)"
               : "inset 0 -2.5px 0 var(--accent)"
-            : isNowPlaying
-              ? "inset 0 0 0 1px var(--accent)"
-              : undefined,
+            : undefined,
         }}
         className={`group relative flex flex-col gap-1.5 px-2.5 -mx-2 rounded-lg cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]/75 py-2.5 ${
-          isCustomSort && !isInlineEditing
-            ? "cursor-grab active:cursor-grabbing"
-            : ""
+          isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
         } ${isBeingDragged ? "opacity-50 bg-[var(--accent-soft)]" : ""}`}
       >
         {/* Row 1: Status + Title (wraps up to 2 lines) + Clean Action Triggers */}
@@ -3068,176 +2857,73 @@ export const ListsView: React.FC<ListsViewProps> = ({
           <div className="pt-0.5 shrink-0">{renderStatusButton(item)}</div>
 
           <div className="flex-1 min-w-0 pt-0.5">
-            {isInlineEditing ? (
-              <div
-                className="flex flex-wrap items-center gap-1.5"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <input
-                  type="text"
-                  value={editingItem.title}
-                  onChange={(e) =>
-                    setEditingItem((prev) =>
-                      prev ? { ...prev, title: e.target.value } : prev,
-                    )
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      commitInlineEdit();
-                    } else if (e.key === "Escape") {
-                      setEditingItem(null);
-                    }
-                  }}
-                  autoFocus
-                  className="flex-1 min-w-[160px] px-2 py-0.5 rounded-md border text-sm font-medium outline-none"
-                  style={{
-                    backgroundColor: "var(--bg-canvas)",
-                    borderColor: "var(--accent)",
-                    color: "var(--text-primary)",
-                  }}
-                />
-                <input
-                  type="text"
-                  value={editingItem.subtitle}
-                  onChange={(e) =>
-                    setEditingItem((prev) =>
-                      prev ? { ...prev, subtitle: e.target.value } : prev,
-                    )
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      commitInlineEdit();
-                    } else if (e.key === "Escape") {
-                      setEditingItem(null);
-                    }
-                  }}
-                  placeholder="Provider / Subtitle..."
-                  className="w-44 px-2 py-0.5 rounded-md border text-xs outline-none"
-                  style={{
-                    backgroundColor: "var(--bg-canvas)",
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--text-secondary)",
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={commitInlineEdit}
-                  className="h-6 w-6 flex items-center justify-center rounded-md cursor-pointer"
-                  style={{
-                    backgroundColor: "var(--accent)",
-                    color: "var(--accent-fg)",
-                  }}
-                  aria-label="Save edit"
-                >
-                  <Check className="w-3 h-3" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditingItem(null)}
-                  className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                  style={{ color: "var(--text-muted)" }}
-                  aria-label="Cancel edit"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ) : (
-              <span
-                className={`block text-sm font-medium leading-snug line-clamp-2 ${
-                  item.status === "done" ? "line-through opacity-60" : ""
-                }`}
-                style={{ color: "var(--text-primary)" }}
-              >
-                {item.title}
-              </span>
-            )}
+            <span
+              className={`block text-sm font-medium leading-snug line-clamp-2 ${
+                item.status === "done" ? "line-through opacity-60" : ""
+              }`}
+              style={{ color: "var(--text-primary)" }}
+            >
+              {item.title}
+            </span>
           </div>
 
-          {!isInlineEditing && (
-            <div className="flex items-center gap-1 shrink-0">
-              {ytCourseInfo ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handlePlayYouTubeItem(item.id);
-                  }}
-                  title={isNowPlaying ? "Now playing" : "Play video in Course theater"}
-                  aria-label={isNowPlaying ? "Now playing" : "Play course video"}
-                  className="h-8 sm:h-7 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
-                  style={{
-                    backgroundColor: isNowPlaying
-                      ? "var(--accent)"
-                      : "var(--bg-surface)",
-                    borderColor: isNowPlaying
-                      ? "var(--accent)"
-                      : "var(--border-subtle)",
-                    color: isNowPlaying
-                      ? "var(--accent-fg)"
-                      : "var(--accent)",
-                  }}
-                >
-                  <Play className="w-3 h-3 shrink-0" />
-                  <span>{isNowPlaying ? "Now Playing" : "Play"}</span>
-                </button>
-              ) : validUrl ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openExternalUrlSafely(item.url!);
-                  }}
-                  title={`Open ${validUrl}`}
-                  aria-label={`Open ${validUrl} in new tab`}
-                  className="h-8 w-8 sm:h-7 sm:w-7 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
-                  style={{
-                    backgroundColor: "var(--bg-surface)",
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--accent)",
-                  }}
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </button>
-              ) : null}
-
+          <div className="flex items-center gap-1 shrink-0">
+            {ytCourseInfo ? (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setEditingItem({
-                    id: item.id,
-                    title: item.title,
-                    subtitle: item.subtitle || "",
-                  });
+                  handlePlayYouTubeItem(item.id);
                 }}
-                className="h-7 w-7 hidden sm:group-hover:flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                style={{ color: "var(--text-muted)" }}
-                title="Quick edit title & subtitle"
-                aria-label="Quick edit item"
+                title="Play video in Study Tab"
+                aria-label="Play course video"
+                className="h-8 sm:h-7 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer whitespace-nowrap"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--accent)",
+                }}
               >
-                <Pencil className="w-3 h-3" />
+                <Play className="w-3 h-3 shrink-0" />
+                <span>Play</span>
               </button>
-
+            ) : validUrl ? (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onOpenContextMenu({ kind: "list_item", item }, e);
+                  openExternalUrlSafely(item.url!);
                 }}
-                className="h-8 w-8 sm:h-7 sm:w-7 flex items-center justify-center rounded-md shrink-0 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                style={{ color: "var(--text-muted)" }}
-                aria-label="Item actions"
+                title={`Open ${validUrl}`}
+                aria-label={`Open ${validUrl} in new tab`}
+                className="h-8 w-8 sm:h-7 sm:w-7 flex items-center justify-center rounded-lg border transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer shrink-0"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--accent)",
+                }}
               >
-                <MoreVertical className="w-3.5 h-3.5" />
+                <ExternalLink className="w-3.5 h-3.5" />
               </button>
-            </div>
-          )}
+            ) : null}
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenContextMenu({ kind: "list_item", item }, e);
+              }}
+              className="h-8 w-8 sm:h-7 sm:w-7 flex items-center justify-center rounded-md shrink-0 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              style={{ color: "var(--text-muted)" }}
+              aria-label="Item actions"
+            >
+              <MoreVertical className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         {/* Row 2: Subtle Bordered Metadata Chips (Provider/Channel, Sublist, Tags, Saved Resume) */}
-        {!isInlineEditing && hasRow2Metadata && (
+        {hasRow2Metadata && (
           <div className="pl-8 flex flex-wrap items-center gap-1.5 min-w-0">
             {item.subtitle && (
               <span
@@ -3810,9 +3496,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
         onCloseAllTabs={handleCloseAllItemTabs}
         onReorderTabs={handleReorderItemTabs}
         onOpenTargetListPicker={() => setTargetListPickerOpen(true)}
-        onOpenInModal={(itemId) =>
-          onOpenDetail({ mode: "list_item", id: itemId })
-        }
       />
 
       {/* ================= PINNED TOP CHROME (Home View Only) ================= */}
@@ -4353,9 +4036,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
             onSelectParentListHome={(targetListId) =>
               handleSelectScope({ kind: "list", listId: targetListId })
             }
-            onOpenInModal={(itemId) =>
-              onOpenDetail({ mode: "list_item", id: itemId })
-            }
+            playLaunchRequest={studyPlayLaunchRequest}
             onJumpToBookLocation={onJumpToBookLocation}
             onJumpToNote={onJumpToNote}
             onItemDeleted={handleCloseItemTab}
@@ -4535,99 +4216,10 @@ export const ListsView: React.FC<ListsViewProps> = ({
       ) : (
         <div className="flex-1 min-h-0 flex overflow-hidden">
           {/* LEFT PRIMARY PANE */}
-          <section
-            ref={leftScrollPaneRef}
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              const top = el.scrollTop;
-              const prevTop = lastLeftScrollTopRef.current;
-              lastLeftScrollTopRef.current = top;
-
-              if (!activeCoursePlayerItem || playerManualCollapsed) return;
-              const now = performance.now();
-              if (now < ignorePlayerScrollUntilRef.current) return;
-
-              if (top > 28 && top > prevTop && !playerScrollCollapsed) {
-                ignorePlayerScrollUntilRef.current = now + 450;
-                setPlayerScrollCollapsed(true);
-                return;
-              }
-
-              if (
-                playerScrollCollapsed &&
-                top <= 8 &&
-                top < prevTop &&
-                el.scrollHeight > el.clientHeight + 80
-              ) {
-                ignorePlayerScrollUntilRef.current = now + 350;
-                setPlayerScrollCollapsed(false);
-              }
-            }}
-            className="flex-1 min-w-0 overflow-y-auto overscroll-none px-4 sm:px-6 py-4 space-y-4"
-          >
+          <section className="flex-1 min-w-0 overflow-y-auto overscroll-none px-4 sm:px-6 py-4 space-y-4">
             {/* TRACKED ITEMS */}
             {(splitVisible || localState.subTab === "items") && (
               <>
-                {/* Inline Top Course YouTube Theater / Sticky Mini-Bar */}
-                {activeCoursePlayerItem && (() => {
-                  const collapsed = playerManualCollapsed || playerScrollCollapsed;
-                  return (
-                    <div
-                      className={
-                        collapsed
-                          ? "sticky top-0 z-20 -mt-1 pt-1 pb-1 bg-[var(--bg-canvas)]/95 backdrop-blur-sm"
-                          : ""
-                      }
-                    >
-                      <CourseYouTubePlayer
-                        item={activeCoursePlayerItem}
-                        mode="theater"
-                        autoplay
-                        maxHeightClass="max-h-[min(420px,46dvh)]"
-                        collapsed={collapsed}
-                        onToggleCollapse={() => {
-                          if (collapsed) {
-                            ignorePlayerScrollUntilRef.current =
-                              performance.now() + 700;
-                            lastLeftScrollTopRef.current = 0;
-                            setPlayerManualCollapsed(false);
-                            setPlayerScrollCollapsed(false);
-                            leftScrollPaneRef.current?.scrollTo({
-                              top: 0,
-                              behavior: "smooth",
-                            });
-                          } else {
-                            setPlayerManualCollapsed(true);
-                          }
-                        }}
-                        onClose={() => {
-                          setActiveCoursePlayerId(null);
-                          setPlayerManualCollapsed(false);
-                          setPlayerScrollCollapsed(false);
-                        }}
-                        onOpenStudyTab={() => {
-                          const id = activeCoursePlayerItem.id;
-                          setActiveCoursePlayerId(null);
-                          setPlayerManualCollapsed(false);
-                          setPlayerScrollCollapsed(false);
-                          handleOpenItemTab(id);
-                        }}
-                        onMarkCompleted={() => {
-                          updateListItem(activeCoursePlayerItem.id, {
-                            status: "done",
-                          });
-                          pushToast("Course marked completed", "success");
-                        }}
-                        nextVideoTitle={nextYouTubeItem?.title ?? null}
-                        onNextVideo={
-                          nextYouTubeItem
-                            ? () => handlePlayYouTubeItem(nextYouTubeItem.id)
-                            : undefined
-                        }
-                      />
-                    </div>
-                  );
-                })()}
 
                 {/* Quiet Course Progress Summary Bar */}
                 {isCoursesScope && courseProgressStats && courseProgressStats.total > 0 && (
@@ -5996,9 +5588,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
                         selectedItemId: null,
                       }))
                     }
-                    onOpenModal={(itemId) =>
-                      onOpenDetail({ mode: "list_item", id: itemId })
-                    }
+                    onOpenAsTab={handleOpenItemTab}
                     onJumpToBookLocation={onJumpToBookLocation}
                     onJumpToNote={onJumpToNote}
                     onPlayYouTubeItem={handlePlayYouTubeItem}

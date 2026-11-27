@@ -3091,7 +3091,7 @@ export const DetailSheet: React.FC<DetailSheetProps> = (props) => {
   const { target } = props;
   const [isFullPage, setIsFullPage] = useState(false);
 
-  if (!target) return null;
+  if (!target || target.mode === "list_item") return null;
   return (
     <DetailSheetInner
       key={`${target.mode}:${target.id ?? "new"}`}

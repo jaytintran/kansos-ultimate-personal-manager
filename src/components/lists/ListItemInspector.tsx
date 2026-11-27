@@ -107,7 +107,7 @@ interface ListItemInspectorProps {
   lists: ListCollection[];
   sameListTags: string[];
   onClose: () => void;
-  onOpenModal: (itemId: string) => void;
+  onOpenAsTab: (itemId: string) => void;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
   onJumpToNote?: (noteId: string) => void;
   onPlayYouTubeItem?: (itemId: string) => void;
@@ -131,7 +131,7 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
   lists,
   sameListTags,
   onClose,
-  onOpenModal,
+  onOpenAsTab,
   onJumpToBookLocation,
   onJumpToNote,
   onPlayYouTubeItem,
@@ -476,10 +476,10 @@ export const ListItemInspector: React.FC<ListItemInspectorProps> = ({
             type="button"
             onClick={() => {
               flushSave();
-              onOpenModal(item.id);
+              onOpenAsTab(item.id);
             }}
-            title="Expand in modal"
-            aria-label="Expand in modal"
+            title="Open as Tab"
+            aria-label="Open as Tab"
             className="h-7 w-7 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
             style={{ color: "var(--text-muted)" }}
           >

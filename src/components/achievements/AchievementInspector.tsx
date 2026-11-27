@@ -293,8 +293,16 @@ export const AchievementInspector: React.FC<AchievementInspectorProps> = ({
             onClick={() => onOpenModal(target.detailTarget)}
             className="h-7 w-7 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
             style={{ color: "var(--text-muted)" }}
-            title="Open full modal"
-            aria-label="Open full modal"
+            title={
+              target.kind === "list_item"
+                ? "Open in Lists tab"
+                : "Open full modal"
+            }
+            aria-label={
+              target.kind === "list_item"
+                ? "Open in Lists tab"
+                : "Open full modal"
+            }
           >
             <Maximize2 className="w-3.5 h-3.5" />
           </button>

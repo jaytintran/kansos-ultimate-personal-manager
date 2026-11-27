@@ -13,7 +13,6 @@ import {
   Link2,
   ListChecks,
   Loader2,
-  Maximize2,
   PanelLeftOpen,
   PanelRight,
   PanelTop,
@@ -158,7 +157,7 @@ interface ListItemTabEditorProps {
   onOpenMobileSidebar: () => void;
   onToggleDesktopLinkedPane: () => void;
   onSelectParentListHome: (listId: string) => void;
-  onOpenInModal: (itemId: string) => void;
+  playLaunchRequest?: { itemId: string; nonce: number } | null;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
   onJumpToNote?: (noteId: string) => void;
   onItemDeleted: (itemId: string) => void;
@@ -173,7 +172,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
   onOpenMobileSidebar,
   onToggleDesktopLinkedPane,
   onSelectParentListHome,
-  onOpenInModal,
+  playLaunchRequest,
   onJumpToBookLocation,
   onJumpToNote,
   onItemDeleted,
@@ -203,7 +202,11 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
   const [studyLayout, setStudyLayout] = useState<StudyLayoutMode>(
     loadStudyLayoutMode,
   );
-  const [studyPlayerVisible, setStudyPlayerVisible] = useState(true);
+  const initialPlayMatch = Boolean(
+    playLaunchRequest && playLaunchRequest.itemId === item.id,
+  );
+  const [studyPlayerVisible, setStudyPlayerVisible] = useState(initialPlayMatch);
+  const [studyPlayerAutoplay, setStudyPlayerAutoplay] = useState(initialPlayMatch);
   const [mobilePlayerCollapsed, setMobilePlayerCollapsed] = useState(false);
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
 
@@ -213,6 +216,10 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
   const debounceTimerRef = useRef<number | null>(null);
   const isComposingRef = useRef(false);
   const lastAutoFetchedUrlRef = useRef<string>(item.url ?? "");
+  const prevItemIdRef = useRef<string>(item.id);
+  const lastConsumedPlayNonceRef = useRef<number | null>(
+    initialPlayMatch && playLaunchRequest ? playLaunchRequest.nonce : null,
+  );
 
   const lastSavedSnapRef = useRef<string>(
     buildSnapshot({
@@ -323,6 +330,41 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
     item.url,
     item.scheduledAt,
   ]);
+
+  // Expand & auto-play only when launched via Play; keep collapsed on normal open
+  useEffect(() => {
+    if (prevItemIdRef.current !== item.id) {
+      prevItemIdRef.current = item.id;
+      const matchesPlay =
+        Boolean(playLaunchRequest && playLaunchRequest.itemId === item.id) &&
+        playLaunchRequest?.nonce !== lastConsumedPlayNonceRef.current;
+      if (matchesPlay && playLaunchRequest) {
+        lastConsumedPlayNonceRef.current = playLaunchRequest.nonce;
+        setStudyPlayerVisible(true);
+        setStudyPlayerAutoplay(true);
+        setMobilePlayerCollapsed(false);
+      } else {
+        setStudyPlayerVisible(false);
+        setStudyPlayerAutoplay(false);
+        setMobilePlayerCollapsed(false);
+      }
+      return;
+    }
+
+    if (
+      playLaunchRequest &&
+      playLaunchRequest.itemId === item.id &&
+      playLaunchRequest.nonce !== lastConsumedPlayNonceRef.current
+    ) {
+      lastConsumedPlayNonceRef.current = playLaunchRequest.nonce;
+      setStudyPlayerVisible(true);
+      setStudyPlayerAutoplay(true);
+      setMobilePlayerCollapsed(false);
+      window.setTimeout(() => {
+        playerRef.current?.play();
+      }, 30);
+    }
+  }, [item.id, playLaunchRequest]);
 
   const flushSave = useCallback(() => {
     const draft = latestDraftRef.current;
@@ -550,10 +592,11 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
 
   const handleSeekFromNotes = useCallback((seconds: number) => {
     setStudyPlayerVisible(true);
+    setStudyPlayerAutoplay(true);
     setMobilePlayerCollapsed(false);
     window.setTimeout(() => {
       playerRef.current?.seekTo(seconds, true);
-    }, 30);
+    }, 60);
   }, []);
 
   const wordCount = useMemo(() => countWordsFromHtml(content), [content]);
@@ -712,7 +755,14 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
 
               <button
                 type="button"
-                onClick={() => setStudyPlayerVisible((v) => !v)}
+                onClick={() => {
+                  setStudyPlayerVisible((prev) => {
+                    const next = !prev;
+                    setStudyPlayerAutoplay(next);
+                    if (next) setMobilePlayerCollapsed(false);
+                    return next;
+                  });
+                }}
                 className="h-7 px-2 rounded-lg border text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
                 style={{
                   backgroundColor: studyPlayerVisible
@@ -725,11 +775,11 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
                     ? "var(--accent)"
                     : "var(--text-secondary)",
                 }}
-                title={studyPlayerVisible ? "Hide video player" : "Show video player"}
+                title={studyPlayerVisible ? "Hide video player" : "Play course video"}
               >
                 <Play className="w-3 h-3" />
                 <span className="hidden sm:inline">
-                  {studyPlayerVisible ? "Video" : "Show Video"}
+                  {studyPlayerVisible ? "Video" : "Play"}
                 </span>
               </button>
             </div>
@@ -762,20 +812,6 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
               <span>Linked</span>
             </button>
           )}
-
-          <button
-            type="button"
-            onClick={() => {
-              flushSave();
-              onOpenInModal(item.id);
-            }}
-            title="Open in Details Modal"
-            aria-label="Open in Details Modal"
-            className="h-7 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-            style={{ color: "var(--text-muted)" }}
-          >
-            <Maximize2 className="w-3.5 h-3.5" />
-          </button>
 
           <button
             type="button"
@@ -826,6 +862,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
                 url: validOpenUrl || url,
               }}
               mode="study"
+              autoplay={studyPlayerAutoplay}
               collapsed={mobilePlayerCollapsed}
               onToggleCollapse={() => setMobilePlayerCollapsed((c) => !c)}
               maxHeightClass={

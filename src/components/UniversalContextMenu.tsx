@@ -282,15 +282,17 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={handleOpenDetails}
-            className={btnCls}
-            style={{ color: 'var(--text-primary)' }}
-          >
-            <Edit3 className="w-3.5 h-3.5" style={{ color: 'var(--text-secondary)' }} />
-            <span>Edit Details</span>
-          </button>
+          {freshEntry && (
+            <button
+              type="button"
+              onClick={handleOpenDetails}
+              className={btnCls}
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <Edit3 className="w-3.5 h-3.5" style={{ color: 'var(--text-secondary)' }} />
+              <span>Edit Details</span>
+            </button>
+          )}
 
           {freshListItem && onSelectListItem && (
             <button

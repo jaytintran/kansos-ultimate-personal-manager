@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import type { ListCollection, ListItem, ListItemStatus } from "../../types";
 import { ListIcon as CollectionIcon } from "../IconLibrary";
 
@@ -36,7 +36,6 @@ interface ListsTabStripProps {
     position: "before" | "after",
   ) => void;
   onOpenTargetListPicker: () => void;
-  onOpenInModal?: (itemId: string) => void;
 }
 
 const TAB_DRAG_MIME = "application/x-kanso-list-item-tab-id";
@@ -57,7 +56,6 @@ export const ListsTabStrip: React.FC<ListsTabStripProps> = ({
   onCloseAllTabs,
   onReorderTabs,
   onOpenTargetListPicker,
-  onOpenInModal,
 }) => {
   const isHomeActive = activeTabId === null;
 
@@ -136,7 +134,7 @@ export const ListsTabStrip: React.FC<ListsTabStripProps> = ({
     e.preventDefault();
     e.stopPropagation();
     const menuWidth = 188;
-    const menuHeight = onOpenInModal ? 156 : 118;
+    const menuHeight = 118;
     const x =
       typeof window !== "undefined"
         ? Math.min(e.clientX, window.innerWidth - menuWidth - 8)
@@ -387,29 +385,6 @@ export const ListsTabStrip: React.FC<ListsTabStripProps> = ({
           >
             <span>Close All</span>
           </button>
-
-          {onOpenInModal && (
-            <>
-              <div
-                className="my-1 h-px"
-                style={{ backgroundColor: "var(--border-subtle)" }}
-              />
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  const targetId = contextMenu.itemId;
-                  setContextMenu(null);
-                  onOpenInModal(targetId);
-                }}
-                className="w-full px-2.5 py-2 sm:py-1.5 rounded-lg text-left flex items-center gap-2 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                <ExternalLink className="w-3.5 h-3.5 opacity-75" />
-                <span>Open in Details Modal</span>
-              </button>
-            </>
-          )}
         </div>
       )}
     </>

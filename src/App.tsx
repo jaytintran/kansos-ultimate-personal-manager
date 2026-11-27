@@ -480,6 +480,17 @@ const KansoShell: React.FC = () => {
     [workspace.listItems, pushToast],
   );
 
+  const handleOpenDetail = useCallback(
+    (target: DetailSheetTarget) => {
+      if (target.mode === "list_item") {
+        if (target.id) handleJumpToListItem(target.id);
+        return;
+      }
+      setDetailTarget(target);
+    },
+    [handleJumpToListItem],
+  );
+
   const handleMuteBackgroundStreamer = useCallback(() => {
     if (
       hasVisitedStreamer &&
@@ -1784,7 +1795,7 @@ const KansoShell: React.FC = () => {
       >
         {activeView === "focus" && (
           <FocusView
-            onOpenDetail={setDetailTarget}
+            onOpenDetail={handleOpenDetail}
             onOpenContextMenu={handleOpenContextMenu}
             audioPlayback={audioPlayback}
             streamerPlayback={streamerPlayback}
@@ -1799,23 +1810,23 @@ const KansoShell: React.FC = () => {
         )}
         {activeView === "timeline" && (
           <TimelineView
-            onOpenDetail={setDetailTarget}
+            onOpenDetail={handleOpenDetail}
             onOpenContextMenu={handleOpenContextMenu}
             onOpenTimestamps={handleOpenTimestamps}
           />
         )}
         {activeView === "habits" && (
-          <HabitsView onOpenDetail={setDetailTarget} />
+          <HabitsView onOpenDetail={handleOpenDetail} />
         )}
         {activeView === "achievements" && (
           <AchievementsView
-            onOpenDetail={setDetailTarget}
+            onOpenDetail={handleOpenDetail}
             onOpenContextMenu={handleOpenContextMenu}
           />
         )}
         {activeView === "notes" && (
           <NotesView
-            onOpenDetail={setDetailTarget}
+            onOpenDetail={handleOpenDetail}
             onOpenContextMenu={handleOpenContextMenu}
             onJumpToBookLocation={handleJumpToBookLocation}
             onJumpToListItem={handleJumpToListItem}
@@ -1825,13 +1836,13 @@ const KansoShell: React.FC = () => {
         )}
         {activeView === "events" && (
           <EventsView
-            onOpenDetail={setDetailTarget}
+            onOpenDetail={handleOpenDetail}
             onOpenContextMenu={handleOpenContextMenu}
           />
         )}
         {activeView === "lists" && (
           <ListsView
-            onOpenDetail={setDetailTarget}
+            onOpenDetail={handleOpenDetail}
             onOpenContextMenu={handleOpenContextMenu}
             onJumpToBookLocation={handleJumpToBookLocation}
             onJumpToNote={handleJumpToNote}
@@ -1860,7 +1871,7 @@ const KansoShell: React.FC = () => {
               onMuteBackgroundStreamer={handleMuteBackgroundStreamer}
               isActiveView={activeView === "library"}
               jumpRequest={bookJumpRequest}
-              onOpenDetail={setDetailTarget}
+              onOpenDetail={handleOpenDetail}
             />
           </div>
         )}
@@ -2485,7 +2496,7 @@ const KansoShell: React.FC = () => {
       <DetailSheet
         target={detailTarget}
         onClose={() => setDetailTarget(null)}
-        onOpenDetail={setDetailTarget}
+        onOpenDetail={handleOpenDetail}
         onOpenTimestamps={(entryId, focus) =>
           handleOpenTimestamps(entryId, focus ?? null)
         }
@@ -2498,7 +2509,7 @@ const KansoShell: React.FC = () => {
       <UniversalContextMenu
         state={contextMenu}
         onClose={() => setContextMenu(null)}
-        onOpenDetail={setDetailTarget}
+        onOpenDetail={handleOpenDetail}
         onOpenTimestamps={(entryId) => handleOpenTimestamps(entryId, null)}
         onSelectListItem={
           activeView === "lists"
