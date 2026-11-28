@@ -4,8 +4,14 @@ import {
   EditorContent,
   Extension,
   InputRule,
+  Mark,
+  NodeViewContent,
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
   getMarkRange,
+  mergeAttributes,
   useEditor,
+  type NodeViewProps,
 } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -26,6 +32,8 @@ import {
   Bold,
   Check,
   CheckSquare,
+  ChevronDown,
+  ChevronUp,
   Code,
   Copy,
   ExternalLink,
@@ -34,6 +42,7 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  Highlighter,
   Italic,
   LayoutGrid,
   Link2,
@@ -57,6 +66,7 @@ import {
   X,
 } from 'lucide-react';
 import type { Entry } from '../types';
+import type { AiMarginAnnotationColor } from '../types/aiVault';
 import { WikiLinkNode } from './notes/NoteTiptapExtensions';
 import {
   KansoTable,
@@ -89,6 +99,133 @@ export const CODE_LANGUAGES = [
   'markdown',
 ] as const;
 
+const CodeBlockWithControlsView: React.FC<NodeViewProps> = ({
+  node,
+  updateAttributes,
+  editor,
+}) => {
+  const [copied, setCopied] = useState(false);
+  const [wrapped, setWrapped] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const language = String(node.attrs.language || 'plaintext');
+  const codeText = node.textContent || '';
+  const lineCount = codeText ? codeText.split('\n').length : 1;
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      void navigator.clipboard.writeText(codeText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    }
+  };
+
+  return (
+    <NodeViewWrapper className="kanso-code-block-shell my-2.5 rounded-lg border overflow-hidden">
+      <div
+        contentEditable={false}
+        className="flex items-center justify-between gap-2 px-2.5 py-1 border-b text-[11px] select-none"
+        style={{
+          backgroundColor: 'var(--bg-surface-subtle)',
+          borderColor: 'var(--border-subtle)',
+          color: 'var(--text-muted)',
+        }}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {editor.isEditable ? (
+            <select
+              value={CODE_LANGUAGES.includes(language as (typeof CODE_LANGUAGES)[number]) ? language : 'plaintext'}
+              onChange={(e) => updateAttributes({ language: e.target.value })}
+              aria-label="Code language"
+              className="bg-transparent font-mono font-medium outline-none cursor-pointer"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              {!CODE_LANGUAGES.includes(language as (typeof CODE_LANGUAGES)[number]) && language && (
+                <option value={language}>{language}</option>
+              )}
+              {CODE_LANGUAGES.map((lang) => (
+                <option key={lang} value={lang}>
+                  {lang}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="font-mono font-medium" style={{ color: 'var(--text-secondary)' }}>
+              {language}
+            </span>
+          )}
+          <span className="font-mono tabular-nums text-[10px] opacity-75">
+            {lineCount} {lineCount === 1 ? 'line' : 'lines'}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setWrapped((v) => !v);
+            }}
+            className="h-6 px-1.5 rounded inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+            style={{
+              backgroundColor: wrapped ? 'var(--accent-soft)' : 'transparent',
+              color: wrapped ? 'var(--accent)' : 'var(--text-muted)',
+            }}
+            title={wrapped ? 'Disable line wrap' : 'Wrap long lines'}
+          >
+            <WrapText className="w-3 h-3" />
+            <span className="hidden sm:inline">Wrap</span>
+          </button>
+
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setCollapsed((v) => !v);
+            }}
+            className="h-6 px-1.5 rounded inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+            style={{ color: 'var(--text-muted)' }}
+            title={collapsed ? 'Expand code block' : 'Collapse code block'}
+          >
+            {collapsed ? (
+              <ChevronDown className="w-3 h-3" />
+            ) : (
+              <ChevronUp className="w-3 h-3" />
+            )}
+            <span className="hidden sm:inline">{collapsed ? 'Expand' : 'Collapse'}</span>
+          </button>
+
+          <button
+            type="button"
+            onMouseDown={handleCopy}
+            className="h-6 px-1.5 rounded inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+            style={{ color: copied ? 'var(--accent)' : 'var(--text-muted)' }}
+            title="Copy code"
+          >
+            {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
+          </button>
+        </div>
+      </div>
+
+      {!collapsed && (
+        <pre
+          data-language={language}
+          className={`!m-0 !border-0 !rounded-none ${
+            wrapped ? '!whitespace-pre-wrap !break-words overflow-x-hidden' : 'overflow-x-auto'
+          }`}
+        >
+          <NodeViewContent
+            as={'code' as 'div'}
+            className={`language-${language} ${wrapped ? 'whitespace-pre-wrap break-words' : ''}`}
+          />
+        </pre>
+      )}
+    </NodeViewWrapper>
+  );
+};
+
 const CustomCodeBlock = CodeBlock.extend({
   addAttributes() {
     return {
@@ -107,6 +244,42 @@ const CustomCodeBlock = CodeBlock.extend({
         }),
       },
     };
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(CodeBlockWithControlsView);
+  },
+});
+
+const AiAnnotationMark = Mark.create({
+  name: 'aiAnnotation',
+  inclusive: false,
+  spanning: true,
+  addAttributes() {
+    return {
+      annotationId: {
+        default: null,
+        parseHTML: (el) => el.getAttribute('data-annotation-id'),
+        renderHTML: (attrs) =>
+          attrs.annotationId ? { 'data-annotation-id': attrs.annotationId } : {},
+      },
+      highlightColor: {
+        default: 'amber',
+        parseHTML: (el) => el.getAttribute('data-highlight-color') || 'amber',
+        renderHTML: (attrs) =>
+          attrs.highlightColor
+            ? { 'data-highlight-color': attrs.highlightColor }
+            : {},
+      },
+    };
+  },
+  parseHTML() {
+    return [
+      { tag: 'mark[data-annotation-id]' },
+      { tag: 'mark' },
+    ];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['mark', mergeAttributes(HTMLAttributes), 0];
   },
 });
 
@@ -907,11 +1080,16 @@ interface TiptapEditorProps {
   placeholder?: string;
   minHeight?: number;
   variant?: 'default' | 'borderless';
+  hideBorderlessToolbar?: boolean;
   onEditorReady?: (editor: Editor | null) => void;
   allNotes?: Entry[];
   onOpenNote?: (noteId: string, title?: string) => void;
   onCreateLinkedNote?: (title: string) => Entry;
   onTimestampLinkClick?: (seconds: number) => void;
+  onAnnotateSelection?: (info: {
+    quoteText: string;
+    applyMark: (annotationId: string, color: AiMarginAnnotationColor) => void;
+  }) => void;
 }
 
 type WikiCandidate =
@@ -937,11 +1115,13 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   placeholder = 'Write notes, paste Markdown, or type / for blocks...',
   minHeight = 200,
   variant = 'default',
+  hideBorderlessToolbar = false,
   onEditorReady,
   allNotes,
   onOpenNote,
   onCreateLinkedNote,
   onTimestampLinkClick,
+  onAnnotateSelection,
 }) => {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
@@ -978,6 +1158,8 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   onCreateLinkedNoteRef.current = onCreateLinkedNote;
   const onTimestampLinkClickRef = useRef(onTimestampLinkClick);
   onTimestampLinkClickRef.current = onTimestampLinkClick;
+  const onAnnotateSelectionRef = useRef(onAnnotateSelection);
+  onAnnotateSelectionRef.current = onAnnotateSelection;
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -1200,6 +1382,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
         View: KansoTableView,
       }),
       WikiLinkNode,
+      AiAnnotationMark,
     ],
     content: content || '',
     editorProps: {
@@ -2305,6 +2488,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     return (
       <div ref={wrapperRef} className="relative">
         {/* Subtle Desktop Editorial Toolbar for DetailSheet */}
+        {!hideBorderlessToolbar && (
         <div
           role="toolbar"
           aria-label="Editor formatting"
@@ -2462,6 +2646,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
             </ToolbarBtn>
           </div>
         </div>
+        )}
 
         {/* Mobile Code Block language selector (when inside code block on mobile) */}
         {isCodeBlockActive && (
@@ -2594,6 +2779,41 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
             >
               <CheckSquare className="w-3.5 h-3.5" />
             </ToolbarBtn>
+
+            {onAnnotateSelection && (
+              <>
+                <span
+                  className="mx-0.5 h-4 w-px"
+                  style={{ backgroundColor: 'var(--border-subtle)' }}
+                  aria-hidden="true"
+                />
+                <ToolbarBtn
+                  size="sm"
+                  active={editor.isActive('aiAnnotation')}
+                  onClick={() => {
+                    const { from, to } = editor.state.selection;
+                    if (from >= to) return;
+                    const quoteText = editor.state.doc.textBetween(from, to, ' ').trim();
+                    if (!quoteText) return;
+                    onAnnotateSelectionRef.current?.({
+                      quoteText,
+                      applyMark: (annotationId, color) => {
+                        editor
+                          .chain()
+                          .focus()
+                          .setTextSelection({ from, to })
+                          .setMark('aiAnnotation', { annotationId, highlightColor: color })
+                          .run();
+                      },
+                    });
+                    setSelectionBar(null);
+                  }}
+                  label="Highlight & Add Margin Note"
+                >
+                  <Highlighter className="w-3.5 h-3.5" />
+                </ToolbarBtn>
+              </>
+            )}
           </div>
         )}
 

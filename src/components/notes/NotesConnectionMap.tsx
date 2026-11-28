@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
+  Brain,
   ChevronDown,
   ChevronRight,
   FileText,
@@ -12,6 +13,7 @@ import {
   Network,
   Plus,
   Search,
+  Unlink,
   ZoomIn,
   ZoomOut,
   X,
@@ -26,6 +28,7 @@ import {
   type NoteConnectionKind,
 } from "../../lib/noteGraphUtils";
 import type { Entry, NoteNotebook } from "../../types";
+import type { AiChatRecord } from "../../types/aiVault";
 
 export type ConnectionMapMode = "tree" | "graph";
 export type ConnectionMapScope = "active" | "workspace";
@@ -42,6 +45,9 @@ interface NotesConnectionMapProps {
   onFocusNote: (noteId: string) => void;
   onOpenNote: (noteId: string) => void;
   onUpdateNoteContent: (noteId: string, nextHtml: string, targetTitle: string) => void;
+  aiChats?: AiChatRecord[];
+  onToggleAiChatLink?: (chatId: string, noteId: string) => void;
+  onJumpToAiChat?: (chatId: string) => void;
   onCloseDesktop: () => void;
   onCloseMobile: () => void;
 }
@@ -57,6 +63,9 @@ export const NotesConnectionMap: React.FC<NotesConnectionMapProps> = ({
   onFocusNote,
   onOpenNote,
   onUpdateNoteContent,
+  aiChats = [],
+  onToggleAiChatLink,
+  onJumpToAiChat,
   onCloseDesktop,
   onCloseMobile,
 }) => {
@@ -68,8 +77,9 @@ export const NotesConnectionMap: React.FC<NotesConnectionMapProps> = ({
     tag: false,
   });
 
-  // + Link Note picker state
+  // + Link Note / Link AI Chat picker state
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
+  const [aiLinkPickerOpen, setAiLinkPickerOpen] = useState(false);
   const [linkQuery, setLinkQuery] = useState("");
 
   // Tree collapsible sections
@@ -211,6 +221,25 @@ export const NotesConnectionMap: React.FC<NotesConnectionMapProps> = ({
       .filter((n) => !q || (n.title || "Untitled Note").toLowerCase().includes(q))
       .slice(0, 12);
   }, [allNotes, effectiveFocusNote, linkQuery]);
+
+  const linkedAiChats = useMemo(() => {
+    if (!effectiveFocusNote) return [];
+    return aiChats.filter((c) =>
+      (c.linkedNoteIds || []).includes(effectiveFocusNote.id),
+    );
+  }, [aiChats, effectiveFocusNote]);
+
+  const aiChatCandidates = useMemo(() => {
+    const q = linkQuery.trim().toLowerCase();
+    return aiChats
+      .filter(
+        (c) =>
+          !q ||
+          (c.title || "Untitled AI Chat").toLowerCase().includes(q) ||
+          (c.model || "").toLowerCase().includes(q),
+      )
+      .slice(0, 12);
+  }, [aiChats, linkQuery]);
 
   const toggleGroup = (key: string) => {
     setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -463,22 +492,45 @@ export const NotesConnectionMap: React.FC<NotesConnectionMapProps> = ({
           </div>
 
           {effectiveFocusNote && (
-            <button
-              type="button"
-              onClick={() => {
-                setLinkPickerOpen((v) => !v);
-                setLinkQuery("");
-              }}
-              className="h-7 px-2 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 hover:border-[var(--accent)] cursor-pointer shrink-0"
-              style={{
-                backgroundColor: linkPickerOpen ? "var(--accent-soft)" : "var(--bg-canvas)",
-                borderColor: linkPickerOpen ? "var(--accent)" : "var(--border-subtle)",
-                color: linkPickerOpen ? "var(--accent)" : "var(--text-primary)",
-              }}
-            >
-              <Plus className="w-3 h-3" />
-              <span>Link Note</span>
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setLinkPickerOpen((v) => !v);
+                  setAiLinkPickerOpen(false);
+                  setLinkQuery("");
+                }}
+                className="h-7 px-2 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 hover:border-[var(--accent)] cursor-pointer shrink-0"
+                style={{
+                  backgroundColor: linkPickerOpen ? "var(--accent-soft)" : "var(--bg-canvas)",
+                  borderColor: linkPickerOpen ? "var(--accent)" : "var(--border-subtle)",
+                  color: linkPickerOpen ? "var(--accent)" : "var(--text-primary)",
+                }}
+              >
+                <Plus className="w-3 h-3" />
+                <span>Link Note</span>
+              </button>
+              {onToggleAiChatLink && aiChats.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAiLinkPickerOpen((v) => !v);
+                    setLinkPickerOpen(false);
+                    setLinkQuery("");
+                  }}
+                  title="Link AI Vault chat"
+                  className="h-7 px-2 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 hover:border-[var(--accent)] cursor-pointer shrink-0"
+                  style={{
+                    backgroundColor: aiLinkPickerOpen ? "var(--accent-soft)" : "var(--bg-canvas)",
+                    borderColor: aiLinkPickerOpen ? "var(--accent)" : "var(--border-subtle)",
+                    color: aiLinkPickerOpen ? "var(--accent)" : "var(--text-primary)",
+                  }}
+                >
+                  <Brain className="w-3 h-3" />
+                  <span>AI</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -569,6 +621,59 @@ export const NotesConnectionMap: React.FC<NotesConnectionMapProps> = ({
                   No matching notes to link.
                 </p>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Inline + Link AI Vault Chat Picker */}
+        {aiLinkPickerOpen && effectiveFocusNote && onToggleAiChatLink && (
+          <div
+            className="rounded-xl border p-2 space-y-1.5"
+            style={{
+              backgroundColor: "var(--bg-canvas)",
+              borderColor: "var(--accent)",
+            }}
+          >
+            <div className="flex items-center gap-1.5 px-2 h-7 rounded-md border" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--bg-surface)" }}>
+              <Search className="w-3 h-3 shrink-0" style={{ color: "var(--text-muted)" }} />
+              <input
+                type="text"
+                value={linkQuery}
+                onChange={(e) => setLinkQuery(e.target.value)}
+                placeholder="Search AI Vault chats to link..."
+                autoFocus
+                className="flex-1 min-w-0 bg-transparent text-xs outline-none"
+              />
+            </div>
+            <div className="max-h-36 overflow-y-auto space-y-0.5">
+              {aiChatCandidates.map((chat) => {
+                const isLinked = (chat.linkedNoteIds || []).includes(
+                  effectiveFocusNote.id,
+                );
+                return (
+                  <button
+                    key={chat.id}
+                    type="button"
+                    onClick={() => {
+                      onToggleAiChatLink(chat.id, effectiveFocusNote.id);
+                    }}
+                    className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded-md text-xs text-left hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <Brain className="w-3 h-3 shrink-0 opacity-75" />
+                      <span className="truncate">{chat.title || "Untitled AI Chat"}</span>
+                    </span>
+                    <span
+                      className="text-[10px] font-mono shrink-0"
+                      style={{
+                        color: isLinked ? "var(--accent)" : "var(--text-muted)",
+                      }}
+                    >
+                      {isLinked ? "Linked" : "Link"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -723,6 +828,71 @@ export const NotesConnectionMap: React.FC<NotesConnectionMapProps> = ({
                   ) : (
                     <p className="px-2 py-1.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
                       No notes share tags with this note.
+                    </p>
+                  ),
+                )}
+
+              {(linkedAiChats.length > 0 || aiChats.length > 0) &&
+                renderTreeGroup(
+                  "ai_vault",
+                  "Linked AI Chats",
+                  linkedAiChats.length,
+                  <Brain className="w-3.5 h-3.5" />,
+                  linkedAiChats.length > 0 ? (
+                    linkedAiChats.map((chat) => (
+                      <div
+                        key={chat.id}
+                        className="group flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)]"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onJumpToAiChat?.(chat.id)}
+                          className="flex-1 min-w-0 flex items-center gap-2 text-left cursor-pointer"
+                        >
+                          <Brain className="w-3.5 h-3.5 shrink-0 opacity-75" />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-medium truncate">
+                              {chat.title || "Untitled AI Chat"}
+                            </div>
+                            <div
+                              className="text-[10.5px] font-mono truncate"
+                              style={{ color: "var(--text-muted)" }}
+                            >
+                              {chat.model || chat.platform} · {chat.turnCount} turns
+                            </div>
+                          </div>
+                        </button>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          {onToggleAiChatLink && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onToggleAiChatLink(chat.id, effectiveFocusNote.id)
+                              }
+                              title="Unlink AI chat"
+                              className="h-6 w-6 flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 hover:bg-[var(--bg-surface)] cursor-pointer"
+                              style={{ color: "var(--text-muted)" }}
+                            >
+                              <Unlink className="w-3 h-3" />
+                            </button>
+                          )}
+                          {onJumpToAiChat && (
+                            <button
+                              type="button"
+                              onClick={() => onJumpToAiChat(chat.id)}
+                              title="Open in AI Vault"
+                              className="h-6 w-6 flex items-center justify-center rounded-md opacity-70 group-hover:opacity-100 hover:bg-[var(--bg-surface)] cursor-pointer"
+                              style={{ color: "var(--accent)" }}
+                            >
+                              <ArrowUpRight className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="px-2 py-1.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
+                      No AI Vault chats linked yet.
                     </p>
                   ),
                 )}

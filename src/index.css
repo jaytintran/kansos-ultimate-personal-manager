@@ -1771,3 +1771,163 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============================================================================
+   AI Vault Editorial Prose, Code Block Controls & Margin Annotation Marks
+   ============================================================================ */
+
+.kanso-ai-prose {
+  font-size: 0.9375rem;
+  line-height: 1.72;
+  color: var(--text-primary);
+}
+
+.kanso-ai-prose h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.kanso-ai-prose h2 {
+  font-size: 1.12rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+  margin-top: 1.1rem;
+  margin-bottom: 0.45rem;
+  color: var(--text-primary);
+}
+
+.kanso-ai-prose h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 0.9rem;
+  margin-bottom: 0.35rem;
+  color: var(--text-primary);
+}
+
+.kanso-ai-prose p {
+  margin-top: 0.35rem;
+  margin-bottom: 0.55rem;
+}
+
+.kanso-ai-prose p:first-child,
+.kanso-ai-prose h1:first-child,
+.kanso-ai-prose h2:first-child,
+.kanso-ai-prose h3:first-child {
+  margin-top: 0;
+}
+
+.kanso-ai-prose p:last-child {
+  margin-bottom: 0;
+}
+
+.kanso-ai-prose ul {
+  list-style-type: disc;
+  padding-left: 1.35rem;
+  margin: 0.45rem 0;
+}
+
+.kanso-ai-prose ol {
+  list-style-type: decimal;
+  padding-left: 1.35rem;
+  margin: 0.45rem 0;
+}
+
+.kanso-ai-prose li {
+  margin: 0.2rem 0;
+}
+
+.kanso-ai-prose ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.15rem;
+}
+
+.kanso-ai-prose ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.kanso-ai-prose ul[data-type="taskList"] li input[type="checkbox"] {
+  margin-top: 0.32rem;
+  accent-color: var(--accent);
+}
+
+.kanso-ai-prose blockquote {
+  border-left: 2px solid var(--border-strong);
+  padding-left: 0.85rem;
+  margin: 0.65rem 0;
+  color: var(--text-secondary);
+}
+
+.kanso-ai-prose hr {
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  margin: 1rem 0;
+}
+
+.kanso-ai-prose table {
+  font-size: 0.82rem;
+}
+
+.kanso-code-block-shell {
+  border-color: var(--border-subtle);
+  background-color: var(--bg-surface);
+}
+
+.kanso-code-block-shell pre {
+  font-family: var(--kanso-font-mono, 'JetBrains Mono', ui-monospace, monospace);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  padding: 0.7rem 0.9rem;
+  background-color: var(--bg-surface-subtle);
+  color: var(--text-primary);
+}
+
+.kanso-code-block-shell pre code {
+  background: transparent !important;
+  padding: 0 !important;
+  border: 0 !important;
+  font-size: inherit;
+}
+
+mark[data-annotation-id] {
+  border-radius: 3px;
+  padding: 0.05em 0.18em;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 140ms ease, outline-color 140ms ease;
+}
+
+mark[data-annotation-id][data-highlight-color="amber"],
+mark[data-annotation-id]:not([data-highlight-color]) {
+  background-color: color-mix(in srgb, #f59e0b 24%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, #d97706 65%, transparent);
+}
+
+mark[data-annotation-id][data-highlight-color="sage"] {
+  background-color: color-mix(in srgb, #10b981 20%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, #059669 65%, transparent);
+}
+
+mark[data-annotation-id][data-highlight-color="sky"] {
+  background-color: color-mix(in srgb, #3b82f6 20%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, #2563eb 65%, transparent);
+}
+
+mark[data-annotation-id][data-highlight-color="rose"] {
+  background-color: color-mix(in srgb, #f43f5e 18%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, #e11d48 65%, transparent);
+}
+
+mark[data-annotation-id].kanso-mark-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+

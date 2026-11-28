@@ -115,6 +115,8 @@ export function createEmptyWorkspace(): KansoWorkspace {
     scratchpads: [],
     customTabs: [],
     noteNotebooks: [],
+    aiChats: [],
+    aiChatFolders: [],
     habits: [],
     habitLogs: [],
     lists: [],

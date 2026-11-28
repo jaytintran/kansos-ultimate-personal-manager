@@ -171,6 +171,7 @@ interface NotesViewProps {
   onOpenContextMenu: (record: ContextMenuRecord, e: React.MouseEvent) => void;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
   onJumpToListItem?: (listItemId: string) => void;
+  onJumpToAiChat?: (chatId: string) => void;
   noteJumpRequest?: NoteJumpRequest | null;
   onOpenTimestamps?: (entryId: string, focus?: TimestampFieldFocus) => void;
 }
@@ -179,6 +180,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
   onOpenContextMenu,
   onJumpToBookLocation,
   onJumpToListItem,
+  onJumpToAiChat,
   noteJumpRequest,
   onOpenTimestamps,
 }) => {
@@ -194,6 +196,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
     deleteNoteNotebook,
     reorderNoteNotebooks,
     reorderNoteEntries,
+    toggleAiChatNoteLink,
   } = useWorkspace();
 
   const notebooks = useMemo(
@@ -3204,6 +3207,9 @@ export const NotesView: React.FC<NotesViewProps> = ({
           updateEntry(noteId, { content: nextHtml });
           pushToast(`Linked "${targetTitle}"`, "success");
         }}
+        aiChats={workspace.aiChats || []}
+        onToggleAiChatLink={toggleAiChatNoteLink}
+        onJumpToAiChat={onJumpToAiChat}
         onCloseDesktop={() => setConnOpenDesktop(false)}
         onCloseMobile={() => setMobileConnOpen(false)}
       />

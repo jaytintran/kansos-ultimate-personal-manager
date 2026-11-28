@@ -17,6 +17,8 @@ import {
   DEFAULT_STREAMER_STATE,
 } from "../data/seedData";
 import {
+  AiChatFolder,
+  AiChatRecord,
   AudioEqPreset,
   AudioFolderRecord,
   AudioMixPreset,
@@ -72,7 +74,7 @@ import {
 } from "../types";
 import { pruneBookVoicePreferences, pruneMissingBookVoicePreferences } from "../hooks/useVoicePreferences";
 import { getContactDisplayName, getDeterministicAvatarColor, getNextOccurrenceInfo } from "../lib/contactUtils";
-import { audioDb, contactPhotoDb, libraryDb, listCoverDb } from "../lib/db";
+import { aiVaultDb, audioDb, contactPhotoDb, libraryDb, listCoverDb } from "../lib/db";
 import { advanceSubscriptionDueDate } from "../lib/financeUtils";
 import { compressCoverDataUrl } from "../lib/formatters";
 import { applySm2Review, createInitialSrsState } from "../lib/languageUtils";
@@ -116,6 +118,7 @@ const VIEW_PREFERENCE_STORAGE_KEYS = [
   "kanso_habits_range_v1",
   "kanso_notes_sort_v1",
   "kanso_notes_view_mode_v1",
+  "kanso_ai_vault_prefs_v1",
   "kanso_lists_prefs_v1",
   "kanso_events_filters_v1",
   "kanso_library_studio_prefs_v1",
@@ -199,6 +202,8 @@ function hasSyncableWorkspaceChanged(
     prev.scratchpads !== next.scratchpads ||
     prev.customTabs !== next.customTabs ||
     prev.noteNotebooks !== next.noteNotebooks ||
+    prev.aiChats !== next.aiChats ||
+    prev.aiChatFolders !== next.aiChatFolders ||
     prev.streams !== next.streams ||
     prev.streamFolders !== next.streamFolders ||
     prev.streamerState !== next.streamerState ||
@@ -467,6 +472,10 @@ function normalizeParsedWorkspace(
     noteNotebooks: Array.isArray(parsed.noteNotebooks)
       ? parsed.noteNotebooks
       : (seed.noteNotebooks ?? []),
+    aiChats: Array.isArray(parsed.aiChats) ? parsed.aiChats : [],
+    aiChatFolders: Array.isArray(parsed.aiChatFolders)
+      ? parsed.aiChatFolders
+      : [],
     books: normalizedLib.books,
     libraryFolders: normalizedLib.libraryFolders,
     libraryCategories: normalizedLib.libraryCategories,
@@ -807,6 +816,29 @@ interface WorkspaceContextValue {
     position: "before" | "after",
   ) => void;
   reorderNoteEntries: (sortOrderById: Record<string, number>) => void;
+
+  // AI Vault actions (Gist-synced metadata + IndexedDB heavy turn bodies)
+  addAiChat: (
+    chat: Omit<AiChatRecord, "id" | "createdAt" | "updatedAt"> & {
+      id?: string;
+    },
+  ) => AiChatRecord;
+  updateAiChat: (id: string, patch: Partial<AiChatRecord>) => void;
+  deleteAiChat: (id: string) => void;
+  addAiChatFolder: (
+    name: string,
+    parentId?: string | null,
+    icon?: string,
+  ) => AiChatFolder;
+  updateAiChatFolder: (id: string, patch: Partial<AiChatFolder>) => void;
+  deleteAiChatFolder: (id: string) => void;
+  reorderAiChatFolders: (
+    draggedId: string,
+    targetId: string,
+    position: "before" | "after" | "inside",
+  ) => void;
+  toggleAiChatNoteLink: (chatId: string, noteId: string) => void;
+  toggleAiChatBookLink: (chatId: string, bookId: string) => void;
 
   // Habit actions
   addHabit: (habit: Omit<Habit, "id" | "createdAt" | "completions">) => Habit;
@@ -3389,6 +3421,267 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
             return e;
           }
           return { ...e, sortOrder: nextOrder };
+        }),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  // ========================================================================
+  // AI Vault CRUD & Bidirectional Links
+  // ========================================================================
+
+  const addAiChat = useCallback(
+    (
+      draft: Omit<AiChatRecord, "id" | "createdAt" | "updatedAt"> & {
+        id?: string;
+      },
+    ): AiChatRecord => {
+      const nowIso = new Date().toISOString();
+      const created: AiChatRecord = {
+        ...draft,
+        id: draft.id || uid("aichat"),
+        title: (draft.title || "").trim() || "Untitled AI Chat",
+        tags: Array.isArray(draft.tags) ? draft.tags : [],
+        linkedNoteIds: Array.isArray(draft.linkedNoteIds)
+          ? draft.linkedNoteIds
+          : [],
+        linkedBookIds: Array.isArray(draft.linkedBookIds)
+          ? draft.linkedBookIds
+          : [],
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      mutateWorkspace((prev) => ({
+        ...prev,
+        aiChats: [created, ...(prev.aiChats ?? [])],
+      }));
+      return created;
+    },
+    [mutateWorkspace],
+  );
+
+  const updateAiChat = useCallback(
+    (id: string, patch: Partial<AiChatRecord>) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        aiChats: (prev.aiChats ?? []).map((c) =>
+          c.id === id ? { ...c, ...patch, updatedAt: nowIso } : c,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteAiChat = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        aiChats: (prev.aiChats ?? []).filter((c) => c.id !== id),
+      }));
+      void aiVaultDb.deleteBody(id);
+      pushToast("AI chat deleted");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const addAiChatFolder = useCallback(
+    (
+      name: string,
+      parentId: string | null = null,
+      icon = "Folder",
+    ): AiChatFolder => {
+      const trimmed = name.trim() || "New Folder";
+      const created: AiChatFolder = {
+        id: uid("aifolder"),
+        name: trimmed,
+        parentId: parentId || null,
+        icon,
+        createdAt: new Date().toISOString(),
+      };
+      mutateWorkspace((prev) => {
+        const existing = prev.aiChatFolders ?? [];
+        const siblings = existing.filter(
+          (f) => (f.parentId ?? null) === (parentId ?? null),
+        );
+        const hasCustomOrder = siblings.some(
+          (f) => typeof f.sortOrder === "number",
+        );
+        const nextFolder = hasCustomOrder
+          ? {
+              ...created,
+              sortOrder:
+                siblings.reduce(
+                  (max, f) =>
+                    typeof f.sortOrder === "number" && f.sortOrder > max
+                      ? f.sortOrder
+                      : max,
+                  -1,
+                ) + 1,
+            }
+          : created;
+        return {
+          ...prev,
+          aiChatFolders: [...existing, nextFolder],
+        };
+      });
+      pushToast(`Folder "${trimmed}" created`, "success");
+      return created;
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const updateAiChatFolder = useCallback(
+    (id: string, patch: Partial<AiChatFolder>) => {
+      mutateWorkspace((prev) => ({
+        ...prev,
+        aiChatFolders: (prev.aiChatFolders ?? []).map((f) =>
+          f.id === id ? { ...f, ...patch } : f,
+        ),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const deleteAiChatFolder = useCallback(
+    (id: string) => {
+      mutateWorkspace((prev) => {
+        const currentFolders = prev.aiChatFolders ?? [];
+        const doomed = currentFolders.find((f) => f.id === id);
+        if (!doomed) return prev;
+        const nextParentId = doomed.parentId ?? null;
+        return {
+          ...prev,
+          aiChatFolders: currentFolders
+            .filter((f) => f.id !== id)
+            .map((f) =>
+              f.parentId === id ? { ...f, parentId: nextParentId } : f,
+            ),
+          aiChats: (prev.aiChats ?? []).map((c) =>
+            c.folderId === id ? { ...c, folderId: nextParentId } : c,
+          ),
+        };
+      });
+      pushToast("Folder deleted (chats moved up)");
+    },
+    [mutateWorkspace, pushToast],
+  );
+
+  const reorderAiChatFolders = useCallback(
+    (
+      draggedId: string,
+      targetId: string,
+      position: "before" | "after" | "inside",
+    ) => {
+      if (!draggedId || !targetId || draggedId === targetId) return;
+      mutateWorkspace((prev) => {
+        const existing = prev.aiChatFolders ?? [];
+        const dragged = existing.find((f) => f.id === draggedId);
+        const target = existing.find((f) => f.id === targetId);
+        if (!dragged || !target) return prev;
+
+        // Guard against dropping a folder into its own descendant
+        if (position === "inside") {
+          let cursor: string | null = target.parentId ?? null;
+          const seen = new Set<string>([target.id]);
+          while (cursor) {
+            if (cursor === draggedId) return prev;
+            if (seen.has(cursor)) break;
+            seen.add(cursor);
+            cursor =
+              existing.find((f) => f.id === cursor)?.parentId ?? null;
+          }
+        }
+
+        const newParentId =
+          position === "inside" ? target.id : (target.parentId ?? null);
+
+        const sortSibling = (a: AiChatFolder, b: AiChatFolder) => {
+          const ao =
+            typeof a.sortOrder === "number" ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+          const bo =
+            typeof b.sortOrder === "number" ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+          if (ao !== bo) return ao - bo;
+          return a.name.localeCompare(b.name);
+        };
+
+        const destSiblings = existing
+          .filter(
+            (f) =>
+              f.id !== draggedId && (f.parentId ?? null) === newParentId,
+          )
+          .sort(sortSibling);
+
+        if (position === "inside") {
+          destSiblings.push({ ...dragged, parentId: newParentId });
+        } else {
+          const targetIdx = destSiblings.findIndex((f) => f.id === targetId);
+          if (targetIdx === -1) return prev;
+          const insertIdx = position === "before" ? targetIdx : targetIdx + 1;
+          destSiblings.splice(insertIdx, 0, {
+            ...dragged,
+            parentId: newParentId,
+          });
+        }
+
+        const orderById = new Map<string, { parentId: string | null; sortOrder: number }>();
+        destSiblings.forEach((f, idx) => {
+          orderById.set(f.id, { parentId: newParentId, sortOrder: idx });
+        });
+
+        return {
+          ...prev,
+          aiChatFolders: existing.map((f) => {
+            const update = orderById.get(f.id);
+            return update
+              ? { ...f, parentId: update.parentId, sortOrder: update.sortOrder }
+              : f;
+          }),
+        };
+      });
+    },
+    [mutateWorkspace],
+  );
+
+  const toggleAiChatNoteLink = useCallback(
+    (chatId: string, noteId: string) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        aiChats: (prev.aiChats ?? []).map((c) => {
+          if (c.id !== chatId) return c;
+          const current = Array.isArray(c.linkedNoteIds) ? c.linkedNoteIds : [];
+          const exists = current.includes(noteId);
+          return {
+            ...c,
+            linkedNoteIds: exists
+              ? current.filter((id) => id !== noteId)
+              : [...current, noteId],
+            updatedAt: nowIso,
+          };
+        }),
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const toggleAiChatBookLink = useCallback(
+    (chatId: string, bookId: string) => {
+      const nowIso = new Date().toISOString();
+      mutateWorkspace((prev) => ({
+        ...prev,
+        aiChats: (prev.aiChats ?? []).map((c) => {
+          if (c.id !== chatId) return c;
+          const current = Array.isArray(c.linkedBookIds) ? c.linkedBookIds : [];
+          const exists = current.includes(bookId);
+          return {
+            ...c,
+            linkedBookIds: exists
+              ? current.filter((id) => id !== bookId)
+              : [...current, bookId],
+            updatedAt: nowIso,
+          };
         }),
       }));
     },
@@ -7208,6 +7501,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           noteNotebooks: Array.isArray(cleanNext.noteNotebooks)
             ? cleanNext.noteNotebooks
             : [],
+          aiChats: Array.isArray(cleanNext.aiChats)
+            ? cleanNext.aiChats
+            : [],
+          aiChatFolders: Array.isArray(cleanNext.aiChatFolders)
+            ? cleanNext.aiChatFolders
+            : [],
           books: finalBooks,
           libraryFolders: finalLibraryFolders,
           libraryCategories: finalLibraryCategories,
@@ -7550,6 +7849,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       deleteNoteNotebook,
       reorderNoteNotebooks,
       reorderNoteEntries,
+      addAiChat,
+      updateAiChat,
+      deleteAiChat,
+      addAiChatFolder,
+      updateAiChatFolder,
+      deleteAiChatFolder,
+      reorderAiChatFolders,
+      toggleAiChatNoteLink,
+      toggleAiChatBookLink,
       addHabit,
       updateHabit,
       deleteHabit,
@@ -7718,6 +8026,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       deleteNoteNotebook,
       reorderNoteNotebooks,
       reorderNoteEntries,
+      addAiChat,
+      updateAiChat,
+      deleteAiChat,
+      addAiChatFolder,
+      updateAiChatFolder,
+      deleteAiChatFolder,
+      reorderAiChatFolders,
+      toggleAiChatNoteLink,
+      toggleAiChatBookLink,
       addHabit,
       updateHabit,
       deleteHabit,

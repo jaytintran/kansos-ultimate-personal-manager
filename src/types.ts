@@ -4,6 +4,7 @@ export type ViewId =
   | "habits"
   | "achievements"
   | "notes"
+  | "ai-vault"
   | "events"
   | "lists"
   | "library"
@@ -550,7 +551,34 @@ import type {
   LanguageSrsState,
 } from "./types/languages";
 
+import type {
+  AiChatBodyRecord,
+  AiChatFolder,
+  AiChatRecord,
+  AiConversationTurn,
+  AiMarginAnnotation,
+  AiMarginAnnotationColor,
+  AiPlatform,
+  AiReadingFont,
+  AiReadingWidth,
+  AiTurnRole,
+  AiTurnSource,
+  AiVaultJumpRequest,
+} from "./types/aiVault";
+
 export type {
+  AiChatBodyRecord,
+  AiChatFolder,
+  AiChatRecord,
+  AiConversationTurn,
+  AiMarginAnnotation,
+  AiMarginAnnotationColor,
+  AiPlatform,
+  AiReadingFont,
+  AiReadingWidth,
+  AiTurnRole,
+  AiTurnSource,
+  AiVaultJumpRequest,
   ContactAddress,
   ContactCircle,
   ContactClosenessTier,
@@ -589,6 +617,8 @@ export interface KansoWorkspace {
   scratchpads?: ScratchpadCard[];
   customTabs?: CustomFocusTab[];
   noteNotebooks?: NoteNotebook[];
+  aiChats?: AiChatRecord[];
+  aiChatFolders?: AiChatFolder[];
   habits: Habit[];
   habitLogs?: HabitLog[];
   lists: ListCollection[];

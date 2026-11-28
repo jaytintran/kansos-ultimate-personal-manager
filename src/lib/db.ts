@@ -1,11 +1,12 @@
 import type { BookmarkRecord, HighlightRecord } from "../types/library";
+import type { AiChatBodyRecord } from "../types/aiVault";
 import {
   generateSampleEpubBytes,
   generateSamplePdfBytes,
 } from "../utils/ebookStorage";
 
 const DB_NAME = "kanso_library_studio_v2";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const FILES_STORE = "book_files";
 const BOOK_FILE_META_STORE = "book_file_meta";
 const AUDIO_FILES_STORE = "audio_files";
@@ -16,6 +17,7 @@ const HIGHLIGHTS_STORE = "highlights";
 const WORKSPACE_STORE = "workspace_state";
 const NOTE_IMAGES_STORE = "note_images";
 const LIST_ITEM_COVERS_STORE = "list_item_covers";
+const AI_VAULT_STORE = "ai_vault_conversations";
 
 export const NOTE_IMAGE_URI_PREFIX = "kanso-idb-image://";
 
@@ -167,6 +169,9 @@ function getDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(LIST_ITEM_COVERS_STORE)) {
         db.createObjectStore(LIST_ITEM_COVERS_STORE, { keyPath: "itemId" });
+      }
+      if (!db.objectStoreNames.contains(AI_VAULT_STORE)) {
+        db.createObjectStore(AI_VAULT_STORE, { keyPath: "chatId" });
       }
     };
     req.onsuccess = () => {
@@ -1356,3 +1361,117 @@ export const listCoverDb = {
     }
   },
 };
+
+export const AI_VAULT_BODY_CHANGE_EVENT = "kanso:ai-vault-body-changed";
+
+function notifyAiVaultBodyChanged(chatId?: string): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(AI_VAULT_BODY_CHANGE_EVENT, { detail: { chatId } }),
+    );
+  }
+}
+
+export const aiVaultDb = {
+  async getBody(chatId: string): Promise<AiChatBodyRecord | null> {
+    if (typeof indexedDB === "undefined" || !chatId) return null;
+    try {
+      const db = await getDb();
+      return await new Promise((resolve) => {
+        try {
+          const tx = db.transaction(AI_VAULT_STORE, "readonly");
+          const req = tx.objectStore(AI_VAULT_STORE).get(chatId);
+          req.onsuccess = () =>
+            resolve((req.result as AiChatBodyRecord | undefined) ?? null);
+          req.onerror = () => resolve(null);
+        } catch {
+          resolve(null);
+        }
+      });
+    } catch {
+      return null;
+    }
+  },
+
+  async getAllBodies(): Promise<AiChatBodyRecord[]> {
+    if (typeof indexedDB === "undefined") return [];
+    try {
+      const db = await getDb();
+      return await new Promise((resolve) => {
+        try {
+          const tx = db.transaction(AI_VAULT_STORE, "readonly");
+          const req = tx.objectStore(AI_VAULT_STORE).getAll();
+          req.onsuccess = () =>
+            resolve((req.result as AiChatBodyRecord[] | undefined) ?? []);
+          req.onerror = () => resolve([]);
+        } catch {
+          resolve([]);
+        }
+      });
+    } catch {
+      return [];
+    }
+  },
+
+  async saveBody(record: AiChatBodyRecord): Promise<void> {
+    if (typeof indexedDB === "undefined" || !record.chatId) return;
+    const db = await getDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(AI_VAULT_STORE, "readwrite");
+      tx.objectStore(AI_VAULT_STORE).put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () =>
+        reject(tx.error || new Error("Failed to save AI Vault conversation"));
+    });
+    notifyAiVaultBodyChanged(record.chatId);
+  },
+
+  async saveManyBodies(records: AiChatBodyRecord[]): Promise<void> {
+    if (typeof indexedDB === "undefined" || records.length === 0) return;
+    const db = await getDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(AI_VAULT_STORE, "readwrite");
+      const store = tx.objectStore(AI_VAULT_STORE);
+      for (const rec of records) {
+        if (rec.chatId) store.put(rec);
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () =>
+        reject(tx.error || new Error("Failed to save AI Vault conversations"));
+    });
+    notifyAiVaultBodyChanged();
+  },
+
+  async deleteBody(chatId: string): Promise<void> {
+    if (typeof indexedDB === "undefined" || !chatId) return;
+    try {
+      const db = await getDb();
+      await new Promise<void>((resolve) => {
+        const tx = db.transaction(AI_VAULT_STORE, "readwrite");
+        tx.objectStore(AI_VAULT_STORE).delete(chatId);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+      notifyAiVaultBodyChanged(chatId);
+    } catch {
+      // Ignore
+    }
+  },
+
+  async clearAllBodies(): Promise<void> {
+    if (typeof indexedDB === "undefined") return;
+    try {
+      const db = await getDb();
+      await new Promise<void>((resolve) => {
+        const tx = db.transaction(AI_VAULT_STORE, "readwrite");
+        tx.objectStore(AI_VAULT_STORE).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+      notifyAiVaultBodyChanged();
+    } catch {
+      // Ignore
+    }
+  },
+};
+

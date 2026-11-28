@@ -1,6 +1,7 @@
 import React from "react";
 import {
   BookOpen,
+  Brain,
   Calendar,
   FileText,
   GitCommitVertical,
@@ -56,6 +57,12 @@ export const KANSO_VIEW_REGISTRY: ViewRegistryItem[] = [
     label: "Notes",
     description: "Card grid & rich editor",
     icon: FileText,
+  },
+  {
+    id: "ai-vault",
+    label: "AI Vault",
+    description: "Saved AI chats & annotations",
+    icon: Brain,
   },
   {
     id: "events",
@@ -117,7 +124,7 @@ const VALID_VIEW_ID_SET = new Set<string>(ALL_VIEW_IDS);
 
 export const DEFAULT_DESKTOP_VIEW_GROUPS: ViewId[][] = [
   ["focus", "timeline", "habits", "achievements"],
-  ["notes", "events", "lists"],
+  ["notes", "ai-vault", "events", "lists"],
   ["library", "streamer", "audio"],
   ["contacts", "finance", "languages"],
 ];
@@ -131,6 +138,7 @@ export const DEFAULT_MOBILE_PRIMARY_VIEWS: ViewId[] = [
 ];
 
 export const DEFAULT_MOBILE_MORE_VIEWS: ViewId[] = [
+  "ai-vault",
   "events",
   "contacts",
   "finance",

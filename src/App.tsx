@@ -47,6 +47,7 @@ import {
   WorkspaceProvider,
 } from "./context/WorkspaceContext";
 import {
+  AiVaultJumpRequest,
   BookJumpRequest,
   BookNoteLink,
   ContextMenuRecord,
@@ -55,6 +56,7 @@ import {
   NoteJumpRequest,
   ViewId,
 } from "./types";
+import { AiVaultView } from "./views/AiVaultView";
 import { formatAudioDuration } from "./lib/audioFormatters";
 import {
   loadShowMobileHeader,
@@ -209,6 +211,8 @@ const KansoShell: React.FC = () => {
     useState<NoteJumpRequest | null>(null);
   const [listItemJumpRequest, setListItemJumpRequest] =
     useState<ListItemJumpRequest | null>(null);
+  const [aiVaultJumpRequest, setAiVaultJumpRequest] =
+    useState<AiVaultJumpRequest | null>(null);
   const [isMobileKeyboardOpen, setIsMobileKeyboardOpen] = useState(false);
   const [showMobileHeader, setShowMobileHeader] = useState<boolean>(
     loadShowMobileHeader,
@@ -228,6 +232,7 @@ const KansoShell: React.FC = () => {
   const [railTooltip, setRailTooltip] = useState<RailTooltipState | null>(null);
   const bookJumpNonceRef = useRef(0);
   const noteJumpNonceRef = useRef(0);
+  const aiVaultJumpNonceRef = useRef(0);
   const listItemJumpNonceRef = useRef(0);
   const mainRef = useRef<HTMLElement>(null);
   const listsSelectItemHandlerRef = useRef<((itemId: string) => void) | null>(
@@ -491,6 +496,25 @@ const KansoShell: React.FC = () => {
     [workspace.listItems, pushToast],
   );
 
+  const handleJumpToAiChat = useCallback(
+    (chatId: string) => {
+      const target = (workspace.aiChats ?? []).find((c) => c.id === chatId);
+      if (!target) {
+        pushToast("This AI chat is no longer in AI Vault", "error");
+        return;
+      }
+      setDetailTarget(null);
+      setMoreSheetOpen(false);
+      setActiveView("ai-vault");
+      aiVaultJumpNonceRef.current += 1;
+      setAiVaultJumpRequest({
+        chatId: target.id,
+        nonce: aiVaultJumpNonceRef.current,
+      });
+    },
+    [workspace.aiChats, pushToast],
+  );
+
   const handleOpenDetail = useCallback(
     (target: DetailSheetTarget) => {
       if (target.mode === "list_item") {
@@ -617,6 +641,9 @@ const KansoShell: React.FC = () => {
     const languagesCount = hidden.has("languages")
       ? 0
       : (workspace.languageItems ?? []).length;
+    const aiVaultCount = hidden.has("ai-vault")
+      ? 0
+      : (workspace.aiChats ?? []).length;
 
     return {
       focus: activeFocus,
@@ -624,6 +651,7 @@ const KansoShell: React.FC = () => {
       habits: habitsTodayLeft,
       achievements: achievementsCount,
       notes: notesCount,
+      "ai-vault": aiVaultCount,
       events: eventsCount,
       lists: listsCount,
       library: libraryCount,
@@ -646,6 +674,7 @@ const KansoShell: React.FC = () => {
     workspace.contacts,
     workspace.financeTransactions,
     workspace.languageItems,
+    workspace.aiChats,
     todayKey,
   ]);
 
@@ -753,6 +782,7 @@ const KansoShell: React.FC = () => {
     activeView === "audio" ||
     activeView === "library" ||
     activeView === "notes" ||
+    activeView === "ai-vault" ||
     activeView === "lists" ||
     activeView === "events" ||
     activeView === "timeline" ||
@@ -870,7 +900,7 @@ const KansoShell: React.FC = () => {
                   const item = VIEW_META_MAP[viewId];
                   const Icon = item.icon;
                   const active = activeView === item.id;
-                  const count = navCounts[item.id];
+                  const count = navCounts[item.id] ?? 0;
                   const isStreamerRowWithControls =
                     item.id === "streamer" && showStreamerAudioControls;
                   const isAudioRowWithControls =
@@ -1847,8 +1877,16 @@ const KansoShell: React.FC = () => {
             onOpenContextMenu={handleOpenContextMenu}
             onJumpToBookLocation={handleJumpToBookLocation}
             onJumpToListItem={handleJumpToListItem}
+            onJumpToAiChat={handleJumpToAiChat}
             noteJumpRequest={noteJumpRequest}
             onOpenTimestamps={handleOpenTimestamps}
+          />
+        )}
+        {activeView === "ai-vault" && (
+          <AiVaultView
+            onJumpToNote={handleJumpToNote}
+            onJumpToBookLocation={handleJumpToBookLocation}
+            aiVaultJumpRequest={aiVaultJumpRequest}
           />
         )}
         {activeView === "events" && (
