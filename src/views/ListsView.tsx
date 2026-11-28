@@ -39,7 +39,7 @@ import {
   ListIcon as CollectionIcon,
 } from "../components/IconLibrary";
 import { IconPicker } from "../components/IconPicker";
-import { NlpInputBar } from "../components/NlpInputBar";
+import { ListsCaptureBar } from "../components/lists/ListsCaptureBar";
 import { RichContent } from "../components/RichContent";
 import { ListItemInspector } from "../components/lists/ListItemInspector";
 import { ListItemTabEditor } from "../components/lists/ListItemTabEditor";
@@ -94,7 +94,6 @@ import {
   ListItemStatus,
 } from "../types";
 import {
-  addDaysToKey,
   formatCompactDayHeading,
   getEntryDayKey,
   getTodayKey,
@@ -112,6 +111,7 @@ import {
   removeCoursePlaybackProgress,
   useCoursePlaybackProgress,
 } from "../utils/coursePlaybackProgress";
+import { useListItemCover } from "../utils/listItemCovers";
 import { countLinkedNotesForListItems } from "../utils/listItemLinks";
 import { extractUrlFromListInput } from "../utils/nlp";
 import { VIEW_PREFERENCE_SYNC_EVENT } from "../utils/viewPreferences";
@@ -370,7 +370,8 @@ const CourseGridThumbnail: React.FC<{
   src: string | null;
   alt: string;
   isPlaylist: boolean;
-}> = ({ src, alt, isPlaylist }) => {
+  isDone?: boolean;
+}> = ({ src, alt, isPlaylist, isDone = false }) => {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   if (src && failedSrc !== src) {
     return (
@@ -379,13 +380,17 @@ const CourseGridThumbnail: React.FC<{
         alt={alt}
         referrerPolicy="no-referrer"
         onError={() => setFailedSrc(src)}
-        className="w-full h-full object-cover transition-transform duration-200 group-hover/thumb:scale-[1.02]"
+        className={`w-full h-full object-cover transition-all duration-200 group-hover/thumb:scale-[1.02] ${
+          isDone ? "opacity-60 grayscale-[60%]" : ""
+        }`}
       />
     );
   }
   return (
     <div
-      className="w-full h-full flex flex-col items-center justify-center gap-1 text-xs font-medium"
+      className={`w-full h-full flex flex-col items-center justify-center gap-1 text-xs font-medium ${
+        isDone ? "opacity-60 grayscale-[60%]" : ""
+      }`}
       style={{
         background:
           "linear-gradient(135deg, var(--bg-surface-subtle), var(--accent-soft))",
@@ -394,6 +399,35 @@ const CourseGridThumbnail: React.FC<{
     >
       <Play className="w-5 h-5" style={{ color: "var(--accent)" }} />
       <span>{isPlaylist ? "YouTube Playlist" : "YouTube Course"}</span>
+    </div>
+  );
+};
+
+const ListCardCoverBanner: React.FC<{
+  item: ListItem;
+  isDone: boolean;
+}> = ({ item, isDone }) => {
+  const { src } = useListItemCover(item);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  if (!src || failedSrc === src) return null;
+  return (
+    <div
+      className="relative aspect-video w-full rounded-lg overflow-hidden border"
+      style={{
+        backgroundColor: "var(--bg-surface-subtle)",
+        borderColor: "var(--border-subtle)",
+      }}
+    >
+      <img
+        src={src}
+        alt={item.title}
+        referrerPolicy="no-referrer"
+        loading="lazy"
+        onError={() => setFailedSrc(src)}
+        className={`w-full h-full object-cover transition-all duration-200 ${
+          isDone ? "opacity-60 grayscale-[60%]" : ""
+        }`}
+      />
     </div>
   );
 };
@@ -463,7 +497,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const [statusPickerItemId, setStatusPickerItemId] = useState<string | null>(
     null,
   );
-  const [duePickerItemId, setDuePickerItemId] = useState<string | null>(null);
 
   const [quickJumpOpen, setQuickJumpOpen] = useState(false);
   const [quickJumpQuery, setQuickJumpQuery] = useState("");
@@ -474,6 +507,9 @@ export const ListsView: React.FC<ListsViewProps> = ({
   const [smartAddTargetListId, setSmartAddTargetListId] = useState<string>(
     () => activeLists[0]?.id || "",
   );
+  const [captureStatusByScope, setCaptureStatusByScope] = useState<
+    Record<string, ListItemStatus>
+  >({});
 
   // Multi-select bulk action state
   const [selectionMode, setSelectionMode] = useState(false);
@@ -1920,7 +1956,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            setDuePickerItemId(null);
             setStatusPickerItemId(pickerOpen ? null : item.id);
           }}
           className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
@@ -1981,135 +2016,25 @@ export const ListsView: React.FC<ListsViewProps> = ({
     );
   };
 
-  const renderDueDateChip = (item: ListItem, showHoverAdd = true) => {
-    const hasDue = Boolean(item.scheduledAt);
-    const dueKey = hasDue ? toLocalDateKey(item.scheduledAt!) : "";
+  const renderDueDateChip = (item: ListItem) => {
+    if (!item.scheduledAt) return null;
+    const dueKey = toLocalDateKey(item.scheduledAt);
     const isOverdue =
-      hasDue &&
       dueKey < todayKey &&
       item.status !== "done" &&
       item.status !== "dropped";
-    const pickerOpen = duePickerItemId === item.id;
 
     return (
-      <div
-        className="relative inline-flex items-center shrink-0"
-        onClick={(e) => e.stopPropagation()}
+      <span
+        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-mono tabular-nums shrink-0"
+        style={{
+          color: isOverdue ? "var(--danger)" : "var(--text-secondary)",
+        }}
+        title={`Due Date: ${formatCompactDayHeading(dueKey)}`}
       >
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setStatusPickerItemId(null);
-            setDuePickerItemId(pickerOpen ? null : item.id);
-          }}
-          className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-mono tabular-nums transition-colors cursor-pointer ${
-            hasDue
-              ? "hover:bg-[var(--bg-surface-hover)]"
-              : showHoverAdd
-                ? "opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-[var(--bg-surface-hover)]"
-                : "hidden"
-          }`}
-          style={{
-            color: isOverdue
-              ? "var(--danger)"
-              : hasDue
-                ? "var(--text-secondary)"
-                : "var(--text-muted)",
-          }}
-          title={hasDue ? "Click to reschedule due date" : "Set due date"}
-        >
-          <Calendar className="w-3 h-3 opacity-80" />
-          <span>{hasDue ? formatCompactDayHeading(dueKey) : "+ Due"}</span>
-        </button>
-
-        {pickerOpen && (
-          <>
-            <div
-              className="fixed inset-0 z-20"
-              onClick={(e) => {
-                e.stopPropagation();
-                setDuePickerItemId(null);
-              }}
-            />
-            <div
-              className="absolute left-0 top-7 z-30 w-48 rounded-xl border p-2 space-y-1.5"
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                backgroundColor: "var(--bg-elevated)",
-                borderColor: "var(--border-strong)",
-                boxShadow: "var(--shadow-popover)",
-              }}
-            >
-              <div className="grid grid-cols-3 gap-1">
-                {[
-                  { label: "Today", key: todayKey },
-                  { label: "Tmrw", key: addDaysToKey(todayKey, 1) },
-                  { label: "+7d", key: addDaysToKey(todayKey, 7) },
-                ].map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() => {
-                      updateListItem(item.id, {
-                        scheduledAt: new Date(
-                          `${preset.key}T12:00:00`,
-                        ).toISOString(),
-                      });
-                      setDuePickerItemId(null);
-                    }}
-                    className="h-6 rounded-md text-[11px] font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                    style={{
-                      backgroundColor:
-                        dueKey === preset.key
-                          ? "var(--accent-soft)"
-                          : "var(--bg-surface)",
-                      color:
-                        dueKey === preset.key
-                          ? "var(--accent)"
-                          : "var(--text-secondary)",
-                    }}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-              <input
-                type="date"
-                value={dueKey}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  updateListItem(item.id, {
-                    scheduledAt: val
-                      ? new Date(`${val}T12:00:00`).toISOString()
-                      : null,
-                  });
-                  setDuePickerItemId(null);
-                }}
-                className="w-full h-7 px-1.5 rounded-md border text-[11px] font-mono outline-none"
-                style={{
-                  backgroundColor: "var(--bg-surface)",
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-primary)",
-                }}
-              />
-              {hasDue && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    updateListItem(item.id, { scheduledAt: null });
-                    setDuePickerItemId(null);
-                  }}
-                  className="w-full h-6 rounded-md text-[11px] font-medium hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                  style={{ color: "var(--danger)" }}
-                >
-                  Clear due date
-                </button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
+        <Calendar className="w-3 h-3 opacity-80" />
+        <span>{formatCompactDayHeading(dueKey)}</span>
+      </span>
     );
   };
 
@@ -2327,6 +2252,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
       </div>
     );
 
+    const isDone = item.status === "done";
     const showsSublistSourceBadge =
       Boolean(
         currentList &&
@@ -2337,9 +2263,8 @@ export const ListsView: React.FC<ListsViewProps> = ({
     const hasFooterLeft =
       Boolean(item.scheduledAt) ||
       isSmartScope ||
-      showsSublistSourceBadge ||
-      !inBoard;
-    const showFooter = true;
+      showsSublistSourceBadge;
+    const showFooter = hasFooterLeft || itemTags.length > 0;
 
     return (
       <div
@@ -2357,7 +2282,13 @@ export const ListsView: React.FC<ListsViewProps> = ({
         }}
         className={`group relative rounded-xl border p-4 cursor-pointer transition-all duration-150 hover:border-[var(--border-strong)] flex flex-col justify-between gap-2.5 ${
           isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
-        } ${isBeingDragged ? "opacity-45 scale-[0.98]" : ""} ${
+        } ${
+          isBeingDragged
+            ? "opacity-45 scale-[0.98]"
+            : isDone
+              ? "opacity-[0.58]"
+              : ""
+        } ${
           isDropTarget
             ? "ring-1 ring-[var(--accent)]/60 ring-offset-1 ring-offset-[var(--bg-canvas)]"
             : ""
@@ -2393,8 +2324,8 @@ export const ListsView: React.FC<ListsViewProps> = ({
           />
         )}
 
-        {/* Top 16:9 Thumbnail Preview for YouTube Grid Cards */}
-        {!inBoard && ytCourseInfo && (
+        {/* Top 16:9 Thumbnail Preview for YouTube Grid Cards (unless overridden by explicit coverUrl) */}
+        {!inBoard && ytCourseInfo && !item.coverUrl && (
           <div
             onClick={(e) => {
               e.stopPropagation();
@@ -2410,6 +2341,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
               src={ytCourseInfo.thumbnailUrl}
               alt={item.title}
               isPlaylist={ytCourseInfo.kind === "playlist"}
+              isDone={isDone}
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent flex items-end justify-between p-2.5">
               <span
@@ -2430,6 +2362,11 @@ export const ListsView: React.FC<ListsViewProps> = ({
               )}
             </div>
           </div>
+        )}
+
+        {/* Top 16:9 Cover Image Preview (Cover URL or Webpage Preview cached per device) */}
+        {!inBoard && (!ytCourseInfo || Boolean(item.coverUrl)) && (
+          <ListCardCoverBanner item={item} isDone={isDone} />
         )}
 
         {/* Top Header Row: Checkbox + Drag + Status + Title/Subtitle + Actions */}
@@ -2463,7 +2400,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
               <div className="space-y-0.5">
                 <div
                   className={`text-sm font-semibold leading-snug line-clamp-2 ${
-                    item.status === "done" ? "line-through opacity-60" : ""
+                    isDone ? "line-through" : ""
                   }`}
                   style={{ color: "var(--text-primary)" }}
                 >
@@ -2576,7 +2513,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
             {hasFooterLeft && (
               <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                 {renderSourceListBadge(item)}
-                {renderDueDateChip(item, !inBoard)}
+                {renderDueDateChip(item)}
               </div>
             )}
 
@@ -2611,6 +2548,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
     }
 
     const isCompact = activeLayout.viewMode === "compact";
+    const isDone = item.status === "done";
     const itemTags = item.tags || [];
     const isBeingDragged = draggingItemId === item.id;
     const isDropTarget = itemDropTarget?.itemId === item.id;
@@ -2721,7 +2659,13 @@ export const ListsView: React.FC<ListsViewProps> = ({
           }}
           className={`group relative flex items-center gap-2 px-2 -mx-2 rounded-lg cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]/75 py-1.5 ${
             isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
-          } ${isBeingDragged ? "opacity-50 bg-[var(--accent-soft)]" : ""}`}
+          } ${
+            isBeingDragged
+              ? "opacity-50 bg-[var(--accent-soft)]"
+              : isDone
+                ? "opacity-[0.58]"
+                : ""
+          }`}
         >
           {(showCheckbox || isChecked) && (
             <button
@@ -2750,7 +2694,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
           <div className="flex-1 min-w-0">
             <span
               className={`text-sm font-medium leading-snug truncate block ${
-                item.status === "done" ? "line-through opacity-60" : ""
+                isDone ? "line-through" : ""
               }`}
               style={{ color: "var(--text-primary)" }}
             >
@@ -2787,7 +2731,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
                 <ExternalLink className="w-3 h-3" />
               </button>
             ) : null}
-            {renderDueDateChip(item, true)}
+            {renderDueDateChip(item)}
             <button
               type="button"
               onClick={(e) => {
@@ -2840,7 +2784,13 @@ export const ListsView: React.FC<ListsViewProps> = ({
         }}
         className={`group relative flex flex-col gap-1.5 px-2.5 -mx-2 rounded-lg cursor-pointer transition-colors hover:bg-[var(--bg-surface-subtle)]/75 py-2.5 ${
           isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
-        } ${isBeingDragged ? "opacity-50 bg-[var(--accent-soft)]" : ""}`}
+        } ${
+          isBeingDragged
+            ? "opacity-50 bg-[var(--accent-soft)]"
+            : isDone
+              ? "opacity-[0.58]"
+              : ""
+        }`}
       >
         {/* Row 1: Status + Title (wraps up to 2 lines) + Clean Action Triggers */}
         <div className="flex items-start gap-2 min-w-0">
@@ -2872,7 +2822,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
           <div className="flex-1 min-w-0 pt-0.5">
             <span
               className={`block text-sm font-medium leading-snug line-clamp-2 ${
-                item.status === "done" ? "line-through opacity-60" : ""
+                isDone ? "line-through" : ""
               }`}
               style={{ color: "var(--text-primary)" }}
             >
@@ -3008,7 +2958,7 @@ export const ListsView: React.FC<ListsViewProps> = ({
                   borderColor: "var(--border-subtle)",
                 }}
               >
-                {renderDueDateChip(item, false)}
+                {renderDueDateChip(item)}
               </span>
             )}
           </div>
@@ -3981,129 +3931,13 @@ export const ListsView: React.FC<ListsViewProps> = ({
           />
         )}
 
-        {/* Row 5: Pinned Quick-Add + Search/Filters/Select Bar (All Lists Scopes: Smart Views & Regular Lists) */}
+        {/* Row 5: Search/Filters/Select Bar (All Lists Scopes: Smart Views & Regular Lists) */}
         {(currentList || isSmartScope) &&
           (splitVisible || localState.subTab === "items") && (
             <div
-              className="px-4 sm:px-6 pt-3 pb-3 border-b space-y-2.5 bg-[var(--bg-canvas)]"
+              className="px-4 sm:px-6 pt-2.5 pb-2.5 border-b bg-[var(--bg-canvas)]"
               style={{ borderColor: "var(--border-subtle)" }}
             >
-              {/* Smart Quick-Add Bar (URL auto-attach + natural date + #tags) */}
-              {(currentList || (isSmartScope && activeLists.length > 0)) && (() => {
-                const subtreeIdSet = currentList
-                  ? new Set(
-                      getDescendantListIds(
-                        currentList.id,
-                        listTreeIndex.childrenMap,
-                      ),
-                    )
-                  : null;
-                const subtreeOptions = subtreeIdSet
-                  ? flattenedLists.filter((n) => subtreeIdSet.has(n.list.id))
-                  : [];
-                const savedListAddTarget = listAddTargetByScope[scopeKey];
-                const effectiveListAddTarget = currentList
-                  ? activeSublistFilter === "direct"
-                    ? currentList.id
-                    : focusedSublist
-                      ? focusedSublist.id
-                      : savedListAddTarget &&
-                          subtreeIdSet?.has(savedListAddTarget)
-                        ? savedListAddTarget
-                        : currentList.id
-                  : "";
-                const effectiveListAddTargetTitle =
-                  listById.get(effectiveListAddTarget)?.title ||
-                  currentList?.title ||
-                  "list";
-
-                return (
-                  <NlpInputBar
-                    placeholder={
-                      currentList
-                        ? `Add to ${effectiveListAddTargetTitle} (paste URL, due tomorrow, #tag)...`
-                        : `Add to ${STATUS_META[scope.kind === "smart" ? scope.status : "inbox"].label} (paste URL, due tomorrow, #tag)...`
-                    }
-                    onSubmit={(raw) => {
-                      if (scope.kind === "smart") {
-                        const targetId =
-                          smartAddTargetListId || activeLists[0]?.id;
-                        if (!targetId) return false;
-                        return Boolean(
-                          handleQuickAddListItem(targetId, raw, scope.status),
-                        );
-                      }
-                      return Boolean(
-                        handleQuickAddListItem(
-                          effectiveListAddTarget || scope.listId,
-                          raw,
-                          localState.statusFilter === "all"
-                            ? "inbox"
-                            : localState.statusFilter,
-                        ),
-                      );
-                    }}
-                    leadingSlot={
-                      isSmartScope && activeLists.length > 0 ? (
-                        <select
-                          value={smartAddTargetListId}
-                          onChange={(e) =>
-                            setSmartAddTargetListId(e.target.value)
-                          }
-                          aria-label="Target list"
-                          className="h-7 px-2 rounded-lg border text-xs font-medium outline-none max-w-[160px] cursor-pointer"
-                          style={{
-                            backgroundColor: "var(--bg-surface-subtle)",
-                            borderColor: "var(--border-subtle)",
-                            color: "var(--text-secondary)",
-                          }}
-                        >
-                          {flattenedLists.map((node) => (
-                            <option key={node.list.id} value={node.list.id}>
-                              {formatIndentedListOptionLabel(node)}
-                            </option>
-                          ))}
-                        </select>
-                      ) : currentList &&
-                        hasSublists &&
-                        activeSublistFilter === "all" &&
-                        subtreeOptions.length > 1 ? (
-                        <select
-                          value={effectiveListAddTarget}
-                          onChange={(e) =>
-                            setListAddTargetByScope((prev) => ({
-                              ...prev,
-                              [scopeKey]: e.target.value,
-                            }))
-                          }
-                          aria-label="Target list or sublist"
-                          className="h-7 px-2 rounded-lg border text-xs font-medium outline-none max-w-[160px] cursor-pointer"
-                          style={{
-                            backgroundColor: "var(--bg-surface-subtle)",
-                            borderColor: "var(--border-subtle)",
-                            color: "var(--text-secondary)",
-                          }}
-                        >
-                          {subtreeOptions.map((node) => (
-                            <option key={node.list.id} value={node.list.id}>
-                              {node.list.id === currentList.id
-                                ? `${node.list.title} (Direct)`
-                                : formatIndentedListOptionLabel(node)}
-                            </option>
-                          ))}
-                        </select>
-                      ) : undefined
-                    }
-                    parseUrls
-                    availableTags={scopeUniqueTags}
-                    submitLabel="Add"
-                    compact
-                    previewPosition="bottom"
-                    showTimeblockTip={false}
-                  />
-                );
-              })()}
-
               {/* Filter / ViewMode / Multi-Select Bar */}
               <div className="flex flex-wrap items-center gap-2">
                 <div
@@ -4647,8 +4481,9 @@ export const ListsView: React.FC<ListsViewProps> = ({
         </div>
       ) : (
         <div className="flex-1 min-h-0 flex overflow-hidden">
-          {/* LEFT PRIMARY PANE */}
-          <section className="flex-1 min-w-0 overflow-y-auto overscroll-none px-4 sm:px-6 py-4 space-y-4">
+          {/* LEFT PRIMARY PANE + COHESIVE BOTTOM CAPTURE BAR */}
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
+            <section className="flex-1 min-w-0 overflow-y-auto overscroll-none px-4 sm:px-6 py-4 space-y-4">
             {/* TRACKED ITEMS */}
             {(splitVisible || localState.subTab === "items") && (
               <>
@@ -4958,10 +4793,10 @@ export const ListsView: React.FC<ListsViewProps> = ({
                     }}
                   >
                     No items match your current filter. Add one using the bar
-                    above.
+                    below.
                   </div>
                 ) : (
-                  <div className="space-y-5 pb-8">
+                  <div className="space-y-5 pb-4">
                     {groupedTree.map((group) => {
                       const groupKey = `${scopeKey}:${group.key}`;
                       const collapsed = Boolean(
@@ -5475,6 +5310,91 @@ export const ListsView: React.FC<ListsViewProps> = ({
                 </div>
               )}
           </section>
+
+            {/* Cohesive Bottom Capture Bar (Docked Mobile · Floating Desktop) */}
+            {(currentList || isSmartScope) &&
+              (splitVisible || localState.subTab === "items") &&
+              (() => {
+                const savedListTarget = listAddTargetByScope[scopeKey];
+                const resolvedTargetListId =
+                  scope.kind === "smart"
+                    ? smartAddTargetListId && listById.has(smartAddTargetListId)
+                      ? smartAddTargetListId
+                      : activeLists[0]?.id || ""
+                    : savedListTarget && listById.has(savedListTarget)
+                      ? savedListTarget
+                      : activeSublistFilter === "direct" && currentList
+                        ? currentList.id
+                        : focusedSublist
+                          ? focusedSublist.id
+                          : currentList?.id || activeLists[0]?.id || "";
+
+                const resolvedCaptureStatus: ListItemStatus =
+                  captureStatusByScope[scopeKey] ??
+                  (scope.kind === "smart"
+                    ? scope.status
+                    : localState.statusFilter === "all"
+                      ? "inbox"
+                      : localState.statusFilter);
+
+                return (
+                  <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-canvas)] px-3 py-2 lg:border-t-0 lg:bg-transparent lg:px-6 lg:pb-4 lg:pt-1">
+                    <div className="max-w-5xl mx-auto">
+                      <ListsCaptureBar
+                        lists={activeLists}
+                        targetListId={resolvedTargetListId}
+                        onTargetListChange={(nextId) => {
+                          if (scope.kind === "smart") {
+                            setSmartAddTargetListId(nextId);
+                          } else {
+                            setListAddTargetByScope((prev) => ({
+                              ...prev,
+                              [scopeKey]: nextId,
+                            }));
+                          }
+                        }}
+                        status={resolvedCaptureStatus}
+                        onStatusChange={(nextStatus) =>
+                          setCaptureStatusByScope((prev) => ({
+                            ...prev,
+                            [scopeKey]: nextStatus,
+                          }))
+                        }
+                        availableTags={scopeUniqueTags}
+                        onSubmitItem={(targetId, raw, chosenStatus) => {
+                          const created = handleQuickAddListItem(
+                            targetId,
+                            raw,
+                            chosenStatus,
+                          );
+                          if (!created) return false;
+                          if (
+                            scope.kind === "list" &&
+                            !scopedListIdSet?.has(targetId)
+                          ) {
+                            const targetTitle =
+                              listById.get(targetId)?.title || "target list";
+                            pushToast(`Added to ${targetTitle}`, "neutral");
+                          } else if (
+                            scope.kind === "smart" &&
+                            chosenStatus !== scope.status
+                          ) {
+                            pushToast(
+                              `Added to ${STATUS_META[chosenStatus].label}`,
+                              "neutral",
+                            );
+                          }
+                          return true;
+                        }}
+                        previewPosition="top"
+                        compact
+                        elevated
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+          </div>
 
           {/* DESKTOP RIGHT SPLIT PANE: Toggles smoothly between Item Inspector & Linked Notes/Events */}
           {splitVisible && (

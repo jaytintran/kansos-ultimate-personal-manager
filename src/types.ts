@@ -204,6 +204,7 @@ export interface ListItem {
   tags?: string[];
   content: string; // Tiptap rich markdown content
   url?: string;
+  coverUrl?: string;
   scheduledAt: string | null;
   completedAt?: string | null;
   sortOrder?: number;

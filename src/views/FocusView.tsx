@@ -538,9 +538,10 @@ export const FocusView: React.FC<FocusViewProps> = ({
     setTabModal(null);
   };
 
-  const handleQuickAddPinned = useCallback(() => {
+  const handleQuickAddPinned = useCallback((): string => {
     const created = addScratchpad(scratchpads.length % 5);
     updateScratchpad(created.id, { pinned: true });
+    return created.id;
   }, [addScratchpad, updateScratchpad, scratchpads.length]);
 
   const showActiveSection =
@@ -819,7 +820,6 @@ export const FocusView: React.FC<FocusViewProps> = ({
                   onUpdateScratchpad={updateScratchpad}
                   onPromoteToXActive={handlePromoteScratchpadToXActive}
                   onPromoteToTimeline={sendScratchpadToTimeline}
-                  onOpenScratchpadTab={() => setActiveTab("scratchpad")}
                   onQuickAddPinned={handleQuickAddPinned}
                 />
               </div>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   ArrowRightLeft,
+  Calendar,
   CalendarClock,
   CheckCircle2,
   CheckSquare,
@@ -20,13 +21,14 @@ import {
 import { useWorkspace } from '../context/WorkspaceContext';
 import { getNoteDescendantIds } from '../lib/noteGraphUtils';
 import { ContextMenuRecord, DetailSheetTarget } from '../types';
-import { addDaysToKey, getTodayKey } from '../utils/date';
+import { addDaysToKey, formatCompactDayHeading, getTodayKey, toLocalDateKey } from '../utils/date';
 import { countLinkedNotesForListItems } from '../utils/listItemLinks';
 import { DeleteListItemsConfirmModal } from './lists/DeleteListItemsConfirmModal';
 import {
   NoteBranchActionPrompt,
   NoteDeleteBranchModal,
 } from './notes/NoteDeleteBranchModal';
+import { KansoCalendarPanel } from './ui/KansoDatePicker';
 
 export interface ContextMenuState {
   record: ContextMenuRecord;
@@ -67,7 +69,7 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
     deleteListItem,
   } = useWorkspace();
 
-  const [subPanel, setSubPanel] = useState<'none' | 'reschedule' | 'tags' | 'move'>('none');
+  const [subPanel, setSubPanel] = useState<'none' | 'reschedule' | 'tags' | 'move' | 'due_date'>('none');
   const [tagDraft, setTagDraft] = useState('');
   const [branchPrompt, setBranchPrompt] = useState<NoteBranchActionPrompt | null>(null);
   const [pendingListItemDelete, setPendingListItemDelete] = useState<{
@@ -240,10 +242,13 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
   };
 
   const todayKey = getTodayKey();
+  const currentListItemDueKey = freshListItem?.scheduledAt
+    ? toLocalDateKey(freshListItem.scheduledAt)
+    : '';
 
   // Compute safe desktop viewport position
-  const menuWidth = 248;
-  const menuHeight = 360;
+  const menuWidth = subPanel === 'due_date' ? 296 : 248;
+  const menuHeight = subPanel === 'due_date' ? 380 : 360;
   const safeX =
     typeof window !== 'undefined'
       ? Math.min(Math.max(12, state.x), window.innerWidth - menuWidth - 12)
@@ -448,6 +453,31 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
             </button>
           )}
 
+          {freshListItem && (
+            <button
+              type="button"
+              onClick={() => setSubPanel('due_date')}
+              className={btnCls}
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <Calendar
+                className="w-3.5 h-3.5"
+                style={{
+                  color: currentListItemDueKey ? 'var(--accent)' : 'var(--text-secondary)',
+                }}
+              />
+              <span>Due Date</span>
+              {currentListItemDueKey && (
+                <span
+                  className="ml-auto font-mono text-[10px] tabular-nums"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  {formatCompactDayHeading(currentListItemDueKey)}
+                </span>
+              )}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => setSubPanel('tags')}
@@ -611,6 +641,36 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
         </div>
       )}
 
+      {subPanel === 'due_date' && freshListItem && (
+        <div className="space-y-2 p-1.5">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[11px] font-semibold" style={{ color: 'var(--text-secondary)' }}>
+              Due Date
+            </span>
+            <button
+              type="button"
+              onClick={() => setSubPanel('none')}
+              className="text-[11px] cursor-pointer"
+              style={{ color: 'var(--accent)' }}
+            >
+              Back
+            </button>
+          </div>
+          <KansoCalendarPanel
+            compact
+            value={currentListItemDueKey}
+            onSelectDate={(dateKey) => {
+              updateListItem(freshListItem.id, {
+                scheduledAt: dateKey
+                  ? new Date(`${dateKey}T12:00:00`).toISOString()
+                  : null,
+              });
+              onClose();
+            }}
+          />
+        </div>
+      )}
+
       {subPanel === 'tags' && (
         <div className="space-y-2.5 p-2">
           <div className="flex items-center justify-between">
@@ -692,8 +752,9 @@ export const UniversalContextMenu: React.FC<UniversalContextMenuProps> = ({
 
       {/* Desktop Floating Popover */}
       <div
-        className="hidden sm:block fixed z-10 w-[248px] rounded-xl border p-1.5"
+        className="hidden sm:block fixed z-10 rounded-xl border p-1.5"
         style={{
+          width: menuWidth,
           left: safeX,
           top: safeY,
           backgroundColor: 'var(--bg-elevated)',

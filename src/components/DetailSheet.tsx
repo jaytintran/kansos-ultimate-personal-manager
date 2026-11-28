@@ -26,6 +26,7 @@ import {
   FolderKanban,
   GitBranch,
   Hash,
+  Image as ImageIcon,
   Link2,
   ListChecks,
   MapPin,
@@ -101,6 +102,7 @@ import { DeleteListItemsConfirmModal } from "./lists/DeleteListItemsConfirmModal
 import { ListItemLinkedNotesSection } from "./lists/ListItemLinkedNotesSection";
 import { ListItemLinksPicker } from "./lists/ListItemLinksPicker";
 import { BookLinkPicker, buildBookNoteLink } from "./library/BookLinkPicker";
+import { KansoDatePopover } from "./ui/KansoDatePicker";
 
 const HABIT_COLOR_PRESETS = [
   "#b45309",
@@ -129,22 +131,22 @@ const ITEM_META: Record<
   books: {
     subtitleLabel: "Author",
     subtitlePlaceholder: "e.g. Martin Kleppmann",
-    dueLabel: "Finish by",
+    dueLabel: "Due Date",
   },
   projects: {
     subtitleLabel: "Scope",
     subtitlePlaceholder: "e.g. Mobile + Desktop rollout",
-    dueLabel: "Deadline",
+    dueLabel: "Due Date",
   },
   courses: {
     subtitleLabel: "Provider",
     subtitlePlaceholder: "e.g. MIT OCW / Frontend Masters",
-    dueLabel: "Complete by",
+    dueLabel: "Due Date",
   },
   custom: {
     subtitleLabel: "Subtitle",
     subtitlePlaceholder: "Short context or subtitle...",
-    dueLabel: "Due date",
+    dueLabel: "Due Date",
   },
 };
 
@@ -399,6 +401,9 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
     initialListSrc?.scheduledAt ? initialListSrc.scheduledAt.slice(0, 10) : "",
   );
   const [listUrl, setListUrl] = useState(() => initialListSrc?.url ?? "");
+  const [listCoverUrl, setListCoverUrl] = useState(
+    () => initialListSrc?.coverUrl ?? "",
+  );
   const [listBookLink, setListBookLink] = useState<BookNoteLink | null>(() =>
     target?.mode === "list_item" && target.id
       ? getListItemBookLink(target.id)
@@ -519,6 +524,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
       const nextContent = src?.content ?? "";
       const nextDue = src?.scheduledAt ? src.scheduledAt.slice(0, 10) : "";
       const nextUrl = src?.url ?? "";
+      const nextCoverUrl = src?.coverUrl ?? "";
       const nextBookLink = target.id ? getListItemBookLink(target.id) : null;
 
       setTitle(nextTitle);
@@ -529,6 +535,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
       setContent(nextContent);
       setListDueDate(nextDue);
       setListUrl(nextUrl);
+      setListCoverUrl(nextCoverUrl);
       setListBookLink(nextBookLink);
 
       lastSavedSnapRef.current = JSON.stringify({
@@ -540,6 +547,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         content: nextContent,
         listDueDate: nextDue,
         listUrl: nextUrl,
+        listCoverUrl: nextCoverUrl,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -657,6 +665,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         content: effectiveContent,
         listDueDate,
         listUrl,
+        listCoverUrl,
       };
       const snap = JSON.stringify(snapObj);
       if (snap === lastSavedSnapRef.current) {
@@ -673,6 +682,10 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
       const normalizedUrl = trimmedUrl
         ? normalizeExternalUrl(trimmedUrl) || trimmedUrl
         : undefined;
+      const trimmedCoverUrl = listCoverUrl.trim();
+      const normalizedCoverUrl = trimmedCoverUrl
+        ? normalizeExternalUrl(trimmedCoverUrl) || trimmedCoverUrl
+        : undefined;
       const patch: Partial<ListItem> = {
         title: title.trim() || "Untitled Item",
         subtitle: listSubtitle.trim(),
@@ -681,6 +694,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         tags,
         content: effectiveContent,
         url: normalizedUrl,
+        coverUrl: normalizedCoverUrl,
         scheduledAt,
       };
 
@@ -737,6 +751,7 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
     listId,
     listDueDate,
     listUrl,
+    listCoverUrl,
     listBookLink,
     updateEntry,
     createEntry,
@@ -2017,49 +2032,12 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
         <PropertyRow
           icon={<Calendar className="w-3.5 h-3.5" />}
           label={itemMeta.dueLabel}
-          alignTop
         >
-          <div className="space-y-1.5 -mx-1 px-1">
-            <input
-              type="date"
-              value={listDueDate}
-              onChange={(e) => setListDueDate(e.target.value)}
-              className="w-full bg-transparent rounded-md px-1.5 py-1 text-xs font-mono outline-none transition-colors hover:bg-[var(--bg-surface-hover)]"
-              style={{
-                color: listDueDate
-                  ? "var(--text-primary)"
-                  : "var(--text-muted)",
-              }}
-            />
-            <div className="flex flex-wrap items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setListDueDate(addDaysToKey(todayKey, 1))}
-                className="px-1.5 py-0.5 rounded text-[11px] transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                Tomorrow
-              </button>
-              <button
-                type="button"
-                onClick={() => setListDueDate(addDaysToKey(todayKey, 7))}
-                className="px-1.5 py-0.5 rounded text-[11px] transition-colors hover:bg-[var(--bg-surface-hover)]"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                Next wk
-              </button>
-              {listDueDate && (
-                <button
-                  type="button"
-                  onClick={() => setListDueDate("")}
-                  className="px-1.5 py-0.5 rounded text-[11px]"
-                  style={{ color: "var(--danger)" }}
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          </div>
+          <KansoDatePopover
+            value={listDueDate}
+            onChange={setListDueDate}
+            placeholder="Set due date"
+          />
         </PropertyRow>
 
         <PropertyRow
@@ -2085,6 +2063,34 @@ const DetailSheetInner: React.FC<DetailSheetInnerProps> = ({
                 style={{ color: "var(--accent)" }}
               >
                 <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </PropertyRow>
+
+        <PropertyRow
+          icon={<ImageIcon className="w-3.5 h-3.5" />}
+          label="Cover URL"
+        >
+          <div className="flex items-center gap-1 -mx-1">
+            <input
+              type="url"
+              value={listCoverUrl}
+              onChange={(e) => setListCoverUrl(e.target.value)}
+              placeholder="Image URL or auto from URL..."
+              className="flex-1 min-w-0 bg-transparent rounded-md px-2 py-1 text-xs outline-none transition-colors hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] placeholder:opacity-50"
+              style={{ color: "var(--text-primary)" }}
+            />
+            {normalizeExternalUrl(listCoverUrl) && (
+              <button
+                type="button"
+                onClick={() => setListCoverUrl("")}
+                title="Clear custom cover URL"
+                aria-label="Clear custom cover URL"
+                className="h-7 w-7 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] shrink-0 cursor-pointer"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>

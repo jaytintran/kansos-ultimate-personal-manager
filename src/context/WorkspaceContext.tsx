@@ -72,7 +72,7 @@ import {
 } from "../types";
 import { pruneBookVoicePreferences, pruneMissingBookVoicePreferences } from "../hooks/useVoicePreferences";
 import { getContactDisplayName, getDeterministicAvatarColor, getNextOccurrenceInfo } from "../lib/contactUtils";
-import { audioDb, contactPhotoDb, libraryDb } from "../lib/db";
+import { audioDb, contactPhotoDb, libraryDb, listCoverDb } from "../lib/db";
 import { advanceSubscriptionDueDate } from "../lib/financeUtils";
 import { compressCoverDataUrl } from "../lib/formatters";
 import { applySm2Review, createInitialSrsState } from "../lib/languageUtils";
@@ -4006,6 +4006,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       const deleteSet = new Set(uniqueIds);
       const nowIso = new Date().toISOString();
       removeListItemBookLinks(uniqueIds);
+      void listCoverDb.deleteCovers(uniqueIds);
       mutateWorkspace((prev) => ({
         ...prev,
         listItems: prev.listItems.filter((item) => !deleteSet.has(item.id)),

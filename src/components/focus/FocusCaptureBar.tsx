@@ -344,7 +344,7 @@ export const FocusCaptureBar: React.FC<FocusCaptureBarProps> = ({
         );
         return;
       }
-      if (e.key === "Tab" || (e.key === "Enter" && !effectiveTextForNlp.trim())) {
+      if (e.key === "Tab" || e.key === "Enter") {
         e.preventDefault();
         const chosen = slashSuggestions[slashIndex] ?? slashSuggestions[0];
         if (chosen) applySlashCommand(chosen);
@@ -461,7 +461,7 @@ export const FocusCaptureBar: React.FC<FocusCaptureBarProps> = ({
               <Slash className="w-3 h-3" />
               <span>Route capture</span>
             </span>
-            <span className="font-mono text-[10px]">↑↓ · Tab</span>
+            <span className="font-mono text-[10px]">↑↓ · Enter</span>
           </div>
           {slashSuggestions.map((cmd, idx) => {
             const highlighted = idx === slashIndex;

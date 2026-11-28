@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FolderKanban,
   Hash,
+  Image as ImageIcon,
   Link2,
   ListChecks,
   Loader2,
@@ -30,17 +31,17 @@ import type {
   ListItem,
   ListItemStatus,
 } from "../../types";
-import {
-  addDaysToKey,
-  countWordsFromHtml,
-  getTodayKey,
-} from "../../utils/date";
+import { countWordsFromHtml } from "../../utils/date";
 import {
   getListItemBookLink,
   normalizeExternalUrl,
   openExternalUrlSafely,
   setListItemBookLink,
 } from "../../utils/listBookLinks";
+import {
+  getEffectiveCoverSourceUrl,
+  useListItemCover,
+} from "../../utils/listItemCovers";
 import { countLinkedNotesForListItems } from "../../utils/listItemLinks";
 import {
   fetchYouTubeCourseMetadata,
@@ -50,6 +51,7 @@ import {
 import { removeCoursePlaybackProgress } from "../../utils/coursePlaybackProgress";
 import { ListIcon as CollectionIcon } from "../IconLibrary";
 import { TiptapEditor, TiptapThumbToolbar } from "../TiptapEditor";
+import { KansoDatePopover } from "../ui/KansoDatePicker";
 import {
   CourseYouTubePlayer,
   type CourseYouTubePlayerHandle,
@@ -79,22 +81,22 @@ const ITEM_META: Record<
   books: {
     subtitleLabel: "Author",
     subtitlePlaceholder: "e.g. Martin Kleppmann",
-    dueLabel: "Finish by",
+    dueLabel: "Due Date",
   },
   projects: {
     subtitleLabel: "Scope",
     subtitlePlaceholder: "e.g. Mobile + Desktop rollout",
-    dueLabel: "Deadline",
+    dueLabel: "Due Date",
   },
   courses: {
     subtitleLabel: "Provider",
     subtitlePlaceholder: "e.g. MIT OCW / Frontend Masters",
-    dueLabel: "Complete by",
+    dueLabel: "Due Date",
   },
   custom: {
     subtitleLabel: "Subtitle",
     subtitlePlaceholder: "Short context or subtitle...",
-    dueLabel: "Due date",
+    dueLabel: "Due Date",
   },
 };
 
@@ -143,6 +145,7 @@ function buildSnapshot(src: {
   tags: string[];
   content: string;
   url: string;
+  coverUrl: string;
   dueDate: string;
 }): string {
   return JSON.stringify(src);
@@ -189,6 +192,8 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
   const [tagInput, setTagInput] = useState("");
   const [content, setContent] = useState(() => item.content ?? "");
   const [url, setUrl] = useState(() => item.url ?? "");
+  const [coverUrl, setCoverUrl] = useState(() => item.coverUrl ?? "");
+  const [coverImgErrorSrc, setCoverImgErrorSrc] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState(() =>
     item.scheduledAt ? item.scheduledAt.slice(0, 10) : "",
   );
@@ -228,6 +233,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
       tags: item.tags ?? [],
       content: item.content ?? "",
       url: item.url ?? "",
+      coverUrl: item.coverUrl ?? "",
       dueDate: item.scheduledAt ? item.scheduledAt.slice(0, 10) : "",
     }),
   );
@@ -241,6 +247,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
     tags,
     content,
     url,
+    coverUrl,
     dueDate,
   });
 
@@ -253,6 +260,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
     tags,
     content,
     url,
+    coverUrl,
     dueDate,
   };
 
@@ -291,6 +299,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
       tags: item.tags ?? [],
       content: item.content ?? "",
       url: item.url ?? "",
+      coverUrl: item.coverUrl ?? "",
       dueDate: item.scheduledAt ? item.scheduledAt.slice(0, 10) : "",
     });
     if (incomingSnap === lastSavedSnapRef.current) return;
@@ -303,6 +312,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
       tags: latestDraftRef.current.tags,
       content: latestDraftRef.current.content,
       url: latestDraftRef.current.url,
+      coverUrl: latestDraftRef.current.coverUrl,
       dueDate: latestDraftRef.current.dueDate,
     });
 
@@ -314,6 +324,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
       setTags(item.tags ?? []);
       setContent(item.content ?? "");
       setUrl(item.url ?? "");
+      setCoverUrl(item.coverUrl ?? "");
       setDueDate(item.scheduledAt ? item.scheduledAt.slice(0, 10) : "");
       lastSavedSnapRef.current = incomingSnap;
     }
@@ -326,6 +337,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
     item.tags,
     item.content,
     item.url,
+    item.coverUrl,
     item.scheduledAt,
   ]);
 
@@ -383,6 +395,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
       tags: draft.tags,
       content: effectiveContent,
       url: draft.url,
+      coverUrl: draft.coverUrl,
       dueDate: draft.dueDate,
     });
     if (snap === lastSavedSnapRef.current) {
@@ -393,6 +406,10 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
     const trimmedUrl = draft.url.trim();
     const normalizedUrl = trimmedUrl
       ? normalizeExternalUrl(trimmedUrl) || trimmedUrl
+      : undefined;
+    const trimmedCoverUrl = draft.coverUrl.trim();
+    const normalizedCoverUrl = trimmedCoverUrl
+      ? normalizeExternalUrl(trimmedCoverUrl) || trimmedCoverUrl
       : undefined;
     const scheduledAt = draft.dueDate
       ? new Date(`${draft.dueDate}T12:00:00`).toISOString()
@@ -406,6 +423,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
       tags: draft.tags,
       content: effectiveContent,
       url: normalizedUrl,
+      coverUrl: normalizedCoverUrl,
       scheduledAt,
     });
     lastSavedSnapRef.current = snap;
@@ -422,6 +440,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
       tags,
       content,
       url,
+      coverUrl,
       dueDate,
     });
     if (currentSnap === lastSavedSnapRef.current) return;
@@ -437,7 +456,7 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
         window.clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [title, subtitle, status, listId, tags, content, url, dueDate, flushSave]);
+  }, [title, subtitle, status, listId, tags, content, url, coverUrl, dueDate, flushSave]);
 
   // Flush unsaved edits cleanly on item switch / unmount
   useEffect(() => {
@@ -464,7 +483,6 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
     [currentListCollection, listTreeIndex.byId],
   );
   const itemMeta = ITEM_META[currentListCollection?.listType || "custom"];
-  const todayKey = getTodayKey();
   const linkedBook = useMemo(
     () =>
       bookLink?.bookId
@@ -494,7 +512,18 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
   };
 
   const validOpenUrl = normalizeExternalUrl(url);
+  const validCoverUrl = normalizeExternalUrl(coverUrl);
   const ytCourseInfo = useMemo(() => parseYouTubeCourseUrl(url), [url]);
+  const coverSourceItem = useMemo(
+    () => ({ id: item.id, url, coverUrl }),
+    [item.id, url, coverUrl],
+  );
+  const hasCoverSource = Boolean(getEffectiveCoverSourceUrl(coverSourceItem));
+  const {
+    src: coverSrc,
+    loading: coverLoading,
+    refresh: refreshCover,
+  } = useListItemCover(coverSourceItem);
 
   const handleSetStudyLayout = useCallback((next: StudyLayoutMode) => {
     setStudyLayout(next);
@@ -871,6 +900,29 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
           }`}
         >
           <div className="w-full space-y-5">
+          {/* Device-local 16:9 Cover Image Header (hidden cleanly when empty or while video player is open) */}
+          {coverSrc &&
+            coverImgErrorSrc !== coverSrc &&
+            !(ytCourseInfo && studyPlayerVisible) && (
+              <div
+                className="relative aspect-video w-full max-w-2xl rounded-xl overflow-hidden border"
+                style={{
+                  backgroundColor: "var(--bg-surface-subtle)",
+                  borderColor: "var(--border-subtle)",
+                }}
+              >
+                <img
+                  src={coverSrc}
+                  alt={title.trim() || item.title || "Item cover"}
+                  referrerPolicy="no-referrer"
+                  onError={() => setCoverImgErrorSrc(coverSrc)}
+                  className={`w-full h-full object-cover transition-all duration-150 ${
+                    status === "done" ? "opacity-60 grayscale-[60%]" : ""
+                  }`}
+                />
+              </div>
+            )}
+
           {/* Full-Width Title & Subtitle */}
           <div className="space-y-1.5">
             <textarea
@@ -964,43 +1016,11 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
               icon={<Calendar className="w-3.5 h-3.5" />}
               label={itemMeta.dueLabel}
             >
-              <div className="flex flex-wrap items-center gap-1.5 -mx-1 px-1">
-                <input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="bg-transparent rounded-md px-1.5 py-1 text-xs font-mono tabular-nums outline-none transition-colors hover:bg-[var(--bg-surface-hover)]"
-                  style={{
-                    color: dueDate ? "var(--text-primary)" : "var(--text-muted)",
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setDueDate(addDaysToKey(todayKey, 1))}
-                  className="px-1.5 py-0.5 rounded text-[11px] transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Tomorrow
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDueDate(addDaysToKey(todayKey, 7))}
-                  className="px-1.5 py-0.5 rounded text-[11px] transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Next wk
-                </button>
-                {dueDate && (
-                  <button
-                    type="button"
-                    onClick={() => setDueDate("")}
-                    className="px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
-                    style={{ color: "var(--danger)" }}
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
+              <KansoDatePopover
+                value={dueDate}
+                onChange={setDueDate}
+                placeholder="Set due date"
+              />
             </PropertyRow>
 
             <PropertyRow icon={<Link2 className="w-3.5 h-3.5" />} label="URL">
@@ -1044,6 +1064,55 @@ export const ListItemTabEditor: React.FC<ListItemTabEditorProps> = ({
                     style={{ color: "var(--accent)" }}
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </PropertyRow>
+
+            <PropertyRow
+              icon={<ImageIcon className="w-3.5 h-3.5" />}
+              label="Cover URL"
+            >
+              <div className="flex items-center gap-1 -mx-1">
+                <input
+                  type="url"
+                  value={coverUrl}
+                  onChange={(e) => {
+                    setCoverImgErrorSrc(null);
+                    setCoverUrl(e.target.value);
+                  }}
+                  placeholder="Image URL or auto from URL..."
+                  className="flex-1 min-w-0 bg-transparent rounded-md px-2 py-1 text-xs outline-none transition-colors hover:bg-[var(--bg-surface-hover)] focus:bg-[var(--bg-surface-hover)] placeholder:opacity-50"
+                  style={{ color: "var(--text-primary)" }}
+                />
+                {hasCoverSource && (
+                  <button
+                    type="button"
+                    disabled={coverLoading}
+                    onClick={() => {
+                      setCoverImgErrorSrc(null);
+                      void refreshCover();
+                    }}
+                    title="Refresh local cover cache"
+                    aria-label="Refresh cover image"
+                    className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] disabled:opacity-50 shrink-0 cursor-pointer"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    <RefreshCw
+                      className={`w-3 h-3 ${coverLoading ? "animate-spin" : ""}`}
+                    />
+                  </button>
+                )}
+                {validCoverUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setCoverUrl("")}
+                    title="Clear custom cover URL"
+                    aria-label="Clear custom cover URL"
+                    className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] shrink-0 cursor-pointer"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    <X className="w-3 h-3" />
                   </button>
                 )}
               </div>

@@ -264,7 +264,7 @@ export const NlpInputBar: React.FC<NlpInputBarProps> = ({
         setSlashIndex((i) => (i - 1 + slashSuggestions.length) % slashSuggestions.length);
         return;
       }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !detectedLeadingPrefix?.strippedText.trim())) {
+      if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault();
         const chosen = slashSuggestions[slashIndex] ?? slashSuggestions[0];
         if (chosen) applySlashCommand(chosen);
@@ -380,7 +380,7 @@ export const NlpInputBar: React.FC<NlpInputBarProps> = ({
               <Slash className="w-3 h-3" />
               <span>{typeSwitcher?.menuHeading ?? 'Route entry'}</span>
             </span>
-            <span className="font-mono text-[10px]">↑↓ · Tab</span>
+            <span className="font-mono text-[10px]">↑↓ · Enter</span>
           </div>
           {slashSuggestions.map((opt, idx) => {
             const Icon = opt.icon;

@@ -5,7 +5,7 @@ import {
 } from "../utils/ebookStorage";
 
 const DB_NAME = "kanso_library_studio_v2";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const FILES_STORE = "book_files";
 const BOOK_FILE_META_STORE = "book_file_meta";
 const AUDIO_FILES_STORE = "audio_files";
@@ -15,6 +15,7 @@ const BOOKMARKS_STORE = "bookmarks";
 const HIGHLIGHTS_STORE = "highlights";
 const WORKSPACE_STORE = "workspace_state";
 const NOTE_IMAGES_STORE = "note_images";
+const LIST_ITEM_COVERS_STORE = "list_item_covers";
 
 export const NOTE_IMAGE_URI_PREFIX = "kanso-idb-image://";
 
@@ -89,6 +90,16 @@ export interface StoredNoteImage {
   createdAt: number;
 }
 
+export interface StoredListItemCover {
+  itemId: string;
+  sourceUrl: string;
+  resolvedImageUrl?: string | null;
+  blob?: Blob | null;
+  mimeType?: string;
+  status: "ready" | "empty";
+  updatedAt: number;
+}
+
 export async function computeSha256Hex(buffer: ArrayBuffer): Promise<string> {
   try {
     if (typeof crypto !== "undefined" && crypto.subtle) {
@@ -153,6 +164,9 @@ function getDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(NOTE_IMAGES_STORE)) {
         db.createObjectStore(NOTE_IMAGES_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(LIST_ITEM_COVERS_STORE)) {
+        db.createObjectStore(LIST_ITEM_COVERS_STORE, { keyPath: "itemId" });
       }
     };
     req.onsuccess = () => {
@@ -732,6 +746,7 @@ export const libraryDb = {
       HIGHLIGHTS_STORE,
       WORKSPACE_STORE,
       NOTE_IMAGES_STORE,
+      LIST_ITEM_COVERS_STORE,
     ].filter((name) => db.objectStoreNames.contains(name));
 
     await new Promise<void>((resolve, reject) => {
@@ -1249,6 +1264,93 @@ export const noteImageDb = {
         tx.oncomplete = () => resolve();
         tx.onerror = () => resolve();
       });
+    } catch {
+      // Ignore
+    }
+  },
+};
+
+export const LIST_COVER_CHANGE_EVENT = "kanso:list-cover-changed";
+
+function notifyListCoverChanged(itemId?: string): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(LIST_COVER_CHANGE_EVENT, { detail: { itemId } }),
+    );
+  }
+}
+
+export const listCoverDb = {
+  async getCover(itemId: string): Promise<StoredListItemCover | null> {
+    if (typeof indexedDB === "undefined" || !itemId) return null;
+    try {
+      const db = await getDb();
+      return await new Promise((resolve) => {
+        try {
+          const tx = db.transaction(LIST_ITEM_COVERS_STORE, "readonly");
+          const req = tx.objectStore(LIST_ITEM_COVERS_STORE).get(itemId);
+          req.onsuccess = () =>
+            resolve((req.result as StoredListItemCover | undefined) ?? null);
+          req.onerror = () => resolve(null);
+        } catch {
+          resolve(null);
+        }
+      });
+    } catch {
+      return null;
+    }
+  },
+
+  async saveCover(record: StoredListItemCover): Promise<void> {
+    if (typeof indexedDB === "undefined" || !record.itemId) return;
+    try {
+      const db = await getDb();
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(LIST_ITEM_COVERS_STORE, "readwrite");
+        tx.objectStore(LIST_ITEM_COVERS_STORE).put(record);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      notifyListCoverChanged(record.itemId);
+    } catch {
+      // Non-fatal cache write failure
+    }
+  },
+
+  async deleteCover(itemId: string): Promise<void> {
+    await this.deleteCovers([itemId]);
+  },
+
+  async deleteCovers(itemIds: string[]): Promise<void> {
+    if (typeof indexedDB === "undefined") return;
+    const unique = Array.from(new Set(itemIds.filter(Boolean)));
+    if (unique.length === 0) return;
+    try {
+      const db = await getDb();
+      await new Promise<void>((resolve) => {
+        const tx = db.transaction(LIST_ITEM_COVERS_STORE, "readwrite");
+        const store = tx.objectStore(LIST_ITEM_COVERS_STORE);
+        for (const id of unique) store.delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+      for (const id of unique) notifyListCoverChanged(id);
+    } catch {
+      // Ignore
+    }
+  },
+
+  async clearAllCovers(): Promise<void> {
+    if (typeof indexedDB === "undefined") return;
+    try {
+      const db = await getDb();
+      await new Promise<void>((resolve) => {
+        const tx = db.transaction(LIST_ITEM_COVERS_STORE, "readwrite");
+        tx.objectStore(LIST_ITEM_COVERS_STORE).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+      notifyListCoverChanged();
     } catch {
       // Ignore
     }

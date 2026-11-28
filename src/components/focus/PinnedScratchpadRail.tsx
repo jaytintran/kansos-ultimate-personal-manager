@@ -1,5 +1,5 @@
-import React from "react";
-import { ArrowRight, Pin, Plus, Send, StickyNote, Target } from "lucide-react";
+import React, { useRef } from "react";
+import { Pin, Plus, Send, StickyNote, Target } from "lucide-react";
 import { ScratchpadCard } from "../../types";
 import { SCRATCHPAD_DARK, SCRATCHPAD_LIGHT } from "./FocusScratchpadTab";
 import {
@@ -13,8 +13,7 @@ interface PinnedScratchpadRailProps {
   onUpdateScratchpad: (id: string, patch: Partial<ScratchpadCard>) => void;
   onPromoteToXActive: (id: string) => void;
   onPromoteToTimeline: (id: string) => void;
-  onOpenScratchpadTab: () => void;
-  onQuickAddPinned: () => void;
+  onQuickAddPinned: () => string;
 }
 
 export const PinnedScratchpadRail: React.FC<PinnedScratchpadRailProps> = ({
@@ -23,10 +22,24 @@ export const PinnedScratchpadRail: React.FC<PinnedScratchpadRailProps> = ({
   onUpdateScratchpad,
   onPromoteToXActive,
   onPromoteToTimeline,
-  onOpenScratchpadTab,
   onQuickAddPinned,
 }) => {
   const palette = isDark ? SCRATCHPAD_DARK : SCRATCHPAD_LIGHT;
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  const handleNewPin = () => {
+    const newId = onQuickAddPinned();
+    requestAnimationFrame(() => {
+      railRef.current?.scrollTo({ left: 0, behavior: "smooth" });
+      if (newId) {
+        requestAnimationFrame(() => {
+          const el = cardRefs.current.get(newId);
+          el?.querySelector("textarea")?.focus();
+        });
+      }
+    });
+  };
 
   return (
     <section className="space-y-2.5">
@@ -49,12 +62,16 @@ export const PinnedScratchpadRail: React.FC<PinnedScratchpadRailProps> = ({
 
         <button
           type="button"
-          onClick={onOpenScratchpadTab}
-          className="text-[11px] font-medium inline-flex items-center gap-1 hover:underline shrink-0 cursor-pointer"
-          style={{ color: "var(--accent)" }}
+          onClick={handleNewPin}
+          className="h-7 px-2.5 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-subtle)] shrink-0 cursor-pointer"
+          style={{
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
+            color: "var(--accent)",
+          }}
         >
-          <span>Open all</span>
-          <ArrowRight className="w-3 h-3" />
+          <Plus className="w-3 h-3" />
+          <span>New Pin</span>
         </button>
       </div>
 
@@ -67,31 +84,29 @@ export const PinnedScratchpadRail: React.FC<PinnedScratchpadRailProps> = ({
           }}
         >
           <p className="text-xs">
-            Pin sticky cards in Scratchpad to keep quick thoughts visible while focusing.
+            Pin sticky cards in Scratchpad or click + New Pin to keep quick thoughts visible while focusing.
           </p>
-          <button
-            type="button"
-            onClick={onQuickAddPinned}
-            className="h-7 px-2.5 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 hover:bg-[var(--bg-surface-subtle)] shrink-0 cursor-pointer"
-            style={{
-              backgroundColor: "var(--bg-surface)",
-              borderColor: "var(--border-subtle)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            <Plus className="w-3 h-3" />
-            <span>Quick Pinned Note</span>
-          </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 items-start">
+        <div
+          ref={railRef}
+          className="flex flex-nowrap items-start gap-2.5 overflow-x-auto pb-1.5 snap-x snap-mandatory"
+        >
           {pinnedCards.map((card) => {
             const pal = palette[card.paletteIndex % palette.length];
             const canRoute = isScratchpadSingleLinePlain(card.content);
             return (
               <div
                 key={card.id}
-                className="rounded-xl border p-3 space-y-2"
+                ref={(el) => {
+                  if (el) cardRefs.current.set(card.id, el);
+                  else cardRefs.current.delete(card.id);
+                }}
+                className={`${
+                  pinnedCards.length === 1
+                    ? "w-full sm:w-[310px]"
+                    : "w-[80vw] max-w-[310px] sm:w-[310px]"
+                } shrink-0 snap-start rounded-xl border p-3 space-y-2`}
                 style={{
                   backgroundColor: pal.bg,
                   borderColor: pal.border,
