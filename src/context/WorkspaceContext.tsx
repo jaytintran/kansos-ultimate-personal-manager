@@ -204,6 +204,7 @@ function hasSyncableWorkspaceChanged(
     prev.streamerState !== next.streamerState ||
     prev.streamPresets !== next.streamPresets ||
     prev.streamTopicIcons !== next.streamTopicIcons ||
+    prev.streamTopicOrder !== next.streamTopicOrder ||
     prev.streamChannels !== next.streamChannels ||
     prev.contacts !== next.contacts ||
     prev.contactCircles !== next.contactCircles ||
@@ -482,6 +483,11 @@ function normalizeParsedWorkspace(
       parsed.streamTopicIcons && typeof parsed.streamTopicIcons === "object"
         ? parsed.streamTopicIcons
         : {},
+    streamTopicOrder: Array.isArray(parsed.streamTopicOrder)
+      ? parsed.streamTopicOrder.filter(
+          (t): t is string => typeof t === "string" && t.trim().length > 0,
+        )
+      : undefined,
     streamChannels:
       parsed.streamChannels && typeof parsed.streamChannels === "object"
         ? parsed.streamChannels
@@ -936,9 +942,16 @@ interface WorkspaceContextValue {
     description?: string,
   ) => StreamFolder;
   updateStreamFolder: (id: string, patch: Partial<StreamFolder>) => void;
+  reorderStreamFolders: (
+    draggedId: string,
+    targetId: string,
+    position: "before" | "after" | "inside",
+  ) => void;
   deleteStreamFolder: (id: string) => void;
   setStreamTopicIcon: (topic: string, icon: string | undefined) => void;
   renameStreamTopic: (fromTopic: string, targetTopic: string) => number;
+  reorderStreamTopics: (orderedTopics: string[]) => void;
+  resetStreamTopicOrder: () => void;
   updateStreamChannelMeta: (
     channelName: string,
     patch: Partial<StreamChannelMeta>,
@@ -4746,10 +4759,22 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         description: description.trim() || undefined,
         createdAt: new Date().toISOString(),
       };
-      mutateWorkspace((prev) => ({
-        ...prev,
-        streamFolders: [...(prev.streamFolders ?? []), created],
-      }));
+      mutateWorkspace((prev) => {
+        const siblings = (prev.streamFolders ?? []).filter(
+          (f) => (f.parentId ?? null) === (parentId ?? null),
+        );
+        const orderedOrders = siblings
+          .map((f) => f.sortOrder)
+          .filter((n): n is number => typeof n === "number" && Number.isFinite(n));
+        const nextCreated =
+          orderedOrders.length > 0
+            ? { ...created, sortOrder: Math.max(...orderedOrders) + 1 }
+            : created;
+        return {
+          ...prev,
+          streamFolders: [...(prev.streamFolders ?? []), nextCreated],
+        };
+      });
       pushToast(`Created folder "${trimmed}"`, "success");
       return created;
     },
@@ -4764,6 +4789,91 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           f.id === id ? { ...f, ...patch } : f,
         ),
       }));
+    },
+    [mutateWorkspace],
+  );
+
+  const reorderStreamFolders = useCallback(
+    (
+      draggedId: string,
+      targetId: string,
+      position: "before" | "after" | "inside",
+    ) => {
+      if (!draggedId || !targetId || draggedId === targetId) return;
+      const compareFolders = (a: StreamFolder, b: StreamFolder) => {
+        const ao =
+          typeof a.sortOrder === "number" && Number.isFinite(a.sortOrder)
+            ? a.sortOrder
+            : null;
+        const bo =
+          typeof b.sortOrder === "number" && Number.isFinite(b.sortOrder)
+            ? b.sortOrder
+            : null;
+        if (ao !== null && bo !== null && ao !== bo) return ao - bo;
+        if (ao !== null && bo === null) return -1;
+        if (ao === null && bo !== null) return 1;
+        return a.name.localeCompare(b.name);
+      };
+
+      mutateWorkspace((prev) => {
+        const current = prev.streamFolders ?? [];
+        const byId = new Map(current.map((f) => [f.id, f]));
+        const dragged = byId.get(draggedId);
+        const target = byId.get(targetId);
+        if (!dragged || !target) return prev;
+
+        const nextParentId =
+          position === "inside" ? target.id : (target.parentId ?? null);
+
+        // Guard against cycles
+        let cursor: string | null | undefined = nextParentId;
+        const seen = new Set<string>();
+        while (cursor && !seen.has(cursor)) {
+          if (cursor === draggedId) return prev;
+          seen.add(cursor);
+          cursor = byId.get(cursor)?.parentId ?? null;
+        }
+
+        const updatedDragged: StreamFolder =
+          (dragged.parentId ?? null) === nextParentId
+            ? dragged
+            : { ...dragged, parentId: nextParentId };
+
+        const siblings = current
+          .filter(
+            (f) =>
+              f.id !== draggedId &&
+              (f.parentId && byId.has(f.parentId) ? f.parentId : null) ===
+                nextParentId,
+          )
+          .sort(compareFolders);
+
+        if (position === "inside") {
+          siblings.push(updatedDragged);
+        } else {
+          const targetIdx = siblings.findIndex((f) => f.id === targetId);
+          if (targetIdx === -1) return prev;
+          const insertIdx = position === "before" ? targetIdx : targetIdx + 1;
+          siblings.splice(insertIdx, 0, updatedDragged);
+        }
+
+        const orderBySiblingId = new Map<string, number>();
+        siblings.forEach((f, idx) => orderBySiblingId.set(f.id, idx));
+
+        const nextFolders = current.map((f) => {
+          const base = f.id === draggedId ? updatedDragged : f;
+          const nextOrder = orderBySiblingId.get(base.id);
+          if (nextOrder !== undefined) {
+            return { ...base, sortOrder: nextOrder };
+          }
+          return base;
+        });
+
+        return {
+          ...prev,
+          streamFolders: nextFolders,
+        };
+      });
     },
     [mutateWorkspace],
   );
@@ -4817,6 +4927,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           delete nextIcons[fromKey];
         }
 
+        let nextTopicOrder = prev.streamTopicOrder;
+        if (Array.isArray(prev.streamTopicOrder) && prev.streamTopicOrder.length > 0) {
+          const seen = new Set<string>();
+          const updated: string[] = [];
+          for (const raw of prev.streamTopicOrder) {
+            const mapped =
+              raw.trim().toLowerCase() === fromKey ? resolvedTarget : raw;
+            const mappedKey = mapped.trim().toLowerCase();
+            if (!mappedKey || seen.has(mappedKey)) continue;
+            seen.add(mappedKey);
+            updated.push(mapped);
+          }
+          nextTopicOrder = updated;
+        }
+
         const nextChannels = { ...(prev.streamChannels ?? {}) };
         let channelsChanged = false;
         for (const [chName, meta] of Object.entries(nextChannels)) {
@@ -4833,6 +4958,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
           ...prev,
           streams: nextStreams,
           streamTopicIcons: nextIcons,
+          streamTopicOrder: nextTopicOrder,
           streamChannels: channelsChanged ? nextChannels : prev.streamChannels,
         };
       });
@@ -4841,6 +4967,31 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     },
     [mutateWorkspace],
   );
+
+  const reorderStreamTopics = useCallback(
+    (orderedTopics: string[]) => {
+      const cleaned = orderedTopics
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0);
+      mutateWorkspace((prev) => ({
+        ...prev,
+        streamTopicOrder: cleaned,
+      }));
+    },
+    [mutateWorkspace],
+  );
+
+  const resetStreamTopicOrder = useCallback(() => {
+    mutateWorkspace((prev) => {
+      if (!prev.streamTopicOrder || prev.streamTopicOrder.length === 0) {
+        return prev;
+      }
+      return {
+        ...prev,
+        streamTopicOrder: undefined,
+      };
+    });
+  }, [mutateWorkspace]);
 
   const updateStreamChannelMeta = useCallback(
     (channelName: string, patch: Partial<StreamChannelMeta>) => {
@@ -7103,6 +7254,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
             typeof cleanNext.streamTopicIcons === "object"
               ? cleanNext.streamTopicIcons
               : {},
+          streamTopicOrder: Array.isArray(cleanNext.streamTopicOrder)
+            ? cleanNext.streamTopicOrder.filter(
+                (t): t is string =>
+                  typeof t === "string" && t.trim().length > 0,
+              )
+            : undefined,
           streamChannels:
             cleanNext.streamChannels &&
             typeof cleanNext.streamChannels === "object"
@@ -7434,9 +7591,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       incrementStreamListen,
       addStreamFolder,
       updateStreamFolder,
+      reorderStreamFolders,
       deleteStreamFolder,
       setStreamTopicIcon,
       renameStreamTopic,
+      reorderStreamTopics,
+      resetStreamTopicOrder,
       updateStreamChannelMeta,
       reorderStreamChannels,
       renameOrMergeStreamChannels,
@@ -7599,9 +7759,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       incrementStreamListen,
       addStreamFolder,
       updateStreamFolder,
+      reorderStreamFolders,
       deleteStreamFolder,
       setStreamTopicIcon,
       renameStreamTopic,
+      reorderStreamTopics,
+      resetStreamTopicOrder,
       updateStreamChannelMeta,
       reorderStreamChannels,
       renameOrMergeStreamChannels,

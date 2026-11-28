@@ -3,6 +3,7 @@ import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { VaultPointerDropTarget } from "../../hooks/useVaultStreamDrag";
 import type { StreamFolder } from "../../types";
 import { DynamicIcon } from "../IconLibrary";
+import { compareStreamFolders } from "./StreamVaultSidebar";
 
 export interface FlattenedStreamFolderNode {
   folder: StreamFolder;
@@ -25,7 +26,7 @@ export function flattenStreamFolders(
   }
 
   for (const list of byParent.values()) {
-    list.sort((a, b) => a.name.localeCompare(b.name));
+    list.sort(compareStreamFolders);
   }
 
   const out: FlattenedStreamFolderNode[] = [];

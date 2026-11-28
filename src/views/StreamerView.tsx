@@ -125,9 +125,12 @@ export const StreamerView = forwardRef<
     incrementStreamListen,
     addStreamFolder,
     updateStreamFolder,
+    reorderStreamFolders,
     deleteStreamFolder,
     setStreamTopicIcon,
     renameStreamTopic,
+    reorderStreamTopics,
+    resetStreamTopicOrder,
     updateStreamChannelMeta,
     reorderStreamChannels,
     renameOrMergeStreamChannels,
@@ -146,6 +149,7 @@ export const StreamerView = forwardRef<
   const { streams, streamPresets, streamerState } = workspace;
   const streamFolders = workspace.streamFolders ?? [];
   const streamTopicIcons = workspace.streamTopicIcons ?? {};
+  const streamTopicOrder = workspace.streamTopicOrder ?? [];
   const streamChannels = workspace.streamChannels ?? {};
 
   const viewMode: StreamViewMode = streamerState.viewMode || "grid";
@@ -2198,10 +2202,14 @@ export const StreamerView = forwardRef<
             }
             onRenameFolder={(id, name) => updateStreamFolder(id, { name })}
             onUpdateFolder={(id, patch) => updateStreamFolder(id, patch)}
+            onReorderFolders={reorderStreamFolders}
             onDeleteFolder={deleteStreamFolder}
             topicIcons={streamTopicIcons}
+            topicOrder={streamTopicOrder}
             onSetTopicIcon={(topic, icon) => setStreamTopicIcon(topic, icon)}
             onRenameTopic={renameStreamTopic}
+            onReorderTopics={reorderStreamTopics}
+            onResetTopicOrder={resetStreamTopicOrder}
             channelConfigs={streamChannels}
             onUpdateChannelMeta={updateStreamChannelMeta}
             onReorderChannels={reorderStreamChannels}

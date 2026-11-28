@@ -333,6 +333,7 @@ export interface StreamFolder {
   parentId: string | null;
   icon?: string;
   description?: string;
+  sortOrder?: number;
   createdAt: string;
 }
 
@@ -601,6 +602,7 @@ export interface KansoWorkspace {
   streams: StreamItem[];
   streamFolders?: StreamFolder[];
   streamTopicIcons?: Record<string, string>;
+  streamTopicOrder?: string[];
   streamChannels?: Record<string, StreamChannelMeta>;
   streamPresets: StreamPreset[];
   streamerState: StreamerState;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Check,
@@ -41,9 +41,11 @@ interface StreamVaultSidebarProps {
   streams: StreamItem[];
   folders: StreamFolder[];
   topicIcons?: Record<string, string>;
+  topicOrder?: string[];
   activeIdSet: Set<string>;
   scope: VaultScope;
   selectedTags: string[];
+  isMobileDrawer?: boolean;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   activePointerDropTarget?: VaultPointerDropTarget | null;
   onSelectScope: (scope: VaultScope) => void;
@@ -51,11 +53,50 @@ interface StreamVaultSidebarProps {
   onAddFolder: (name: string, parentId: string | null) => StreamFolder;
   onRenameFolder: (id: string, name: string) => void;
   onUpdateFolder?: (id: string, patch: Partial<StreamFolder>) => void;
+  onReorderFolders?: (
+    draggedId: string,
+    targetId: string,
+    position: 'before' | 'after' | 'inside',
+  ) => void;
   onDeleteFolder: (id: string) => void;
   onSetTopicIcon?: (topic: string, icon: string | undefined) => void;
+  onReorderTopics?: (orderedTopics: string[]) => void;
+  onResetTopicOrder?: () => void;
   onLoadFolderToGrid: (folderId: string, folderName: string) => void;
   onLoadChannelToGrid: (channel: string) => void;
   onCloseMobile?: () => void;
+}
+
+export function compareStreamFolders(a: StreamFolder, b: StreamFolder): number {
+  const ao =
+    typeof a.sortOrder === 'number' && Number.isFinite(a.sortOrder)
+      ? a.sortOrder
+      : null;
+  const bo =
+    typeof b.sortOrder === 'number' && Number.isFinite(b.sortOrder)
+      ? b.sortOrder
+      : null;
+  if (ao !== null && bo !== null && ao !== bo) return ao - bo;
+  if (ao !== null && bo === null) return -1;
+  if (ao === null && bo !== null) return 1;
+  return a.name.localeCompare(b.name);
+}
+
+function wouldCreateFolderCycle(
+  draggedId: string,
+  candidateParentId: string | null | undefined,
+  folderById: Map<string, StreamFolder>,
+): boolean {
+  if (!candidateParentId) return false;
+  if (candidateParentId === draggedId) return true;
+  const seen = new Set<string>();
+  let cursor: string | null | undefined = candidateParentId;
+  while (cursor && !seen.has(cursor)) {
+    if (cursor === draggedId) return true;
+    seen.add(cursor);
+    cursor = folderById.get(cursor)?.parentId ?? null;
+  }
+  return false;
 }
 
 export function getDescendantFolderIds(folderId: string, folders: StreamFolder[]): Set<string> {
@@ -77,9 +118,11 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
   streams,
   folders,
   topicIcons = {},
+  topicOrder = [],
   activeIdSet,
   scope,
   selectedTags,
+  isMobileDrawer = false,
   scrollContainerRef,
   activePointerDropTarget,
   onSelectScope,
@@ -87,8 +130,11 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
   onAddFolder,
   onRenameFolder,
   onUpdateFolder,
+  onReorderFolders,
   onDeleteFolder,
   onSetTopicIcon,
+  onReorderTopics,
+  onResetTopicOrder,
   onLoadFolderToGrid,
   onLoadChannelToGrid,
   onCloseMobile,
@@ -116,6 +162,21 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
     topics: true,
     tags: true,
   });
+
+  // Desktop-only drag-to-reorder state for Folders & Topics
+  const dragFolderIdRef = useRef<string | null>(null);
+  const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
+  const [folderDropTarget, setFolderDropTarget] = useState<{
+    folderId: string;
+    position: 'before' | 'after' | 'inside';
+  } | null>(null);
+
+  const dragTopicNameRef = useRef<string | null>(null);
+  const [draggingTopicName, setDraggingTopicName] = useState<string | null>(null);
+  const [topicDropTarget, setTopicDropTarget] = useState<{
+    topicName: string;
+    position: 'before' | 'after';
+  } | null>(null);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -156,6 +217,11 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
     return { all: streams.length, inGrid, favorites, topRated };
   }, [streams, activeIdSet]);
 
+  const folderById = useMemo(
+    () => new Map(folders.map((f) => [f.id, f])),
+    [folders],
+  );
+
   // Folder children lookup & recursive item counts
   const folderChildrenMap = useMemo(() => {
     const map = new Map<string | null, StreamFolder[]>();
@@ -167,7 +233,7 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
       map.set(parentKey, list);
     }
     for (const list of map.values()) {
-      list.sort((a, b) => a.name.localeCompare(b.name));
+      list.sort(compareStreamFolders);
     }
     return map;
   }, [folders]);
@@ -185,17 +251,56 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
     return map;
   }, [folders, streams]);
 
-  // Topics / Themes derived from stream.category
+  // Topics / Themes derived from stream.category (respecting custom topicOrder when set)
   const topics = useMemo(() => {
     const countsMap = new Map<string, number>();
     for (const s of streams) {
       const cat = s.category.trim() || 'Uncategorized';
       countsMap.set(cat, (countsMap.get(cat) || 0) + 1);
     }
+    const orderIndex = new Map<string, number>();
+    topicOrder.forEach((raw, idx) => {
+      const key = raw.trim().toLowerCase();
+      if (key && !orderIndex.has(key)) orderIndex.set(key, idx);
+    });
+
     return Array.from(countsMap.entries())
       .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  }, [streams]);
+      .sort((a, b) => {
+        if (orderIndex.size > 0) {
+          const ai = orderIndex.get(a.name.trim().toLowerCase());
+          const bi = orderIndex.get(b.name.trim().toLowerCase());
+          if (ai !== undefined && bi !== undefined) return ai - bi;
+          if (ai !== undefined) return -1;
+          if (bi !== undefined) return 1;
+        }
+        return b.count - a.count || a.name.localeCompare(b.name);
+      });
+  }, [streams, topicOrder]);
+
+  const hasCustomTopicOrder = topicOrder.length > 0;
+
+  const computeFolderDropPosition = (
+    e: React.DragEvent<HTMLDivElement>,
+    draggedId: string | null,
+    targetFolder: StreamFolder,
+  ): 'before' | 'after' | 'inside' | null => {
+    if (!draggedId || draggedId === targetFolder.id) return null;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relY = e.clientY - rect.top;
+    const rawPos: 'before' | 'after' | 'inside' =
+      relY < rect.height * 0.28
+        ? 'before'
+        : relY > rect.height * 0.72
+          ? 'after'
+          : 'inside';
+    const candidateParentId =
+      rawPos === 'inside' ? targetFolder.id : (targetFolder.parentId ?? null);
+    if (wouldCreateFolderCycle(draggedId, candidateParentId, folderById)) {
+      return null;
+    }
+    return rawPos;
+  };
 
   // Multi-tags directory
   const allTags = useMemo(() => {
@@ -256,6 +361,12 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
           const isRenaming = renamingFolderId === folder.id;
           const isIconPickerOpen =
             iconPickerTarget?.kind === 'folder' && iconPickerTarget.folderId === folder.id;
+          const isFolderBeingDragged = draggingFolderId === folder.id;
+          const isFolderOrderTarget = folderDropTarget?.folderId === folder.id;
+          const folderDropPos = isFolderOrderTarget ? folderDropTarget?.position : null;
+          const isStreamDropHover =
+            activePointerDropTarget?.kind === 'sidebar-folder' &&
+            activePointerDropTarget.id === folder.id;
 
           return (
             <div key={folder.id}>
@@ -333,6 +444,72 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                   data-vault-drop-kind="sidebar-folder"
                   data-vault-drop-id={folder.id}
                   data-vault-drop-label={folder.name}
+                  draggable={!isMobileDrawer && Boolean(onReorderFolders)}
+                  onDragStart={(e) => {
+                    if (isMobileDrawer || !onReorderFolders) {
+                      e.preventDefault();
+                      return;
+                    }
+                    e.stopPropagation();
+                    e.dataTransfer.setData('application/x-kanso-vault-folder-id', folder.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    dragFolderIdRef.current = folder.id;
+                    setDraggingFolderId(folder.id);
+                  }}
+                  onDragEnd={() => {
+                    dragFolderIdRef.current = null;
+                    setDraggingFolderId(null);
+                    setFolderDropTarget(null);
+                  }}
+                  onDragOver={(e) => {
+                    if (
+                      isMobileDrawer ||
+                      !onReorderFolders ||
+                      !e.dataTransfer.types.includes('application/x-kanso-vault-folder-id')
+                    ) {
+                      return;
+                    }
+                    const pos = computeFolderDropPosition(e, dragFolderIdRef.current, folder);
+                    if (!pos) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.dataTransfer.dropEffect = 'move';
+                    setFolderDropTarget((prev) =>
+                      prev?.folderId === folder.id && prev.position === pos
+                        ? prev
+                        : { folderId: folder.id, position: pos },
+                    );
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setFolderDropTarget((prev) =>
+                        prev?.folderId === folder.id ? null : prev,
+                      );
+                    }
+                  }}
+                  onDrop={(e) => {
+                    if (
+                      isMobileDrawer ||
+                      !onReorderFolders ||
+                      !e.dataTransfer.types.includes('application/x-kanso-vault-folder-id')
+                    ) {
+                      return;
+                    }
+                    const draggedId =
+                      e.dataTransfer.getData('application/x-kanso-vault-folder-id') ||
+                      dragFolderIdRef.current;
+                    const pos = computeFolderDropPosition(e, draggedId, folder);
+                    dragFolderIdRef.current = null;
+                    setDraggingFolderId(null);
+                    setFolderDropTarget(null);
+                    if (!draggedId || !pos) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (pos === 'inside') {
+                      setExpandedFolders((prev) => ({ ...prev, [folder.id]: true }));
+                    }
+                    onReorderFolders(draggedId, folder.id, pos);
+                  }}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -343,26 +520,30 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                     });
                   }}
                   className={`relative group flex items-center gap-1 rounded-lg transition-colors pr-1 ${
-                    activePointerDropTarget?.kind === 'sidebar-folder' &&
-                    activePointerDropTarget.id === folder.id
+                    isFolderBeingDragged ? 'opacity-45' : ''
+                  } ${
+                    isStreamDropHover || folderDropPos === 'inside'
                       ? 'ring-1 ring-[var(--accent)]'
                       : ''
                   }`}
                   style={{
                     paddingLeft: `${4 + depth * 14}px`,
                     backgroundColor:
-                      activePointerDropTarget?.kind === 'sidebar-folder' &&
-                      activePointerDropTarget.id === folder.id
+                      isStreamDropHover || folderDropPos === 'inside'
                         ? 'var(--accent-soft)'
                         : isSelected
                           ? 'var(--accent-soft)'
                           : 'transparent',
                     color:
-                      (activePointerDropTarget?.kind === 'sidebar-folder' &&
-                        activePointerDropTarget.id === folder.id) ||
-                      isSelected
+                      isStreamDropHover || folderDropPos === 'inside' || isSelected
                         ? 'var(--accent)'
                         : 'var(--text-secondary)',
+                    boxShadow:
+                      folderDropPos === 'before'
+                        ? 'inset 0 2px 0 var(--accent)'
+                        : folderDropPos === 'after'
+                          ? 'inset 0 -2px 0 var(--accent)'
+                          : undefined,
                   }}
                 >
                   <button
@@ -634,22 +815,42 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
 
         {/* Topics & Themes */}
         <div className="space-y-1">
-          <button
-            type="button"
-            onClick={() => setSectionsOpen((s) => ({ ...s, topics: !s.topics }))}
-            className="w-full flex items-center justify-between px-1.5 text-[11px] font-semibold tracking-tight"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            <span className="inline-flex items-center gap-1">
+          <div className="flex items-center justify-between px-1.5">
+            <button
+              type="button"
+              onClick={() => setSectionsOpen((s) => ({ ...s, topics: !s.topics }))}
+              className="flex items-center gap-1 text-[11px] font-semibold tracking-tight cursor-pointer"
+              style={{ color: 'var(--text-muted)' }}
+            >
               {sectionsOpen.topics ? (
                 <ChevronDown className="w-3 h-3" />
               ) : (
                 <ChevronRight className="w-3 h-3" />
               )}
               <span>Topics & Themes</span>
-            </span>
-            <span className="font-mono tabular-nums">{topics.length}</span>
-          </button>
+            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {hasCustomTopicOrder && onResetTopicOrder && (
+                <button
+                  type="button"
+                  onClick={onResetTopicOrder}
+                  title="Reset topics to count order"
+                  aria-label="Reset topics to count order"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  <RotateCcw className="w-2.5 h-2.5" />
+                  <span>Reset</span>
+                </button>
+              )}
+              <span
+                className="text-[11px] font-mono tabular-nums"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                {topics.length}
+              </span>
+            </div>
+          </div>
 
           {sectionsOpen.topics && (
             <div className="space-y-0.5">
@@ -662,6 +863,9 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                 const customIcon = topicIcons[topicKey];
                 const isTopicPickerOpen =
                   iconPickerTarget?.kind === 'topic' && iconPickerTarget.topic === t.name;
+                const isTopicBeingDragged = draggingTopicName === t.name;
+                const isTopicOrderTarget = topicDropTarget?.topicName === t.name;
+                const topicDropPos = isTopicOrderTarget ? topicDropTarget?.position : null;
 
                 return (
                   <div
@@ -669,6 +873,85 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                     data-vault-drop-kind="sidebar-topic"
                     data-vault-drop-id={t.name}
                     data-vault-drop-label={t.name}
+                    draggable={!isMobileDrawer && Boolean(onReorderTopics)}
+                    onDragStart={(e) => {
+                      if (isMobileDrawer || !onReorderTopics) {
+                        e.preventDefault();
+                        return;
+                      }
+                      e.stopPropagation();
+                      e.dataTransfer.setData('application/x-kanso-vault-topic', t.name);
+                      e.dataTransfer.effectAllowed = 'move';
+                      dragTopicNameRef.current = t.name;
+                      setDraggingTopicName(t.name);
+                    }}
+                    onDragEnd={() => {
+                      dragTopicNameRef.current = null;
+                      setDraggingTopicName(null);
+                      setTopicDropTarget(null);
+                    }}
+                    onDragOver={(e) => {
+                      if (
+                        isMobileDrawer ||
+                        !onReorderTopics ||
+                        !e.dataTransfer.types.includes('application/x-kanso-vault-topic')
+                      ) {
+                        return;
+                      }
+                      const draggedName = dragTopicNameRef.current;
+                      if (!draggedName || draggedName === t.name) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.dataTransfer.dropEffect = 'move';
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const pos: 'before' | 'after' =
+                        e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                      setTopicDropTarget((prev) =>
+                        prev?.topicName === t.name && prev.position === pos
+                          ? prev
+                          : { topicName: t.name, position: pos },
+                      );
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setTopicDropTarget((prev) =>
+                          prev?.topicName === t.name ? null : prev,
+                        );
+                      }
+                    }}
+                    onDrop={(e) => {
+                      if (
+                        isMobileDrawer ||
+                        !onReorderTopics ||
+                        !e.dataTransfer.types.includes('application/x-kanso-vault-topic')
+                      ) {
+                        return;
+                      }
+                      const draggedName =
+                        e.dataTransfer.getData('application/x-kanso-vault-topic') ||
+                        dragTopicNameRef.current;
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const pos: 'before' | 'after' =
+                        e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                      dragTopicNameRef.current = null;
+                      setDraggingTopicName(null);
+                      setTopicDropTarget(null);
+                      if (!draggedName || draggedName === t.name) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+
+                      const orderedNames = topics.map((item) => item.name);
+                      const remaining = orderedNames.filter((n) => n !== draggedName);
+                      const targetIdx = remaining.indexOf(t.name);
+                      if (targetIdx === -1) return;
+                      const insertIdx = pos === 'before' ? targetIdx : targetIdx + 1;
+                      const nextOrder = [
+                        ...remaining.slice(0, insertIdx),
+                        draggedName,
+                        ...remaining.slice(insertIdx),
+                      ];
+                      onReorderTopics(nextOrder);
+                    }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -679,8 +962,8 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                       });
                     }}
                     className={`relative group flex items-center justify-between gap-1 rounded-lg px-2.5 transition-colors ${
-                      isTopicDropOver ? 'ring-1 ring-[var(--accent)]' : ''
-                    }`}
+                      isTopicBeingDragged ? 'opacity-45' : ''
+                    } ${isTopicDropOver ? 'ring-1 ring-[var(--accent)]' : ''}`}
                     style={{
                       backgroundColor:
                         isTopicDropOver || active ? 'var(--accent-soft)' : 'transparent',
@@ -688,12 +971,18 @@ export const StreamVaultSidebar: React.FC<StreamVaultSidebarProps> = ({
                         isTopicDropOver || active
                           ? 'var(--accent)'
                           : 'var(--text-secondary)',
+                      boxShadow:
+                        topicDropPos === 'before'
+                          ? 'inset 0 2px 0 var(--accent)'
+                          : topicDropPos === 'after'
+                            ? 'inset 0 -2px 0 var(--accent)'
+                            : undefined,
                     }}
                   >
                     <button
                       type="button"
                       onClick={() => handleSelectAndClose({ kind: 'topic', topic: t.name })}
-                      className="flex-1 min-w-0 h-8 flex items-center gap-2 text-left text-xs font-medium"
+                      className="flex-1 min-w-0 h-8 flex items-center gap-2 text-left text-xs font-medium cursor-pointer"
                     >
                       {customIcon ? (
                         <DynamicIcon name={customIcon} className="w-3.5 h-3.5 shrink-0" />

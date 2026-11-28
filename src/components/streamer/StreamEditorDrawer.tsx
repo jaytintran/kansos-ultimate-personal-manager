@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { StreamFolder, StreamItem } from '../../types';
 import { fetchYouTubeMetadata, parseYouTubeUrl } from '../../utils/youtube';
+import { compareStreamFolders } from './StreamVaultSidebar';
 
 interface StreamEditorDrawerProps {
   mode: 'create' | 'edit';
@@ -51,7 +52,7 @@ function flattenFolders(folders: StreamFolder[]): FlattenedFolder[] {
     byParent.set(key, list);
   }
   for (const list of byParent.values()) {
-    list.sort((a, b) => a.name.localeCompare(b.name));
+    list.sort(compareStreamFolders);
   }
 
   const out: FlattenedFolder[] = [];

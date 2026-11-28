@@ -79,6 +79,7 @@ import {
   VaultViewMode,
 } from './StreamVaultControlsSheet';
 import {
+  compareStreamFolders,
   getDescendantFolderIds,
   StreamVaultSidebar,
   VaultScope,
@@ -148,10 +149,18 @@ interface StreamVaultViewProps {
   onAddFolder: (name: string, parentId?: string | null) => StreamFolder;
   onRenameFolder: (id: string, name: string) => void;
   onUpdateFolder?: (id: string, patch: Partial<StreamFolder>) => void;
+  onReorderFolders?: (
+    draggedId: string,
+    targetId: string,
+    position: 'before' | 'after' | 'inside',
+  ) => void;
   onDeleteFolder: (id: string) => void;
   topicIcons?: Record<string, string>;
+  topicOrder?: string[];
   onSetTopicIcon?: (topic: string, icon: string | undefined) => void;
   onRenameTopic?: (fromTopic: string, targetTopic: string) => number;
+  onReorderTopics?: (orderedTopics: string[]) => void;
+  onResetTopicOrder?: () => void;
   channelConfigs?: Record<string, StreamChannelMeta>;
   onUpdateChannelMeta?: (channelName: string, patch: Partial<StreamChannelMeta>) => void;
   onReorderChannels?: (orderedChannelNames: string[]) => void;
@@ -188,10 +197,14 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
   onAddFolder,
   onRenameFolder,
   onUpdateFolder,
+  onReorderFolders,
   onDeleteFolder,
   topicIcons = {},
+  topicOrder = [],
   onSetTopicIcon,
   onRenameTopic,
+  onReorderTopics,
+  onResetTopicOrder,
   channelConfigs = {},
   onUpdateChannelMeta,
   onReorderChannels,
@@ -857,7 +870,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
     if (scope.kind !== 'folder') return [];
     return folders
       .filter((f) => f.parentId === scope.folderId)
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort(compareStreamFolders);
   }, [scope, folders]);
 
   const folderStreamCountsMap = useMemo(() => {
@@ -2449,6 +2462,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
           streams={streams}
           folders={folders}
           topicIcons={topicIcons}
+          topicOrder={topicOrder}
           activeIdSet={activeIdSet}
           scope={scope}
           selectedTags={selectedTags}
@@ -2459,8 +2473,11 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
           onAddFolder={(name, parentId) => onAddFolder(name, parentId)}
           onRenameFolder={onRenameFolder}
           onUpdateFolder={onUpdateFolder}
+          onReorderFolders={onReorderFolders}
           onDeleteFolder={onDeleteFolder}
           onSetTopicIcon={onSetTopicIcon}
+          onReorderTopics={onReorderTopics}
+          onResetTopicOrder={onResetTopicOrder}
           onLoadFolderToGrid={handleLoadFolderToGrid}
           onLoadChannelToGrid={handleLoadChannelToGrid}
         />
@@ -2507,9 +2524,11 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                 streams={streams}
                 folders={folders}
                 topicIcons={topicIcons}
+                topicOrder={topicOrder}
                 activeIdSet={activeIdSet}
                 scope={scope}
                 selectedTags={selectedTags}
+                isMobileDrawer
                 onSelectScope={setScope}
                 onToggleTag={handleToggleTag}
                 onAddFolder={(name, parentId) => onAddFolder(name, parentId)}
@@ -2517,6 +2536,7 @@ export const StreamVaultView: React.FC<StreamVaultViewProps> = ({
                 onUpdateFolder={onUpdateFolder}
                 onDeleteFolder={onDeleteFolder}
                 onSetTopicIcon={onSetTopicIcon}
+                onResetTopicOrder={onResetTopicOrder}
                 onLoadFolderToGrid={handleLoadFolderToGrid}
                 onLoadChannelToGrid={handleLoadChannelToGrid}
                 onCloseMobile={() => setMobileSidebarOpen(false)}
