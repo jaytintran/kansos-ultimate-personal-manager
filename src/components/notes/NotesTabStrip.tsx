@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, FolderTree, Pin, Plus, X } from "lucide-react";
+import { FolderTree, Pin, Plus, X } from "lucide-react";
 import type { Entry } from "../../types";
 import { NotePageIcon } from "../IconLibrary";
 
@@ -21,7 +21,6 @@ interface NotesTabStripProps {
     position: "before" | "after",
   ) => void;
   onCreateNoteTab: () => void;
-  onOpenInModal?: (noteId: string) => void;
 }
 
 const TAB_DRAG_MIME = "application/x-kanso-note-tab-id";
@@ -40,7 +39,6 @@ export const NotesTabStrip: React.FC<NotesTabStripProps> = ({
   onCloseAllTabs,
   onReorderTabs,
   onCreateNoteTab,
-  onOpenInModal,
 }) => {
   const isHomeActive = activeTabId === null && !isWorkspaceActive;
 
@@ -115,7 +113,7 @@ export const NotesTabStrip: React.FC<NotesTabStripProps> = ({
     e.preventDefault();
     e.stopPropagation();
     const menuWidth = 188;
-    const menuHeight = onOpenInModal ? 156 : 118;
+    const menuHeight = 118;
     const x =
       typeof window !== "undefined"
         ? Math.min(e.clientX, window.innerWidth - menuWidth - 8)
@@ -391,29 +389,6 @@ export const NotesTabStrip: React.FC<NotesTabStripProps> = ({
           >
             <span>Close All</span>
           </button>
-
-          {onOpenInModal && (
-            <>
-              <div
-                className="my-1 h-px"
-                style={{ backgroundColor: "var(--border-subtle)" }}
-              />
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  const targetId = contextMenu.noteId;
-                  setContextMenu(null);
-                  onOpenInModal(targetId);
-                }}
-                className="w-full px-2.5 py-1.5 rounded-lg text-left flex items-center gap-2 transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                <ExternalLink className="w-3.5 h-3.5 opacity-75" />
-                <span>Open in Details Modal</span>
-              </button>
-            </>
-          )}
         </div>
       )}
     </>

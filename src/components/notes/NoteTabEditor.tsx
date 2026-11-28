@@ -15,7 +15,7 @@ import {
   Link2,
   ListChecks,
   ListTree,
-  Maximize2,
+  MoveHorizontal,
   Network,
   PanelLeftOpen,
   Pin,
@@ -55,6 +55,7 @@ import {
 const PROPS_OPEN_STORAGE_KEY = "kanso_note_tab_props_open_v1";
 const TOC_VISIBLE_DESKTOP_STORAGE_KEY = "kanso_note_tab_toc_visible_v1";
 const TOC_MODE_DESKTOP_STORAGE_KEY = "kanso_note_tab_toc_mode_v1";
+const FULL_WIDTH_MAP_STORAGE_KEY = "kanso_note_tab_full_width_map_v1";
 
 function loadPropsOpenPref(): boolean {
   try {
@@ -79,6 +80,17 @@ function loadTocModeDesktopPref(): DesktopTocMode {
       : "full";
   } catch {
     return "full";
+  }
+}
+
+function loadNoteFullWidthPref(noteId: string): boolean {
+  try {
+    const raw = localStorage.getItem(FULL_WIDTH_MAP_STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return Boolean(parsed && typeof parsed === "object" && parsed[noteId]);
+  } catch {
+    return false;
   }
 }
 
@@ -120,7 +132,6 @@ interface NoteTabEditorProps {
     parentId?: string | null;
     title?: string;
   }) => Entry;
-  onOpenInModal: (noteId: string) => void;
   onOpenTimestamps?: (entryId: string, focus?: TimestampFieldFocus) => void;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
   onJumpToListItem?: (listItemId: string) => void;
@@ -155,7 +166,6 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   onOpenMobileConnections,
   onOpenNoteTab,
   onCreateNoteTab,
-  onOpenInModal,
   onOpenTimestamps,
   onJumpToBookLocation,
   onJumpToListItem,
@@ -199,6 +209,10 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
   const [tocModeDesktop, setTocModeDesktop] = useState<DesktopTocMode>(
     loadTocModeDesktopPref,
   );
+  const [fullWidth, setFullWidth] = useState<boolean>(() =>
+    loadNoteFullWidthPref(note.id),
+  );
+  const [tableBreakoutPx, setTableBreakoutPx] = useState<number>(0);
   const [mobileTocOpen, setMobileTocOpen] = useState(false);
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
   const [isScrolledDown, setIsScrolledDown] = useState(false);
@@ -294,6 +308,20 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
       // Ignore
     }
   }, [tocModeDesktop]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(FULL_WIDTH_MAP_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      const next =
+        parsed && typeof parsed === "object" ? { ...parsed } : {};
+      if (fullWidth) next[note.id] = true;
+      else delete next[note.id];
+      localStorage.setItem(FULL_WIDTH_MAP_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Ignore
+    }
+  }, [fullWidth, note.id]);
 
   // Auto-resize display title textarea
   useEffect(() => {
@@ -685,6 +713,46 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
     };
   }, [syncScrollSpy]);
 
+  const hasExpandedDesktopToc =
+    tocHeadings.length >= 3 &&
+    tocVisibleDesktop &&
+    !connOpenDesktop &&
+    tocModeDesktop === "full";
+
+  // Keep centered reading prose at max-w-3xl while wide (5+ col) tables smoothly break out into free side gutters
+  useEffect(() => {
+    const container = canvasScrollRef.current;
+    if (!container || fullWidth) {
+      setTableBreakoutPx(0);
+      return;
+    }
+
+    const computeBreakout = () => {
+      const w = container.clientWidth;
+      if (w < 1024) {
+        setTableBreakoutPx(0);
+        return;
+      }
+      const horizontalPad = 80; // lg:px-10
+      const rightReserve = hasExpandedDesktopToc ? 236 : 44;
+      const available = Math.max(0, w - horizontalPad - rightReserve);
+      const extraPerSide = Math.max(0, Math.floor((available - 768) / 2));
+      setTableBreakoutPx(Math.min(180, extraPerSide));
+    };
+
+    computeBreakout();
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(computeBreakout);
+      ro.observe(container);
+    }
+    window.addEventListener("resize", computeBreakout);
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener("resize", computeBreakout);
+    };
+  }, [fullWidth, hasExpandedDesktopToc]);
+
   const handleJumpToHeading = useCallback(
     (item: TocHeadingItem) => {
       const container = canvasScrollRef.current;
@@ -983,16 +1051,31 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
 
           <button
             type="button"
-            onClick={() => {
-              flushSave();
-              onOpenInModal(note.id);
+            onClick={() => setFullWidth((w) => !w)}
+            aria-pressed={fullWidth}
+            title={
+              fullWidth
+                ? "Switch to centered reading width"
+                : "Full width page (great for wide tables)"
+            }
+            aria-label={fullWidth ? "Switch to centered width" : "Full width page"}
+            className="hidden md:inline-flex h-7 px-2 rounded-lg border text-xs font-medium items-center gap-1 transition-colors hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+            style={{
+              backgroundColor: fullWidth
+                ? "var(--accent-soft)"
+                : "var(--bg-surface)",
+              borderColor: fullWidth
+                ? "var(--accent)"
+                : "var(--border-subtle)",
+              color: fullWidth
+                ? "var(--accent)"
+                : "var(--text-secondary)",
             }}
-            title="Open in Details Modal"
-            aria-label="Open in Details Modal"
-            className="h-7 w-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-            style={{ color: "var(--text-muted)" }}
           >
-            <Maximize2 className="w-3.5 h-3.5" />
+            <MoveHorizontal className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">
+              {fullWidth ? "Full width" : "Width"}
+            </span>
           </button>
 
           {!note.archived && (
@@ -1081,9 +1164,24 @@ export const NoteTabEditor: React.FC<NoteTabEditorProps> = ({
 
         <div
           ref={canvasScrollRef}
-          className="flex-1 min-h-0 overflow-y-auto overscroll-none px-5 sm:px-8 lg:px-10 py-6 lg:py-8 pb-24 lg:pb-12"
+          style={
+            {
+              "--kanso-table-breakout": `${tableBreakoutPx}px`,
+            } as React.CSSProperties
+          }
+          className={`kanso-note-canvas ${
+            fullWidth ? "kanso-note-full-width" : ""
+          } flex-1 min-h-0 overflow-y-auto overscroll-none px-5 sm:px-8 lg:px-10 py-6 lg:py-8 pb-24 lg:pb-12`}
         >
-          <div className="max-w-3xl mx-auto space-y-5">
+          <div
+            className={`${
+              fullWidth
+                ? `w-full max-w-6xl mx-auto ${
+                    hasExpandedDesktopToc ? "lg:pr-[236px]" : ""
+                  }`
+                : "max-w-3xl mx-auto"
+            } space-y-5 transition-[max-width] duration-150`}
+          >
           {/* Stacked Editorial Page Icon + Full-Width Auto-Growing Display Title */}
           <div className="space-y-1.5">
             <div className="relative inline-block">

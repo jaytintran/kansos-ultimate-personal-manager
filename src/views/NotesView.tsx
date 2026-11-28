@@ -58,7 +58,6 @@ import {
   BookNoteLink,
   BookRecord,
   ContextMenuRecord,
-  DetailSheetTarget,
   Entry,
   ListCollection,
   ListItem,
@@ -169,7 +168,6 @@ function stripHtmlPreview(html: string): string {
 }
 
 interface NotesViewProps {
-  onOpenDetail: (target: DetailSheetTarget) => void;
   onOpenContextMenu: (record: ContextMenuRecord, e: React.MouseEvent) => void;
   onJumpToBookLocation?: (bookLink: BookNoteLink) => void;
   onJumpToListItem?: (listItemId: string) => void;
@@ -178,7 +176,6 @@ interface NotesViewProps {
 }
 
 export const NotesView: React.FC<NotesViewProps> = ({
-  onOpenDetail,
   onOpenContextMenu,
   onJumpToBookLocation,
   onJumpToListItem,
@@ -1196,6 +1193,12 @@ export const NotesView: React.FC<NotesViewProps> = ({
         onSelectScope={handleSelectScope}
         onOpenNote={handleOpenNoteById}
         onCreateNote={handleCreateNoteDirect}
+        onRenameNote={(noteId, newTitle) => updateEntry(noteId, { title: newTitle })}
+        onTogglePinNote={(note) => {
+          updateEntry(note.id, { pinned: !note.pinned });
+          pushToast(note.pinned ? "Note unpinned" : "Note pinned", "success");
+        }}
+        onDeleteNote={(note) => requestDeleteOrArchiveNote(note, "delete")}
         onCreateNotebook={() =>
           setNotebookModal({
             mode: "create",
@@ -1241,9 +1244,6 @@ export const NotesView: React.FC<NotesViewProps> = ({
               parentId: drilledParentNote ? drilledParentNote.id : null,
             })
           }
-          onOpenInModal={(noteId) =>
-            onOpenDetail({ mode: "note", id: noteId })
-          }
         />
 
         {isWorkspaceTab ? (
@@ -1258,6 +1258,12 @@ export const NotesView: React.FC<NotesViewProps> = ({
             onSelectScope={handleSelectScope}
             onOpenNote={handleOpenNoteById}
             onCreateNote={handleCreateNoteDirect}
+            onRenameNote={(noteId, newTitle) => updateEntry(noteId, { title: newTitle })}
+            onTogglePinNote={(note) => {
+              updateEntry(note.id, { pinned: !note.pinned });
+              pushToast(note.pinned ? "Note unpinned" : "Note pinned", "success");
+            }}
+            onDeleteNote={(note) => requestDeleteOrArchiveNote(note, "delete")}
             onCreateNotebook={() =>
               setNotebookModal({
                 mode: "create",
@@ -1290,9 +1296,6 @@ export const NotesView: React.FC<NotesViewProps> = ({
             onOpenMobileConnections={() => setMobileConnOpen(true)}
             onOpenNoteTab={handleOpenNoteById}
             onCreateNoteTab={handleCreateNoteDirect}
-            onOpenInModal={(noteId) =>
-              onOpenDetail({ mode: "note", id: noteId })
-            }
             onOpenTimestamps={onOpenTimestamps}
             onJumpToBookLocation={onJumpToBookLocation}
             onJumpToListItem={onJumpToListItem}

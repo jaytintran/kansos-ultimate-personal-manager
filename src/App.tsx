@@ -1844,7 +1844,6 @@ const KansoShell: React.FC = () => {
         )}
         {activeView === "notes" && (
           <NotesView
-            onOpenDetail={handleOpenDetail}
             onOpenContextMenu={handleOpenContextMenu}
             onJumpToBookLocation={handleJumpToBookLocation}
             onJumpToListItem={handleJumpToListItem}

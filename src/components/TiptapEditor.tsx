@@ -18,6 +18,7 @@ import {
   AlignCenter,
   AlignLeft,
   AlignRight,
+  ArrowLeftRight,
   BetweenHorizontalEnd,
   BetweenHorizontalStart,
   BetweenVerticalEnd,
@@ -34,10 +35,12 @@ import {
   Heading2,
   Heading3,
   Italic,
+  LayoutGrid,
   Link2,
   List,
   ListOrdered,
   Minus,
+  PanelLeft,
   PanelTop,
   Pencil,
   Plus,
@@ -50,10 +53,19 @@ import {
   Trash2,
   Undo2,
   Unlink,
+  WrapText,
   X,
 } from 'lucide-react';
 import type { Entry } from '../types';
 import { WikiLinkNode } from './notes/NoteTiptapExtensions';
+import {
+  KansoTable,
+  KansoTableView,
+  autoFitTableColumns,
+  getActiveResizeColumnIndex,
+  type TableCellMode,
+  type TableViewMode,
+} from './notes/KansoTableExtension';
 
 export const CODE_LANGUAGES = [
   'plaintext',
@@ -1177,18 +1189,30 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
       TaskList,
       TaskItem.configure({ nested: true }),
       TableKit.configure({
-        table: {
-          resizable: true,
-          renderWrapper: true,
-          cellMinWidth: 64,
-          handleWidth: 6,
-          lastColumnResizable: true,
-        },
+        table: false,
+      }),
+      KansoTable.configure({
+        resizable: true,
+        renderWrapper: true,
+        cellMinWidth: 64,
+        handleWidth: 6,
+        lastColumnResizable: true,
+        View: KansoTableView,
       }),
       WikiLinkNode,
     ],
     content: content || '',
     editorProps: {
+      handleDOMEvents: {
+        dblclick: (view, event) => {
+          const ed = editorRef.current;
+          if (!ed || !ed.isEditable) return false;
+          const colIdx = getActiveResizeColumnIndex(view, event);
+          if (colIdx === null) return false;
+          event.preventDefault();
+          return autoFitTableColumns(ed, colIdx);
+        },
+      },
       handleClick: (view, pos, event) => {
         const targetEl = event.target;
         const anchorEl =
@@ -1599,6 +1623,12 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
   const isTableActive = editor.isActive('table');
   const tableHasHeader = isTableActive ? isTableHeaderRowActive(editor) : false;
   const activeCellAlign = isTableActive ? getActiveTableCellAlign(editor) : null;
+  const activeTableAttrs = isTableActive ? editor.getAttributes('table') : {};
+  const freezeFirstCol = Boolean(activeTableAttrs?.freezeFirstCol);
+  const tableCellMode: TableCellMode =
+    activeTableAttrs?.cellMode === 'truncate' ? 'truncate' : 'wrap';
+  const tableViewMode: TableViewMode =
+    activeTableAttrs?.viewMode === 'cards' ? 'cards' : 'table';
   const currentCodeLang = (editor.getAttributes('codeBlock')?.language as string) || 'plaintext';
 
   const applySlashItem = (item: SlashItem) => {
@@ -2183,6 +2213,74 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
       >
         <AlignRight className="w-3.5 h-3.5" />
       </ToolbarBtn>
+
+      <span
+        className="mx-1 h-4 w-px shrink-0"
+        style={{ backgroundColor: 'var(--border-subtle)' }}
+        aria-hidden="true"
+      />
+
+      <TableActionBtn
+        onClick={() => autoFitTableColumns(editor)}
+        label="Auto-fit all column widths (or double-click column border)"
+      >
+        <ArrowLeftRight className="w-3.5 h-3.5" />
+        <span>Auto-fit</span>
+      </TableActionBtn>
+      <TableActionBtn
+        active={freezeFirstCol}
+        onClick={() =>
+          editor
+            .chain()
+            .focus()
+            .updateAttributes('table', { freezeFirstCol: !freezeFirstCol })
+            .run()
+        }
+        label={freezeFirstCol ? 'Unfreeze first column' : 'Freeze first column'}
+      >
+        <PanelLeft className="w-3.5 h-3.5" />
+        <span>Freeze 1st</span>
+      </TableActionBtn>
+      <TableActionBtn
+        active={tableCellMode === 'truncate'}
+        onClick={() =>
+          editor
+            .chain()
+            .focus()
+            .updateAttributes('table', {
+              cellMode: tableCellMode === 'truncate' ? 'wrap' : 'truncate',
+            })
+            .run()
+        }
+        label={
+          tableCellMode === 'truncate'
+            ? 'Switch to wrapped multi-line cells'
+            : 'Switch to compact single-line cells'
+        }
+      >
+        <WrapText className="w-3.5 h-3.5" />
+        <span>{tableCellMode === 'truncate' ? 'Compact' : 'Wrap'}</span>
+      </TableActionBtn>
+      <TableActionBtn
+        active={tableViewMode === 'cards'}
+        onClick={() =>
+          editor
+            .chain()
+            .focus()
+            .updateAttributes('table', {
+              viewMode: tableViewMode === 'cards' ? 'table' : 'cards',
+            })
+            .run()
+        }
+        label={
+          tableViewMode === 'cards'
+            ? 'Switch back to table grid'
+            : 'View and edit rows as stacked cards'
+        }
+      >
+        <LayoutGrid className="w-3.5 h-3.5" />
+        <span>{tableViewMode === 'cards' ? 'Table' : 'Cards'}</span>
+      </TableActionBtn>
 
       <span
         className="mx-1 h-4 w-px shrink-0"

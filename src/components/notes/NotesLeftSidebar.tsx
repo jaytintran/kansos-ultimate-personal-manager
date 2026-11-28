@@ -4,11 +4,13 @@ import {
   BookOpen,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   FolderOpen,
   Library,
   ListChecks,
   PanelLeftClose,
   Pencil,
+  Pin,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -39,6 +41,9 @@ export interface NotesWorkspaceTreeProps {
   onSelectScope: (scope: NotesScope) => void;
   onOpenNote: (noteId: string) => void;
   onCreateNote: (options: { notebookId?: string | null; parentId?: string | null }) => void;
+  onRenameNote?: (noteId: string, newTitle: string) => void;
+  onTogglePinNote?: (note: Entry) => void;
+  onDeleteNote?: (note: Entry) => void;
   onCreateNotebook: () => void;
   onEditNotebook: (notebook: NoteNotebook) => void;
   onDeleteNotebook: (notebook: NoteNotebook) => void;
@@ -83,6 +88,9 @@ const NotesWorkspaceTreeBody: React.FC<
   onSelectScope,
   onOpenNote,
   onCreateNote,
+  onRenameNote,
+  onTogglePinNote,
+  onDeleteNote,
   onCreateNotebook,
   onEditNotebook,
   onDeleteNotebook,
@@ -103,9 +111,25 @@ const NotesWorkspaceTreeBody: React.FC<
     id: string;
     position: "before" | "after";
   } | null>(null);
+  const [rowContextMenu, setRowContextMenu] = useState<
+    | { kind: "page"; note: Entry; x: number; y: number }
+    | { kind: "notebook"; notebook: NoteNotebook; x: number; y: number }
+    | null
+  >(null);
+  const [renamingNoteId, setRenamingNoteId] = useState<string | null>(null);
+  const [renamingNoteTitle, setRenamingNoteTitle] = useState("");
 
   const dragNoteIdRef = useRef<string | null>(null);
   const dragNotebookIdRef = useRef<string | null>(null);
+
+  const commitNoteRename = (note: Entry) => {
+    const trimmed = renamingNoteTitle.trim();
+    if (trimmed !== (note.title || "") && onRenameNote) {
+      onRenameNote(note.id, trimmed);
+    }
+    setRenamingNoteId(null);
+    setRenamingNoteTitle("");
+  };
 
   const toggleExpanded = (key: string) => {
     setExpandedNodes((prev) => {
@@ -236,6 +260,11 @@ const NotesWorkspaceTreeBody: React.FC<
             setExpandedTrue(`note:${note.id}`);
             onNestNoteUnderParent(draggedId, note.id);
           }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setRowContextMenu({ kind: "page", note, x: e.clientX, y: e.clientY });
+          }}
           style={{
             paddingLeft: `${(isTab ? 10 : 8) + depth * (isTab ? 16 : 14)}px`,
             backgroundColor: isDropHover
@@ -273,50 +302,118 @@ const NotesWorkspaceTreeBody: React.FC<
               ))}
           </button>
 
-          <button
-            type="button"
-            onClick={() => onOpenNote(note.id)}
-            className="flex-1 min-w-0 flex items-center gap-2 text-left py-0.5 cursor-pointer"
-          >
-            <NotePageIcon
-              icon={note.icon}
-              className={`${isTab ? "w-4 h-4" : "w-3.5 h-3.5"} shrink-0 opacity-85`}
-              style={{
-                color: isFocused
-                  ? "var(--accent)"
-                  : note.icon
-                    ? "var(--accent)"
-                    : "var(--text-muted)",
+          {renamingNoteId === note.id ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                commitNoteRename(note);
               }}
-            />
-            <span
-              className={`truncate ${isFocused ? "font-medium" : ""}`}
-              style={{ color: isFocused ? "var(--text-primary)" : "var(--text-secondary)" }}
+              onClick={(e) => e.stopPropagation()}
+              className="flex-1 min-w-0 flex items-center gap-1.5 py-0.5"
             >
-              {note.title || "Untitled Note"}
-            </span>
-          </button>
+              <NotePageIcon
+                icon={note.icon}
+                className={`${isTab ? "w-4 h-4" : "w-3.5 h-3.5"} shrink-0 opacity-85`}
+                style={{ color: "var(--accent)" }}
+              />
+              <input
+                type="text"
+                autoFocus
+                value={renamingNoteTitle}
+                onChange={(e) => setRenamingNoteTitle(e.target.value)}
+                onBlur={() => commitNoteRename(note)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    setRenamingNoteId(null);
+                    setRenamingNoteTitle("");
+                  }
+                }}
+                placeholder="Untitled Note"
+                className="flex-1 min-w-0 px-1.5 py-0.5 rounded border text-xs outline-none"
+                style={{
+                  backgroundColor: "var(--bg-input)",
+                  borderColor: "var(--accent)",
+                  color: "var(--text-primary)",
+                }}
+              />
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onOpenNote(note.id)}
+              className="flex-1 min-w-0 flex items-center gap-2 text-left py-0.5 cursor-pointer"
+              title={note.title || "Untitled Note"}
+            >
+              <NotePageIcon
+                icon={note.icon}
+                className={`${isTab ? "w-4 h-4" : "w-3.5 h-3.5"} shrink-0 opacity-85`}
+                style={{
+                  color: isFocused
+                    ? "var(--accent)"
+                    : note.icon
+                      ? "var(--accent)"
+                      : "var(--text-muted)",
+                }}
+              />
+              <span
+                className={`truncate ${isFocused ? "font-medium" : ""}`}
+                style={{ color: isFocused ? "var(--text-primary)" : "var(--text-secondary)" }}
+              >
+                {note.title || "Untitled Note"}
+              </span>
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setExpandedTrue(`note:${note.id}`);
-              onCreateNote({
-                notebookId: note.notebookId ?? null,
-                parentId: note.id,
-              });
-            }}
-            title={`Add sub-page inside ${note.title || "Untitled Note"}`}
-            aria-label={`Add sub-page inside ${note.title || "Untitled Note"}`}
-            className={`${
-              isTab
-                ? "opacity-70 hover:opacity-100 w-7 h-7"
-                : "opacity-0 group-hover:opacity-100 focus:opacity-100 w-5 h-5"
-            } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] transition-opacity shrink-0 cursor-pointer`}
-          >
-            <Plus className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
-          </button>
+          {isTab && renamingNoteId !== note.id && (
+            <div className="flex items-center gap-0.5 shrink-0 opacity-75">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpandedTrue(`note:${note.id}`);
+                  onCreateNote({
+                    notebookId: note.notebookId ?? null,
+                    parentId: note.id,
+                  });
+                }}
+                title={`Add sub-page inside ${note.title || "Untitled Note"}`}
+                aria-label={`Add sub-page inside ${note.title || "Untitled Note"}`}
+                className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              {onRenameNote && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRenamingNoteId(note.id);
+                    setRenamingNoteTitle(note.title || "");
+                  }}
+                  title="Rename note"
+                  aria-label={`Rename ${note.title || "Untitled Note"}`}
+                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {onDeleteNote && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteNote(note);
+                  }}
+                  title="Delete note"
+                  aria-label={`Delete ${note.title || "Untitled Note"}`}
+                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--danger)] cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {hasChildren && isExpanded && (
@@ -562,6 +659,16 @@ const NotesWorkspaceTreeBody: React.FC<
                         onReorderNotebook(draggedNbId, nb.id, pos);
                       }
                     }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setRowContextMenu({
+                        kind: "notebook",
+                        notebook: nb,
+                        x: e.clientX,
+                        y: e.clientY,
+                      });
+                    }}
                     className={`group relative flex items-center gap-1 transition-colors hover:bg-[var(--bg-surface-hover)] ${
                       isTab
                         ? "px-2 py-1.5 rounded-lg text-[13px]"
@@ -608,6 +715,7 @@ const NotesWorkspaceTreeBody: React.FC<
                       type="button"
                       onClick={() => onSelectScope({ kind: "notebook", notebookId: nb.id })}
                       className="flex-1 min-w-0 flex items-center gap-2 text-left py-0.5 cursor-pointer"
+                      title={nb.name}
                     >
                       <DynamicIcon
                         name={nb.icon || "BookOpen"}
@@ -624,55 +732,47 @@ const NotesWorkspaceTreeBody: React.FC<
                     </button>
 
                     <div className="flex items-center gap-0.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setExpandedTrue(`nb:${nb.id}`);
-                          onCreateNote({ notebookId: nb.id, parentId: null });
-                        }}
-                        title={`New note in ${nb.name}`}
-                        aria-label={`New note in ${nb.name}`}
-                        className={`${
-                          isTab
-                            ? "opacity-70 hover:opacity-100 w-7 h-7"
-                            : "opacity-0 group-hover:opacity-100 focus:opacity-100 w-5 h-5"
-                        } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer`}
-                      >
-                        <Plus className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEditNotebook(nb);
-                        }}
-                        title="Edit notebook"
-                        aria-label={`Edit ${nb.name}`}
-                        className={`${
-                          isTab
-                            ? "opacity-70 hover:opacity-100 w-7 h-7"
-                            : "opacity-0 group-hover:opacity-100 focus:opacity-100 w-5 h-5"
-                        } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer`}
-                      >
-                        <Pencil className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteNotebook(nb);
-                        }}
-                        title="Delete notebook"
-                        aria-label={`Delete ${nb.name}`}
-                        className={`${
-                          isTab
-                            ? "opacity-70 hover:opacity-100 w-7 h-7"
-                            : "opacity-0 group-hover:opacity-100 focus:opacity-100 w-5 h-5"
-                        } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--danger)] cursor-pointer`}
-                      >
-                        <Trash2 className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
-                      </button>
+                      {isTab && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedTrue(`nb:${nb.id}`);
+                              onCreateNote({ notebookId: nb.id, parentId: null });
+                            }}
+                            title={`New note in ${nb.name}`}
+                            aria-label={`New note in ${nb.name}`}
+                            className="opacity-70 hover:opacity-100 w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditNotebook(nb);
+                            }}
+                            title="Edit notebook"
+                            aria-label={`Edit ${nb.name}`}
+                            className="opacity-70 hover:opacity-100 w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteNotebook(nb);
+                            }}
+                            title="Delete notebook"
+                            aria-label={`Delete ${nb.name}`}
+                            className="opacity-70 hover:opacity-100 w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--danger)] cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
                       <span
                         className="font-mono tabular-nums text-[11px] w-5 text-right"
                         style={{ color: "var(--text-muted)" }}
@@ -724,6 +824,174 @@ const NotesWorkspaceTreeBody: React.FC<
               {unfiledRootPages.map((n) => renderPageNode(n, 0))}
             </div>
           )}
+        </div>
+      )}
+      {/* Sidebar Row Right-Click Context Menu */}
+      {rowContextMenu && (
+        <div
+          className="fixed inset-0 z-[80]"
+          onClick={() => setRowContextMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setRowContextMenu(null);
+          }}
+        >
+          <div
+            className="fixed w-48 rounded-xl border p-1 space-y-0.5"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              left:
+                typeof window !== "undefined"
+                  ? Math.min(Math.max(12, rowContextMenu.x), window.innerWidth - 204)
+                  : rowContextMenu.x,
+              top:
+                typeof window !== "undefined"
+                  ? Math.min(
+                      Math.max(12, rowContextMenu.y),
+                      window.innerHeight - (rowContextMenu.kind === "page" ? 216 : 156),
+                    )
+                  : rowContextMenu.y,
+              backgroundColor: "var(--bg-elevated)",
+              borderColor: "var(--border-strong)",
+              boxShadow: "var(--shadow-popover)",
+            }}
+          >
+            <div
+              className="px-2.5 py-1 text-[11px] font-semibold truncate border-b mb-0.5"
+              style={{
+                color: "var(--text-muted)",
+                borderColor: "var(--border-subtle)",
+              }}
+            >
+              {rowContextMenu.kind === "page"
+                ? rowContextMenu.note.title || "Untitled Note"
+                : rowContextMenu.notebook.name}
+            </div>
+
+            {rowContextMenu.kind === "page" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = rowContextMenu.note;
+                    setRowContextMenu(null);
+                    onOpenNote(target.id);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  <ExternalLink className="w-3.5 h-3.5 opacity-75" />
+                  <span>Open in Tab</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = rowContextMenu.note;
+                    setRowContextMenu(null);
+                    setExpandedTrue(`note:${target.id}`);
+                    onCreateNote({
+                      notebookId: target.notebookId ?? null,
+                      parentId: target.id,
+                    });
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  <Plus className="w-3.5 h-3.5 opacity-75" />
+                  <span>New Sub-page</span>
+                </button>
+                {onTogglePinNote && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = rowContextMenu.note;
+                      setRowContextMenu(null);
+                      onTogglePinNote(target);
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    <Pin className="w-3.5 h-3.5 opacity-75" />
+                    <span>{rowContextMenu.note.pinned ? "Unpin Note" : "Pin Note"}</span>
+                  </button>
+                )}
+                {onRenameNote && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = rowContextMenu.note;
+                      setRowContextMenu(null);
+                      setRenamingNoteId(target.id);
+                      setRenamingNoteTitle(target.title || "");
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    <Pencil className="w-3.5 h-3.5 opacity-75" />
+                    <span>Rename</span>
+                  </button>
+                )}
+                {onDeleteNote && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = rowContextMenu.note;
+                      setRowContextMenu(null);
+                      onDeleteNote(target);
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                    style={{ color: "var(--danger)" }}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Note</span>
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = rowContextMenu.notebook;
+                    setRowContextMenu(null);
+                    setExpandedTrue(`nb:${target.id}`);
+                    onCreateNote({ notebookId: target.id, parentId: null });
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  <Plus className="w-3.5 h-3.5 opacity-75" />
+                  <span>New Note</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = rowContextMenu.notebook;
+                    setRowContextMenu(null);
+                    onEditNotebook(target);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  <Pencil className="w-3.5 h-3.5 opacity-75" />
+                  <span>Rename / Edit</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = rowContextMenu.notebook;
+                    setRowContextMenu(null);
+                    onDeleteNotebook(target);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{ color: "var(--danger)" }}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Notebook</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

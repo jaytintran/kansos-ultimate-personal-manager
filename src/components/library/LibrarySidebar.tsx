@@ -195,6 +195,24 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
   // Drag-over highlight target
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
 
+  // Right-click context menu for sidebar folders & categories
+  const [sidebarContextMenu, setSidebarContextMenu] = useState<
+    | {
+        kind: "folder";
+        folder: FolderRecord;
+        depth: number;
+        x: number;
+        y: number;
+      }
+    | {
+        kind: "category";
+        category: CategoryRecord;
+        x: number;
+        y: number;
+      }
+    | null
+  >(null);
+
   const [isLgViewport, setIsLgViewport] = useState<boolean>(() =>
     typeof window !== "undefined"
       ? window.matchMedia("(min-width: 1024px)").matches
@@ -487,6 +505,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
   const renderFolderTree = (
     parentId: string | null,
     depth: number,
+    isDesktop: boolean,
   ): React.ReactNode => {
     const items = folderChildrenMap.get(parentId) ?? [];
     return items.map((folder) => {
@@ -579,6 +598,17 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                 }
                 setDragOverKey(null);
               }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setSidebarContextMenu({
+                  kind: "folder",
+                  folder,
+                  depth,
+                  x: e.clientX,
+                  y: e.clientY,
+                });
+              }}
               style={{ paddingLeft: `${6 + Math.min(depth, 3) * 12}px` }}
               className={`group flex items-center justify-between gap-1 pr-2 py-1.5 rounded-md text-xs transition-colors ${
                 isDragOver
@@ -619,6 +649,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     selectAndClose({ kind: "folder", id: folder.id })
                   }
                   className="flex-1 min-w-0 flex items-center gap-2 text-left cursor-pointer"
+                  title={folder.name}
                 >
                   <DynamicIcon
                     name={folder.icon || "Folder"}
@@ -634,51 +665,55 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
               </div>
 
               <div className="flex items-center gap-0.5 shrink-0">
-                {depth < 3 && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setAddingFolderParentId(folder.id);
-                      setNewFolderName("");
-                      setNewFolderColor(folder.color ?? "neutral");
-                      setNewFolderIcon("Folder");
-                    }}
-                    title={`Add sub-folder inside ${folder.name}`}
-                    aria-label={`Add sub-folder inside ${folder.name}`}
-                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer transition-opacity"
-                  >
-                    <FolderPlus className="w-3 h-3" />
-                  </button>
+                {!isDesktop && (
+                  <>
+                    {depth < 3 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAddingFolderParentId(folder.id);
+                          setNewFolderName("");
+                          setNewFolderColor(folder.color ?? "neutral");
+                          setNewFolderIcon("Folder");
+                        }}
+                        title={`Add sub-folder inside ${folder.name}`}
+                        aria-label={`Add sub-folder inside ${folder.name}`}
+                        className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer opacity-75 hover:opacity-100"
+                      >
+                        <FolderPlus className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingFolderId(folder.id);
+                        setEditingFolderName(folder.name);
+                        setEditingFolderColor(folder.color ?? "neutral");
+                        setEditingFolderIcon(folder.icon || "Folder");
+                        setEditingFolderIconOpen(false);
+                      }}
+                      title="Edit folder name, color & icon"
+                      aria-label={`Edit ${folder.name}`}
+                      className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer opacity-75 hover:opacity-100"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteFolder(folder.id);
+                      }}
+                      title="Delete folder"
+                      aria-label={`Delete ${folder.name}`}
+                      className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--danger)] cursor-pointer opacity-75 hover:opacity-100"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </>
                 )}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingFolderId(folder.id);
-                    setEditingFolderName(folder.name);
-                    setEditingFolderColor(folder.color ?? "neutral");
-                    setEditingFolderIcon(folder.icon || "Folder");
-                    setEditingFolderIconOpen(false);
-                  }}
-                  title="Edit folder name, color & icon"
-                  aria-label={`Edit ${folder.name}`}
-                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer transition-opacity"
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteFolder(folder.id);
-                  }}
-                  title="Delete folder"
-                  aria-label={`Delete ${folder.name}`}
-                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--danger)] cursor-pointer transition-opacity"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
                 <span className="font-mono-tabular text-[11px] text-[var(--text-muted)] w-4 text-right">
                   {count}
                 </span>
@@ -693,7 +728,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
           {/* Nested Children */}
           {hasChildren && isExpanded && (
             <div className="mt-0.5 space-y-0.5">
-              {renderFolderTree(folder.id, depth + 1)}
+              {renderFolderTree(folder.id, depth + 1, isDesktop)}
             </div>
           )}
         </div>
@@ -894,7 +929,9 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                   No folders yet
                 </p>
               ) : (
-                <div className="space-y-0.5">{renderFolderTree(null, 0)}</div>
+                <div className="space-y-0.5">
+                  {renderFolderTree(null, 0, isDesktop)}
+                </div>
               )}
             </>
           )}
@@ -1072,6 +1109,16 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                         }
                         setDragOverKey(null);
                       }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSidebarContextMenu({
+                          kind: "category",
+                          category: cat,
+                          x: e.clientX,
+                          y: e.clientY,
+                        });
+                      }}
                       className={`group flex items-center justify-between gap-1 px-2 py-1.5 rounded-md text-xs transition-colors ${
                         isDragOver
                           ? "ring-1 ring-[var(--accent)] bg-[var(--bg-accent-subtle)] text-[var(--accent)]"
@@ -1086,6 +1133,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                           selectAndClose({ kind: "category", id: cat.id })
                         }
                         className="flex-1 min-w-0 flex items-center gap-2 text-left cursor-pointer"
+                        title={cat.name}
                       >
                         {cat.icon ? (
                           <DynamicIcon
@@ -1110,33 +1158,37 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                         <span className="truncate">{cat.name}</span>
                       </button>
                       <div className="flex items-center gap-0.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingCategoryId(cat.id);
-                            setEditingCategoryName(cat.name);
-                            setEditingCategoryIcon(cat.icon || "Bookmark");
-                            setEditingCategoryIconOpen(false);
-                          }}
-                          title="Edit category name & icon"
-                          aria-label={`Edit ${cat.name}`}
-                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer transition-opacity"
-                        >
-                          <Pencil className="w-3 h-3" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteCategory(cat.id);
-                          }}
-                          title="Remove category"
-                          aria-label={`Remove ${cat.name}`}
-                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--danger)] cursor-pointer transition-opacity"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                        {!isDesktop && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingCategoryId(cat.id);
+                                setEditingCategoryName(cat.name);
+                                setEditingCategoryIcon(cat.icon || "Bookmark");
+                                setEditingCategoryIconOpen(false);
+                              }}
+                              title="Edit category name & icon"
+                              aria-label={`Edit ${cat.name}`}
+                              className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer opacity-75 hover:opacity-100"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteCategory(cat.id);
+                              }}
+                              title="Remove category"
+                              aria-label={`Remove ${cat.name}`}
+                              className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--danger)] cursor-pointer opacity-75 hover:opacity-100"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
                         <span className="font-mono-tabular text-[11px] text-[var(--text-muted)] w-4 text-right">
                           {count}
                         </span>
@@ -1327,6 +1379,149 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             {sidebarContent(false)}
+          </div>
+        </div>
+      )}
+
+      {/* Right-Click Context Menu for Folders & Categories */}
+      {sidebarContextMenu && (
+        <div
+          className="fixed inset-0 z-[80]"
+          onClick={() => setSidebarContextMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setSidebarContextMenu(null);
+          }}
+        >
+          <div
+            className="fixed w-48 rounded-xl border p-1 space-y-0.5"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              left:
+                typeof window !== "undefined"
+                  ? Math.min(
+                      Math.max(12, sidebarContextMenu.x),
+                      window.innerWidth - 204,
+                    )
+                  : sidebarContextMenu.x,
+              top:
+                typeof window !== "undefined"
+                  ? Math.min(
+                      Math.max(12, sidebarContextMenu.y),
+                      window.innerHeight -
+                        (sidebarContextMenu.kind === "folder" &&
+                        sidebarContextMenu.depth < 3
+                          ? 164
+                          : 128),
+                    )
+                  : sidebarContextMenu.y,
+              backgroundColor: "var(--bg-elevated)",
+              borderColor: "var(--border-strong)",
+              boxShadow: "var(--shadow-popover)",
+            }}
+          >
+            <div
+              className="px-2.5 py-1 text-[11px] font-semibold truncate border-b mb-0.5"
+              style={{
+                color: "var(--text-muted)",
+                borderColor: "var(--border-subtle)",
+              }}
+            >
+              {sidebarContextMenu.kind === "folder"
+                ? sidebarContextMenu.folder.name
+                : sidebarContextMenu.category.name}
+            </div>
+
+            {sidebarContextMenu.kind === "folder" ? (
+              <>
+                {sidebarContextMenu.depth < 3 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = sidebarContextMenu.folder;
+                      setSidebarContextMenu(null);
+                      if (collapsedSections.folders) onToggleSection("folders");
+                      setCollapsedFolderIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(target.id);
+                        return next;
+                      });
+                      setAddingFolderParentId(target.id);
+                      setNewFolderName("");
+                      setNewFolderColor(target.color ?? "neutral");
+                      setNewFolderIcon("Folder");
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    <FolderPlus className="w-3.5 h-3.5 opacity-75" />
+                    <span>New Sub-folder</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = sidebarContextMenu.folder;
+                    setSidebarContextMenu(null);
+                    setEditingFolderId(target.id);
+                    setEditingFolderName(target.name);
+                    setEditingFolderColor(target.color ?? "neutral");
+                    setEditingFolderIcon(target.icon || "Folder");
+                    setEditingFolderIconOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  <Pencil className="w-3.5 h-3.5 opacity-75" />
+                  <span>Rename / Edit</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = sidebarContextMenu.folder;
+                    setSidebarContextMenu(null);
+                    onDeleteFolder(target.id);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{ color: "var(--danger)" }}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Folder</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = sidebarContextMenu.category;
+                    setSidebarContextMenu(null);
+                    setEditingCategoryId(target.id);
+                    setEditingCategoryName(target.name);
+                    setEditingCategoryIcon(target.icon || "Bookmark");
+                    setEditingCategoryIconOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  <Pencil className="w-3.5 h-3.5 opacity-75" />
+                  <span>Rename / Edit</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = sidebarContextMenu.category;
+                    setSidebarContextMenu(null);
+                    onDeleteCategory(target.id);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                  style={{ color: "var(--danger)" }}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Category</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

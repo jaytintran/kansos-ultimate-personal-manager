@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   FolderPlus,
   PanelLeftClose,
   Pencil,
@@ -378,58 +379,48 @@ const ListsWorkspaceTreeBody: React.FC<
             </span>
           </button>
 
-          {/* Inline Actions (+ Sublist, Edit, Delete) + Recursive Item Count */}
+          {/* Inline Actions on mobile tab only (+ Sublist, Edit, Delete) + Recursive Item Count */}
           <div className="flex items-center gap-0.5 shrink-0">
-            <div
-              className={`flex items-center gap-0.5 ${
-                isTab
-                  ? "opacity-75"
-                  : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
-              }`}
-            >
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCreateSublist(list);
-                }}
-                title={`New sublist in ${list.title}`}
-                aria-label={`New sublist in ${list.title}`}
-                className={`${
-                  isTab ? "w-7 h-7" : "w-5 h-5"
-                } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer`}
-              >
-                <Plus className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEditList(list);
-                }}
-                title="Edit list"
-                aria-label={`Edit ${list.title}`}
-                className={`${
-                  isTab ? "w-7 h-7" : "w-5 h-5"
-                } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer`}
-              >
-                <Pencil className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteList(list);
-                }}
-                title="Delete list"
-                aria-label={`Delete ${list.title}`}
-                className={`${
-                  isTab ? "w-7 h-7" : "w-5 h-5"
-                } flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--danger)] cursor-pointer`}
-              >
-                <Trash2 className={isTab ? "w-3.5 h-3.5" : "w-3 h-3"} />
-              </button>
-            </div>
+            {isTab && (
+              <div className="flex items-center gap-0.5 opacity-75">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateSublist(list);
+                  }}
+                  title={`New sublist in ${list.title}`}
+                  aria-label={`New sublist in ${list.title}`}
+                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEditList(list);
+                  }}
+                  title="Edit list"
+                  aria-label={`Edit ${list.title}`}
+                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteList(list);
+                  }}
+                  title="Delete list"
+                  aria-label={`Delete ${list.title}`}
+                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--danger)] cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
             <span
               className="font-mono tabular-nums text-[11px] min-w-[20px] text-right"
               style={{
@@ -681,7 +672,7 @@ const ListsWorkspaceTreeBody: React.FC<
       {/* Sidebar List Row Right-Click Context Menu */}
       {listRowContextMenu && (
         <div
-          className="fixed inset-0 z-[70]"
+          className="fixed inset-0 z-[80]"
           onClick={() => setListRowContextMenu(null)}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -703,7 +694,7 @@ const ListsWorkspaceTreeBody: React.FC<
                 typeof window !== "undefined"
                   ? Math.min(
                       Math.max(12, listRowContextMenu.y),
-                      window.innerHeight - 156,
+                      window.innerHeight - 196,
                     )
                   : listRowContextMenu.y,
               backgroundColor: "var(--bg-elevated)",
@@ -720,6 +711,19 @@ const ListsWorkspaceTreeBody: React.FC<
             >
               {listRowContextMenu.list.title}
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                const target = listRowContextMenu.list;
+                setListRowContextMenu(null);
+                onSelectScope({ kind: "list", listId: target.id });
+              }}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+              style={{ color: "var(--text-primary)" }}
+            >
+              <ExternalLink className="w-3.5 h-3.5 opacity-75" />
+              <span>Open List</span>
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -744,7 +748,7 @@ const ListsWorkspaceTreeBody: React.FC<
               style={{ color: "var(--text-primary)" }}
             >
               <Pencil className="w-3.5 h-3.5 opacity-75" />
-              <span>Edit List</span>
+              <span>Rename / Edit</span>
             </button>
             <button
               type="button"
