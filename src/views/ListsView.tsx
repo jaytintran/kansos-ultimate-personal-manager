@@ -394,32 +394,213 @@ const CourseGridThumbnail: React.FC<{
   );
 };
 
-const ListCardCoverBanner: React.FC<{
+const ListCardTopRegion: React.FC<{
   item: ListItem;
+  inBoard: boolean;
   isDone: boolean;
-}> = ({ item, isDone }) => {
+  ytCourseInfo: ReturnType<typeof parseYouTubeCourseUrl>;
+  resumeLabel: string | null;
+  onPlayYouTube: () => void;
+  dueDateDisplay: { label: string; isOverdue: boolean } | null;
+  showCheckbox: boolean;
+  isChecked: boolean;
+  onToggleSelection: () => void;
+  dragHandle: React.ReactNode;
+  statusButton: React.ReactNode;
+  onOpenMenu: (e: React.MouseEvent) => void;
+  bottomChips: React.ReactNode;
+}> = ({
+  item,
+  inBoard,
+  isDone,
+  ytCourseInfo,
+  resumeLabel,
+  onPlayYouTube,
+  dueDateDisplay,
+  showCheckbox,
+  isChecked,
+  onToggleSelection,
+  dragHandle,
+  statusButton,
+  onOpenMenu,
+  bottomChips,
+}) => {
   const { src } = useListItemCover(item);
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  if (!src || failedSrc === src) return null;
-  return (
-    <div
-      className="relative aspect-video w-full rounded-lg overflow-hidden border"
-      style={{
-        backgroundColor: "var(--bg-surface-subtle)",
-        borderColor: "var(--border-subtle)",
-      }}
-    >
-      <img
-        src={src}
-        alt={item.title}
-        referrerPolicy="no-referrer"
-        loading="lazy"
-        onError={() => setFailedSrc(src)}
-        className={`w-full h-full object-cover transition-all duration-200 ${
-          isDone ? "opacity-60 grayscale-[60%]" : ""
+
+  const showYouTubeCover = !inBoard && Boolean(ytCourseInfo) && !item.coverUrl;
+  const showImageCover =
+    !inBoard &&
+    (!ytCourseInfo || Boolean(item.coverUrl)) &&
+    Boolean(src && failedSrc !== src);
+  const hasTopCover = showYouTubeCover || showImageCover;
+
+  const renderDueBadge = (overlay: boolean) => {
+    if (!dueDateDisplay) return null;
+    return (
+      <span
+        className={`pointer-events-none inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-mono tabular-nums leading-none ${
+          overlay
+            ? "absolute top-2.5 right-3 z-10 backdrop-blur-sm shadow-sm"
+            : "shrink-0"
         }`}
-      />
-    </div>
+        style={{
+          backgroundColor: dueDateDisplay.isOverdue
+            ? overlay
+              ? "color-mix(in srgb, var(--danger) 16%, color-mix(in srgb, var(--bg-elevated) 90%, transparent))"
+              : "color-mix(in srgb, var(--danger) 10%, var(--bg-surface))"
+            : overlay
+              ? "color-mix(in srgb, var(--bg-elevated) 88%, transparent)"
+              : "var(--bg-surface-subtle)",
+          borderColor: dueDateDisplay.isOverdue
+            ? "color-mix(in srgb, var(--danger) 40%, transparent)"
+            : "var(--border-subtle)",
+          color: dueDateDisplay.isOverdue
+            ? "var(--danger)"
+            : "var(--text-secondary)",
+        }}
+        title={`Due Date: ${dueDateDisplay.label}`}
+      >
+        <Calendar className="w-2.5 h-2.5 shrink-0 opacity-80" />
+        <span>{dueDateDisplay.label}</span>
+      </span>
+    );
+  };
+
+  return (
+    <>
+      {!inBoard && hasTopCover && renderDueBadge(true)}
+
+      {showYouTubeCover && ytCourseInfo && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            onPlayYouTube();
+          }}
+          className="relative aspect-video w-full rounded-lg overflow-hidden border group/thumb cursor-pointer"
+          style={{
+            backgroundColor: "var(--bg-surface-subtle)",
+            borderColor: "var(--border-subtle)",
+          }}
+        >
+          <CourseGridThumbnail
+            src={ytCourseInfo.thumbnailUrl}
+            alt={item.title}
+            isPlaylist={ytCourseInfo.kind === "playlist"}
+            isDone={isDone}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent flex items-end justify-between p-2.5">
+            <span
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold shadow-sm"
+              style={{
+                backgroundColor: "rgba(15, 23, 42, 0.85)",
+                color: "#ffffff",
+              }}
+            >
+              <Play className="w-3 h-3 ml-0.5" />
+              <span>Play</span>
+            </span>
+
+            {resumeLabel && (
+              <span className="px-1.5 py-0.5 rounded bg-black/75 text-white text-[10px] font-mono tabular-nums">
+                {resumeLabel}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showImageCover && src && (
+        <div
+          className="relative aspect-video w-full rounded-lg overflow-hidden border"
+          style={{
+            backgroundColor: "var(--bg-surface-subtle)",
+            borderColor: "var(--border-subtle)",
+          }}
+        >
+          <img
+            src={src}
+            alt={item.title}
+            referrerPolicy="no-referrer"
+            loading="lazy"
+            onError={() => setFailedSrc(src)}
+            className={`w-full h-full object-cover transition-all duration-200 ${
+              isDone ? "opacity-60 grayscale-[60%]" : ""
+            }`}
+          />
+        </div>
+      )}
+
+      <div className="space-y-2.5">
+        <div className="flex items-start gap-2">
+          {(showCheckbox || isChecked) && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelection();
+              }}
+              aria-label={isChecked ? "Deselect item" : "Select item"}
+              className="h-6 w-5 flex items-center justify-center rounded shrink-0 cursor-pointer transition-opacity"
+              style={{
+                color: isChecked ? "var(--accent)" : "var(--text-muted)",
+              }}
+            >
+              {isChecked ? (
+                <CheckSquare className="w-3.5 h-3.5" />
+              ) : (
+                <Square className="w-3.5 h-3.5" />
+              )}
+            </button>
+          )}
+
+          {dragHandle}
+          {statusButton}
+
+          <div className="flex-1 min-w-0 pt-0.5">
+            <div className="space-y-0.5">
+              <div
+                title={item.title}
+                className={`text-sm font-semibold leading-snug truncate ${
+                  isDone ? "line-through" : ""
+                }`}
+                style={{ color: "var(--text-primary)" }}
+              >
+                {item.title}
+              </div>
+              {item.subtitle && (
+                <div
+                  className={`text-xs line-clamp-1 ${
+                    inBoard && dueDateDisplay && !bottomChips ? "pr-20" : ""
+                  }`}
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {item.subtitle}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!inBoard && !hasTopCover && renderDueBadge(false)}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenMenu(e);
+              }}
+              className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
+              style={{ color: "var(--text-muted)" }}
+              aria-label="Item actions"
+            >
+              <MoreVertical className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {bottomChips}
+      </div>
+    </>
   );
 };
 
@@ -2245,7 +2426,80 @@ export const ListsView: React.FC<ListsViewProps> = ({
     const hasBottomBlock =
       Boolean(validUrl && (inBoard || !ytCourseInfo)) ||
       Boolean(bookLink && linkedBookRecord);
-    const hasDueBadge = Boolean(item.scheduledAt);
+    const dueDateDisplay = item.scheduledAt
+      ? (() => {
+          const dueKey = toLocalDateKey(item.scheduledAt);
+          return {
+            label: formatCompactDayHeading(dueKey),
+            isOverdue:
+              dueKey < todayKey &&
+              item.status !== "done" &&
+              item.status !== "dropped",
+          };
+        })()
+      : null;
+
+    const bottomChips =
+      (validUrl && (inBoard || !ytCourseInfo)) ||
+      (bookLink && linkedBookRecord) ? (
+        <div className="pl-8 flex flex-wrap items-center gap-1.5">
+          {validUrl && (inBoard || !ytCourseInfo) && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (ytCourseInfo && inBoard) {
+                  handlePlayYouTubeItem(item.id);
+                } else {
+                  openExternalUrlSafely(item.url!);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-medium max-w-full transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] cursor-pointer"
+              style={{
+                backgroundColor: "var(--bg-surface-subtle)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-secondary)",
+              }}
+              title={ytCourseInfo ? "Play course video" : `Open ${validUrl}`}
+            >
+              {ytCourseInfo ? (
+                <Play
+                  className="w-3 h-3 shrink-0"
+                  style={{ color: "var(--accent)" }}
+                />
+              ) : (
+                <Globe className="w-3 h-3 shrink-0 opacity-75" />
+              )}
+              <span className="truncate">
+                {ytCourseInfo ? "Play Video" : formatUrlDisplayLabel(item.url!)}
+              </span>
+              {!ytCourseInfo && (
+                <ExternalLink className="w-2.5 h-2.5 shrink-0 opacity-65" />
+              )}
+            </button>
+          )}
+
+          {bookLink && linkedBookRecord && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onJumpToBookLocation?.(bookLink);
+              }}
+              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-medium max-w-full transition-colors hover:border-[var(--accent)] cursor-pointer"
+              style={{
+                backgroundColor: "var(--accent-soft)",
+                borderColor: "transparent",
+                color: "var(--accent)",
+              }}
+              title={`Open "${linkedBookRecord.title}" in Library`}
+            >
+              <BookOpen className="w-3 h-3 shrink-0" />
+              <span className="truncate">{linkedBookRecord.title}</span>
+            </button>
+          )}
+        </div>
+      ) : null;
 
     return (
       <div
@@ -2262,7 +2516,9 @@ export const ListsView: React.FC<ListsViewProps> = ({
           onOpenContextMenu({ kind: "list_item", item }, e);
         }}
         className={`group relative rounded-xl border p-4 ${
-          hasDueBadge && (hasBottomBlock || !item.subtitle) ? "pb-8" : ""
+          inBoard && dueDateDisplay && (hasBottomBlock || !item.subtitle)
+            ? "pb-8"
+            : ""
         } cursor-pointer transition-all duration-150 hover:border-[var(--border-strong)] flex flex-col justify-between gap-2.5 ${
           isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
         } ${
@@ -2307,204 +2563,44 @@ export const ListsView: React.FC<ListsViewProps> = ({
           />
         )}
 
-        {/* Top 16:9 Thumbnail Preview for YouTube Grid Cards (unless overridden by explicit coverUrl) */}
-        {!inBoard && ytCourseInfo && !item.coverUrl && (
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePlayYouTubeItem(item.id);
-            }}
-            className="relative aspect-video w-full rounded-lg overflow-hidden border group/thumb cursor-pointer"
+        <ListCardTopRegion
+          item={item}
+          inBoard={inBoard}
+          isDone={isDone}
+          ytCourseInfo={ytCourseInfo}
+          resumeLabel={resumeLabel}
+          onPlayYouTube={() => handlePlayYouTubeItem(item.id)}
+          dueDateDisplay={dueDateDisplay}
+          showCheckbox={showCheckbox}
+          isChecked={isChecked}
+          onToggleSelection={() => toggleItemSelection(item.id)}
+          dragHandle={dragHandle}
+          statusButton={renderStatusButton(item)}
+          onOpenMenu={(e) => onOpenContextMenu({ kind: "list_item", item }, e)}
+          bottomChips={bottomChips}
+        />
+
+        {/* Small absolute-positioned Due Date badge near bottom-right corner on Kanban Cards */}
+        {inBoard && dueDateDisplay && (
+          <span
+            className="pointer-events-none absolute bottom-2.5 right-3 z-10 inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-mono tabular-nums leading-none"
             style={{
-              backgroundColor: "var(--bg-surface-subtle)",
-              borderColor: "var(--border-subtle)",
+              backgroundColor: dueDateDisplay.isOverdue
+                ? "color-mix(in srgb, var(--danger) 10%, var(--bg-surface))"
+                : "var(--bg-surface-subtle)",
+              borderColor: dueDateDisplay.isOverdue
+                ? "color-mix(in srgb, var(--danger) 35%, transparent)"
+                : "var(--border-subtle)",
+              color: dueDateDisplay.isOverdue
+                ? "var(--danger)"
+                : "var(--text-secondary)",
             }}
+            title={`Due Date: ${dueDateDisplay.label}`}
           >
-            <CourseGridThumbnail
-              src={ytCourseInfo.thumbnailUrl}
-              alt={item.title}
-              isPlaylist={ytCourseInfo.kind === "playlist"}
-              isDone={isDone}
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent flex items-end justify-between p-2.5">
-              <span
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold shadow-sm"
-                style={{
-                  backgroundColor: "rgba(15, 23, 42, 0.85)",
-                  color: "#ffffff",
-                }}
-              >
-                <Play className="w-3 h-3 ml-0.5" />
-                <span>Play</span>
-              </span>
-
-              {resumeLabel && (
-                <span className="px-1.5 py-0.5 rounded bg-black/75 text-white text-[10px] font-mono tabular-nums">
-                  {resumeLabel}
-                </span>
-              )}
-            </div>
-          </div>
+            <Calendar className="w-2.5 h-2.5 shrink-0 opacity-80" />
+            <span>{dueDateDisplay.label}</span>
+          </span>
         )}
-
-        {/* Top 16:9 Cover Image Preview (Cover URL or Webpage Preview cached per device) */}
-        {!inBoard && (!ytCourseInfo || Boolean(item.coverUrl)) && (
-          <ListCardCoverBanner item={item} isDone={isDone} />
-        )}
-
-        {/* Top Header Row: Checkbox + Drag + Status + Title/Subtitle + Actions */}
-        <div className="space-y-2.5">
-          <div className="flex items-start gap-2">
-            {(showCheckbox || isChecked) && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleItemSelection(item.id);
-                }}
-                aria-label={isChecked ? "Deselect item" : "Select item"}
-                className="h-6 w-5 flex items-center justify-center rounded shrink-0 cursor-pointer transition-opacity"
-                style={{
-                  color: isChecked ? "var(--accent)" : "var(--text-muted)",
-                }}
-              >
-                {isChecked ? (
-                  <CheckSquare className="w-3.5 h-3.5" />
-                ) : (
-                  <Square className="w-3.5 h-3.5" />
-                )}
-              </button>
-            )}
-
-            {dragHandle}
-            {renderStatusButton(item)}
-
-            <div className="flex-1 min-w-0 pt-0.5">
-              <div className="space-y-0.5">
-                <div
-                  title={item.title}
-                  className={`text-sm font-semibold leading-snug truncate ${
-                    isDone ? "line-through" : ""
-                  }`}
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {item.title}
-                </div>
-                {item.subtitle && (
-                  <div
-                    className={`text-xs line-clamp-1 ${
-                      hasDueBadge && !hasBottomBlock ? "pr-20" : ""
-                    }`}
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {item.subtitle}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center shrink-0">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpenContextMenu({ kind: "list_item", item }, e);
-                }}
-                className="h-6 w-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-surface-hover)] cursor-pointer"
-                style={{ color: "var(--text-muted)" }}
-                aria-label="Item actions"
-              >
-                <MoreVertical className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Clickable External URL Link Chip + Local Library Book Chip */}
-          {((validUrl && (inBoard || !ytCourseInfo)) ||
-            (bookLink && linkedBookRecord)) && (
-            <div className="pl-8 flex flex-wrap items-center gap-1.5">
-              {validUrl && (inBoard || !ytCourseInfo) && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (ytCourseInfo && inBoard) {
-                      handlePlayYouTubeItem(item.id);
-                    } else {
-                      openExternalUrlSafely(item.url!);
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-medium max-w-full transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] cursor-pointer"
-                  style={{
-                    backgroundColor: "var(--bg-surface-subtle)",
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--text-secondary)",
-                  }}
-                  title={ytCourseInfo ? "Play course video" : `Open ${validUrl}`}
-                >
-                  {ytCourseInfo ? (
-                    <Play className="w-3 h-3 shrink-0" style={{ color: "var(--accent)" }} />
-                  ) : (
-                    <Globe className="w-3 h-3 shrink-0 opacity-75" />
-                  )}
-                  <span className="truncate">
-                    {ytCourseInfo ? "Play Video" : formatUrlDisplayLabel(item.url!)}
-                  </span>
-                  {!ytCourseInfo && (
-                    <ExternalLink className="w-2.5 h-2.5 shrink-0 opacity-65" />
-                  )}
-                </button>
-              )}
-
-              {bookLink && linkedBookRecord && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onJumpToBookLocation?.(bookLink);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-medium max-w-full transition-colors hover:border-[var(--accent)] cursor-pointer"
-                  style={{
-                    backgroundColor: "var(--accent-soft)",
-                    borderColor: "transparent",
-                    color: "var(--accent)",
-                  }}
-                  title={`Open "${linkedBookRecord.title}" in Library`}
-                >
-                  <BookOpen className="w-3 h-3 shrink-0" />
-                  <span className="truncate">{linkedBookRecord.title}</span>
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Small absolute-positioned Due Date badge near bottom-right corner on Grid & Kanban Cards */}
-        {item.scheduledAt && (() => {
-          const dueKey = toLocalDateKey(item.scheduledAt);
-          const isOverdue =
-            dueKey < todayKey &&
-            item.status !== "done" &&
-            item.status !== "dropped";
-          return (
-            <span
-              className="pointer-events-none absolute bottom-2.5 right-3 z-10 inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-mono tabular-nums leading-none"
-              style={{
-                backgroundColor: isOverdue
-                  ? "color-mix(in srgb, var(--danger) 10%, var(--bg-surface))"
-                  : "var(--bg-surface-subtle)",
-                borderColor: isOverdue
-                  ? "color-mix(in srgb, var(--danger) 35%, transparent)"
-                  : "var(--border-subtle)",
-                color: isOverdue ? "var(--danger)" : "var(--text-secondary)",
-              }}
-              title={`Due Date: ${formatCompactDayHeading(dueKey)}`}
-            >
-              <Calendar className="w-2.5 h-2.5 shrink-0 opacity-80" />
-              <span>{formatCompactDayHeading(dueKey)}</span>
-            </span>
-          );
-        })()}
       </div>
     );
   };
