@@ -222,15 +222,6 @@ const STATUS_ORDER: ListItemStatus[] = [
   "dropped",
 ];
 
-function hasMeaningfulRichContent(html?: string): boolean {
-  if (!html) return false;
-  const stripped = html
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .trim();
-  return stripped.length > 0 || /<(img|hr|pre|table|blockquote|ul|ol|li)\b/i.test(html);
-}
-
 function getScopeStorageKey(scope: ListsScope): string {
   return scope.kind === "smart" ? `smart:${scope.status}` : `list:${scope.listId}`;
 }
@@ -2180,7 +2171,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
 
   // Redesigned Grid / Kanban Card
   const renderCard = (item: ListItem, inBoard = false) => {
-    const itemTags = item.tags || [];
     const isBeingDragged = draggingItemId === item.id;
     const isDropTarget = itemDropTarget?.itemId === item.id;
     const isSelectedForEdit =
@@ -2197,7 +2187,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
     const linkedBookRecord = bookLink
       ? workspace.books.find((b) => b.id === bookLink.bookId) || null
       : null;
-    const hasNotesPreview = hasMeaningfulRichContent(item.content);
     const showCheckbox = selectionMode || selectedIds.size > 0;
     const el = itemElRefs.current.get(item.id) ?? null;
     const singleCol = inBoard ? true : isSingleColumnForElement(el);
@@ -2253,18 +2242,10 @@ export const ListsView: React.FC<ListsViewProps> = ({
     );
 
     const isDone = item.status === "done";
-    const showsSublistSourceBadge =
-      Boolean(
-        currentList &&
-          effectiveHasSublists &&
-          effectiveGroupBy !== "sublist" &&
-          !inBoard,
-      );
-    const hasFooterLeft =
-      Boolean(item.scheduledAt) ||
-      isSmartScope ||
-      showsSublistSourceBadge;
-    const showFooter = hasFooterLeft || itemTags.length > 0;
+    const hasBottomBlock =
+      Boolean(validUrl && (inBoard || !ytCourseInfo)) ||
+      Boolean(bookLink && linkedBookRecord);
+    const hasDueBadge = Boolean(item.scheduledAt);
 
     return (
       <div
@@ -2280,7 +2261,9 @@ export const ListsView: React.FC<ListsViewProps> = ({
           e.preventDefault();
           onOpenContextMenu({ kind: "list_item", item }, e);
         }}
-        className={`group relative rounded-xl border p-4 cursor-pointer transition-all duration-150 hover:border-[var(--border-strong)] flex flex-col justify-between gap-2.5 ${
+        className={`group relative rounded-xl border p-4 ${
+          hasDueBadge && (hasBottomBlock || !item.subtitle) ? "pb-8" : ""
+        } cursor-pointer transition-all duration-150 hover:border-[var(--border-strong)] flex flex-col justify-between gap-2.5 ${
           isCustomSort ? "cursor-grab active:cursor-grabbing" : ""
         } ${
           isBeingDragged
@@ -2399,7 +2382,8 @@ export const ListsView: React.FC<ListsViewProps> = ({
             <div className="flex-1 min-w-0 pt-0.5">
               <div className="space-y-0.5">
                 <div
-                  className={`text-sm font-semibold leading-snug line-clamp-2 ${
+                  title={item.title}
+                  className={`text-sm font-semibold leading-snug truncate ${
                     isDone ? "line-through" : ""
                   }`}
                   style={{ color: "var(--text-primary)" }}
@@ -2408,7 +2392,9 @@ export const ListsView: React.FC<ListsViewProps> = ({
                 </div>
                 {item.subtitle && (
                   <div
-                    className="text-xs line-clamp-1"
+                    className={`text-xs line-clamp-1 ${
+                      hasDueBadge && !hasBottomBlock ? "pr-20" : ""
+                    }`}
                     style={{ color: "var(--text-muted)" }}
                   >
                     {item.subtitle}
@@ -2432,17 +2418,6 @@ export const ListsView: React.FC<ListsViewProps> = ({
               </button>
             </div>
           </div>
-
-          {/* 3-line Rich Note Preview inside Card */}
-          {hasNotesPreview && (
-            <div className="pl-8">
-              <RichContent
-                html={item.content}
-                className="kanso-timeline-preview kanso-timeline-preview-faded line-clamp-3 text-xs leading-relaxed"
-                fade
-              />
-            </div>
-          )}
 
           {/* Clickable External URL Link Chip + Local Library Book Chip */}
           {((validUrl && (inBoard || !ytCourseInfo)) ||
@@ -2504,39 +2479,32 @@ export const ListsView: React.FC<ListsViewProps> = ({
           )}
         </div>
 
-        {/* Hairline Card Footer: Source List Badge, Due Date Chip & Tags */}
-        {showFooter && (
-          <div
-            className="pt-2.5 border-t flex flex-wrap items-center justify-between gap-2 text-[11px]"
-            style={{ borderColor: "var(--border-subtle)" }}
-          >
-            {hasFooterLeft && (
-              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                {renderSourceListBadge(item)}
-                {renderDueDateChip(item)}
-              </div>
-            )}
-
-            {itemTags.length > 0 && (
-              <div
-                className="flex flex-wrap items-center gap-1 font-mono tabular-nums ml-auto"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {itemTags.slice(0, 3).map((t) => (
-                  <span
-                    key={t}
-                    className="px-1.5 py-0.5 rounded bg-[var(--bg-surface-subtle)]"
-                  >
-                    #{t}
-                  </span>
-                ))}
-                {itemTags.length > 3 && (
-                  <span className="opacity-70">+{itemTags.length - 3}</span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Small absolute-positioned Due Date badge near bottom-right corner on Grid & Kanban Cards */}
+        {item.scheduledAt && (() => {
+          const dueKey = toLocalDateKey(item.scheduledAt);
+          const isOverdue =
+            dueKey < todayKey &&
+            item.status !== "done" &&
+            item.status !== "dropped";
+          return (
+            <span
+              className="pointer-events-none absolute bottom-2.5 right-3 z-10 inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-mono tabular-nums leading-none"
+              style={{
+                backgroundColor: isOverdue
+                  ? "color-mix(in srgb, var(--danger) 10%, var(--bg-surface))"
+                  : "var(--bg-surface-subtle)",
+                borderColor: isOverdue
+                  ? "color-mix(in srgb, var(--danger) 35%, transparent)"
+                  : "var(--border-subtle)",
+                color: isOverdue ? "var(--danger)" : "var(--text-secondary)",
+              }}
+              title={`Due Date: ${formatCompactDayHeading(dueKey)}`}
+            >
+              <Calendar className="w-2.5 h-2.5 shrink-0 opacity-80" />
+              <span>{formatCompactDayHeading(dueKey)}</span>
+            </span>
+          );
+        })()}
       </div>
     );
   };
