@@ -1310,6 +1310,10 @@
   max-height: 5.75rem;
 }
 
+.kanso-rich-content.kanso-rich-has-table.line-clamp-4 {
+  max-height: 7.1rem;
+}
+
 .kanso-rich-content.kanso-rich-has-table.line-clamp-5 {
   max-height: 8.5rem;
 }

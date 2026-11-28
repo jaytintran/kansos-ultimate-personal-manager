@@ -462,14 +462,11 @@ export const EventsView: React.FC<EventsViewProps> = ({
       <div className="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
         {/* Pinned Header + Search/Filter Toolbar */}
         <div
-          className="shrink-0 relative z-20 px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-3 border-b bg-[var(--bg-canvas)] space-y-3"
+          className="shrink-0 relative z-20 px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-3 border-b bg-[var(--bg-canvas)] space-y-2.5"
           style={{ borderColor: "var(--border-subtle)" }}
         >
           {/* Header */}
-          <header
-            className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b"
-            style={{ borderColor: "var(--border-subtle)" }}
-          >
+          <header className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-baseline gap-2.5 min-w-0">
             <h1 className="font-display text-lg sm:text-[20px] font-semibold tracking-tight leading-tight">
               Events
@@ -1066,12 +1063,11 @@ export const EventsView: React.FC<EventsViewProps> = ({
                       </h2>
                     </div>
 
-                    {/* 2-Line Faded RichContent Preview */}
+                    {/* 4-Line RichContent Preview (truncated with ellipsis, no fade) */}
                     {ev.content && (
                       <RichContent
                         html={ev.content}
-                        className="line-clamp-2 text-xs"
-                        fade
+                        className="line-clamp-4 text-xs"
                       />
                     )}
                   </div>
