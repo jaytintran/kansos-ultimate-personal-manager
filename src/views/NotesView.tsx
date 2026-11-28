@@ -2395,8 +2395,7 @@ export const NotesView: React.FC<NotesViewProps> = ({
                       {note.content ? (
                         <RichContent
                           html={note.content}
-                          className="line-clamp-5 text-xs"
-                          fade
+                          className="line-clamp-6 text-xs"
                         />
                       ) : (
                         <p

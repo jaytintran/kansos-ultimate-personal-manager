@@ -1598,6 +1598,10 @@
   max-height: 8.5rem;
 }
 
+.kanso-rich-content.kanso-rich-has-table.line-clamp-6 {
+  max-height: 9.8rem;
+}
+
 .kanso-rich-content .kanso-table-wrap,
 .kanso-rich-content .tableWrapper {
   margin: 0.35rem 0;
@@ -1610,6 +1614,8 @@
 
 .kanso-card-fade .kanso-table-wrap,
 .kanso-card-fade .tableWrapper,
+.kanso-rich-content[class*="line-clamp-"] .kanso-table-wrap,
+.kanso-rich-content[class*="line-clamp-"] .tableWrapper,
 .kanso-timeline-preview-faded .kanso-table-wrap,
 .kanso-timeline-preview-faded .tableWrapper {
   overflow: hidden;
@@ -1626,19 +1632,20 @@
   font-variant-numeric: tabular-nums;
 }
 
-.kanso-rich-content:not(.kanso-card-fade):not(.kanso-timeline-preview-faded) table:has(tr:first-child > :nth-child(4)) {
+.kanso-rich-content:not(.kanso-card-fade):not(.kanso-timeline-preview-faded):not([class*="line-clamp-"]) table:has(tr:first-child > :nth-child(4)) {
   table-layout: auto;
   width: max-content;
   min-width: 100%;
 }
 
-.kanso-rich-content:not(.kanso-card-fade):not(.kanso-timeline-preview-faded) table:has(tr:first-child > :nth-child(4)) th,
-.kanso-rich-content:not(.kanso-card-fade):not(.kanso-timeline-preview-faded) table:has(tr:first-child > :nth-child(4)) td {
+.kanso-rich-content:not(.kanso-card-fade):not(.kanso-timeline-preview-faded):not([class*="line-clamp-"]) table:has(tr:first-child > :nth-child(4)) th,
+.kanso-rich-content:not(.kanso-card-fade):not(.kanso-timeline-preview-faded):not([class*="line-clamp-"]) table:has(tr:first-child > :nth-child(4)) td {
   min-width: 140px;
   max-width: 300px;
 }
 
 .kanso-card-fade table,
+.kanso-rich-content[class*="line-clamp-"] table,
 .kanso-timeline-preview-faded table {
   width: 100% !important;
   min-width: 0 !important;
@@ -1647,6 +1654,7 @@
 }
 
 .kanso-card-fade table col,
+.kanso-rich-content[class*="line-clamp-"] table col,
 .kanso-timeline-preview-faded table col {
   width: auto !important;
 }
